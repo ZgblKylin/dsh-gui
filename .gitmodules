@@ -1,0 +1,6 @@
+[submodule "deepseek-harness"]
+	path = deepseek-harness
+	url = https://github.com/deepseek-ai/deepseek-harness
+[submodule "dsh-terminal"]
+	path = plugins/terminal
+	url = ../dsh-terminal

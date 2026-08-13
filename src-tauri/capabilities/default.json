@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Capability for the main webview window (no plugins or IPC are used; the shell only hosts the harness web UI).",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

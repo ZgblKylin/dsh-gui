@@ -1,0 +1,18 @@
+[package]
+name = "dsh-gui"
+version = "0.1.0"
+description = "DeepSeek Harness desktop shell: a webview that self-hosts the deepseek-harness web UI"
+license = "Unlicense"
+edition = "2021"
+rust-version = "1.77"
+
+# Repo-internal run only (no installer/bundling): the "entry exe" is the debug
+# binary this crate produces at target/debug/dsh-gui.exe.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,22 @@
+# ── Local toolchain / package caches (installed into the project, not globally) ──
+# Repo-local pnpm store: the "local install cache" every build writes into.
+.pnpm-store/
+# Bootstrap toolchain (pinned pnpm installed by scripts/setup.ps1).
+.toolchain/
+# Any stray node_modules at the repo root.
+node_modules/
+
+# ── Tauri / Rust build output (entry exe lives here, but is never committed) ──
+src-tauri/target/
+src-tauri/gen/
+
+# ── Harness runtime home (DSH_HOME is pinned to ./.dsh so profiles, plugins,
+#    agent presets, sessions, and logs stay inside the repository) ──
+.dsh/
+
+# ── OS / editor noise ──
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+*.user
