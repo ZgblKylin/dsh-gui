@@ -25,7 +25,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { platform } from 'node:os'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -126,10 +126,51 @@ function harnessBuild() {
   })
 }
 
+/**
+ * Resolve a spawnable cargo/rustc pair.
+ *
+ * On Windows, `cargo` on PATH is often a rustup PROXY SYMLINK
+ * (cargo.exe -> rustup.exe). Some restricted execution contexts (the dsh-gui
+ * shell hosting this build) refuse to spawn through that reparse point
+ * (EPERM), while the real toolchain binary under
+ * `<rustupHome>/toolchains/<tc>/bin/cargo.exe` spawns fine. When the PATH
+ * `cargo` cannot be spawned, prefer the real toolchain binary and pin the
+ * RUSTC/RUSTUP_TOOLCHAIN env so cargo also resolves rustc to a real binary.
+ * @returns {string|null} absolute path to a real cargo.exe, or null to keep bare `cargo`.
+ */
+function resolveCargo() {
+  if (!IS_WINDOWS) return null
+  // Prefer a bare `cargo` that actually spawns (normal terminals, non-rustup installs).
+  const probe = spawnSync('cargo', ['--version'], { stdio: 'ignore', shell: false })
+  if (probe.error === undefined || probe.error.code !== 'EPERM') return null
+  // Bare cargo is blocked: hunt the rustup toolchains for a real cargo.exe.
+  const homes = [join(process.env.USERPROFILE ?? '', '.rustup'), join(process.env.RUSTUP_HOME ?? '', '').trim(), 'D:\\.rustup']
+    .filter((p) => p !== '' && p !== '.')
+  for (const home of homes) {
+    const tc = join(home, 'toolchains')
+    if (!existsSync(tc)) continue
+    let entries = []
+    try { entries = readdirSync(tc) } catch { continue }
+    const candidates = entries
+      .map((name) => join(tc, name, 'bin', 'cargo.exe'))
+      .filter((p) => { try { return existsSync(p) && statSync(p).size > 0 } catch { return false } })
+    if (candidates.length > 0) return candidates[0]
+  }
+  return null
+}
+
 function buildExe(debug) {
   const profile = debug ? 'debug' : 'release'
+  const cargoBinary = resolveCargo()
+  const env = { ...process.env }
+  if (cargoBinary !== null) {
+    // cargoBinary = <rustupHome>/toolchains/<tc>/bin/cargo.exe
+    const toolchainDir = dirname(dirname(cargoBinary))
+    env.RUSTC = join(toolchainDir, 'bin', 'rustc.exe')
+    env.RUSTUP_TOOLCHAIN = basename(toolchainDir)
+  }
   step(`Build entry exe (cargo build ${debug ? '--debug' : '--release'})`, () => {
-    run('cargo', ['build', ...(debug ? [] : ['--release'])], { cwd: SRC_TAURI })
+    run(cargoBinary ?? 'cargo', ['build', ...(debug ? [] : ['--release'])], { cwd: SRC_TAURI, env })
   })
   const built = join(SRC_TAURI, 'target', profile, BIN_NAME)
   if (!existsSync(built)) throw new Error(`build did not produce ${built}`)
