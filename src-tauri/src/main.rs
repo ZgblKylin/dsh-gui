@@ -10,11 +10,12 @@
 //! There is no frontend, plugin, or IPC surface of its own: the webview renders
 //! the full harness UI over HTTP, exactly as a browser would.
 
-// Hide the console when double-clicking a release build; keep it in debug so
-// `cargo run` still shows status lines.
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// A plain Win32 GUI app in every profile: no console window on double-click,
+// and the launching terminal (cmd or PowerShell) does not wait for it. All of
+// dsh-gui's own diagnostics go to `.dsh\gui\gui.log` instead of a console.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -27,6 +28,131 @@ use std::os::windows::process::CommandExt;
 
 use tauri::Manager;
 
+#[cfg(windows)]
+mod job {
+    //! A minimal Windows job-object wrapper: the job kills every process in it
+    //! the moment its last handle closes. The kernel enforces that even when
+    //! dsh-gui itself is terminated without running destructors (Task Manager,
+    //! closing the terminal it was launched from), so the harness cannot
+    //! outlive the shell.
+
+    use std::os::windows::io::{AsRawHandle, RawHandle};
+    use std::process::Child;
+
+    type Handle = *mut std::ffi::c_void;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateJobObjectW(attributes: *mut std::ffi::c_void, name: *const u16) -> Handle;
+        fn SetInformationJobObject(
+            job: Handle,
+            class: i32,
+            info: *mut std::ffi::c_void,
+            length: u32,
+        ) -> i32;
+        fn AssignProcessToJobObject(job: Handle, process: RawHandle) -> i32;
+        fn TerminateJobObject(job: Handle, exit_code: u32) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+
+    const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct BasicLimitInformation {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct IoCounters {
+        read_operation_count: u64,
+        write_operation_count: u64,
+        other_operation_count: u64,
+        read_transfer_count: u64,
+        write_transfer_count: u64,
+        other_transfer_count: u64,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct ExtendedLimitInformation {
+        basic_limit_information: BasicLimitInformation,
+        io_info: IoCounters,
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+
+    /// A kill-on-close job. Assignment is best-effort: on failure the caller
+    /// falls back to `taskkill` so cleanup is still attempted.
+    pub struct KillJob(Handle);
+
+    // A kernel job handle has no thread affinity; it is safe to hold inside
+    // Tauri managed state, which requires Send + Sync.
+    unsafe impl Send for KillJob {}
+    unsafe impl Sync for KillJob {}
+
+    impl KillJob {
+        /// Create a job whose members are killed when the handle closes.
+        pub fn new() -> std::io::Result<Self> {
+            unsafe {
+                let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+                if handle.is_null() {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let mut info: ExtendedLimitInformation =
+                    std::mem::MaybeUninit::zeroed().assume_init();
+                info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let ok = SetInformationJobObject(
+                    handle,
+                    JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                    &mut info as *mut ExtendedLimitInformation as *mut std::ffi::c_void,
+                    std::mem::size_of::<ExtendedLimitInformation>() as u32,
+                );
+                if ok == 0 {
+                    CloseHandle(handle);
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(Self(handle))
+            }
+        }
+
+        /// Put the harness process into the job. Processes it spawns later
+        /// join automatically, so the whole harness tree is covered. The
+        /// spawn/assign race is harmless here: the harness needs seconds to
+        /// boot before it could spawn anything.
+        pub fn assign(&self, child: &Child) -> bool {
+            unsafe { AssignProcessToJobObject(self.0, child.as_raw_handle()) != 0 }
+        }
+
+        /// Kill every process currently in the job.
+        pub fn terminate(&self) {
+            unsafe {
+                TerminateJobObject(self.0, 1);
+            }
+        }
+    }
+
+    impl Drop for KillJob {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
 /// Submodule directory name.
 const HARNESS_DIR: &str = "deepseek-harness";
 /// Built `dsh` entry, relative to the repository root.
@@ -36,24 +162,27 @@ const HARNESS_BIN: &str = "deepseek-harness/apps/cli/lib/bin.js";
 const DEFAULT_PORT: u16 = 3080;
 
 /// Walk up from the executable until the repository root (the directory that
-/// holds both `deepseek-harness/` and `src-tauri/`) is found.
-fn repo_root() -> PathBuf {
-    let exe = std::env::current_exe().expect("current executable path");
+/// holds both `deepseek-harness/` and `src-tauri/`) is found. The exe sits
+/// either in `src-tauri/target/<profile>/` or at the repository root itself
+/// (the build scripts copy it there), and both resolve on the first hop.
+fn repo_root() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("could not resolve the executable path: {e}"))?;
     let mut dir = exe
         .parent()
         .map(Path::to_path_buf)
-        .expect("executable has a parent directory");
+        .ok_or_else(|| format!("executable has no parent directory: {exe:?}"))?;
     for _ in 0..8 {
         if dir.join(HARNESS_DIR).join("package.json").is_file()
             && dir.join("src-tauri").join("tauri.conf.json").is_file()
         {
-            return dir;
+            return Ok(dir);
         }
         if !dir.pop() {
             break;
         }
     }
-    panic!("dsh-gui: could not locate the repository root from {exe:?}")
+    Err(format!("could not locate the repository root from {exe:?}"))
 }
 
 /// Resolve the loopback port: `DSH_GUI_PORT` if it parses as a u16, else 3080.
@@ -62,6 +191,80 @@ fn resolve_port() -> u16 {
         .ok()
         .and_then(|v| v.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_PORT)
+}
+
+/// Append a status line to `<root>/.dsh/gui/gui.log` (the only visible record
+/// once the console is gone) and mirror it to stderr for `cargo run`.
+fn log_status(root: &Path, msg: &str) {
+    eprintln!("[dsh-gui] {msg}");
+    let dir = root.join(".dsh").join("gui");
+    if fs::create_dir_all(&dir).is_ok() {
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("gui.log"))
+        {
+            let _ = writeln!(file, "[dsh-gui] {msg}");
+        }
+    }
+}
+
+/// Report a fatal startup error: the log line plus, on Windows, a message box,
+/// so a double-clicked launch that fails is still visible without a console.
+fn fatal(root: Option<&Path>, msg: &str) -> ! {
+    if let Some(root) = root {
+        log_status(root, msg);
+    } else {
+        eprintln!("[dsh-gui] {msg}");
+    }
+    #[cfg(windows)]
+    show_error_box("dsh-gui", msg);
+    std::process::exit(1);
+}
+
+/// A blocking `MessageBoxW` error dialog (GUI app: there is no console).
+#[cfg(windows)]
+fn show_error_box(caption: &str, text: &str) {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "user32")]
+    extern "system" {
+        fn MessageBoxW(
+            hwnd: *mut std::ffi::c_void,
+            text: *const u16,
+            caption: *const u16,
+            kind: u32,
+        ) -> i32;
+    }
+    const MB_ICONERROR: u32 = 0x0010;
+    let text: Vec<u16> = std::ffi::OsStr::new(text)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let caption: Vec<u16> = std::ffi::OsStr::new(caption)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
+    }
+}
+
+/// Panics in a GUI app would otherwise vanish; append them to a crash log next
+/// to the exe so failures are still diagnosable.
+fn install_panic_log() {
+    std::panic::set_hook(Box::new(|info| {
+        let dir = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."));
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("dsh-gui-crash.log"))
+        {
+            let _ = writeln!(file, "panic: {info}");
+        }
+    }));
 }
 
 /// Spawn `node <root>/deepseek-harness/apps/cli/lib/bin.js web --port <port>`
@@ -146,49 +349,87 @@ fn wait_ready(
     }
 }
 
-/// Owns the harness child process for the app's lifetime and reaps it on exit
-/// (killing the whole process tree on Windows).
-struct ChildGuard(Mutex<Option<Child>>);
+/// Owns the harness child process for the app's lifetime and guarantees it
+/// cannot outlive the shell: on Windows the child sits in a kill-on-close job,
+/// so the kernel tears the whole harness tree down even when dsh-gui is killed
+/// without running destructors (Task Manager, closing its launching terminal).
+struct ChildGuard {
+    child: Mutex<Option<Child>>,
+    #[cfg(windows)]
+    job: Option<job::KillJob>,
+}
+
+impl ChildGuard {
+    #[cfg(windows)]
+    fn new(child: Child) -> Self {
+        match job::KillJob::new() {
+            Ok(job) if job.assign(&child) => Self {
+                child: Mutex::new(Some(child)),
+                job: Some(job),
+            },
+            // Job creation/assignment failed: keep the child and fall back to
+            // taskkill in Drop.
+            _ => Self {
+                child: Mutex::new(Some(child)),
+                job: None,
+            },
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn new(child: Child) -> Self {
+        Self {
+            child: Mutex::new(Some(child)),
+        }
+    }
+}
 
 impl Drop for ChildGuard {
     fn drop(&mut self) {
-        let Some(mut child) = self.0.lock().ok().and_then(|mut g| g.take()) else {
+        #[cfg(windows)]
+        if let Some(job) = &self.job {
+            // Kill the whole harness tree at once; the direct child is reaped
+            // below.
+            job.terminate();
+        }
+        let Some(mut child) = self.child.lock().ok().and_then(|mut g| g.take()) else {
             return;
         };
         #[cfg(windows)]
-        {
-            // Terminate the tree (node + any helpers it started), no console flash.
+        if self.job.is_none() {
+            // Without a job (creation or assignment failed), terminate the
+            // tree with taskkill, no console flash.
             let _ = Command::new("taskkill")
                 .args(["/PID", &child.id().to_string(), "/T", "/F"])
                 .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
                 .status();
         }
         #[cfg(not(windows))]
-        {
-            let _ = child.kill();
-        }
+        let _ = child.kill();
         let _ = child.wait();
     }
 }
 
 fn main() {
-    let root = repo_root();
+    install_panic_log();
+
+    let root = match repo_root() {
+        Ok(root) => root,
+        Err(e) => fatal(None, &e),
+    };
     let port = resolve_port();
 
-    // Start the harness before the GUI so a startup failure reports clearly on
-    // the console (debug) instead of silently behind a blank window.
+    // Start the harness before the GUI so a startup failure reports clearly
+    // (log + message box) instead of silently behind a blank window.
     let child = match spawn_harness(&root, port)
         .and_then(|mut c| wait_ready(&mut c, port, Duration::from_secs(90)).map(|_| c))
     {
         Ok(c) => c,
-        Err(e) => {
-            eprintln!("[dsh-gui] failed to start the harness: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => fatal(Some(&root), &format!("failed to start the harness: {e}")),
     };
-    println!("[dsh-gui] harness ready at http://127.0.0.1:{port}");
+    log_status(&root, &format!("harness ready at http://127.0.0.1:{port}"));
 
-    let child = ChildGuard(Mutex::new(Some(child)));
+    let child = ChildGuard::new(child);
     let url: tauri::Url = format!("http://127.0.0.1:{port}")
         .parse()
         .expect("a numeric loopback port always parses as a URL");
@@ -205,4 +446,72 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");
+
+    log_status(&root, "exited");
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::job::KillJob;
+    use std::process::Command;
+    use std::time::Duration;
+
+    /// Spawn a long-lived node helper to stand in for the harness.
+    fn spawn_worker() -> std::process::Child {
+        Command::new("node")
+            .args(["-e", "setInterval(() => {}, 1000)"])
+            .spawn()
+            .expect("node must be on PATH to run dsh-gui tests")
+    }
+
+    /// Wait until the worker has exited (or give up after 5s). Node's exit
+    /// code for a job kill is OS-defined (0 or 1), so only the exit itself is
+    /// asserted; the aliveness checks above pin the exit to the job.
+    fn wait_dead(child: &mut std::process::Child) -> std::process::ExitStatus {
+        for _ in 0..50 {
+            if child.try_wait().ok().flatten().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        child.wait().expect("the job must kill the child")
+    }
+
+    /// The clean-exit path: `ChildGuard::drop` terminates the job first, so
+    /// the harness dies immediately and the direct child is reaped.
+    #[test]
+    fn terminate_kills_assigned_child() {
+        let mut child = spawn_worker();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            child.try_wait().ok().flatten().is_none(),
+            "worker exited before the job was touched"
+        );
+
+        let job = KillJob::new().expect("CreateJobObject must succeed");
+        assert!(job.assign(&child), "AssignProcessToJobObject must succeed");
+
+        job.terminate();
+        wait_dead(&mut child);
+    }
+
+    /// The hard-kill path: closing the job handle (the exe died without
+    /// running destructors) must still kill every member — the kernel
+    /// enforces `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+    #[test]
+    fn handle_close_kills_assigned_child() {
+        let mut child = spawn_worker();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            child.try_wait().ok().flatten().is_none(),
+            "worker exited before the job handle closed"
+        );
+
+        {
+            let job = KillJob::new().expect("CreateJobObject must succeed");
+            assert!(job.assign(&child), "AssignProcessToJobObject must succeed");
+            // Job dropped here: the handle closes and the kernel kills members.
+        }
+        wait_dead(&mut child);
+    }
 }

@@ -14,7 +14,10 @@ On launch the entry exe:
    `DSH_HOME` pinned to `./.dsh` inside this repository.
 2. Waits until the harness answers `GET /` with `200` on `127.0.0.1:<port>`.
 3. Opens one webview window at `http://127.0.0.1:<port>` (title bar + border
-   only). On exit it kills the harness process tree.
+   only). On exit it tears the harness process tree down; the harness runs
+   inside a kill-on-close Windows job object, so the kernel enforces that
+   teardown even when dsh-gui itself is killed (Task Manager, closing the
+   terminal it was launched from).
 
 There is no frontend, plugin, or IPC layer of its own: the webview talks to the
 harness over plain HTTP exactly like a browser.
@@ -42,7 +45,7 @@ dsh-gui/
 │  ├─ setup.ps1        # one-shot: bootstrap pnpm → install → build harness → build exe
 │  ├─ build.ps1        # rebuild harness and/or exe after edits
 │  ├─ make-shortcut.ps1# create a desktop shortcut to the entry exe
-│  └─ run.ps1          # run the built entry exe
+│  └─ run.ps1          # run the built entry exe (returns immediately)
 ├─ plugins/            # drop your local harness plugin packages here
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
@@ -79,8 +82,14 @@ The result is `src-tauri\target\debug\dsh-gui.exe`.
 .\src-tauri\target\debug\dsh-gui.exe
 ```
 
+dsh-gui is a plain Win32 GUI app: the launching terminal returns immediately
+(`run.ps1` uses `Start-Process`, and even a direct exe invocation from cmd or
+PowerShell does not block). Closing the terminal afterwards does not kill it.
+
 Override the port with `$env:DSH_GUI_PORT` (default `3080`). Harness output is
-logged to `.dsh\gui\harness.log`.
+logged to `.dsh\gui\harness.log`; dsh-gui's own status lines go to
+`.dsh\gui\gui.log`, and startup failures also pop a message box (a GUI app has
+no console to print to).
 
 ## System shortcut
 
@@ -114,6 +123,12 @@ normally use — nothing escapes this repository.
 - **"failed to spawn harness (is `node` on PATH?)"** — install Node 22+.
 - **Blank window / connection refused** — read `.dsh\gui\harness.log`; the
   harness failed to start (e.g. port already in use — set `DSH_GUI_PORT`).
+- **Nothing happens on launch** — a message box reports startup errors;
+  `.dsh\gui\gui.log` keeps the history, and a panic writes
+  `dsh-gui-crash.log` next to the exe.
+- **A leftover `node` process after an old version crashed** — current builds
+  kill the harness via a Windows job object; kill strays once with
+  `taskkill /IM node.exe /F` (check nothing else needs them first).
 - **WebView2 error** — install the WebView2 Evergreen runtime.
 
 ## License
