@@ -1,0 +1,40 @@
+{
+  "name": "dsh-remote",
+  "description": "Multi-backend remote mode for the dsh web GUI: a connection tab bar in the title area, a new-connection page (local/remote), a hamburger menu, local backend spawn, and SSH deploy (VSCode Remote style) to a remote host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    },
+    "gui": {
+      "mountId": "remote"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "react": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
