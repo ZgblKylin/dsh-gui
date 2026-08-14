@@ -67,6 +67,9 @@ dsh-gui/
 │                      #   (DeepSeekHarness-WhaleGirl.ico is the app icon)
 ├─ scripts/
 │  └─ dsh-gui.mjs      # the cross-platform CLI behind every npm script
+├─ presets/            # agent preset sources: each presets/<id>/ directory owns
+│                      #   its install.mjs; the build installs every preset into
+│                      #   .dsh/.agent-presets/ (see presets/README.md)
 ├─ plugins/            # local harness plugin packages: `remote` (in-tree) plus
 │                      #   the `dsh-terminal` and `dsh-file-explorer` git
 │                      #   submodules (see plugins/README.md)
@@ -93,6 +96,9 @@ This is idempotent and fully repo-internal:
   elsewhere).
 - Builds, installs, and mounts every plugin package under `plugins/` into the
   web profile (see [Adding plugins](#adding-plugins-at-runtime)).
+- Runs every agent-preset install script under `presets/` — each
+  `presets/<id>/` directory lands in `.dsh\.agent-presets\<id>\` and appears on
+  the preset roster (see `presets/README.md` for the pattern).
 
 The result is the entry binary at the repository root (cargo keeps its own
 output at `src-tauri\target\release\` or `target\debug\`).

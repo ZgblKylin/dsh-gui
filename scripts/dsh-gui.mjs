@@ -9,9 +9,10 @@
  *
  * Commands:
  *   setup    one-shot bootstrap: pinned pnpm -> harness install+build -> entry
- *            exe (release unless --debug) -> build+install+mount plugins
+ *            exe (release unless --debug) -> build+install+mount plugins ->
+ *            install agent presets
  *   build    harness install+build (unless --skip-harness) -> entry exe ->
- *            build+install+mount plugins
+ *            build+install+mount plugins -> install agent presets
  *   install  build + install + mount the plugins under plugins/ (alias: plugins)
  *   run      launch the entry exe detached; the invoking terminal returns at
  *            once and closing it never kills dsh-gui (or its harness child)
@@ -362,13 +363,43 @@ function plugins() {
   console.log('Restart dsh-gui for the composition to reload and the plugins to appear.')
 }
 
+/**
+ * Install every agent preset under presets/ by running its own install
+ * script. Each `presets/<id>/` directory is a self-contained preset package
+ * (composition + metadata + `install.mjs`); the build delegates installation
+ * to the preset's script, so a preset owns how it lands in the harness home
+ * (`.dsh/.agent-presets/<id>/`) and adding one never touches this CLI. Scripts
+ * run in directory-name order for a deterministic install sequence.
+ */
+function installPresets() {
+  const dir = join(ROOT, 'presets')
+  if (!existsSync(dir)) return
+  const scripts = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(dir, entry.name, 'install.mjs'))
+    .filter((path) => existsSync(path))
+    .sort()
+  if (scripts.length === 0) {
+    console.log('No agent presets under presets/ — nothing to install.')
+    return
+  }
+  step('Install agent presets into the harness home', () => {
+    for (const script of scripts) {
+      console.log(`--- ${script}`)
+      // The same DSH_HOME pin the desktop shell and the plugin installer use.
+      run('node', [script], { env: { DSH_HOME: WEB_HOME } })
+    }
+  })
+}
+
 function setup(options) {
   bootstrapPnpm()
   harnessInstall(true)
   harnessBuild()
   if (!options.skipExe) buildExe(options.debug)
   plugins()
-  console.log('\nDone. Entry exe at the repository root; plugins built, installed, and mounted.')
+  installPresets()
+  console.log('\nDone. Entry exe at the repository root; plugins and agent presets installed.')
 }
 
 function build(options) {
@@ -379,7 +410,8 @@ function build(options) {
   }
   if (!options.skipExe) buildExe(options.debug)
   plugins()
-  console.log('\nDone. Entry exe at the repository root; plugins built, installed, and mounted.')
+  installPresets()
+  console.log('\nDone. Entry exe at the repository root; plugins and agent presets installed.')
 }
 
 /** Launch the entry exe detached so the invoking terminal returns at once. */
@@ -430,9 +462,10 @@ Usage:
 
 Commands:
   setup       one-shot bootstrap: pinned pnpm -> harness install+build -> entry
-              exe (release unless --debug) -> plugins (build+install+mount)
+              exe (release unless --debug) -> plugins (build+install+mount) ->
+              agent presets (each presets/*/install.mjs)
   build       harness install+build (unless --skip-harness) -> entry exe ->
-              plugins (build+install+mount)
+              plugins (build+install+mount) -> agent presets
   install     build + install + mount the plugins under plugins/ (alias: plugins)
   run         launch the entry exe detached; the terminal returns immediately
   shortcut    create a Windows desktop shortcut (Windows only)

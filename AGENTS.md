@@ -6,6 +6,7 @@
 - deepseek-harness: dsh框架本体
 - docs: 文档目录
 - plugins: 本地插件目录
+- presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到.dsh/.agent-presets/）
 - src-tauri: tauri源码目录
 - scripts: 启动脚本目录
 

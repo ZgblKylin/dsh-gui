@@ -1,4 +1,4 @@
-# The `preview` agent preset: a review-focused coding agent, mounted once per
+# The `review` agent preset: a review-focused coding agent, mounted once per
 # process. It is a copy of `standard` whose persona is the review system
 # prompt (adapted from opencode's review mode, https://github.com/anomalyco/opencode).
 # Unlike opencode — which splices the user input into the middle of its
@@ -31,7 +31,7 @@
   name: '@deepseek-ai/dsh-persona'
   config:
     text: |-
-      You are a preview agent powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are a review agent powered by the {{model}} model. Your working directory is {{cwd}}.
 
       Your job is to review code changes and provide actionable feedback.
 
