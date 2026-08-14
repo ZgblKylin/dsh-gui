@@ -7,6 +7,9 @@
 [submodule "dsh-file-explorer"]
 	path = plugins/dsh-file-explorer
 	url = https://github.com/joejojoking-cloud/dsh-file-explorer
+[submodule "dsh-anchored-standard"]
+	path = presets/anchored-standard/dsh-anchored-standard
+	url = https://github.com/xiaobright/dsh-anchored-standard
 [submodule "src-tauri/whale-icon"]
 	path = src-tauri/whale-icon
 	url = https://github.com/fornarwhal/deepseek-whale-girl-icon
