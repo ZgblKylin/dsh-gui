@@ -72,6 +72,10 @@ function currentPort(): number {
 function currentOrigin(): string {
   try { return window.location.origin } catch { return 'http://127.0.0.1:3080' }
 }
+/** Normalize a URL for comparison: strip a trailing slash so `http://h:3080` matches `http://h:3080/`. */
+function normUrl(url: string): string {
+  return url.replace(/\/+$/, '')
+}
 function bufferToB64(buf: ArrayBuffer): string {
   const u = new Uint8Array(buf)
   let s = ''
@@ -106,27 +110,32 @@ export function RemoteApp(_props: Host) {
   }
 
   const closeTab = (id: string): void => {
-    setTabs(prev => {
-      const next = prev.filter(t => t.id !== id)
-      if (next.length === 0) {
-        const fresh: Tab = { id: uid(), kind: 'new' }
-        setActiveId(fresh.id)
-        return [fresh]
-      }
-      if (activeId === id) {
-        const idx = prev.findIndex(t => t.id === id)
-        setActiveId(next[Math.min(idx, next.length - 1)].id)
-      }
-      return next
-    })
     setMenuOpen(false)
+    // Compute the next tab list and the next active id OUTSIDE any state
+    // updater, so setState is never called during another setState's render.
+    const currentList = tabs
+    const next = currentList.filter(t => t.id !== id)
+    if (next.length === 0) {
+      const fresh: Tab = { id: uid(), kind: 'new' }
+      setTabs([fresh])
+      setActiveId(fresh.id)
+      return
+    }
+    if (activeId === id) {
+      const idx = currentList.findIndex(t => t.id === id)
+      setActiveId(next[Math.min(idx, next.length - 1)].id)
+    }
+    setTabs(next)
   }
 
   const switchTab = (id: string): void => { setActiveId(id); setMenuOpen(false) }
   const toMenu = (t: Tab): string => (t.kind === 'new' ? '＋ 新建连接' : (t.title ?? t.connId ?? '标签'))
 
-  const addConnectionTab = (conn: Conn, url: string): void => {
-    const t: Tab = { id: uid(), kind: 'connection', connId: conn.id, title: conn.name, url: conn.url ?? url }
+  const addConnectionTab = (conn: Conn, loadUrl: string): void => {
+    // The passed loadUrl is the authoritative frontend URL (for remote it is
+    // the SSH-tunneled loopback URL); the connection record keeps the remote
+    // config but the tab binds to the loadable URL.
+    const t: Tab = { id: uid(), kind: 'connection', connId: conn.id, title: conn.name, url: loadUrl }
     setConnections(prev => prev.some(c => c.id === conn.id) ? prev : [...prev, conn])
     setTabs(prev => {
       const replaced = prev.map(x => (x.id === activeId && x.kind === 'new') ? t : x)
@@ -136,7 +145,10 @@ export function RemoteApp(_props: Host) {
     setMenuOpen(false)
   }
 
-  const isTransparent = activeTab !== undefined && activeTab.kind === 'connection' && activeTab.url === current
+  const isTransparent = activeTab !== undefined
+    && activeTab.kind === 'connection'
+    && activeTab.url !== undefined
+    && normUrl(activeTab.url) === normUrl(current)
 
   return (
     <div className="rm-root" data-transparent={isTransparent || undefined}>
@@ -170,7 +182,7 @@ export function RemoteApp(_props: Host) {
           <NewConnection currentPort={currentPort()} onConnect={addConnectionTab} />
         )}
         {tabs.filter(t => t.kind === 'connection').map(t => (
-          t.id === activeId && t.url !== current
+          t.id === activeId && t.url !== undefined && normUrl(t.url) !== normUrl(current)
             ? <iframe key={t.id} className="rm-iframe" src={t.url} title={t.title} />
             : null
         ))}
@@ -227,15 +239,15 @@ function NewConnection(props: { currentPort: number; onConnect: (conn: Conn, url
     if (name.trim() === '') { pushStatus({ step: '校验', ok: false, detail: '请填写连接名' }); return }
     if (!Number.isInteger(p) || p <= 0 || p > 65535) { pushStatus({ step: '校验', ok: false, detail: '端口无效' }); return }
     const url = `http://127.0.0.1:${p}/`
-    const conn = { ...makeConn(), url }
+    const conn: Conn = { ...makeConn(), url }
     pushStatus({ step: `检查端口 ${p}`, ok: false, detail: url })
     const probe = await rpc('probe', { url })
-    if (probe.ok === true) {
+    if (probe.reachable === true && probe.loadable === true) {
       pushStatus({ step: '端口可加载', ok: true, detail: `HTTP ${probe.status}` })
       onConnect(conn, url)
       return
     }
-    pushStatus({ step: '端口不可加载，启动内置 dsh', ok: false, detail: probe.error ?? '' })
+    pushStatus({ step: '端口不可加载，启动内置 dsh', ok: false, detail: probe.error ?? (probe.reachable ? `HTTP ${probe.status} 非 2xx` : '不可达') })
     const started = await rpc('local.start', { port: p })
     if (started.ok !== true) { pushStatus({ step: '启动失败', ok: false, detail: started.error ?? '' }); return }
     pushStatus({ step: '等待后端就绪', ok: false, detail: `pid ${started.pid ?? '?'}` })
@@ -244,9 +256,9 @@ function NewConnection(props: { currentPort: number; onConnect: (conn: Conn, url
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 1000))
       okProbe = await rpc('probe', { url })
-      if (okProbe.ok === true) break
+      if (okProbe.reachable === true && okProbe.loadable === true) break
     }
-    if (okProbe !== null && okProbe.ok === true) {
+    if (okProbe !== null && okProbe.reachable === true && okProbe.loadable === true) {
       pushStatus({ step: '后端就绪', ok: true, detail: `HTTP ${okProbe.status}` })
       onConnect(conn, url)
     } else {
@@ -264,12 +276,12 @@ function NewConnection(props: { currentPort: number; onConnect: (conn: Conn, url
     const conn: Conn = { ...makeConn(), address: addr, url }
     pushStatus({ step: `检查 ${url}`, ok: false })
     const probe = await rpc('probe', { url })
-    if (probe.ok === true) {
+    if (probe.reachable === true && probe.loadable === true) {
       pushStatus({ step: '远端可加载', ok: true, detail: `HTTP ${probe.status}` })
       onConnect(conn, url)
       return
     }
-    pushStatus({ step: '远端不可加载，尝试 ssh 部署', ok: false, detail: probe.error ?? '' })
+    pushStatus({ step: '远端不可加载，尝试 ssh 部署', ok: false, detail: probe.error ?? (probe.reachable ? `HTTP ${probe.status} 非 2xx` : '不可达') })
     if (!sshOn) { pushStatus({ step: '需要 ssh', ok: false, detail: '请开启 SSH 部署并配置认证' }); return }
 
     let sshConn: Record<string, unknown> = {

@@ -5,10 +5,13 @@
  *
  *  - `local.start` — spawn an additional self-hosted `dsh web` backend on a
  *    free port (checked by `probe` first; started only when the port is dead),
- *  - `ssh.connect` — the VSCode-Remote-style deployment pipeline: establish an
- *    SSH session (key or password), git-deploy the harness to `~/.dsh-gui` on
- *    the remote, build it, launch it inside a `dsh-gui` tmux session, then wait
- *    until the remote frontend answers HTTP,
+ *  - `ssh.connect` — secure remote mode: the remote backend always binds
+ *    loopback (`127.0.0.1`), so the frontend is reached over an SSH local
+ *    port forward (`ssh -N -L`). The pipeline establishes the session, checks
+ *    the remote toolchain, deploys the harness to `~/.dsh-gui` when missing,
+ *    keeps it running inside a `dsh-gui` tmux session, discovers the session's
+ *    serving port, forwards it to a free local loopback port, and only then
+ *    reports the local URL as loadable,
  *  - `creds.*` / `keyfile.write` — the credential store (Windows DPAPI,
  *    Linux gpg; keys and filenames carry `ZgblKylin+dsh-gui+<连接名>`), plus the
  *    uploaded SSH private-key files.
@@ -17,12 +20,18 @@
  * half in localStorage — dsh-gui manages the connection config, the remote
  * owns its own DSH_HOME (~/.dsh-gui/.dsh) and plugin configuration.
  *
+ * Security posture: `/remote-api` is an unauthenticated local RPC, so this
+ * half refuses to serve when the web server is bound to anything but the
+ * loopback address (see `apply`).
+ *
  * This half is a real Node ESM bundle: node: builtins are used directly.
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync, openSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { get as httpGet } from 'node:http'
+import { createServer } from 'node:net'
+import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
@@ -38,8 +47,16 @@ export const name = 'dsh-remote'
 /** Required services for route registration. */
 export const inject = ['webServer']
 
-/** App passphrase for the Linux gpg credential store (self-hosted key). */
+/** App passphrase for the Linux gpg credential store (混淆级, not a strong secret — see docs). */
 const GPG_PIN = 'dsh-remote-app-pin'
+
+/** JSON request body / uploaded key size caps (bytes), guarding memory + disk. */
+const MAX_JSON_BODY = 1 * 1024 * 1024
+const MAX_KEY_B64 = 8 * 1024 * 1024
+
+/** Remote harness repo + pinned ref; override for reproducibility via env. */
+export const envRepoUrl = (): string => process.env.DSH_REMOTE_REPO_URL || 'https://github.com/deepseek-ai/deepseek-harness.git'
+const envRepoRef = (): string => process.env.DSH_REMOTE_REPO_REF || 'main'
 
 interface Discovery {
   home: string
@@ -101,11 +118,20 @@ function trusted(req: IncomingMessage): boolean {
   }
 }
 
-/** Read the request body and JSON.parse it (empty body -> {}). */
+/** Read the request body (bounded) and JSON.parse it (empty body -> {}). */
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+    let total = 0
+    req.on('data', (chunk: Buffer) => {
+      total += chunk.length
+      if (total > MAX_JSON_BODY) {
+        reject(new Error(`request body exceeds ${MAX_JSON_BODY} bytes`))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => {
       const text = Buffer.concat(chunks).toString('utf8')
       try { resolve(text === '' ? {} : JSON.parse(text)) } catch (error) { reject(error) }
@@ -114,15 +140,21 @@ function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   })
 }
 
-/** Finite-timeout HTTP GET returning status or an error string. */
-function probe(url: string): Promise<{ ok: boolean; status?: number; error?: string }> {
+/**
+ * Finite-timeout HTTP GET. Distinct from reachability: `reachable` only means
+ * the TCP/HTTP connection succeeded; `loadable` additionally requires a 2xx
+ * status, which is what "前端可加载" must mean (a 404 startup window or an
+ * arbitrary 403/404 service must NOT count as ready).
+ */
+function probe(url: string): Promise<{ reachable: boolean; loadable: boolean; status?: number; error?: string }> {
   return new Promise((resolve) => {
     const req = httpGet(url, { timeout: 4000 }, (res) => {
-      resolve({ ok: res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 500 ? true : false, status: res.statusCode })
+      const status = res.statusCode ?? 0
+      resolve({ reachable: status > 0, loadable: status >= 200 && status < 300, status })
       res.resume()
     })
-    req.on('error', (error: Error) => resolve({ ok: false, error: error.message }))
-    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timeout' }) })
+    req.on('error', (error: Error) => resolve({ reachable: false, loadable: false, error: error.message }))
+    req.on('timeout', () => { req.destroy(); resolve({ reachable: false, loadable: false, error: 'timeout' }) })
   })
 }
 
@@ -191,24 +223,26 @@ function sshAvailability(): { ssh: string | null; plink: string | null; sshpass:
  * hostname), deliberately distinct from the DSH backend `address`. When
  * neither a password nor a key file is given, the bare host is passed through
  * so the local `~/.ssh/config` (Host alias, User, IdentityFile, port) is
- * reused unchanged.
+ * reused unchanged. Port flag (ssh `-p` / plink `-P`) is only emitted when an
+ * explicit non-default port was supplied — consistent across the three tools.
  */
 function buildSshArgv(auth: Record<string, unknown>, avail: { ssh: string | null; plink: string | null; sshpass: string | null }): string[] | null {
   const user = String(auth.user ?? '')
   const userHost = (user !== '' ? `${user}@` : '') + String(auth.host)
-  // Only force -p when an explicit, non-default SSH port was supplied; an
-  // ssh-config alias must keep its own Port.
   const explicitPort = auth.port !== undefined && auth.port !== null && Number(auth.port) !== 22
   const port = String(auth.port ?? 22)
   if (auth.password && !auth.keyFile) {
-    if (avail.sshpass !== null) {
-      const argv = [avail.sshpass, '-p', String(auth.password), avail.ssh ?? 'ssh', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=15']
+    if (avail.sshpass !== null && avail.ssh !== null) {
+      const argv = [avail.sshpass, '-p', String(auth.password), avail.ssh, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=15']
       if (explicitPort) argv.push('-p', port)
       argv.push(userHost, 'bash -s')
       return argv
     }
     if (avail.plink !== null) {
-      return [avail.plink, '-batch', '-pw', String(auth.password), '-P', port, userHost, 'bash -s']
+      const argv = [avail.plink, '-batch', '-pw', String(auth.password)]
+      if (explicitPort) argv.push('-P', port)
+      argv.push(userHost, 'bash -s')
+      return argv
     }
     return null
   }
@@ -235,7 +269,143 @@ function log(ctx: Context, message: string): void {
   ctx.logger?.info(`[dsh-remote] ${message}`)
 }
 
+/** A live SSH local port forward (remote service reached via 127.0.0.1). */
+interface Tunnel {
+  key: string
+  localPort: number
+  remotePort: number
+  proc: ReturnType<typeof spawn>
+}
+
+/** All live tunnels, keyed `${host}:${remotePort}`; killed on teardown. */
+const tunnels = new Map<string, Tunnel>()
+
+/** Find a free loopback port for the local side of the forward. */
+function freeLocalPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer()
+    srv.unref()
+    srv.once('error', reject)
+    srv.listen(0, '127.0.0.1', () => {
+      const port = (srv.address() as AddressInfo).port
+      srv.close(() => resolve(port))
+    })
+  })
+}
+
+/**
+ * Open an SSH local port forward: local 127.0.0.1:<localPort> -> remote
+ * 127.0.0.1:<remotePort>. The remote backend binds loopback only, so the
+ * traffic rides over the encrypted session instead of being exposed on the
+ * LAN. The tunnel process is detached and kept alive; close it with
+ * closeTunnel / teardown. Reuses a live tunnel for the same host:port.
+ */
+async function openTunnel(ctx: Context, auth: Record<string, unknown>, avail: { ssh: string | null; plink: string | null; sshpass: string | null }, remotePort: number): Promise<{ ok: boolean; localPort?: number; error?: string }> {
+  const key = `${auth.host}:${remotePort}`
+  const existing = tunnels.get(key)
+  if (existing !== undefined && existing.proc.exitCode === null) {
+    void log(ctx, `reuse tunnel ${key} (local ${existing.localPort})`)
+    return { ok: true, localPort: existing.localPort }
+  }
+  if (existing !== undefined) tunnels.delete(key)
+
+  const localPort = await freeLocalPort()
+  const forward = `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`
+  const user = String(auth.user ?? '')
+  const userHost = `${user !== '' ? `${user}@` : ''}${auth.host}`
+  const explicitPort = auth.port !== undefined && auth.port !== null && Number(auth.port) !== 22
+  const port = String(auth.port ?? 22)
+
+  let argv: string[] | null = null
+  if (auth.password && !auth.keyFile) {
+    if (avail.sshpass !== null && avail.ssh !== null) {
+      argv = [avail.sshpass, '-p', String(auth.password), avail.ssh, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-N', '-L', forward]
+      if (explicitPort) argv.push('-p', port)
+      argv.push(userHost)
+    } else if (avail.plink !== null) {
+      const args = [avail.plink, '-batch', '-pw', String(auth.password), '-L', forward]
+      if (explicitPort) args.push('-P', port)
+      args.push(userHost)
+      argv = args
+    }
+  } else if (avail.ssh !== null) {
+    argv = [avail.ssh]
+    if (auth.keyFile) argv.push('-i', String(auth.keyFile))
+    argv.push('-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-N', '-L', forward)
+    if (explicitPort) argv.push('-p', port)
+    argv.push(userHost)
+  }
+  if (argv === null) {
+    return { ok: false, error: 'password auth requires plink or sshpass' }
+  }
+
+  const proc = spawn(argv[0], argv.slice(1), { stdio: 'ignore', detached: process.platform !== 'win32' })
+  tunnels.set(key, { key, localPort, remotePort, proc })
+  proc.once('exit', () => { if (tunnels.get(key)?.proc === proc) tunnels.delete(key) })
+  void log(ctx, `tunnel open ${key} -> 127.0.0.1:${localPort}`)
+  return { ok: true, localPort }
+}
+
+/** Close a live tunnel by host:remotePort. */
+function closeTunnel(key: string): boolean {
+  const tunnel = tunnels.get(key)
+  if (tunnel !== undefined) {
+    try { tunnel.proc.kill() } catch { /* already gone */ }
+    tunnels.delete(key)
+    return true
+  }
+  return false
+}
+
+/** Remote TCP-open probe on 127.0.0.1:<port> through ssh. */
+async function sshPortOpen(ctx: Context, auth: Record<string, unknown>, port: number): Promise<boolean> {
+  const res = await sshRun(ctx, auth, `(echo > /dev/tcp/127.0.0.1/${port}) >/dev/null 2>&1 && echo OPEN || echo CLOSED`, 20000)
+  return res.exitCode === 0 && res.stdout.includes('OPEN')
+}
+
+/** Remote toolchain presence check; reports each missing tool. */
+async function checkRemoteToolchain(ctx: Context, auth: Record<string, unknown>): Promise<{ ok: boolean; detail: string }> {
+  const res = await sshRun(ctx, auth, [
+    'for c in git node pnpm tmux; do',
+    '  if command -v "$c" >/dev/null 2>&1; then echo "OK $c"; else echo "MISSING $c"; fi',
+    'done',
+  ].join('\n'), 30000)
+  const lines = res.stdout.trim().split('\n').map(s => s.trim()).filter(Boolean)
+  const missing = lines.filter(l => l.startsWith('MISSING')).map(l => l.replace(/^MISSING\s+/, ''))
+  if (res.exitCode !== 0 && missing.length === 0) return { ok: false, detail: res.stderr.trim() }
+  if (missing.length > 0) return { ok: false, detail: `远端缺少工具: ${missing.join(', ')}` }
+  return { ok: true, detail: lines.join('\n') }
+}
+
+/** Discover the port the live `dsh-gui` tmux session is serving on. */
+async function discoverSessionPort(ctx: Context, auth: Record<string, unknown>, fallback: number): Promise<number> {
+  const res = await sshRun(ctx, auth, 'tmux list-panes -t dsh-gui -F \'#{pane_start_command}\' 2>/dev/null | head -1', 20000)
+  const m = /--port\s+(\d+)/.exec(res.stdout)
+  const port = m ? Number(m[1]) : fallback
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : fallback
+}
+
+/** ACTIVE when the tmux session exists and its pane is not dead. */
+async function sessionState(ctx: Context, auth: Record<string, unknown>): Promise<'MISSING' | 'STALE' | 'ALIVE'> {
+  const res = await sshRun(ctx, auth, [
+    'if tmux has-session -t dsh-gui 2>/dev/null; then',
+    '  if tmux list-panes -t dsh-gui -F \'#{pane_dead}\' 2>/dev/null | grep -q 1; then echo STALE; else echo ALIVE; fi',
+    'else echo MISSING; fi',
+  ].join('\n'), 20000)
+  const out = res.stdout.trim()
+  if (res.exitCode !== 0) return 'MISSING'
+  if (out.includes('ALIVE')) return 'ALIVE'
+  if (out.includes('STALE')) return 'STALE'
+  return 'MISSING'
+}
+
 export function apply(ctx: Context): void {
+  // /remote-api can start processes, run remote bash with stored credentials,
+  // and write files: never serve it over a non-loopback bind.
+  if (ctx.webServer.host !== '127.0.0.1') {
+    ctx.logger?.error('[dsh-remote] refusing to start: /remote-api is unauthenticated and must stay on the loopback bind (webServer.host is not 127.0.0.1)')
+    return
+  }
   const locals = new Map<number, LocalHandle>()
   const startedAt = Date.now()
 
@@ -245,13 +415,17 @@ export function apply(ctx: Context): void {
     handler: (req: IncomingMessage, res: ServerResponse) => { void dispatch(ctx, req, res, locals) },
   })
 
-  // Kill every locally started backend when this fiber tears down.
+  // Kill locally started backends and every SSH tunnel on teardown.
   ctx.effect(() => () => {
     disposeRoute()
     for (const handle of locals.values()) {
       try { stopLocal(handle) } catch { /* already gone */ }
     }
     locals.clear()
+    for (const tunnel of tunnels.values()) {
+      try { tunnel.proc.kill() } catch { /* already gone */ }
+    }
+    tunnels.clear()
   }, 'dsh-remote teardown')
 
   void log(ctx, `host up (${new Date(startedAt).toISOString()})`)
@@ -269,9 +443,9 @@ async function dispatch(ctx: Context, req: IncomingMessage, res: ServerResponse,
   let args: Record<string, unknown> = {}
   try {
     args = await readJson(req)
-  } catch {
+  } catch (error) {
     res.writeHead(400, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: false, error: 'invalid JSON body' }))
+    res.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : 'invalid request' }))
     return
   }
   const respond = (payload: unknown): void => {
@@ -300,12 +474,14 @@ const WIN_ENCRYPT = [
   "$enc=[Security.Cryptography.ProtectedData]::Protect($raw,$null,'CurrentUser')",
   '[IO.File]::WriteAllBytes($env:OUT,$enc)',
 ].join('\n')
+// Decryption emits base64 (not the console stream), so non-ASCII bytes round-trip
+// through the parent without any OEM/UTF-8 console-encoding corruption.
 const WIN_DECRYPT = [
   "$ErrorActionPreference='Stop'",
   'Add-Type -AssemblyName System.Security',
   '$b=[Convert]::FromBase64String($env:B64)',
   "$p=[Security.Cryptography.ProtectedData]::Unprotect($b,$null,'CurrentUser')",
-  '[Console]::Write([Text.Encoding]::UTF8.GetString($p))',
+  '[Console]::Write([Convert]::ToBase64String($p))',
 ].join('\n')
 
 function powerShellEncoded(script: string): string {
@@ -328,7 +504,7 @@ function credSave(file: string, payload: unknown): { ok: boolean; error?: string
   return { ok: r.exitCode === 0, error: r.exitCode !== 0 ? r.stderr : undefined }
 }
 
-/** Decrypt a payload file (win32: DPAPI; else gpg). */
+/** Decrypt a payload file (win32: DPAPI; else gpg). Output travels as base64. */
 function credRead(file: string): { exists: boolean; payload: unknown } {
   if (!existsSync(file)) return { exists: false, payload: null }
   if (process.platform === 'win32') {
@@ -337,17 +513,20 @@ function credRead(file: string): { exists: boolean; payload: unknown } {
       encoding: 'utf8',
       env: { ...process.env, B64: readFileSync(file).toString('base64') },
     })
-    const text = (r.stdout ?? '').trim()
+    const b64 = (r.stdout ?? '').trim()
+    if (b64 === '') return { exists: false, payload: null }
+    let text = ''
+    try { text = Buffer.from(b64, 'base64').toString('utf8') } catch { /* fall through */ }
     if (text === '') return { exists: false, payload: null }
     let payload: unknown = null
-    try { payload = JSON.parse(text) } catch { /* legacy plain text */ }
+    try { payload = JSON.parse(text) } catch { payload = text }
     return { exists: true, payload }
   }
   const r = runSync(['gpg', '--batch', '--yes', '--pinentry-mode', 'loopback', '--passphrase', GPG_PIN, '--decrypt', file], undefined, 20000)
   const text = r.stdout.trim()
   if (text === '') return { exists: false, payload: null }
   let payload: unknown = null
-  try { payload = JSON.parse(text) } catch { /* legacy plain text */ }
+  try { payload = JSON.parse(text) } catch { payload = text }
   return { exists: true, payload }
 }
 
@@ -419,14 +598,24 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
     case 'keyfile.write': {
       const base = env.home !== '' ? env.home : join(env.repoRoot, '.dsh')
       const name = String(args.name ?? 'key').replace(/[^\w\-.]/g, '_')
+      const b64 = String(args.b64 ?? '')
+      if (b64.length > MAX_KEY_B64) return { ok: false, error: `key too large (max ${MAX_KEY_B64} bytes base64)` }
       const dir = join(base, 'gui', 'keys')
       const file = join(dir, `${name}.pem`)
       mkdirSync(dir, { recursive: true })
-      writeFileSync(file, Buffer.from(String(args.b64 ?? ''), 'base64'), { mode: 0o600 })
+      writeFileSync(file, Buffer.from(b64, 'base64'), { mode: 0o600 })
       return { ok: true, path: file }
     }
     case 'auth.available':
       return sshAvailability()
+    case 'tunnel.close': {
+      const conn = (args.conn ?? {}) as Record<string, unknown>
+      if (!conn.sshHost && !conn.address) return { ok: false, error: 'no host' }
+      const remotePort = Number(conn.port)
+      const host = String(conn.sshHost ?? conn.address)
+      const key = `${host}:${remotePort}`
+      return { ok: closeTunnel(key), key }
+    }
     case 'ssh.connect': {
       const conn = (args.conn ?? {}) as Record<string, unknown>
       const logLines: Array<{ step: string; ok: boolean; detail?: string }> = []
@@ -463,11 +652,13 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
           return { ok: false, authRequired: true, log: logLines }
         }
       }
-      return deployRemote(ctx, auth, conn as { address: string; port: number }, logLines)
+      return deployRemote(ctx, auth, avail, conn as { address: string; port: number }, logLines)
     }
     case 'diag': {
-      const probeMe = await probe('http://127.0.0.1:3080/')
-      return { env, probeMe, locals: Array.from(locals.keys()) }
+      const probeMe = await probe(`http://127.0.0.1:${ctx.webServer.port}/`)
+      const livePorts = Array.from(locals.keys())
+      const tunnelCount = tunnels.size
+      return { env, probeMe, locals: livePorts, tunnels: tunnelCount }
     }
     default:
       return { ok: false, error: `unknown op: ${op}` }
@@ -487,16 +678,34 @@ async function probeSshAuth(ctx: Context, auth: Record<string, unknown>): Promis
 /** Common auth-failure markers in ssh stderr. */
 const AUTH_MARKERS = ['Permission denied', 'publickey', 'password', 'No supported authentication methods', 'Authentication failed', 'password authentication']
 
-/** VSCode-Remote-style pipeline: clone/deploy -> build -> tmux -> probe -> ready URL. */
+/** Shared ssh base flags for the non-interactive route. */
+const SSH_BASE_FLAGS = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15']
+
+/**
+ * Secure remote pipeline:
+ *   1. precheck the remote toolchain (git/node/pnpm/tmux),
+ *   2. ensure ~/.dsh-gui exists (git deploy + build when missing; pinned ref),
+ *   3. ensure the `dsh-gui` tmux session is ALIVE (start/restart it bound to
+ *      127.0.0.1 when missing or stale),
+ *   4. discover the port the session's backend is serving on,
+ *   5. open an SSH local port forward and wait until the local loopback URL is
+ *      loadable (2xx) — never a direct address probe.
+ */
 async function deployRemote(
   ctx: Context,
   auth: Record<string, unknown>,
+  avail: { ssh: string | null; plink: string | null; sshpass: string | null },
   conn: { address: string; port: number },
   log: Array<{ step: string; ok: boolean; detail?: string }>,
-): Promise<{ ok: boolean; authRequired?: boolean; log: Array<{ step: string; ok: boolean; detail?: string }>; url?: string }> {
-  const url = `http://${conn.address}:${conn.port}/`
+): Promise<{ ok: boolean; authRequired?: boolean; log: Array<{ step: string; ok: boolean; detail?: string }>; url?: string; tunnelKey?: string }> {
   const tmuxName = 'dsh-gui'
 
+  // 1. toolchain precheck
+  const tools = await checkRemoteToolchain(ctx, auth)
+  log.push({ step: '远端工具预检', ok: tools.ok, detail: tools.ok ? tools.detail : tools.detail })
+  if (!tools.ok) return { ok: false, log }
+
+  // 2. ensure ~/.dsh-gui
   const have = await sshRun(ctx, auth, [
     'set -e',
     'if [ -d "$HOME/.dsh-gui/.git" ]; then echo DIR_OK; else echo DIR_MISSING; fi',
@@ -504,27 +713,34 @@ async function deployRemote(
   const haveErr = (have.stdout + have.stderr)
   log.push({ step: '检查 ~/.dsh-gui', ok: have.exitCode === 0, detail: haveErr.trim() })
   if (have.exitCode !== 0) {
-    // An auth requirement anywhere in the first hop means the credential set
-    // is incomplete: fail the connection and fall back to the config form.
     const authRequired = AUTH_MARKERS.some(m => haveErr.toLowerCase().includes(m.toLowerCase()))
     return { ok: false, authRequired, log }
   }
 
   if (have.stdout.includes('DIR_MISSING')) {
-    log.push({ step: 'git 部署到 ~/.dsh-gui', ok: false, detail: '开始克隆…' })
-    const clone = await sshRun(ctx, auth, [
+    const repo = envRepoUrl()
+    const ref = envRepoRef()
+    log.push({ step: 'git 部署到 ~/.dsh-gui', ok: false, detail: `克隆 ${repo} (ref ${ref})…` })
+    // Clone the configured repo (default upstream main); a non-default ref is
+    // fetched and checked out explicitly (works for branch/tag/commit SHA).
+    const cloneScript = [
       'set -e',
-      'git clone --depth 1 https://github.com/deepseek-ai/deepseek-harness.git "$HOME/.dsh-gui" || { rm -rf "$HOME/.dsh-gui"; exit 10; }',
-    ].join('\n'), 600000)
+      `git clone --depth 1 ${JSON.stringify(repo)} "$HOME/.dsh-gui" || { rm -rf "$HOME/.dsh-gui"; exit 10; }`,
+    ]
+    if (ref !== 'main' && ref !== 'HEAD') {
+      cloneScript.push(`git -C "$HOME/.dsh-gui" fetch --depth 1 origin ${JSON.stringify(ref)}`)
+      cloneScript.push(`git -C "$HOME/.dsh-gui" checkout ${JSON.stringify(ref)}`)
+    }
+    const clone = await sshRun(ctx, auth, cloneScript.join('\n'), 600000)
     log[log.length - 1] = { step: 'git clone', ok: clone.exitCode === 0, detail: (clone.stdout + clone.stderr).trim().slice(0, 2000) }
     if (clone.exitCode !== 0) return { ok: false, log }
 
-    log.push({ step: '编译项目', ok: false, detail: 'pnpm install && pnpm run build（可能较长）' })
+    log.push({ step: '编译项目', ok: false, detail: 'pnpm install --frozen-lockfile + pnpm run build（可能较长）' })
     const build = await sshRun(ctx, auth, [
       'set -e',
       'cd "$HOME/.dsh-gui"',
       'corepack enable 2>/dev/null || true',
-      'pnpm install --frozen-lockfile || pnpm install',
+      'pnpm install --frozen-lockfile',
       'pnpm run build',
     ].join('\n'), 1800000)
     log[log.length - 1] = { step: 'build', ok: build.exitCode === 0, detail: (build.stdout + build.stderr).trim().slice(0, 4000) }
@@ -533,13 +749,17 @@ async function deployRemote(
     log.push({ step: '~/.dsh-gui 已存在', ok: true, detail: '跳过部署' })
   }
 
-  const tmux = await sshRun(ctx, auth, `if tmux has-session -t ${tmuxName} 2>/dev/null; then echo TMUX_YES; else echo TMUX_NO; fi`, 20000)
-  log.push({ step: `tmux 会话 ${tmuxName}`, ok: tmux.exitCode === 0, detail: tmux.stdout.trim() })
-  if (tmux.exitCode !== 0) return { ok: false, log }
-
-  if (tmux.stdout.includes('TMUX_NO')) {
-    log.push({ step: '启动后端 (tmux)', ok: false, detail: 'start' })
-    const inner = `cd "$HOME/.dsh-gui" && DSH_HOME="$HOME/.dsh-gui/.dsh" node apps/cli/lib/bin.js web --port ${conn.port}`
+  // 3. tmux session state
+  const state = await sessionState(ctx, auth)
+  log.push({ step: `tmux 会话 ${tmuxName}`, ok: state === 'ALIVE', detail: `state=${state}` })
+  if (state !== 'ALIVE') {
+    if (state === 'STALE') {
+      const killed = await sshRun(ctx, auth, `tmux kill-session -t ${tmuxName} 2>/dev/null || true`, 20000)
+      log.push({ step: '清理失效会话', ok: killed.exitCode === 0, detail: (killed.stdout + killed.stderr).trim() || 'ok' })
+    }
+    log.push({ step: '启动后端 (tmux, 127.0.0.1)', ok: false, detail: 'start' })
+    // Backend binds loopback ONLY — the frontend is reached via the SSH tunnel.
+    const inner = `cd "$HOME/.dsh-gui" && DSH_HOME="$HOME/.dsh-gui/.dsh" node apps/cli/lib/bin.js web --host 127.0.0.1 --port ${conn.port}`
     const start = await sshRun(ctx, auth, [
       'set -e',
       `tmux new-session -d -s ${tmuxName} ${JSON.stringify(inner)}`,
@@ -549,15 +769,39 @@ async function deployRemote(
     if (start.exitCode !== 0) return { ok: false, log }
   }
 
+  // 4. discover serving port from the session and wait until it is open
+  const remotePort = await discoverSessionPort(ctx, auth, conn.port)
+  log.push({ step: `服务端口 ${remotePort}`, ok: true, detail: `会话内后端监听 127.0.0.1:${remotePort}` })
+  const openDeadline = Date.now() + 120000
+  let open = await sshPortOpen(ctx, auth, remotePort)
+  while (!open && Date.now() < openDeadline) {
+    await new Promise(r => setTimeout(r, 2000))
+    open = await sshPortOpen(ctx, auth, remotePort)
+  }
+  if (!open) {
+    log.push({ step: '服务端口未就绪', ok: false, detail: `127.0.0.1:${remotePort} 未在 120s 内开放` })
+    return { ok: false, log }
+  }
+
+  // 5. open the SSH local port forward and wait for the local URL to load
+  const tunnel = await openTunnel(ctx, auth, avail, remotePort)
+  if (!tunnel.ok || tunnel.localPort === undefined) {
+    log.push({ step: 'ssh 端口转发', ok: false, detail: tunnel.error || '无法建立转发' })
+    return { ok: false, log }
+  }
+  const key = `${auth.host}:${remotePort}`
+  const localUrl = `http://127.0.0.1:${tunnel.localPort}/`
+  log.push({ step: 'ssh 端口转发', ok: true, detail: `127.0.0.1:${tunnel.localPort} -> ${auth.host}:${remotePort}` })
+
   const deadline = Date.now() + 150000
   let ready = false
   let status: number | undefined
   while (Date.now() < deadline) {
-    const p = await probe(url)
+    const p = await probe(localUrl)
     status = p.status
-    if (p.ok) { ready = true; break }
-    await new Promise((r) => setTimeout(r, 2000))
+    if (p.loadable) { ready = true; break }
+    await new Promise(r => setTimeout(r, 2000))
   }
-  log.push({ step: `后端就绪 ${url}`, ok: ready, detail: ready ? `HTTP ${status}` : '超时' })
-  return { ok: ready, log, url }
+  log.push({ step: `前端就绪 ${localUrl}`, ok: ready, detail: ready ? `HTTP ${status}` : '超时' })
+  return { ok: ready, log, url: localUrl, tunnelKey: key }
 }
