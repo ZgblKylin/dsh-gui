@@ -216,6 +216,15 @@ function buildPlugins() {
   step('Build plugin packages', () => {
     for (const dir of dirs) {
       console.log(`--- build ${basename(dir)}`)
+      const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+      if (manifest.scripts?.build === undefined) {
+        // A package without a build script ships ready to use (prebuilt
+        // lib/, or config-only): installing its dev deps and looking for a
+        // build would only fail. Its runtime deps resolve from the profile
+        // install, which links the package directory as-is.
+        console.log('  no build script — using the package as shipped, skipping install + build')
+        continue
+      }
       pnpm(['install', '--store-dir', STORE], { cwd: dir, env: { CI: 'true' } })
       pnpm(['run', 'build'], { cwd: dir })
     }
@@ -270,7 +279,10 @@ function escapeRegExp(text) {
  * declarations, so a plugin stays inert until a cordis.patch.yml insert turns
  * it into an entry. The entry id comes from the plugin's `dsh.gui.mountId`
  * declaration, or is derived from the package name by stripping a leading
- * `dsh-`. Appends are idempotent; user content is preserved.
+ * `dsh-`. A plugin that declares `dsh.bundle.patch` is skipped: the harness
+ * reconciles it into `dsh.profile.bundles` on `dsh plugin add`, and its own
+ * patch layer then inserts the entry (a manual insert would double-mount it).
+ * Appends are idempotent; user content is preserved.
  */
 function mountPlugins() {
   const dirs = pluginDirs()
@@ -293,6 +305,14 @@ function mountPlugins() {
     for (const dir of dirs) {
       const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
       const pkgName = String(manifest.name ?? '')
+      if (manifest.dsh?.bundle?.patch !== undefined) {
+        // A bundle patch plugin mounts itself: `dsh plugin add` reconciles it
+        // into dsh.profile.bundles, and its own cordis.patch.yml insert row
+        // reaches the composition as a bundle layer. A manual insert here
+        // would mount the same entry twice.
+        console.log(`  ${pkgName} declares dsh.bundle.patch — it mounts through its bundle layer, no cordis.patch.yml insert added`)
+        continue
+      }
       let mountId = manifest.dsh?.gui?.mountId
       if (!mountId) {
         mountId = pkgName.replace(/^dsh-/, '')

@@ -67,7 +67,9 @@ dsh-gui/
 │                      #   (DeepSeekHarness-WhaleGirl.ico is the app icon)
 ├─ scripts/
 │  └─ dsh-gui.mjs      # the cross-platform CLI behind every npm script
-├─ plugins/            # drop your local harness plugin packages here
+├─ plugins/            # local harness plugin packages: `remote` (in-tree) plus
+│                      #   the `dsh-terminal` and `dsh-file-explorer` git
+│                      #   submodules (see plugins/README.md)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
 
@@ -155,13 +157,19 @@ Plugins are installed into the `web` profile under the repo-local `DSH_HOME`
 `plugins/` — after the next `npm run build` (or `npm run setup`) it is
 automatically:
 
-1. built (`pnpm install` + `pnpm run build` with the pinned toolchain pnpm),
+1. built (`pnpm install` + `pnpm run build` with the pinned toolchain pnpm) —
+   a package without a `build` script is used as shipped (prebuilt `lib/`),
 2. installed into the web profile as a `link:` dependency, and
 3. mounted into the web composition: the CLI appends an `insert` entry to
    `.dsh\profiles\web\cordis.patch.yml` (the harness only loads entries from
    the composition — a dependency alone stays inert). The entry id comes from
    the plugin's `dsh.gui.mountId` declaration in its `package.json`, defaulting
    to the package name without a leading `dsh-`.
+
+A plugin that declares `dsh.bundle.patch` (its own `cordis.patch.yml` bundle
+layer, e.g. `dsh-file-explorer`) mounts itself: `dsh plugin add` reconciles it
+into the profile's `dsh.profile.bundles` list and its patch inserts the entry
+as a bundle layer — no `cordis.patch.yml` insert is written for it.
 
 Standalone, the same step is:
 
