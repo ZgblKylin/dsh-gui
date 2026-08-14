@@ -26,28 +26,30 @@ harness over plain HTTP exactly like a browser.
 
 - Windows 10/11 with the **WebView2 Evergreen runtime** (ships with most modern
   Windows / Edge installs).
-- **Node.js** `^22.19 || >=24` and **npm** on `PATH` (used only by the build and
-  by the shell to launch `bin.js`).
+- **Node.js** `^22.19 || >=24` and **npm** on `PATH` (used by the build tooling
+  and by the shell to launch `bin.js`).
 - **Rust** toolchain (`rustc`/`cargo`) for the entry exe.
 
 Everything fetched at build time (npm packages, the pnpm store, cargo crates)
 lands inside this repository or the standard local caches — no global install of
 the harness is ever performed.
 
+The tooling is a single cross-platform Node CLI (`scripts/dsh-gui.mjs`) exposed
+through npm scripts, so the same commands work on Windows, macOS, and Linux
+(WSL).
+
 ## Layout
 
 ```
 dsh-gui/
 ├─ deepseek-harness/   # git submodule: the harness checkout (built in place)
-├─ dsh-gui.exe         # the Tauri shell entry exe (build scripts copy it here)
-├─ src-tauri/          # the Tauri shell (Rust); cargo output at target/debug/
+├─ package.json        # npm scripts: setup / build / install:plugins / start / ...
+├─ dsh-gui.exe         # the Tauri shell entry binary (Windows; `dsh-gui` on
+│                      #   Linux/macOS — build scripts copy it here)
+├─ src-tauri/          # the Tauri shell (Rust); cargo output at target/<profile>/
 │  └─ ui/              # placeholder page (never shown — webview loads the harness URL)
 ├─ scripts/
-│  ├─ setup.ps1        # one-shot: bootstrap pnpm → install → build harness → build exe → build+install plugins
-│  ├─ build.ps1        # rebuild harness and/or exe after edits (also rebuilds+reinstalls plugins)
-│  ├─ install-plugins.ps1 # build + install every plugin package under plugins/ into the web profile
-│  ├─ make-shortcut.ps1# create a desktop shortcut to the entry exe
-│  └─ run.ps1          # run the built entry exe (returns immediately)
+│  └─ dsh-gui.mjs      # the cross-platform CLI behind every npm script
 ├─ plugins/            # drop your local harness plugin packages here
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
@@ -55,7 +57,7 @@ dsh-gui/
 ## Build (one shot)
 
 ```powershell
-.\scripts\setup.ps1
+npm run setup
 ```
 
 This is idempotent and fully repo-internal:
@@ -67,13 +69,19 @@ This is idempotent and fully repo-internal:
   repository — not in a global store. Both `.toolchain/` and `.pnpm-store/` are
   gitignored.
 - Builds the harness (`pnpm run build`: host lib + web `dist/`).
-- Compiles the entry exe with `cargo build` and copies it to the repository
-  root.
-- Builds and installs every plugin package under `plugins/` into the web
-  profile (see [Adding plugins](#adding-plugins-at-runtime)).
+- Compiles the entry exe with `cargo build --release` (**release by default**)
+  and copies it to the repository root (`dsh-gui.exe` on Windows, `dsh-gui`
+  elsewhere).
+- Builds, installs, and mounts every plugin package under `plugins/` into the
+  web profile (see [Adding plugins](#adding-plugins-at-runtime)).
 
-The result is `dsh-gui.exe` at the repository root (cargo keeps its own
-output at `src-tauri\target\debug\`).
+The result is the entry binary at the repository root (cargo keeps its own
+output at `src-tauri\target\release\` or `target\debug\`).
+
+Flags (pass after `--`): `--debug` for a `cargo build` debug build,
+`--skip-harness` to skip the harness install+build, `--skip-exe` to skip cargo
+entirely (harness/plugins only — useful on Linux without Tauri system deps).
+Example: `npm run build -- --debug`.
 
 > Packaging/installer generation is intentionally disabled (`bundle.active:
 > false` in `src-tauri/tauri.conf.json`). The app always runs from this checkout,
@@ -83,44 +91,42 @@ output at `src-tauri\target\debug\`).
 ## Run
 
 ```powershell
-.\scripts\run.ps1
-# or double-click:
-dsh-gui.exe
+npm start
+# or double-click the entry binary at the repository root
 ```
 
-dsh-gui is a plain Win32 GUI app: the launching terminal returns immediately
-(`run.ps1` uses `Start-Process`, and even a direct `.\dsh-gui.exe` from cmd or
-PowerShell does not block). Closing the terminal afterwards does not kill it.
+`npm start` launches the entry exe detached: the terminal returns immediately
+and closing it never kills dsh-gui (or its harness child).
 
 Override the port with `$env:DSH_GUI_PORT` (default `3080`). Harness output is
 logged to `.dsh\gui\harness.log`; dsh-gui's own status lines go to
 `.dsh\gui\gui.log`, and startup failures also pop a message box (a GUI app has
 no console to print to).
 
-## System shortcut
+## System shortcut (Windows)
 
 ```powershell
-.\scripts\make-shortcut.ps1                        # desktop shortcut
-.\scripts\make-shortcut.ps1 -OutputPath "D:\x.lnk" # arbitrary location
+npm run shortcut                          # desktop shortcut
+npm run shortcut -- "D:\x.lnk"            # arbitrary location
 ```
 
 ## Updating the harness submodule
 
 ```powershell
 git submodule update --remote deepseek-harness
-.\scripts\build.ps1          # reinstall + rebuild harness, then rebuild exe
+npm run build             # reinstall + rebuild harness, then rebuild exe + plugins
 ```
 
 ## Adding plugins at runtime
 
 Plugins are installed into the `web` profile under the repo-local `DSH_HOME`
 (`.dsh/`). Drop a package (a directory with its own `package.json`) into
-`plugins/` — after the next `.\scripts\build.ps1` (or `setup.ps1`) it is
+`plugins/` — after the next `npm run build` (or `npm run setup`) it is
 automatically:
 
 1. built (`pnpm install` + `pnpm run build` with the pinned toolchain pnpm),
 2. installed into the web profile as a `link:` dependency, and
-3. mounted into the web composition: the script appends an `insert` entry to
+3. mounted into the web composition: the CLI appends an `insert` entry to
    `.dsh\profiles\web\cordis.patch.yml` (the harness only loads entries from
    the composition — a dependency alone stays inert). The entry id comes from
    the plugin's `dsh.gui.mountId` declaration in its `package.json`, defaulting
@@ -129,20 +135,30 @@ automatically:
 Standalone, the same step is:
 
 ```powershell
-.\scripts\install-plugins.ps1
+npm run install:plugins
 ```
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing
 escapes this repository.
 
+## Linux / WSL
+
+The tooling is pure Node and runs on Linux (e.g. inside WSL): `npm run setup`,
+`npm run build`, and `npm run install:plugins` behave identically there. The
+harness, the plugins, and the `dsh web` server are all cross-platform. Building
+the Tauri shell on Linux additionally needs the Tauri system libraries
+(`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, ...)
+and a display to run; without them, use `npm run build -- --skip-exe` to build
+and install just the harness + plugins.
+
 ## Troubleshooting
 
-- **"harness is not built"** — run `.\scripts\setup.ps1`.
+- **"harness is not built"** — run `npm run setup`.
 - **`ERR_PNPM_UNEXPECTED_STORE` when installing plugins** — the profile's
   pnpm store was not pinned (an install ran from a context whose home
   variables resolve a different default store than the one used before). Run
-  `.\scripts\install-plugins.ps1` once — it writes `storeDir` into
+  `npm run install:plugins` once — it writes `storeDir` into
   `.dsh\profiles\web\pnpm-workspace.yaml` and re-syncs every plugin.
 - **"failed to spawn harness (is `node` on PATH?)"** — install Node 22+.
 - **Blank window / connection refused** — read `.dsh\gui\harness.log`; the

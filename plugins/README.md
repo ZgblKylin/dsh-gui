@@ -11,6 +11,7 @@ package that lives in this directory:
 dsh plugin --profile web add link:./plugins/my-plugin
 ```
 
-`DSH_HOME` is pinned to `./.dsh` by the desktop shell (and `scripts/setup.ps1`),
-so installed plugins and agent presets land under `.dsh/` inside this
-repository — nothing is written to `~/.dsh` or any global location.
+`DSH_HOME` is pinned to `./.dsh` by the desktop shell (and by the `npm run
+setup` / `npm run install:plugins` tooling), so installed plugins and agent
+presets land under `.dsh/` inside this repository — nothing is written to
+`~/.dsh` or any global location.

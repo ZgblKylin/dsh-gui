@@ -1,0 +1,18 @@
+{
+  "name": "dsh-gui",
+  "private": true,
+  "type": "module",
+  "description": "Desktop shell for the DeepSeek Harness web UI",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "setup": "node scripts/dsh-gui.mjs setup",
+    "build": "node scripts/dsh-gui.mjs build",
+    "build:exe": "node scripts/dsh-gui.mjs build --skip-harness",
+    "install:plugins": "node scripts/dsh-gui.mjs install",
+    "plugins": "node scripts/dsh-gui.mjs install",
+    "start": "node scripts/dsh-gui.mjs run",
+    "shortcut": "node scripts/dsh-gui.mjs shortcut"
+  }
+}

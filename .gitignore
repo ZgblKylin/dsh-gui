@@ -1,7 +1,7 @@
 # ── Local toolchain / package caches (installed into the project, not globally) ──
 # Repo-local pnpm store: the "local install cache" every build writes into.
 .pnpm-store/
-# Bootstrap toolchain (pinned pnpm installed by scripts/setup.ps1).
+# Bootstrap toolchain (pinned pnpm installed by `npm run setup`).
 .toolchain/
 # Any stray node_modules at the repo root.
 node_modules/
@@ -9,9 +9,11 @@ node_modules/
 # ── Tauri / Rust build output (entry exe lives here, but is never committed) ──
 src-tauri/target/
 src-tauri/gen/
-# Entry exe the build scripts copy to the repository root, plus the crash log
-# the console-less exe writes next to itself.
+# Entry binary the build copies to the repository root (dsh-gui.exe on
+# Windows, dsh-gui on Linux/macOS), plus the crash log the console-less
+# Windows exe writes next to itself.
 /dsh-gui.exe
+/dsh-gui
 /dsh-gui-crash.log
 
 # ── Harness runtime home (DSH_HOME is pinned to ./.dsh so profiles, plugins,

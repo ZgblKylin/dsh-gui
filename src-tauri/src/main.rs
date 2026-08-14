@@ -274,7 +274,7 @@ fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Er
     let bin = root.join(HARNESS_BIN);
     if !bin.is_file() {
         return Err(format!(
-            "harness is not built: {} is missing — run scripts\\setup.ps1 first",
+            "harness is not built: {} is missing — run `npm run setup` first",
             bin.display()
         )
         .into());
