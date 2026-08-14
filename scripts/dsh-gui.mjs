@@ -9,11 +9,11 @@
  *
  * Commands:
  *   setup    one-shot bootstrap: pinned pnpm -> harness install+build -> entry
- *            exe (release unless --debug) -> build+install+mount plugins ->
- *            install agent presets
+ *            exe (release unless --debug) -> plugins (each plugins/<id>/install.mjs)
+ *            -> install agent presets
  *   build    harness install+build (unless --skip-harness) -> entry exe ->
- *            build+install+mount plugins -> install agent presets
- *   install  build + install + mount the plugins under plugins/ (alias: plugins)
+ *            plugins (each plugins/<id>/install.mjs) -> install agent presets
+ *   install  run every plugins/<id>/install.mjs (alias: plugins)
  *   run      launch the entry exe detached; the invoking terminal returns at
  *            once and closing it never kills dsh-gui (or its harness child)
  *   shortcut create a Windows desktop shortcut to the entry exe (Windows only)
@@ -26,104 +26,26 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { platform } from 'node:os'
-import { basename, delimiter, dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { copyFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
+import {
+  BIN_NAME,
+  HARNESS,
+  IS_WINDOWS,
+  PLUGINS,
+  ROOT,
+  STORE,
+  WEB_HOME,
+  bootstrapPnpm,
+  pnpm,
+  run,
+} from './toolchain.mjs'
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const TOOLCHAIN = join(ROOT, '.toolchain')
-const STORE = join(ROOT, '.pnpm-store')
-const HARNESS = join(ROOT, 'deepseek-harness')
 const SRC_TAURI = join(ROOT, 'src-tauri')
-const PLUGINS = join(ROOT, 'plugins')
-const WEB_HOME = join(ROOT, '.dsh')
-const PROFILE_DIR = join(WEB_HOME, 'profiles', 'web')
-const HARNESS_BIN = join(HARNESS, 'apps', 'cli', 'lib', 'bin.js')
-const IS_WINDOWS = platform() === 'win32'
-const BIN_NAME = IS_WINDOWS ? 'dsh-gui.exe' : 'dsh-gui'
-const PNPM_VERSION = '11.7.0'
 
 function step(name, fn) {
   console.log(`\n==> ${name}`)
   fn()
-}
-
-/** Run a command with inherited stdio; a `.cmd` shim needs a shell on Windows (CVE-2024-27980). */
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: options.cwd ?? ROOT,
-    env: { ...process.env, ...(options.env ?? {}) },
-    stdio: 'inherit',
-    shell: IS_WINDOWS && /\.(cmd|bat)$/i.test(command),
-  })
-  if (result.error) throw new Error(`failed to spawn ${command}: ${result.error.message}`)
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} exited with code ${result.status}`)
-  }
-}
-
-/** The pinned pnpm shim under .toolchain, or null when not bootstrapped yet. */
-function resolvePnpmShim() {
-  const candidates = IS_WINDOWS
-    ? [join(TOOLCHAIN, 'pnpm.cmd'), join(TOOLCHAIN, 'node_modules', '.bin', 'pnpm.cmd'), join(TOOLCHAIN, 'pnpm.CMD')]
-    : [join(TOOLCHAIN, 'pnpm'), join(TOOLCHAIN, 'bin', 'pnpm'), join(TOOLCHAIN, 'node_modules', '.bin', 'pnpm')]
-  return candidates.find(existsSync) ?? null
-}
-
-/**
- * pnpm's JS entry under .toolchain, or null. Calling `node <entry>` directly
- * avoids the platform shims (.cmd needs a shell on Windows, which also trips
- * the DEP0190 args-with-shell warning) and works identically everywhere.
- */
-function pnpmEntry() {
-  const candidates = [
-    join(TOOLCHAIN, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
-    join(TOOLCHAIN, 'lib', 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
-  ]
-  return candidates.find(existsSync) ?? null
-}
-
-function hasPnpm() {
-  return pnpmEntry() !== null || resolvePnpmShim() !== null
-}
-
-/** PATH that resolves `pnpm` (and any nested pnpm it spawns) to the pinned toolchain. */
-function pinnedPath() {
-  return `${TOOLCHAIN}${delimiter}${process.env.PATH ?? ''}`
-}
-
-/**
- * Env for the pinned pnpm. Prepending the toolchain forces any nested `pnpm`
- * (the `verify-deps-before-run` install that `pnpm run build` spawns when deps
- * are stale) to resolve to the pinned build rather than a system pnpm, and
- * pinning the store makes that nested install share the repo-local store.
- */
-function pnpmEnv(extra = {}) {
-  return { ...extra, PATH: pinnedPath(), pnpm_config_store_dir: STORE }
-}
-
-/** Run the pinned pnpm (bootstrap it first if needed). */
-function pnpm(args, options = {}) {
-  const env = pnpmEnv(options.env)
-  const entry = pnpmEntry()
-  if (entry) {
-    run('node', [entry, ...args], { ...options, env })
-    return
-  }
-  const shim = resolvePnpmShim()
-  if (!shim) throw new Error('pnpm is not bootstrapped yet — run "npm run setup" once.')
-  run(shim, args, { ...options, env })
-}
-
-/** Install pnpm@11.7.0 into .toolchain with a repo-local npm cache. */
-function bootstrapPnpm() {
-  if (hasPnpm()) return
-  step(`Bootstrap pnpm@${PNPM_VERSION} into .toolchain`, () => {
-    mkdirSync(TOOLCHAIN, { recursive: true })
-    run('npm', ['install', '--global', '--prefix', TOOLCHAIN, '--cache', join(TOOLCHAIN, 'npm-cache'), `pnpm@${PNPM_VERSION}`])
-    if (!hasPnpm()) throw new Error('pnpm bootstrap did not produce an entry under .toolchain')
-  })
 }
 
 function harnessInstall(frozen) {
@@ -203,163 +125,38 @@ function buildExe(debug) {
   })
 }
 
-/** Every subdirectory of plugins/ that holds a package.json. */
-function pluginDirs() {
-  if (!existsSync(PLUGINS)) return []
-  return readdirSync(PLUGINS, { withFileTypes: true })
+/**
+ * Install every plugin under plugins/ by running its own install script.
+ * Each `plugins/<id>/` directory is a self-contained plugin wrapper
+ * (`install.mjs` + the plugin package/repo it owns); the CLI delegates build,
+ * install, and mount to that script, so a plugin owns how it lands in the web
+ * profile (`.dsh/profiles/web/`) and adding one never touches this CLI.
+ * Scripts run in directory-name order for a deterministic install sequence.
+ */
+function installPluginScripts() {
+  if (!existsSync(PLUGINS)) return
+  const scripts = readdirSync(PLUGINS, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .map((entry) => join(PLUGINS, entry.name))
-    .filter((dir) => existsSync(join(dir, 'package.json')))
-}
-
-function buildPlugins() {
-  const dirs = pluginDirs()
-  step('Build plugin packages', () => {
-    for (const dir of dirs) {
-      console.log(`--- build ${basename(dir)}`)
-      const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-      if (manifest.scripts?.build === undefined) {
-        // A package without a build script ships ready to use (prebuilt
-        // lib/, or config-only): installing its dev deps and looking for a
-        // build would only fail. Its runtime deps resolve from the profile
-        // install, which links the package directory as-is.
-        console.log('  no build script — using the package as shipped, skipping install + build')
-        continue
-      }
-      pnpm(['install', '--store-dir', STORE], { cwd: dir, env: { CI: 'true' } })
-      pnpm(['run', 'build'], { cwd: dir })
-    }
-  })
-}
-
-/**
- * Pin the profile's pnpm store. `dsh plugin` runs pnpm with the profile as cwd
- * and without --store-dir; pnpm >=10 reads its settings from
- * pnpm-workspace.yaml, and the unset default store resolves from the invoking
- * environment's home variables, which differ between a plain terminal and the
- * desktop shell. Without the pin, an install made from one context fails the
- * other with ERR_PNPM_UNEXPECTED_STORE.
- */
-function pinProfileStore() {
-  mkdirSync(PROFILE_DIR, { recursive: true })
-  const workspacePath = join(PROFILE_DIR, 'pnpm-workspace.yaml')
-  if (!existsSync(workspacePath)) {
-    // Mirror the harness's profile template (hoisted linker, no auto peers).
-    writeFileSync(workspacePath, 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
+    .map((entry) => join(PLUGINS, entry.name, 'install.mjs'))
+    .filter((path) => existsSync(path))
+    .sort()
+  if (scripts.length === 0) {
+    console.log('No plugin install scripts under plugins/ — nothing to build or install.')
+    return
   }
-  let lines = readFileSync(workspacePath, 'utf8').split(/\r?\n/).filter((line) => !/^\s*storeDir\s*:/.test(line))
-  while (lines.length > 0 && lines.at(-1) === '') lines.pop()
-  lines.push('', `storeDir: '${STORE.replace(/'/g, "''")}'`, '')
-  writeFileSync(workspacePath, lines.join('\n'))
-}
-
-function installPlugins() {
-  const dirs = pluginDirs()
   step('Install plugins into the web profile', () => {
-    // `dsh plugin` forwards to `pnpm` on PATH; prepend the pinned toolchain so
-    // the compatible pnpm is used no matter which system pnpm is installed.
-    const env = {
-      ...process.env,
-      PATH: pinnedPath(),
-      DSH_HOME: WEB_HOME,
+    for (const script of scripts) {
+      console.log(`--- ${script}`)
+      // The same DSH_HOME pin the desktop shell and the preset installer use.
+      run('node', [script], { env: { DSH_HOME: WEB_HOME } })
     }
-    for (const dir of dirs) {
-      console.log(`--- install ${basename(dir)}`)
-      run('node', [HARNESS_BIN, 'plugin', '--profile', 'web', 'add', `link:${dir}`], { env })
-    }
-  })
-}
-
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-/**
- * Mount every plugin into the web composition. `dsh plugin add` only records
- * the dependency; the harness scans the Loader's ENTRIES for `dsh.client`
- * declarations, so a plugin stays inert until a cordis.patch.yml insert turns
- * it into an entry. The entry id comes from the plugin's `dsh.gui.mountId`
- * declaration, or is derived from the package name by stripping a leading
- * `dsh-`. A plugin that declares `dsh.bundle.patch` is skipped: the harness
- * reconciles it into `dsh.profile.bundles` on `dsh plugin add`, and its own
- * patch layer then inserts the entry (a manual insert would double-mount it).
- * Appends are idempotent; user content is preserved.
- */
-function mountPlugins() {
-  const dirs = pluginDirs()
-  step('Mount plugins into the web composition', () => {
-    mkdirSync(PROFILE_DIR, { recursive: true })
-    const patchPath = join(PROFILE_DIR, 'cordis.patch.yml')
-    if (!existsSync(patchPath)) {
-      // Mirror the harness's profile patch template.
-      writeFileSync(patchPath, [
-        '# Your patch layer for this dsh profile, applied after every bundle layer:',
-        '# a top-level YAML array of loader patch entries (id-targeted config',
-        '# overrides, disables, and insert lists; `!!js` expressions allowed).',
-        '[]',
-        '',
-      ].join('\n'))
-    }
-    const text = readFileSync(patchPath, 'utf8')
-
-    const mounts = []
-    for (const dir of dirs) {
-      const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-      const pkgName = String(manifest.name ?? '')
-      if (manifest.dsh?.bundle?.patch !== undefined) {
-        // A bundle patch plugin mounts itself: `dsh plugin add` reconciles it
-        // into dsh.profile.bundles, and its own cordis.patch.yml insert row
-        // reaches the composition as a bundle layer. A manual insert here
-        // would mount the same entry twice.
-        console.log(`  ${pkgName} declares dsh.bundle.patch — it mounts through its bundle layer, no cordis.patch.yml insert added`)
-        continue
-      }
-      let mountId = manifest.dsh?.gui?.mountId
-      if (!mountId) {
-        mountId = pkgName.replace(/^dsh-/, '')
-        console.log(`  mount id for ${basename(dir)} derived as '${mountId}' from its package name (declare "dsh.gui.mountId" in its package.json to override)`)
-      }
-      if (!mounts.some((m) => m.id === mountId && m.name === pkgName)) {
-        mounts.push({ id: mountId, name: pkgName })
-      }
-    }
-
-    const toWrite = mounts.filter((m) => {
-      // Inline modifiers ((?m) etc.) are rejected under Node's default
-      // type-stripping parse path, so flags go through the constructor.
-      const pattern = `^\\s*-\\s*insert\\s*:\\s*$[^\\r\\n]*\\r?\\n[^\\r\\n]*-\\s*id:\\s*${escapeRegExp(m.id)}[^\\r\\n]*\\r?\\n[^\\r\\n]*name:\\s*${escapeRegExp(m.name)}\\s*$`
-      return !new RegExp(pattern, 'm').test(text)
-    })
-    if (toWrite.length === 0) {
-      console.log('  all plugins already mounted')
-      return
-    }
-    const blocks = toWrite.map((m) => `- insert:\n    - id: ${m.id}\n      name: ${m.name}`).join('\n')
-    const body = text.split(/\r?\n/).filter((line) => !/^\s*#/.test(line) && !/^\s*$/.test(line)).join('\n')
-    let newText
-    if (body.trim() === '[]') {
-      // Replace the empty default; keep the template comments.
-      newText = text.split(/\r?\n/).filter((line) => !/^\s*\[\]\s*$/.test(line)).join('\n').trimEnd() + '\n' + blocks + '\n'
-    } else {
-      newText = text.trimEnd() + '\n' + blocks + '\n'
-    }
-    writeFileSync(patchPath, newText)
-    for (const m of toWrite) console.log(`  mounted ${m.name} as entry '${m.id}'`)
   })
 }
 
 function plugins() {
   bootstrapPnpm()
-  const dirs = pluginDirs()
-  if (dirs.length === 0) {
-    console.log('No plugin packages under plugins/ — nothing to build or install.')
-    return
-  }
-  buildPlugins()
-  pinProfileStore()
-  installPlugins()
-  mountPlugins()
-  console.log('\nDone. Plugins built, installed, and mounted into .dsh/profiles/web.')
+  installPluginScripts()
+  console.log('\nDone. Plugin install scripts ran against .dsh/profiles/web.')
   console.log('Restart dsh-gui for the composition to reload and the plugins to appear.')
 }
 
@@ -462,11 +259,11 @@ Usage:
 
 Commands:
   setup       one-shot bootstrap: pinned pnpm -> harness install+build -> entry
-              exe (release unless --debug) -> plugins (build+install+mount) ->
-              agent presets (each presets/*/install.mjs)
+              exe (release unless --debug) -> plugins (each plugins/<id>/install.mjs) ->
+              agent presets (each presets/<id>/install.mjs)
   build       harness install+build (unless --skip-harness) -> entry exe ->
-              plugins (build+install+mount) -> agent presets
-  install     build + install + mount the plugins under plugins/ (alias: plugins)
+              plugins (each plugins/<id>/install.mjs) -> agent presets
+  install     run every plugins/*/install.mjs (alias: plugins)
   run         launch the entry exe detached; the terminal returns immediately
   shortcut    create a Windows desktop shortcut (Windows only)
   help        show this help

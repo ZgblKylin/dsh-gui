@@ -132,8 +132,11 @@ fn item(dir: &Path, fallback_name: &str) -> AboutItem {
 }
 
 /// Collect the About rows for the shell, the harness submodule, the app-icon
-/// submodule, and every plugin package (a `plugins/` subdirectory holding a
-/// package.json).
+/// submodule, and every plugin package. The preset-style `plugins/` layout has
+/// one wrapper directory per plugin (`plugins/<id>/install.mjs`) holding the
+/// package/repo in a second-level directory; the old flat layout (a package.json
+/// directly under `plugins/`) is still recognized so the dialog works during
+/// migration.
 pub fn collect(root: &Path) -> AboutInfo {
     let shell = item(root, "dsh-gui");
     let harness = item(&root.join("deepseek-harness"), "deepseek-harness");
@@ -145,11 +148,28 @@ pub fn collect(root: &Path) -> AboutInfo {
     if let Ok(entries) = std::fs::read_dir(root.join("plugins")) {
         for entry in entries.flatten() {
             let path: PathBuf = entry.path();
-            if path.is_dir() && path.join("package.json").is_file() {
+            if !path.is_dir() {
+                continue;
+            }
+            if path.join("package.json").is_file() {
                 plugins.push(item(&path, &entry.file_name().to_string_lossy()));
+                continue;
+            }
+            if let Ok(children) = std::fs::read_dir(&path) {
+                for child in children.flatten() {
+                    let child_path = child.path();
+                    if child_path.is_dir() && child_path.join("package.json").is_file() {
+                        plugins.push(item(&child_path, &child.file_name().to_string_lossy()));
+                    }
+                }
             }
         }
     }
     plugins.sort_by(|a, b| a.name.cmp(&b.name));
-    AboutInfo { shell, harness, icon, plugins }
+    AboutInfo {
+        shell,
+        harness,
+        icon,
+        plugins,
+    }
 }

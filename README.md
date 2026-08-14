@@ -70,9 +70,11 @@ dsh-gui/
 ├─ presets/            # agent preset sources: each presets/<id>/ directory owns
 │                      #   its install.mjs; the build installs every preset into
 │                      #   .dsh/.agent-presets/ (see presets/README.md)
-├─ plugins/            # local harness plugin packages: `remote` (in-tree) plus
-│                      #   the `dsh-terminal` and `dsh-file-explorer` git
-│                      #   submodules (see plugins/README.md)
+├─ plugins/            # plugin wrappers, preset-style: each plugins/<id>/ owns an
+│                      #   install.mjs plus the plugin package/repo in a
+│                      #   second-level directory (remote/dsh-remote in-tree;
+│                      #   terminal/dsh-terminal and file-explorer/
+│                      #   dsh-file-explorer are git submodules; see plugins/README.md)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
 
@@ -94,8 +96,9 @@ This is idempotent and fully repo-internal:
 - Compiles the entry exe with `cargo build --release` (**release by default**)
   and copies it to the repository root (`dsh-gui.exe` on Windows, `dsh-gui`
   elsewhere).
-- Builds, installs, and mounts every plugin package under `plugins/` into the
-  web profile (see [Adding plugins](#adding-plugins-at-runtime)).
+- Runs every plugin install script under `plugins/` — each
+  `plugins/<id>/install.mjs` builds, installs, and mounts its plugin package
+  into the web profile (see [Adding plugins](#adding-plugins-at-runtime)).
 - Runs every agent-preset install script under `presets/` — each
   `presets/<id>/` directory lands in `.dsh\.agent-presets\<id>\` and appears on
   the preset roster (see `presets/README.md` for the pattern).
@@ -159,14 +162,38 @@ npm run build             # reinstall + rebuild harness, then rebuild exe + plug
 ## Adding plugins at runtime
 
 Plugins are installed into the `web` profile under the repo-local `DSH_HOME`
-(`.dsh/`). Drop a package (a directory with its own `package.json`) into
-`plugins/` — after the next `npm run build` (or `npm run setup`) it is
-automatically:
+(`.dsh/`). The layout mirrors `presets/`: each `plugins/<id>/` wrapper owns an
+`install.mjs` plus the plugin package/repo in a second-level directory:
 
-1. built (`pnpm install` + `pnpm run build` with the pinned toolchain pnpm) —
-   a package without a `build` script is used as shipped (prebuilt `lib/`),
-2. installed into the web profile as a `link:` dependency, and
-3. mounted into the web composition: the CLI appends an `insert` entry to
+```
+plugins/<id>/install.mjs     # builds + installs + mounts this one plugin
+plugins/<id>/<package>/      # the plugin package (in-tree, or a git submodule)
+```
+
+A minimal `install.mjs` delegates the shared pipeline and declares its own id,
+package directory, and submodule hint:
+
+```js
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { installPlugin } from '../../scripts/plugin-install.mjs'
+
+const here = dirname(fileURLToPath(import.meta.url))
+installPlugin({
+  id: 'my-plugin',
+  packageDir: join(here, 'dsh-my-plugin'),
+})
+```
+
+`npm run build` (or `npm run setup`, or `npm run install:plugins`) runs every
+`plugins/*/install.mjs` in directory-name order. Each one:
+
+1. builds the package in place (`pnpm install` + `pnpm run build` with the
+   pinned toolchain pnpm) — a package without a `build` script is used as
+   shipped (prebuilt `lib/`),
+2. pins the profile's pnpm store (`.dsh\profiles\web\pnpm-workspace.yaml`),
+3. installs it into the web profile as a `link:` dependency, and
+4. mounts it into the web composition by appending an `insert` entry to
    `.dsh\profiles\web\cordis.patch.yml` (the harness only loads entries from
    the composition — a dependency alone stays inert). The entry id comes from
    the plugin's `dsh.gui.mountId` declaration in its `package.json`, defaulting
@@ -177,15 +204,25 @@ layer, e.g. `dsh-file-explorer`) mounts itself: `dsh plugin add` reconciles it
 into the profile's `dsh.profile.bundles` list and its patch inserts the entry
 as a bundle layer — no `cordis.patch.yml` insert is written for it.
 
-Standalone, the same step is:
-
-```powershell
-npm run install:plugins
-```
-
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing
 escapes this repository.
+
+### One-shot layout migration
+
+This checkout migrated from the flat `plugins/<package>` layout to the wrapper
+layout above. `remote` and `terminal` are already moved; the `dsh-file-explorer`
+submodule move must run while dsh-gui is closed (the app holds files under that
+checkout open):
+
+```powershell
+# 1. close dsh-gui
+npm run migrate:plugins
+```
+
+The script moves the submodule with `git mv`, then re-runs every plugin install
+script so the web profile links all packages at their new paths. It is
+idempotent.
 
 ## Linux / WSL
 
@@ -203,8 +240,9 @@ and install just the harness + plugins.
 - **`ERR_PNPM_UNEXPECTED_STORE` when installing plugins** — the profile's
   pnpm store was not pinned (an install ran from a context whose home
   variables resolve a different default store than the one used before). Run
-  `npm run install:plugins` once — it writes `storeDir` into
-  `.dsh\profiles\web\pnpm-workspace.yaml` and re-syncs every plugin.
+  `npm run install:plugins` once — every plugin install script writes
+  `storeDir` into `.dsh\profiles\web\pnpm-workspace.yaml` before re-adding
+  its `link:` dependency.
 - **"failed to spawn harness (is `node` on PATH?)"** — install Node 22+.
 - **Blank window / connection refused** — read `.dsh\gui\harness.log`; the
   harness failed to start (e.g. port already in use — set `DSH_GUI_PORT`).

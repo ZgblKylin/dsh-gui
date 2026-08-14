@@ -1,6 +1,6 @@
 # dsh-remote
 
-多后端远程连接插件：在 **dsh-gui（Tauri 桌面壳）的原生标题栏**上提供连接标签页（VSCode 风格）、新建连接对话框与汉堡菜单，支持本机端口后端与（VSCode Remote SSH 模式）远端 SSH 部署。非侵入：不修改 dsh 框架本体，仅作为 `plugins/remote/` 插件包挂载到 web profile。
+多后端远程连接插件：在 **dsh-gui（Tauri 桌面壳）的原生标题栏**上提供连接标签页（VSCode 风格）、新建连接对话框与汉堡菜单，支持本机端口后端与（VSCode Remote SSH 模式）远端 SSH 部署。非侵入：不修改 dsh 框架本体，仅作为 `plugins/remote/dsh-remote/` 插件包挂载到 web profile。
 
 ## 特性
 
@@ -38,7 +38,7 @@ Tauri 壳（src-tauri/ui/*.html/css/js）
 Rust（src-tauri/src/main.rs, remote_call）
   白名单校验 op → 本机回环 HTTP POST /remote-api/<op>（无 Origin 头，同源视同）
         ▼
-插件 Host 半端（plugins/remote/src/index.ts, Node ESM）
+插件 Host 半端（plugins/remote/dsh-remote/src/index.ts, Node ESM）
   /remote-api/*: probe / local.start / ssh.connect / creds.* / keyfile.write / tunnel.close / diag
 ```
 
@@ -58,11 +58,13 @@ Rust（src-tauri/src/main.rs, remote_call）
 ## 结构
 
 ```
-plugins/remote/          插件包（Host 引擎 + 空 client）
-  src/index.ts           Host 半端（Node ESM）：/remote-api 路由 + 本地启动/SSH 部署/凭据
-  src/client/index.ts    浏览器半端：inert（不再渲染连接 chrome，见"架构"节）
-  build.mjs              esbuild 构建：lib/index.js（Host）+ lib/client.js（Browser module）
-  docs/                  本目录（插件文档）
+plugins/remote/            插件 wrapper（install.mjs 归本仓库）
+  install.mjs              构建 + 安装 + 挂载本插件（委托 scripts/plugin-install.mjs）
+  dsh-remote/              插件包（Host 引擎 + 空 client）
+    src/index.ts           Host 半端（Node ESM）：/remote-api 路由 + 本地启动/SSH 部署/凭据
+    src/client/index.ts    浏览器半端：inert（不再渲染连接 chrome，见"架构"节）
+    build.mjs              esbuild 构建：lib/index.js（Host）+ lib/client.js（Browser module）
+    docs/                  本目录（插件文档）
 
 src-tauri/ui/            dsh-gui 桌面壳 UI（标签页 / 新建连接对话框 / 汉堡菜单 / 关于）
   index.html             标题栏结构 + 标签条 + 新建连接对话框 + 空状态视图
@@ -75,16 +77,15 @@ src-tauri/src/main.rs    新增 `remote_call` Rust 命令（op 白名单 + 回�
 
 ```powershell
 # 从仓库根目录
-npm run install:plugins   # 构建 + 安装 + 挂载 plugins/ 下所有插件
-# 或单独（build.mjs 需在插件目录内运行，glob 相对 cwd）：
-node .toolchain/node_modules/pnpm/bin/pnpm.cjs install --store-dir .pnpm-store
-node build.mjs
+npm run install:plugins   # 运行 plugins/ 下每个 wrapper 的 install.mjs
+# 或单独运行本 wrapper（内部使用 .toolchain 固定的 pnpm）
+node plugins/remote/install.mjs
 ```
 
-挂载到 web profile（由 `npm run install:plugins` 自动完成，等价于）：
+挂载到 web profile（由 install 脚本自动完成，等价于）：
 
 ```text
-注入 .dsh/profiles/web/package.json      "dsh-remote": "link:./plugins/remote"
+注入 .dsh/profiles/web/package.json      "dsh-remote": "link:<repo>/plugins/remote/dsh-remote"
 注入 .dsh/profiles/web/cordis.patch.yml  - id: remote / name: dsh-remote
 ```
 
