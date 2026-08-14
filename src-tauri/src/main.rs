@@ -620,6 +620,11 @@ fn main() {
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .decorations(false)
+                // Answer WebView2/WebKitGTK clipboard permission requests so
+                // the embedded harness page (a cross-origin iframe) may use
+                // the async Clipboard API; without this the code-block and
+                // message copy controls cannot write the system clipboard.
+                .enable_clipboard_access()
                 .build()?;
             Ok(())
         })

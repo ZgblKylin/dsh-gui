@@ -58,8 +58,13 @@
       </div>
     </header>
 
-    <!-- The harness web UI, hosted by the self-hosted server, embedded here. -->
-    <iframe id="harness-frame" class="harness-frame" title="DeepSeek Harness"></iframe>
+    <!-- The harness web UI, hosted by the self-hosted server, embedded here.
+         allow= grants the cross-origin iframe the async Clipboard API
+         (navigator.clipboard.writeText) that the copy controls rely on;
+         without it the Permissions Policy default (clipboard-write = self)
+         makes every code-block/message copy reject. -->
+    <iframe id="harness-frame" class="harness-frame" title="DeepSeek Harness"
+            allow="clipboard-read; clipboard-write"></iframe>
 
     <!-- Empty state: shown when every connection tab has been closed. -->
     <div id="no-tabs" class="no-tabs hidden">
