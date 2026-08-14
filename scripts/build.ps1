@@ -45,4 +45,7 @@ Push-Location $SrcTauri
 try { cargo build } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
 
-Write-Host "`nDone. Entry exe: $SrcTauri\target\debug\dsh-gui.exe" -ForegroundColor Green
+Write-Host "==> copy entry exe to the repository root" -ForegroundColor Cyan
+Copy-Item -Force (Join-Path $SrcTauri 'target\debug\dsh-gui.exe') (Join-Path $Root 'dsh-gui.exe')
+
+Write-Host "`nDone. Entry exe: $Root\dsh-gui.exe" -ForegroundColor Green

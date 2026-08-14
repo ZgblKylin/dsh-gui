@@ -9,7 +9,9 @@ node_modules/
 # ── Tauri / Rust build output (entry exe lives here, but is never committed) ──
 src-tauri/target/
 src-tauri/gen/
-# Crash log the console-less entry exe writes next to itself.
+# Entry exe the build scripts copy to the repository root, plus the crash log
+# the console-less exe writes next to itself.
+/dsh-gui.exe
 /dsh-gui-crash.log
 
 # ── Harness runtime home (DSH_HOME is pinned to ./.dsh so profiles, plugins,

@@ -15,10 +15,14 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$Exe  = Join-Path $Root 'src-tauri\target\debug\dsh-gui.exe'
+$Exe  = Join-Path $Root 'dsh-gui.exe'
 
 if (-not (Test-Path $Exe)) {
-    throw "Entry exe not found at $Exe — run scripts\setup.ps1 first."
+    # Pre-root-copy layout or a manual `cargo build` in src-tauri.
+    $Exe = Join-Path $Root 'src-tauri\target\debug\dsh-gui.exe'
+    if (-not (Test-Path $Exe)) {
+        throw "Entry exe not found at $Root\dsh-gui.exe — run scripts\setup.ps1 first."
+    }
 }
 
 if (-not $OutputPath) {

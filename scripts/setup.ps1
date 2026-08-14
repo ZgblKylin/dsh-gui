@@ -6,8 +6,8 @@
 .DESCRIPTION
   Bootstraps a repo-local pinned pnpm (11.7.0), installs the deepseek-harness
   submodule into the project directory using a repo-local store, builds the
-  harness (host lib + web dist), and compiles the entry exe
-  (src-tauri\target\debug\dsh-gui.exe).
+  harness (host lib + web dist), and compiles the entry exe, copied to the
+  repository root as dsh-gui.exe.
 
   No global or out-of-tree runtime state is created: everything lands under this
   repository and is covered by .gitignore (.toolchain/, .pnpm-store/, .dsh/,
@@ -92,15 +92,16 @@ Invoke-Step 'Build harness (host lib + web dist)' {
 
 # 4) Tauri entry exe ---------------------------------------------------------
 if (-not $SkipCargo) {
-    Invoke-Step 'Build entry exe (cargo build)' {
+    Invoke-Step 'Build entry exe (cargo build + copy to repo root)' {
         Push-Location $SrcTauri
         try {
             cargo build
         } finally {
             Pop-Location
         }
+        Copy-Item -Force (Join-Path $SrcTauri 'target\debug\dsh-gui.exe') (Join-Path $Root 'dsh-gui.exe')
     }
 }
 
-Write-Host "`nDone. Entry exe: $SrcTauri\target\debug\dsh-gui.exe" -ForegroundColor Green
+Write-Host "`nDone. Entry exe: $Root\dsh-gui.exe" -ForegroundColor Green
 Write-Host 'Create a desktop shortcut with: scripts\make-shortcut.ps1'

@@ -39,7 +39,8 @@ the harness is ever performed.
 ```
 dsh-gui/
 ├─ deepseek-harness/   # git submodule: the harness checkout (built in place)
-├─ src-tauri/          # the Tauri shell (Rust); entry exe at target/debug/dsh-gui.exe
+├─ dsh-gui.exe         # the Tauri shell entry exe (build scripts copy it here)
+├─ src-tauri/          # the Tauri shell (Rust); cargo output at target/debug/
 │  └─ ui/              # placeholder page (never shown — webview loads the harness URL)
 ├─ scripts/
 │  ├─ setup.ps1        # one-shot: bootstrap pnpm → install → build harness → build exe
@@ -65,9 +66,11 @@ This is idempotent and fully repo-internal:
   repository — not in a global store. Both `.toolchain/` and `.pnpm-store/` are
   gitignored.
 - Builds the harness (`pnpm run build`: host lib + web `dist/`).
-- Compiles the entry exe with `cargo build`.
+- Compiles the entry exe with `cargo build` and copies it to the repository
+  root.
 
-The result is `src-tauri\target\debug\dsh-gui.exe`.
+The result is `dsh-gui.exe` at the repository root (cargo keeps its own
+output at `src-tauri\target\debug\`).
 
 > Packaging/installer generation is intentionally disabled (`bundle.active:
 > false` in `src-tauri/tauri.conf.json`). The app always runs from this checkout,
@@ -78,12 +81,12 @@ The result is `src-tauri\target\debug\dsh-gui.exe`.
 
 ```powershell
 .\scripts\run.ps1
-# or directly:
-.\src-tauri\target\debug\dsh-gui.exe
+# or double-click:
+dsh-gui.exe
 ```
 
 dsh-gui is a plain Win32 GUI app: the launching terminal returns immediately
-(`run.ps1` uses `Start-Process`, and even a direct exe invocation from cmd or
+(`run.ps1` uses `Start-Process`, and even a direct `.\dsh-gui.exe` from cmd or
 PowerShell does not block). Closing the terminal afterwards does not kill it.
 
 Override the port with `$env:DSH_GUI_PORT` (default `3080`). Harness output is
