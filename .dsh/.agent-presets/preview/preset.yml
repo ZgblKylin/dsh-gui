@@ -1,0 +1,2 @@
+name: 审阅模式
+description: 审查型编码 Agent：参照 opencode 的 review 系统提示词，先注入审查提示词再接收用户请求，并用用户所用的语言回复。
