@@ -13,14 +13,19 @@ On launch the entry exe:
 1. Spawns `node deepseek-harness/apps/cli/lib/bin.js web --port <port>`, with
    `DSH_HOME` pinned to `./.dsh` inside this repository.
 2. Waits until the harness answers `GET /` with `200` on `127.0.0.1:<port>`.
-3. Opens one webview window at `http://127.0.0.1:<port>` (title bar + border
-   only). On exit it tears the harness process tree down; the harness runs
-   inside a kill-on-close Windows job object, so the kernel enforces that
-   teardown even when dsh-gui itself is killed (Task Manager, closing the
-   terminal it was launched from).
+3. Opens one **frameless** webview window that renders a custom title bar and
+   embeds the harness web UI in an iframe. On exit it tears the harness
+   process tree down; the harness runs inside a kill-on-close Windows job
+   object, so the kernel enforces that teardown even when dsh-gui itself is
+   killed (Task Manager, closing the terminal it was launched from).
 
-There is no frontend, plugin, or IPC layer of its own: the webview talks to the
-harness over plain HTTP exactly like a browser.
+The `ui/` page is a thin shell only: a drag-anywhere title bar with the
+standard minimize / maximize / close controls and, on their inner side, a gear
+(配置) button that opens a menu with **关于** (About) and **退出** (Exit). The
+About dialog shows the version (exact git tag, else the commit short hash),
+license, and GitHub link for dsh-gui, the deepseek-harness submodule, and every
+plugin package under `plugins/`. The harness UI itself goes on talking to its
+self-hosted server over plain HTTP exactly like a browser.
 
 ## Requirements
 

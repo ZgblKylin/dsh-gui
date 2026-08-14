@@ -1,12 +1,67 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DeepSeek Harness</title>
+    <link rel="stylesheet" href="titlebar.css" />
   </head>
   <body>
-    <!-- Placeholder. The desktop shell never shows this page: it spawns the
-         self-hosted harness and loads the harness web UI over HTTP instead. -->
+    <!-- Custom title bar replacing the OS frame (the window is decorations:false).
+         The whole bar minus the controls is a drag region. -->
+    <header id="titlebar" class="titlebar">
+      <div id="titlebar-drag" class="titlebar-drag">
+        <span class="titlebar-title">DeepSeek Harness</span>
+      </div>
+      <div class="titlebar-controls">
+        <div id="config-wrap" class="config-wrap">
+          <button id="btn-config" class="titlebar-btn" title="菜单" aria-label="菜单" aria-haspopup="menu">
+            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+              <path fill="currentColor" d="M2.5 4h11v1.6h-11zM2.5 7.2h11v1.6h-11zM2.5 10.4h11V12h-11z"/>
+            </svg>
+          </button>
+          <div id="config-menu" class="config-menu hidden" role="menu">
+            <button id="menu-about" class="menu-item" role="menuitem">关于</button>
+            <button id="menu-exit" class="menu-item" role="menuitem">退出</button>
+          </div>
+        </div>
+        <button id="btn-min" class="titlebar-btn" title="最小化" aria-label="最小化">
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <path fill="currentColor" d="M3 8.5h10v1H3z"/>
+          </svg>
+        </button>
+        <button id="btn-max" class="titlebar-btn" title="最大化" aria-label="最大化">
+          <svg class="icon-maximize" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <rect x="3.5" y="3.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+          <svg class="icon-restore" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <rect x="2.5" y="5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M5 2.5h8.5V11" fill="none" stroke="currentColor" stroke-width="1.2"/>
+          </svg>
+        </button>
+        <button id="btn-close" class="titlebar-btn close" title="关闭" aria-label="关闭">
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <path fill="currentColor" d="M4.3 3.3 8 7l3.7-3.7.9.9L8.9 8l3.7 3.7-.9.9L8 8.9 4.3 12.6l-.9-.9L7.1 8 3.4 4.3z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- The harness web UI, hosted by the self-hosted server, embedded here. -->
+    <iframe id="harness-frame" class="harness-frame" title="DeepSeek Harness"></iframe>
+
+    <!-- About dialog: version/license/repository for the shell, the harness,
+         and every plugin under plugins/. -->
+    <div id="about-overlay" class="overlay hidden">
+      <div class="about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title">
+        <h2 id="about-title">关于</h2>
+        <div id="about-list" class="about-list"></div>
+        <div class="about-actions">
+          <button id="about-close" class="primary">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
   </body>
 </html>

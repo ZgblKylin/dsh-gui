@@ -1,0 +1,276 @@
+:root {
+  --titlebar-h: 36px;
+  --bg: #0d1117;
+  --titlebar-bg: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #2f81f7;
+  --hover: #30363d;
+  --close-hover: #e81123;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+/* ── Title bar ─────────────────────────────────────────────── */
+.titlebar {
+  flex: 0 0 var(--titlebar-h);
+  height: var(--titlebar-h);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  background: var(--titlebar-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.titlebar-drag {
+  flex: 1 1 auto;
+  min-width: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  cursor: default;
+}
+
+.titlebar-title {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.titlebar-controls {
+  display: flex;
+  align-items: stretch;
+  position: relative;
+}
+
+.titlebar-btn {
+  width: 46px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+
+.titlebar-btn:hover {
+  background: var(--hover);
+}
+
+.titlebar-btn.close:hover {
+  background: var(--close-hover);
+  color: #fff;
+}
+
+/* Maximize vs restore: the harness-shell swaps this class when maximized. */
+.titlebar-btn.maximized .icon-restore {
+  display: block;
+}
+.titlebar-btn.maximized .icon-maximize {
+  display: none;
+}
+.titlebar-btn .icon-restore {
+  display: none;
+}
+
+/* ── Config (gear) menu ────────────────────────────────────── */
+.config-wrap {
+  position: relative;
+  display: flex;
+  /* stretch, not center: the gear button inside must span the full title-bar
+     height so its hover highlight matches the min/max/close buttons */
+  align-items: stretch;
+}
+
+.config-menu {
+  position: absolute;
+  top: calc(var(--titlebar-h) - 2px);
+  right: 0;
+  min-width: 150px;
+  background: var(--titlebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  z-index: 1000;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: default;
+}
+
+.menu-item:hover {
+  background: var(--hover);
+}
+
+/* ── Harness iframe ────────────────────────────────────────── */
+.harness-frame {
+  flex: 1 1 auto;
+  border: none;
+  width: 100%;
+}
+
+/* ── Overlay / About dialog ────────────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.about-dialog {
+  width: min(560px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--titlebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.about-dialog h2 {
+  margin: 0 0 14px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.about-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.about-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.about-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.about-item-name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.about-item-version {
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+}
+
+.about-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.about-item-row .label {
+  flex: 0 0 44px;
+}
+
+.about-item-repo {
+  color: var(--accent);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: copy;
+}
+
+.about-item-repo:hover {
+  text-decoration: underline;
+}
+
+.about-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+button.primary {
+  padding: 7px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  cursor: default;
+}
+
+button.primary:hover {
+  filter: brightness(1.1);
+}
+
+/* Copied hint */
+.toast {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--titlebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text);
+  z-index: 3000;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* In a plain browser (no __TAURI__) window controls are inert. */
+body.no-tauri .titlebar-btn {
+  opacity: 0.45;
+}
+
+.hidden {
+  display: none !important;
+}

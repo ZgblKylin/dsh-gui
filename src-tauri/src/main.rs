@@ -5,15 +5,20 @@
 //!      `deepseek-harness` submodule checkout, with `DSH_HOME` pinned inside
 //!      the repository;
 //!   2. wait until that server answers HTTP on the loopback port;
-//!   3. open a single webview window (OS title bar + border only) pointed at it.
+//!   3. open a single frameless webview window that renders a custom title bar
+//!      and embeds the harness web UI in an iframe.
 //!
-//! There is no frontend, plugin, or IPC surface of its own: the webview renders
-//! the full harness UI over HTTP, exactly as a browser would.
+//! The frontend lives in `src-tauri/ui/` (a plain HTML shell — no bundler). It
+//! has one small IPC surface: window controls and an About dialog whose data
+//! (version/license/repository for the shell, the harness, and every plugin)
+//! is assembled in [`about`].
 
 // A plain Win32 GUI app in every profile: no console window on double-click,
 // and the launching terminal (cmd or PowerShell) does not wait for it. All of
 // dsh-gui's own diagnostics go to `.dsh\gui\gui.log` instead of a console.
 #![cfg_attr(windows, windows_subsystem = "windows")]
+
+mod about;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -26,7 +31,7 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::Manager;
+use tauri::{Manager, State};
 
 #[cfg(windows)]
 mod job {
@@ -422,6 +427,55 @@ impl Drop for ChildGuard {
     }
 }
 
+/// App-global state handed to the window-control and About commands.
+struct ShellState {
+    root: PathBuf,
+    port: u16,
+}
+
+#[tauri::command]
+fn minimize_window(window: tauri::Window) {
+    let _ = window.minimize();
+}
+
+#[tauri::command]
+fn toggle_maximize_window(window: tauri::Window) {
+    if window.is_maximized().unwrap_or(false) {
+        let _ = window.unmaximize();
+    } else {
+        let _ = window.maximize();
+    }
+}
+
+#[tauri::command]
+fn is_window_maximized(window: tauri::Window) -> bool {
+    window.is_maximized().unwrap_or(false)
+}
+
+#[tauri::command]
+fn close_window(window: tauri::Window) {
+    let _ = window.close();
+}
+
+#[tauri::command]
+fn start_window_drag(window: tauri::Window) {
+    let _ = window.start_dragging();
+}
+
+/// The self-hosted harness UI URL, so the wrapper page can point its iframe at
+/// the right port without the port being baked into the assets.
+#[tauri::command]
+fn harness_url(state: State<'_, ShellState>) -> String {
+    format!("http://127.0.0.1:{}", state.port)
+}
+
+/// Everything the About dialog needs: version/license/repository for the
+/// shell, the harness submodule, and every plugin under `plugins/`.
+#[tauri::command]
+fn about_info(state: State<'_, ShellState>) -> about::AboutInfo {
+    about::collect(&state.root)
+}
+
 fn main() {
     install_panic_log();
 
@@ -442,20 +496,34 @@ fn main() {
     log_status(&root, &format!("harness ready at http://127.0.0.1:{port}"));
 
     let child = ChildGuard::new(child);
-    let url: tauri::Url = format!("http://127.0.0.1:{port}")
-        .parse()
-        .expect("a numeric loopback port always parses as a URL");
+    let setup_root = root.clone();
 
     tauri::Builder::default()
         .setup(move |app| {
+            app.manage(ShellState {
+                root: setup_root,
+                port,
+            });
             app.manage(child);
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
+            // Frameless: the wrapper page (ui/index.html) draws its own title
+            // bar and window controls, and embeds the harness UI in an iframe.
+            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                 .title("DeepSeek Harness")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(800.0, 600.0)
+                .decorations(false)
                 .build()?;
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            minimize_window,
+            toggle_maximize_window,
+            is_window_maximized,
+            close_window,
+            start_window_drag,
+            harness_url,
+            about_info,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");
 
