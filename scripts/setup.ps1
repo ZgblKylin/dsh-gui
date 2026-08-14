@@ -103,5 +103,10 @@ if (-not $SkipCargo) {
     }
 }
 
+# 5) Plugins: build + install every package under plugins/ into the web profile.
+Invoke-Step 'Build and install plugins under plugins/' {
+    & (Join-Path $PSScriptRoot 'install-plugins.ps1')
+}
+
 Write-Host "`nDone. Entry exe: $Root\dsh-gui.exe" -ForegroundColor Green
 Write-Host 'Create a desktop shortcut with: scripts\make-shortcut.ps1'

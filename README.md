@@ -43,8 +43,9 @@ dsh-gui/
 ├─ src-tauri/          # the Tauri shell (Rust); cargo output at target/debug/
 │  └─ ui/              # placeholder page (never shown — webview loads the harness URL)
 ├─ scripts/
-│  ├─ setup.ps1        # one-shot: bootstrap pnpm → install → build harness → build exe
-│  ├─ build.ps1        # rebuild harness and/or exe after edits
+│  ├─ setup.ps1        # one-shot: bootstrap pnpm → install → build harness → build exe → build+install plugins
+│  ├─ build.ps1        # rebuild harness and/or exe after edits (also rebuilds+reinstalls plugins)
+│  ├─ install-plugins.ps1 # build + install every plugin package under plugins/ into the web profile
 │  ├─ make-shortcut.ps1# create a desktop shortcut to the entry exe
 │  └─ run.ps1          # run the built entry exe (returns immediately)
 ├─ plugins/            # drop your local harness plugin packages here
@@ -68,6 +69,8 @@ This is idempotent and fully repo-internal:
 - Builds the harness (`pnpm run build`: host lib + web `dist/`).
 - Compiles the entry exe with `cargo build` and copies it to the repository
   root.
+- Builds and installs every plugin package under `plugins/` into the web
+  profile (see [Adding plugins](#adding-plugins-at-runtime)).
 
 The result is `dsh-gui.exe` at the repository root (cargo keeps its own
 output at `src-tauri\target\debug\`).
@@ -111,18 +114,36 @@ git submodule update --remote deepseek-harness
 ## Adding plugins at runtime
 
 Plugins are installed into the `web` profile under the repo-local `DSH_HOME`
-(`.dsh/`). Put a package in `plugins/`, then from the repository root:
+(`.dsh/`). Drop a package (a directory with its own `package.json`) into
+`plugins/` — after the next `.\scripts\build.ps1` (or `setup.ps1`) it is
+automatically:
+
+1. built (`pnpm install` + `pnpm run build` with the pinned toolchain pnpm),
+2. installed into the web profile as a `link:` dependency, and
+3. mounted into the web composition: the script appends an `insert` entry to
+   `.dsh\profiles\web\cordis.patch.yml` (the harness only loads entries from
+   the composition — a dependency alone stays inert). The entry id comes from
+   the plugin's `dsh.gui.mountId` declaration in its `package.json`, defaulting
+   to the package name without a leading `dsh-`.
+
+Standalone, the same step is:
 
 ```powershell
-dsh plugin --profile web add link:./plugins/my-plugin
+.\scripts\install-plugins.ps1
 ```
 
-or manage the running profile with any `dsh plugin` / `--patch` workflow you
-normally use — nothing escapes this repository.
+Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
+on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing
+escapes this repository.
 
 ## Troubleshooting
 
 - **"harness is not built"** — run `.\scripts\setup.ps1`.
+- **`ERR_PNPM_UNEXPECTED_STORE` when installing plugins** — the profile's
+  pnpm store was not pinned (an install ran from a context whose home
+  variables resolve a different default store than the one used before). Run
+  `.\scripts\install-plugins.ps1` once — it writes `storeDir` into
+  `.dsh\profiles\web\pnpm-workspace.yaml` and re-syncs every plugin.
 - **"failed to spawn harness (is `node` on PATH?)"** — install Node 22+.
 - **Blank window / connection refused** — read `.dsh\gui\harness.log`; the
   harness failed to start (e.g. port already in use — set `DSH_GUI_PORT`).

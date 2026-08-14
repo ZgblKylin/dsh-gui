@@ -48,4 +48,7 @@ if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCOD
 Write-Host "==> copy entry exe to the repository root" -ForegroundColor Cyan
 Copy-Item -Force (Join-Path $SrcTauri 'target\debug\dsh-gui.exe') (Join-Path $Root 'dsh-gui.exe')
 
+# Plugins: build + install every package under plugins/ into the web profile.
+& (Join-Path $PSScriptRoot 'install-plugins.ps1')
+
 Write-Host "`nDone. Entry exe: $Root\dsh-gui.exe" -ForegroundColor Green
