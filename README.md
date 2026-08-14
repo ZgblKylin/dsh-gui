@@ -30,9 +30,10 @@ menu carries the tab list plus **新建连接** / **关闭当前连接** and the
 reaching it over an SSH local port forward). The connection chrome lives in the
 native title bar — the embedded harness page renders none of it. The About
 dialog shows the version (exact git tag, else the commit short hash), license,
-and GitHub link for dsh-gui, the deepseek-harness submodule, and every plugin
-package under `plugins/`. The harness UI itself goes on talking to its
-self-hosted server over plain HTTP exactly like a browser.
+and GitHub link for dsh-gui, the deepseek-harness submodule, the whale-girl
+app-icon submodule, and every plugin package under `plugins/`. The harness UI
+itself goes on talking to its self-hosted server over plain HTTP exactly like a
+browser.
 
 ## Requirements
 

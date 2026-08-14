@@ -1,5 +1,6 @@
 //! About-dialog data: version, license, and repository link for the shell
-//! itself, the harness submodule, and every plugin package under `plugins/`.
+//! itself, the harness submodule, the app-icon submodule (`src-tauri/whale-icon`),
+//! and every plugin package under `plugins/`.
 //!
 //! Version display follows one rule everywhere: the exact tag of `HEAD` when
 //! one exists, otherwise the short commit hash. Repo links come from each
@@ -23,6 +24,7 @@ pub struct AboutItem {
 pub struct AboutInfo {
     pub shell: AboutItem,
     pub harness: AboutItem,
+    pub icon: AboutItem,
     pub plugins: Vec<AboutItem>,
 }
 
@@ -129,11 +131,16 @@ fn item(dir: &Path, fallback_name: &str) -> AboutItem {
     }
 }
 
-/// Collect the About rows for the shell, the harness submodule, and every
-/// plugin package (a `plugins/` subdirectory holding a package.json).
+/// Collect the About rows for the shell, the harness submodule, the app-icon
+/// submodule, and every plugin package (a `plugins/` subdirectory holding a
+/// package.json).
 pub fn collect(root: &Path) -> AboutInfo {
     let shell = item(root, "dsh-gui");
     let harness = item(&root.join("deepseek-harness"), "deepseek-harness");
+    let icon = item(
+        &root.join("src-tauri").join("whale-icon"),
+        "whale-girl-icon",
+    );
     let mut plugins = Vec::new();
     if let Ok(entries) = std::fs::read_dir(root.join("plugins")) {
         for entry in entries.flatten() {
@@ -144,5 +151,5 @@ pub fn collect(root: &Path) -> AboutInfo {
         }
     }
     plugins.sort_by(|a, b| a.name.cmp(&b.name));
-    AboutInfo { shell, harness, plugins }
+    AboutInfo { shell, harness, icon, plugins }
 }

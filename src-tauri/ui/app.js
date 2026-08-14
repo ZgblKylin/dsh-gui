@@ -607,6 +607,7 @@ async function showAbout() {
   const sections = [
     { label: "deepseek-harness", item: info.harness },
     { label: "dsh-gui", item: info.shell },
+    { label: "whale-girl-icon", item: info.icon },
   ];
   for (const plugin of info.plugins || []) {
     sections.push({ label: plugin.name, item: plugin });
