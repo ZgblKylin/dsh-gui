@@ -285,7 +285,8 @@ fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Er
     fs::create_dir_all(&log_dir)?;
     let log = File::create(log_dir.join("harness.log"))?;
 
-    let child = Command::new("node")
+    let mut command = Command::new("node");
+    command
         .arg(&bin)
         .arg("web")
         .arg("--port")
@@ -293,7 +294,18 @@ fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Er
         .current_dir(root.join(HARNESS_DIR))
         .env("DSH_HOME", &home)
         .stdout(Stdio::from(log.try_clone()?))
-        .stderr(Stdio::from(log))
+        .stderr(Stdio::from(log));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: `node.exe` is a console-subsystem executable, so
+        // without this flag Windows allocates a brand-new console window for
+        // it whenever dsh-gui is launched from Explorer. The harness runs
+        // fully in the background; its output already goes to
+        // `.dsh\gui\harness.log`.
+        command.creation_flags(0x0800_0000);
+    }
+    let child = command
         .spawn()
         .map_err(|e| format!("failed to spawn harness (is `node` on PATH?): {e}"))?;
     Ok(child)
