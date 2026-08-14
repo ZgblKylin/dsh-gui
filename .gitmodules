@@ -4,3 +4,6 @@
 [submodule "dsh-terminal"]
 	path = plugins/terminal
 	url = ../dsh-terminal
+[submodule "src-tauri/whale-icon"]
+	path = src-tauri/whale-icon
+	url = https://github.com/fornarwhal/deepseek-whale-girl-icon

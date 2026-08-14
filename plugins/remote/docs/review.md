@@ -6,6 +6,12 @@
 > 注册面与 `shell.overlay` 槽位；实测运行中 GUI 的 `/remote-api/env` 正常返回。
 >
 > 本文件作为后续改进清单，条目按严重程度排序；状态：`[已修复]` = 已合入，`[待办]` = 未处理。
+>
+> **架构调整（2026-08-15）**：连接界面由页面内 `shell.overlay` 覆盖层整体迁入
+> **Tauri 原生标题栏**（`src-tauri/ui` + Rust `remote_call` 命令），插件 client 半端置为
+> inert（`src/client/index.ts` 的 `apply` 不再注册槽位/样式），避免在嵌入 iframe 内出现
+> 过高的重复标题栏；Host 半端（`/remote-api` 引擎）保持不变并被 Tauri 壳经回环代理复用。
+> 本清单中凡涉及 `RemoteApp.tsx` / client 渲染的条目，其影响载体转为 `src-tauri/ui/app.js`。
 
 ## 总体
 

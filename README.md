@@ -19,12 +19,19 @@ On launch the entry exe:
    object, so the kernel enforces that teardown even when dsh-gui itself is
    killed (Task Manager, closing the terminal it was launched from).
 
-The `ui/` page is a thin shell only: a drag-anywhere title bar with the
-standard minimize / maximize / close controls and, on their inner side, a gear
-(配置) button that opens a menu with **关于** (About) and **退出** (Exit). The
-About dialog shows the version (exact git tag, else the commit short hash),
-license, and GitHub link for dsh-gui, the deepseek-harness submodule, and every
-plugin package under `plugins/`. The harness UI itself goes on talking to its
+The `ui/` page is a thin shell only: a drag-anywhere title bar with
+**connection tabs** (VSCode-style, one per connected DSH backend), a **＋**
+new-connection button, and on their inner side a hamburger (☰) menu — the
+standard minimize / maximize / close controls come after it, and the hamburger
+menu carries the tab list plus **新建连接** / **关闭当前连接** and the existing
+**关于** / **退出** entries. The new-connection dialog supports a local backend
+(probe the port, or start the built-in harness on it) and a remote backend
+(VSCode Remote SSH style: load the frontend, or SSH-deploy it to another host,
+reaching it over an SSH local port forward). The connection chrome lives in the
+native title bar — the embedded harness page renders none of it. The About
+dialog shows the version (exact git tag, else the commit short hash), license,
+and GitHub link for dsh-gui, the deepseek-harness submodule, and every plugin
+package under `plugins/`. The harness UI itself goes on talking to its
 self-hosted server over plain HTTP exactly like a browser.
 
 ## Requirements
@@ -52,7 +59,11 @@ dsh-gui/
 ├─ dsh-gui.exe         # the Tauri shell entry binary (Windows; `dsh-gui` on
 │                      #   Linux/macOS — build scripts copy it here)
 ├─ src-tauri/          # the Tauri shell (Rust); cargo output at target/<profile>/
-│  └─ ui/              # placeholder page (never shown — webview loads the harness URL)
+│  ├─ ui/              # the frameless shell page: title bar (connection tabs,
+│  │                   #   + button, hamburger menu, window controls), the
+│  │                   #   new-connection dialog, and the About dialog
+│  └─ whale-icon/      # git submodule: the DeepSeek Harness whale-girl icon pack
+│                      #   (DeepSeekHarness-WhaleGirl.ico is the app icon)
 ├─ scripts/
 │  └─ dsh-gui.mjs      # the cross-platform CLI behind every npm script
 ├─ plugins/            # drop your local harness plugin packages here
@@ -113,6 +124,20 @@ no console to print to).
 ```powershell
 npm run shortcut                          # desktop shortcut
 npm run shortcut -- "D:\x.lnk"            # arbitrary location
+```
+
+## App icon
+
+The app icon comes from the `src-tauri/whale-icon` submodule
+([fornarwhal/deepseek-whale-girl-icon](https://github.com/fornarwhal/deepseek-whale-girl-icon),
+CC BY-NC-SA 4.0): `DeepSeekHarness-WhaleGirl.ico` (16–256 px, transparent).
+`src-tauri/tauri.conf.json` points `bundle.icon` at it, so it is embedded as the
+Windows exe resource and used as the window/taskbar icon. The shell UI itself
+keeps no icon copy — swap the submodule to change the icon, then rebuild:
+
+```powershell
+git submodule update --remote src-tauri/whale-icon
+npm run build
 ```
 
 ## Updating the harness submodule

@@ -8,12 +8,15 @@
   </head>
   <body>
     <!-- Custom title bar replacing the OS frame (the window is decorations:false).
-         The whole bar minus the controls is a drag region. -->
+         The empty space is a drag region; the connection tabs live here VSCode-style,
+         and the hamburger menu carries the connection controls. -->
     <header id="titlebar" class="titlebar">
       <div id="titlebar-drag" class="titlebar-drag">
         <span class="titlebar-title">DeepSeek Harness</span>
+        <div id="remote-tabs" class="remote-tabs" role="tablist" aria-label="连接"></div>
       </div>
       <div class="titlebar-controls">
+        <button id="btn-newconn" class="titlebar-btn newconn" title="新建连接" aria-label="新建连接">+</button>
         <div id="config-wrap" class="config-wrap">
           <button id="btn-config" class="titlebar-btn" title="菜单" aria-label="菜单" aria-haspopup="menu">
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -21,6 +24,14 @@
             </svg>
           </button>
           <div id="config-menu" class="config-menu hidden" role="menu">
+            <div id="menu-tabs-section" class="menu-section">
+              <div class="menu-section-title">标签页</div>
+              <div id="menu-tabs-list"></div>
+              <div class="menu-sep"></div>
+            </div>
+            <button id="menu-newconn" class="menu-item" role="menuitem">新建连接</button>
+            <button id="menu-closeconn" class="menu-item" role="menuitem">关闭当前连接</button>
+            <div class="menu-sep"></div>
             <button id="menu-about" class="menu-item" role="menuitem">关于</button>
             <button id="menu-exit" class="menu-item" role="menuitem">退出</button>
           </div>
@@ -49,6 +60,80 @@
 
     <!-- The harness web UI, hosted by the self-hosted server, embedded here. -->
     <iframe id="harness-frame" class="harness-frame" title="DeepSeek Harness"></iframe>
+
+    <!-- Empty state: shown when every connection tab has been closed. -->
+    <div id="no-tabs" class="no-tabs hidden">
+      <div class="no-tabs-inner">
+        <div class="no-tabs-title">没有打开的连接</div>
+        <div class="no-tabs-sub">点击标题栏「＋」或菜单「新建连接」开始</div>
+      </div>
+    </div>
+
+    <!-- New-connection dialog: local (probe/start on this host) or remote
+         (load or SSH-deploy to another host), with the SSH credential step. -->
+    <div id="conn-overlay" class="overlay hidden">
+      <div class="conn-dialog" role="dialog" aria-modal="true" aria-labelledby="conn-title">
+        <h2 id="conn-title">新建连接</h2>
+        <div class="conn-sub">连接到另一个 DSH 后端：本机端口加载/启动，或通过 SSH 部署到远端。</div>
+        <div class="conn-type-grid">
+          <div class="conn-type-card sel" data-type="local">
+            <b>本地连接</b>
+            <small>在本机端口加载或启动 DSH 前端</small>
+          </div>
+          <div class="conn-type-card" data-type="remote">
+            <b>远程连接</b>
+            <small>加载远端，必要时通过 SSH 部署</small>
+          </div>
+        </div>
+        <div class="conn-field-row">
+          <div class="conn-field">
+            <label for="conn-name">连接名</label>
+            <input id="conn-name" class="conn-input" placeholder="例如：办公机" />
+          </div>
+          <div class="conn-field">
+            <label for="conn-port">端口</label>
+            <input id="conn-port" class="conn-input" inputmode="numeric" placeholder="3080" />
+          </div>
+        </div>
+        <div class="conn-field" id="conn-addr-wrap">
+          <label for="conn-addr">地址（不含 http://）</label>
+          <input id="conn-addr" class="conn-input" placeholder="192.168.1.10" />
+        </div>
+        <label class="conn-check" id="conn-ssh-toggle">
+          <input type="checkbox" id="conn-ssh-on" /> 需 SSH 部署（端口不可加载时使用）
+        </label>
+        <div class="conn-field-row" id="conn-ssh-auth">
+          <div class="conn-field">
+            <label for="conn-ssh-host">SSH 主机（别名，如 ASUS；留空用上面的地址）</label>
+            <input id="conn-ssh-host" class="conn-input" placeholder="ASUS 或 192.168.1.10" />
+          </div>
+          <div class="conn-field">
+            <label for="conn-ssh-user">SSH 用户名（留空用 ssh config 的 User）</label>
+            <input id="conn-ssh-user" class="conn-input" placeholder="root / chongfei" />
+          </div>
+        </div>
+        <div class="conn-field" id="conn-ssh-port-wrap">
+          <label for="conn-ssh-port">SSH 端口（留空用 ssh config / 默认 22）</label>
+          <input id="conn-ssh-port" class="conn-input" inputmode="numeric" placeholder="22" />
+        </div>
+        <div class="conn-field" id="conn-creds">
+          <label>密码 或 密钥文件（二选一）</label>
+          <input id="conn-password" class="conn-input" type="password" placeholder="SSH 密码（留空则用密钥）" />
+          <div class="conn-key-row">
+            <input id="conn-keyfile" type="file" />
+            <span id="conn-key-path" class="conn-key-path"></span>
+          </div>
+        </div>
+        <label class="conn-check" id="conn-save-wrap">
+          <input type="checkbox" id="conn-save-auth" checked /> 保存认证（Windows 凭据管理器 / Linux gpg）
+        </label>
+        <div class="conn-actions">
+          <button id="conn-connect" class="primary">连接</button>
+          <button id="conn-cancel" class="secondary">取消</button>
+        </div>
+        <div id="conn-log" class="conn-log"></div>
+      </div>
+    </div>
 
     <!-- About dialog: version/license/repository for the shell, the harness,
          and every plugin under plugins/. -->

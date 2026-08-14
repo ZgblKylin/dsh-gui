@@ -1,40 +1,25 @@
 /**
- * dsh-remote browser half: mounts the connection tab bar chrome in the
- * frame-wide `shell.overlay` seat. It renders in the embedded web view (the
- * dsh-gui desktop shell wraps this UI in an iframe, so `window.top` is NOT the
- * app window) and skips only when the page is itself one of our remote-connection
- * iframes — those are created with `name="dsh-remote-connection"`, which
- * survives navigation, so a child backend that also runs this plugin never
- * re-renders the chrome recursively.
+ * dsh-remote browser half — INERT as of the desktop-shell redesign.
  *
- * All host work goes through same-origin HTTP to `/remote-api/<op>`; the
- * connection records and tab list are persisted in localStorage (dsh-gui owns
- * the connection config, the remote owns its own backend config).
+ * The connection chrome (tabs, new-connection page, hamburger entries) moved
+ * out of the embedded web view into the native Tauri title bar
+ * (`src-tauri/ui`). The embedded page must therefore render NO extra chrome of
+ * its own. The mount expects a client module, so this half loads but applies
+ * nothing.
+ *
+ * All the real machinery stays in the host half: `/remote-api/*` (probe, local
+ * backend spawn, SSH deploy, credentials, tunnels) is reached by the Tauri
+ * shell through the `remote_call` Rust command. This keeps every capability in
+ * one place while leaving the embedded UI untouched.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { RemoteApp } from './RemoteApp.tsx'
-import { installStyles, removeStyles } from './styles.ts'
 
-/** Required services for slot registration. */
+/** Required services for slot registration (unused while inert). */
 export const inject = ['slots']
 
-/** Mounts the browser half.
+/** Mounts (or rather, intentionally does not mount) the browser half.
  * @param ctx - Client Cordis context.
  */
 export function apply(ctx: ClientContext): void {
-  if (typeof window === 'undefined') return
-  // Inside the dsh-gui shell iframe, `self !== top` is expected; only a
-  // nested remote-connection iframe must stay inert.
-  if (window.name === 'dsh-remote-connection') return
-
-  ctx.effect(() => {
-    installStyles()
-    return () => { removeStyles() }
-  }, 'dsh-remote: styles')
-
-  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-    name: 'shell.overlay',
-    id: 'remote.chrome',
-    order: 1000,
-  }, RemoteApp))
+  void ctx
 }

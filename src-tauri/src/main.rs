@@ -476,6 +476,114 @@ fn about_info(state: State<'_, ShellState>) -> about::AboutInfo {
     about::collect(&state.root)
 }
 
+/// Operation names the shell may forward to the harness `/remote-api` route.
+/// Whitelist only: the dsh-remote plugin host implements exactly these, and the
+/// shell must never reach outside them (path-injection guard on `op`).
+const REMOTE_OPS: &[&str] = &[
+    "env", "probe", "local.start", "local.stop", "local.list", "creds.has",
+    "creds.read", "creds.save", "creds.remove", "keyfile.write",
+    "auth.available", "tunnel.close", "ssh.connect", "diag",
+];
+
+/// Minimal JSON HTTP/1.1 POST to the harness loopback server. The wrapper
+/// document is served from a `tauri://` origin, so a browser `fetch` to
+/// `http://127.0.0.1:<port>` would be cross-origin — and the `/remote-api`
+/// route deliberately refuses cross-origin requests. An ad-hoc TcpStream
+/// request carries no `Origin`/`Sec-Fetch-Site` headers, which the route
+/// accepts as same-host. The response body comes back de-chunked if needed.
+fn http_post_json(port: u16, op: &str, body: &str) -> Result<String, String> {
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .map_err(|e| format!("cannot reach the harness on 127.0.0.1:{port}: {e}"))?;
+    // A deploy can take minutes (git clone + build on the remote); the caller
+    // runs inside spawn_blocking so the main thread stays responsive.
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(600)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
+    let path = format!("/remote-api/{op}");
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| format!("failed to send /remote-api/{op}: {e}"))?;
+    let mut response = Vec::new();
+    let mut buf = [0u8; 16384];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => response.extend_from_slice(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
+                || e.kind() == std::io::ErrorKind::TimedOut => break,
+            Err(e) => return Err(format!("failed reading /remote-api/{op} response: {e}")),
+        }
+    }
+    let text = String::from_utf8_lossy(&response).into_owned();
+    let (head, body) = match text.find("\r\n\r\n") {
+        Some(i) => (&text[..i], &text[i + 4..]),
+        None => return Err(format!("malformed response from /remote-api/{op}")),
+    };
+    let status = head.lines().next().unwrap_or("");
+    if !status.starts_with("HTTP/1.1 2") && !status.starts_with("HTTP/1.0 2") {
+        return Err(format!(
+            "{op} failed ({status}): {}",
+            body.chars().take(500).collect::<String>()
+        ));
+    }
+    let body = if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+        dechunk(body)
+    } else {
+        body.to_string()
+    };
+    Ok(body)
+}
+
+/// Strip HTTP chunked-transfer framing out of a response body.
+fn dechunk(body: &str) -> String {
+    let bytes = body.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let mut line_end = i;
+        while line_end < bytes.len() && bytes[line_end] != b'\r' {
+            line_end += 1;
+        }
+        let size_line = std::str::from_utf8(&bytes[i..line_end]).unwrap_or("0");
+        let size_text = size_line.split(';').next().unwrap_or("0").trim();
+        let Ok(size) = usize::from_str_radix(size_text, 16) else { break };
+        let mut data_start = line_end;
+        if data_start + 1 < bytes.len() && bytes[data_start] == b'\r' && bytes[data_start + 1] == b'\n' {
+            data_start += 2;
+        }
+        if size == 0 {
+            break;
+        }
+        let data_end = data_start + size;
+        if data_end + 2 > bytes.len() {
+            break;
+        }
+        out.extend_from_slice(&bytes[data_start..data_end]);
+        i = data_end + 2;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Forward one operation to the harness plugin's `/remote-api` route. Runs off
+/// the main thread (via spawn_blocking) so a long deploy never blocks the UI.
+#[tauri::command]
+async fn remote_call(
+    state: State<'_, ShellState>,
+    op: String,
+    body: String,
+) -> Result<String, String> {
+    if !REMOTE_OPS.contains(&op.as_str()) {
+        return Err(format!("unknown op: {op}"));
+    }
+    let port = state.port;
+    tauri::async_runtime::spawn_blocking(move || http_post_json(port, &op, &body))
+        .await
+        .map_err(|e| format!("remote_call task failed: {e}"))?
+}
+
 fn main() {
     install_panic_log();
 
@@ -523,6 +631,7 @@ fn main() {
             start_window_drag,
             harness_url,
             about_info,
+            remote_call,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");
