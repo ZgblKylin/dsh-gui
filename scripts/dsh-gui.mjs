@@ -87,16 +87,32 @@ function hasPnpm() {
   return pnpmEntry() !== null || resolvePnpmShim() !== null
 }
 
+/** PATH that resolves `pnpm` (and any nested pnpm it spawns) to the pinned toolchain. */
+function pinnedPath() {
+  return `${TOOLCHAIN}${delimiter}${process.env.PATH ?? ''}`
+}
+
+/**
+ * Env for the pinned pnpm. Prepending the toolchain forces any nested `pnpm`
+ * (the `verify-deps-before-run` install that `pnpm run build` spawns when deps
+ * are stale) to resolve to the pinned build rather than a system pnpm, and
+ * pinning the store makes that nested install share the repo-local store.
+ */
+function pnpmEnv(extra = {}) {
+  return { ...extra, PATH: pinnedPath(), pnpm_config_store_dir: STORE }
+}
+
 /** Run the pinned pnpm (bootstrap it first if needed). */
 function pnpm(args, options = {}) {
+  const env = pnpmEnv(options.env)
   const entry = pnpmEntry()
   if (entry) {
-    run('node', [entry, ...args], options)
+    run('node', [entry, ...args], { ...options, env })
     return
   }
   const shim = resolvePnpmShim()
   if (!shim) throw new Error('pnpm is not bootstrapped yet — run "npm run setup" once.')
-  run(shim, args, options)
+  run(shim, args, { ...options, env })
 }
 
 /** Install pnpm@11.7.0 into .toolchain with a repo-local npm cache. */
@@ -122,7 +138,10 @@ function harnessInstall(frozen) {
 
 function harnessBuild() {
   step('Build harness (host lib + web dist)', () => {
-    pnpm(['run', 'build'], { cwd: HARNESS })
+    // CI=true keeps `verify-deps-before-run` from re-running the harness's
+    // lefthook postinstall (in the nested `pnpm install` it spawns), which
+    // fails inside the submodule checkout.
+    pnpm(['run', 'build'], { cwd: HARNESS, env: { CI: 'true' } })
   })
 }
 
@@ -231,7 +250,7 @@ function installPlugins() {
     // the compatible pnpm is used no matter which system pnpm is installed.
     const env = {
       ...process.env,
-      PATH: `${TOOLCHAIN}${delimiter}${process.env.PATH ?? ''}`,
+      PATH: pinnedPath(),
       DSH_HOME: WEB_HOME,
     }
     for (const dir of dirs) {
