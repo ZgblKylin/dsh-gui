@@ -183,7 +183,7 @@ export function RemoteApp(_props: Host) {
         )}
         {tabs.filter(t => t.kind === 'connection').map(t => (
           t.id === activeId && t.url !== undefined && normUrl(t.url) !== normUrl(current)
-            ? <iframe key={t.id} className="rm-iframe" src={t.url} title={t.title} />
+            ? <iframe key={t.id} className="rm-iframe" name="dsh-remote-connection" src={t.url} title={t.title} />
             : null
         ))}
       </div>

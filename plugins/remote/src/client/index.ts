@@ -1,8 +1,11 @@
 /**
  * dsh-remote browser half: mounts the connection tab bar chrome in the
- * frame-wide `shell.overlay` seat. It only takes over at the top level of the
- * page (never inside a connection iframe), so loading another backend's
- * frontend never re-renders the chrome recursively.
+ * frame-wide `shell.overlay` seat. It renders in the embedded web view (the
+ * dsh-gui desktop shell wraps this UI in an iframe, so `window.top` is NOT the
+ * app window) and skips only when the page is itself one of our remote-connection
+ * iframes — those are created with `name="dsh-remote-connection"`, which
+ * survives navigation, so a child backend that also runs this plugin never
+ * re-renders the chrome recursively.
  *
  * All host work goes through same-origin HTTP to `/remote-api/<op>`; the
  * connection records and tab list are persisted in localStorage (dsh-gui owns
@@ -19,7 +22,10 @@ export const inject = ['slots']
  * @param ctx - Client Cordis context.
  */
 export function apply(ctx: ClientContext): void {
-  if (typeof window === 'undefined' || window.self !== window.top) return
+  if (typeof window === 'undefined') return
+  // Inside the dsh-gui shell iframe, `self !== top` is expected; only a
+  // nested remote-connection iframe must stay inert.
+  if (window.name === 'dsh-remote-connection') return
 
   ctx.effect(() => {
     installStyles()
