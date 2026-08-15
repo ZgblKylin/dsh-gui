@@ -60,6 +60,129 @@ function uid() {
 function normUrl(u) {
   return String(u || "").replace(/\/+$/, "");
 }
+
+/* ── Page-driven title bar theme ───────────────────────────────
+   The Rust shell injects ui/theme-bridge.js into every child frame; the
+   active harness page reports its own global text/background colors here.
+   This shell only stores/validates those colors and derives a title-bar-only
+   palette from them. It does not know anything about skin plugins. */
+const PAGE_THEME_MESSAGE = "dsh-gui:page-theme";
+const PAGE_THEME_VERSION = 1;
+const DEFAULT_PAGE_THEME = Object.freeze({
+  background: Object.freeze({ r: 22, g: 27, b: 34, a: 1 }), // #161b22
+  text: Object.freeze({ r: 230, g: 237, b: 243, a: 1 }), // #e6edf3
+});
+
+function isThemeColor(color) {
+  return (
+    color !== null &&
+    typeof color === "object" &&
+    [color.r, color.g, color.b].every((v) => Number.isInteger(v) && v >= 0 && v <= 255) &&
+    typeof color.a === "number" &&
+    color.a >= 0 &&
+    color.a <= 1
+  );
+}
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function cssRgba(color) {
+  if (color.a >= 1) return `rgb(${color.r}, ${color.g}, ${color.b})`;
+  return `rgba(${color.r}, ${color.g}, ${color.b}, ${Math.round(color.a * 1000) / 1000})`;
+}
+
+// Source-over composite of a possibly translucent text color over the page
+// background, so the title bar text stays legible on the title bar itself.
+function compositeOver(foreground, background) {
+  const outA = foreground.a + background.a * (1 - foreground.a);
+  if (outA <= 0) return { r: background.r, g: background.g, b: background.b, a: 0 };
+  const fw = foreground.a;
+  const bw = background.a * (1 - foreground.a);
+  return {
+    r: Math.round((foreground.r * fw + background.r * bw) / outA),
+    g: Math.round((foreground.g * fw + background.g * bw) / outA),
+    b: Math.round((foreground.b * fw + background.b * bw) / outA),
+    a: clamp01(outA),
+  };
+}
+
+function blendRgba(base, tint, amount) {
+  const t = clamp01(amount);
+  return {
+    r: Math.round(base.r + (tint.r - base.r) * t),
+    g: Math.round(base.g + (tint.g - base.g) * t),
+    b: Math.round(base.b + (tint.b - base.b) * t),
+    a: clamp01(base.a + (tint.a - base.a) * t),
+  };
+}
+
+function deriveTitlebarPalette(colors) {
+  const background = isThemeColor(colors?.background)
+    ? colors.background
+    : DEFAULT_PAGE_THEME.background;
+  const rawText = isThemeColor(colors?.text) ? colors.text : DEFAULT_PAGE_THEME.text;
+  const text = compositeOver(rawText, background);
+  return {
+    background: cssRgba(background),
+    text: cssRgba(text),
+    muted: cssRgba(blendRgba(background, text, 0.62)),
+    border: cssRgba(blendRgba(background, text, 0.16)),
+    hover: cssRgba(blendRgba(background, text, 0.09)),
+    softHover: cssRgba(blendRgba(background, text, 0.14)),
+    tabBg: cssRgba(blendRgba(background, text, 0.055)),
+    tabActiveBorder: cssRgba(blendRgba(background, text, 0.24)),
+  };
+}
+
+function applyPageTheme(colors) {
+  const palette = deriveTitlebarPalette(colors);
+  const style = document.documentElement.style;
+  style.setProperty("--titlebar-theme-bg", palette.background);
+  style.setProperty("--titlebar-theme-text", palette.text);
+  style.setProperty("--titlebar-theme-muted", palette.muted);
+  style.setProperty("--titlebar-theme-border", palette.border);
+  style.setProperty("--titlebar-theme-hover", palette.hover);
+  style.setProperty("--titlebar-theme-soft-hover", palette.softHover);
+  style.setProperty("--titlebar-theme-tab-bg", palette.tabBg);
+  style.setProperty("--titlebar-theme-tab-active-border", palette.tabActiveBorder);
+}
+
+function wirePageTheme() {
+  window.addEventListener("message", (event) => {
+    const tab = activeTab();
+    if (!tab || !harnessFrame.contentWindow) return;
+    if (event.source !== harnessFrame.contentWindow) return;
+
+    const data = event.data;
+    if (
+      !data ||
+      data.type !== PAGE_THEME_MESSAGE ||
+      data.version !== PAGE_THEME_VERSION ||
+      !isThemeColor(data.colors?.background) ||
+      !isThemeColor(data.colors?.text)
+    ) {
+      return;
+    }
+
+    // Ignore delayed messages from a previous iframe URL (the injected script
+    // reports location.href; the shell also cross-checks event.origin).
+    if (data.url && normUrl(data.url) !== normUrl(tab.url)) return;
+    try {
+      if (event.origin !== "null" && event.origin !== new URL(tab.url).origin) return;
+    } catch {
+      return;
+    }
+
+    const idx = tabs.findIndex((t) => t.id === tab.id);
+    if (idx >= 0) {
+      tabs[idx].theme = data.colors;
+      persist();
+    }
+    applyPageTheme(data.colors);
+  });
+}
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -83,6 +206,7 @@ function persist() {
   saveJSON(LS_ACTIVE, activeId);
 }
 function activeTab() {
+  if (!Array.isArray(tabs)) return null;
   return tabs.find((t) => t.id === activeId) || tabs[0] || null;
 }
 
@@ -103,10 +227,14 @@ function syncIframe() {
     placeholder.classList.remove("hidden");
     harnessFrame.classList.add("hidden");
     if (harnessFrame.src !== "") harnessFrame.src = "";
+    applyPageTheme(DEFAULT_PAGE_THEME);
     return;
   }
   placeholder.classList.add("hidden");
   harnessFrame.classList.remove("hidden");
+  // Restore the last theme reported by this tab while the page reloads;
+  // ui/theme-bridge.js will send the fresh computed colors shortly after load.
+  applyPageTheme(tab.theme ?? DEFAULT_PAGE_THEME);
   if (normUrl(harnessFrame.src) !== normUrl(tab.url)) harnessFrame.src = tab.url;
 }
 
@@ -927,6 +1055,7 @@ document.addEventListener("keydown", (e) => {
 
 /* ── Boot ──────────────────────────────────────────────────── */
 async function boot() {
+  wirePageTheme();
   await setIframeSource().catch(() => {});
   // Sanitize persisted tabs; guarantee the local (本机) tab always exists.
   if (!Array.isArray(tabs)) tabs = [];

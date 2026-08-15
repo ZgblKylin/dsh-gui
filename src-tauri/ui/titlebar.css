@@ -8,6 +8,18 @@
   --accent: #2f81f7;
   --hover: #30363d;
   --close-hover: #e81123;
+
+  /* Page-adaptive title bar palette. app.js derives these from the global
+     text/background colors reported by the embedded page; the values below
+     keep the original dark title bar when no page theme is available. */
+  --titlebar-theme-bg: #161b22;
+  --titlebar-theme-text: #e6edf3;
+  --titlebar-theme-muted: #8b949e;
+  --titlebar-theme-border: #30363d;
+  --titlebar-theme-hover: #30363d;
+  --titlebar-theme-soft-hover: rgba(255, 255, 255, 0.14);
+  --titlebar-theme-tab-bg: #1d232b;
+  --titlebar-theme-tab-active-border: #3d454e;
 }
 
 * {
@@ -38,8 +50,9 @@ body {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  background: var(--titlebar-bg);
-  border-bottom: 1px solid var(--border);
+  background: var(--titlebar-theme-bg);
+  border-bottom: 1px solid var(--titlebar-theme-border);
+  transition: background-color 160ms ease, border-color 160ms ease;
 }
 
 .titlebar-drag {
@@ -54,7 +67,7 @@ body {
 
 .titlebar-title {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--titlebar-theme-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -81,15 +94,16 @@ body {
   height: 26px;
   margin: 0 3px;
   padding: 0 6px 0 10px;
-  background: #1d232b;
-  border: 1px solid var(--border);
+  background: var(--titlebar-theme-tab-bg);
+  border: 1px solid var(--titlebar-theme-border);
   border-radius: 6px;
-  color: var(--muted);
+  color: var(--titlebar-theme-muted);
   font-size: 12px;
   white-space: nowrap;
   cursor: default;
   max-width: 170px;
   flex: 0 0 auto;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 
 .remote-tab .remote-tab-label {
@@ -98,20 +112,20 @@ body {
 }
 
 .remote-tab.active {
-  background: var(--bg);
-  border-color: #3d454e;
-  color: var(--text);
+  background: var(--titlebar-theme-bg);
+  border-color: var(--titlebar-theme-tab-active-border);
+  color: var(--titlebar-theme-text);
   box-shadow: inset 0 -1.5px 0 var(--accent);
 }
 
 .remote-tab:hover {
-  background: var(--hover);
+  background: var(--titlebar-theme-hover);
 }
 
 .remote-tab-x {
   border: none;
   background: transparent;
-  color: var(--muted);
+  color: var(--titlebar-theme-muted);
   font-size: 14px;
   line-height: 1;
   padding: 0 3px;
@@ -120,8 +134,8 @@ body {
 }
 
 .remote-tab-x:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: var(--text);
+  background: var(--titlebar-theme-soft-hover);
+  color: var(--titlebar-theme-text);
 }
 
 .titlebar-btn.newconn {
@@ -141,15 +155,16 @@ body {
   width: 46px;
   border: none;
   background: transparent;
-  color: var(--text);
+  color: var(--titlebar-theme-text);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: default;
+  transition: background-color 160ms ease, color 160ms ease;
 }
 
 .titlebar-btn:hover {
-  background: var(--hover);
+  background: var(--titlebar-theme-hover);
 }
 
 .titlebar-btn.close:hover {
@@ -198,7 +213,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid var(--titlebar-bg);
+  border: 1.5px solid var(--titlebar-theme-bg);
   pointer-events: none;
 }
 
@@ -212,8 +227,8 @@ body {
   top: calc(var(--titlebar-h) - 2px);
   right: 0;
   min-width: 150px;
-  background: var(--titlebar-bg);
-  border: 1px solid var(--border);
+  background: var(--titlebar-theme-bg);
+  border: 1px solid var(--titlebar-theme-border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   padding: 6px;
@@ -228,23 +243,24 @@ body {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--text);
+  color: var(--titlebar-theme-text);
   font-size: 14px;
   cursor: default;
+  transition: background-color 160ms ease, color 160ms ease;
 }
 
 .menu-item:hover {
-  background: var(--hover);
+  background: var(--titlebar-theme-hover);
 }
 
 .menu-item.active {
   background: rgba(47, 129, 247, 0.16);
-  color: var(--text);
+  color: var(--titlebar-theme-text);
 }
 
 .menu-section-title {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--titlebar-theme-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 6px 10px 4px;
@@ -252,7 +268,7 @@ body {
 
 .menu-sep {
   height: 1px;
-  background: var(--border);
+  background: var(--titlebar-theme-border);
   margin: 5px 8px;
 }
 

@@ -719,6 +719,10 @@ fn main() {
             .inner_size(1280.0, 800.0)
             .min_inner_size(800.0, 600.0)
             .decorations(false)
+            // Sample every child frame's global text/background colors and
+            // report them to the shell so the custom title bar can adapt to
+            // the page theme. The script lives in ui/theme-bridge.js.
+            .initialization_script_for_all_frames(include_str!("../ui/theme-bridge.js"))
             // Answer WebView2/WebKitGTK clipboard permission requests so
             // the embedded harness page (a cross-origin iframe) may use
             // the async Clipboard API; without this the code-block and
