@@ -39,6 +39,55 @@ browser.
 
 ![dsh-gui screenshot](docs/images/dsh-gui-screenshot.png)
 
+## Features
+
+### GUI shell
+
+- **Frameless single-window shell** — a drag-anywhere custom title bar with
+  native minimize / maximize / close controls; the title bar colors follow the
+  light/dark theme reported by the embedded harness page.
+- **VSCode-style connection tabs** — one tab per connected DSH backend, with
+  close buttons and persisted tab/active state; closing the last tab reopens
+  the new-connection dialog.
+- **New connection (`＋`)** — local backend (probe the port, or start the
+  built-in harness on it) and remote backend (load the frontend, or SSH-deploy
+  it to another host and reach it through a loopback-only SSH local port
+  forward).
+- **Hamburger menu (`☰`)** — tab list, `新建连接` / `关闭当前连接`, `检查更新`,
+  `关于` / `退出`.
+- **About dialog** — version (git tag or commit short hash), license, and
+  GitHub link for dsh-gui, the harness, the icon submodule, and every plugin.
+- **Update dialog** — checks every in-repo project for updates, lets you choose
+  which ones to update, then exits, updates in a console window, and restarts.
+
+### Plugins
+
+- **`dsh-remote`** — multi-backend remote mode: the connection tabs,
+  new-connection dialog, local backend start, and VSCode Remote SSH-style
+  deploy/tunnel described above (see `plugins/remote/dsh-remote/docs/`).
+- **`dsh-terminal`** — VSCode-style integrated terminal panel (xterm.js +
+  node-pty): ``Ctrl+` `` toggle, resizable panel under the composer, multiple
+  terminals with a dropdown, and new/close terminal controls.
+- **`dsh-file-explorer`** — right-side resizable file tree (260–900 px) with
+  recursive search, Markdown/syntax-highlighted preview, in-panel editing, and
+  one-click VS Code open (see `docs/plugins/dsh-file-explorer.md`).
+- **`dsh-review`** — `/review` slash command for code review of uncommitted
+  changes, a commit, a branch diff, a PR URL/number, or a custom request (see
+  `plugins/review/dsh-review/README.md`).
+- **`dsh-deep-whale`** — whale-girl skin series; currently ships the
+  hot-pluggable `maid-atelier` skin (light/dark palace backgrounds, navy lace
+  UI overlay, Q-version sidebar, embedded assets).
+
+### Agent presets
+
+- **`review`（审阅模式）** — review-focused coding agent built from the opencode
+  review prompt; reviews changes and replies in the user's language.
+- **`anchored-standard`** — experimental two-stage preset: shell/read-only
+  tools for the first request, then the full Standard toolset after the first
+  persisted tool call.
+
+![dsh-gui with the plugin features expanded](docs/images/dsh-gui-features.png)
+
 ## Requirements
 
 - Windows 10/11 with the **WebView2 Evergreen runtime** (ships with most modern
