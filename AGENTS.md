@@ -17,6 +17,19 @@
 或 git 行尾转换（core.autocrlf）之前必须确认；可用 `uname -a`（类 Unix
 环境）或 `$PSVersionTable`（pwsh）辅助判断。
 
+## 工具与终端
+
+以下约定确保可用工具能被按需使用，避免在 git bash、windows换行符 等特殊环境的调用细节上反复尝试。
+
+- Windows 环境需注意文件使用 CRLF 换行符，避免在 git bash 中使用 sed、grep 等工具时出现问题。
+- Windows 环境需要调用 PowerShell 时，先检测 `pwsh` 是否可用；可用则优先使用 `pwsh`。
+- 搜索文件和内容时，先检测 `rg` 是否可用；可用则优先使用 `rg`。
+- 有 `skill_search` / `skill_load` 时，先按需检索是否存在所需 skill。
+- 有 `dev_tool_search` 时，在需要时优先用它加载工具来代替终端命令：
+  - `grep`、`sed` 等搜索和编辑工具
+  - `web_search` 等进阶工具
+  - `subagent`、`workflow` 等 agent 任务编排工具
+
 ## 自托管
 
 dsh和所有插件、配置文件均需要自托管，不要使用系统全局安装。
