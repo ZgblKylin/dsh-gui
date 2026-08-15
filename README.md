@@ -35,6 +35,10 @@ app-icon submodule, and every plugin package under `plugins/`. The harness UI
 itself goes on talking to its self-hosted server over plain HTTP exactly like a
 browser.
 
+## Screenshot
+
+![dsh-gui screenshot](docs/images/dsh-gui-screenshot.png)
+
 ## Requirements
 
 - Windows 10/11 with the **WebView2 Evergreen runtime** (ships with most modern
