@@ -177,6 +177,36 @@ body {
   align-items: stretch;
 }
 
+/* Blue circular exclamation badge shown on the hamburger button while at
+   least one repository/submodule has a pending update. */
+.config-wrap > .titlebar-btn {
+  position: relative;
+}
+
+.update-badge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--titlebar-bg);
+  pointer-events: none;
+}
+
+.menu-item.update-available {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .config-menu {
   position: absolute;
   top: calc(var(--titlebar-h) - 2px);
@@ -231,6 +261,148 @@ body {
   flex: 1 1 auto;
   border: none;
   width: 100%;
+}
+
+/* ── Overlay / Update dialog ───────────────────────────────── */
+.update-dialog {
+  width: min(640px, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  background: var(--titlebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.update-dialog h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.update-dialog .update-sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.update-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.update-loading {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 10px 2px;
+}
+
+.update-loading.update-error {
+  color: #f85149;
+}
+
+.update-summary {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.update-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.update-item-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.update-item-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.update-item-versions {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-item-versions code {
+  color: var(--text);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+.update-item-error {
+  color: #f85149;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.update-item-action {
+  flex: 0 0 auto;
+}
+
+.update-item-ok {
+  color: #3fb950;
+  font-size: 12px;
+}
+
+.update-checking {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.update-item-checking {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.update-item-unavailable {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+button.update-run {
+  min-width: 64px;
+}
+
+/* Clicked update row: confirmed and waiting for the bottom restart button. */
+button.update-run.pending {
+  background: var(--hover);
+  color: var(--muted);
+}
+
+button.update-run.pending:hover {
+  filter: none;
+}
+
+.update-note {
+  margin-top: 12px;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
 }
 
 /* ── Overlay / About dialog ────────────────────────────────── */

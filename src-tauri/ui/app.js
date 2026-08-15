@@ -23,6 +23,14 @@ const configWrap = $("config-wrap");
 const configMenu = $("config-menu");
 const menuAbout = $("menu-about");
 const menuExit = $("menu-exit");
+const menuUpdate = $("menu-update");
+const updateBadge = $("update-badge");
+const updateOverlay = $("update-overlay");
+const updateBody = $("update-body");
+const updateMarkAll = $("update-mark-all");
+const updateApply = $("update-apply");
+const updateClose = $("update-close");
+const updateNote = $("update-note");
 const aboutOverlay = $("about-overlay");
 const aboutList = $("about-list");
 const aboutClose = $("about-close");
@@ -465,6 +473,265 @@ async function syncMaximizeIcon() {
   btnMax.setAttribute("aria-label", btnMax.title);
 }
 
+/* ── Update checking ───────────────────────────────────────── */
+// Startup check fires shortly after boot; then a long-interval background
+// poll keeps the badge and menu text in sync while the app stays open.
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+let updateStatus = null;
+let updateChecking = false;
+let updateSelection = new Set();
+
+function applyUpdateIndicator(status) {
+  const has = !!(status && status.hasUpdates);
+  updateBadge.classList.toggle("hidden", !has);
+  menuUpdate.textContent = has ? "更新软件" : "检查更新";
+  menuUpdate.classList.toggle("update-available", has);
+}
+
+function resetUpdateSelection() {
+  updateSelection.clear();
+  updateApply.disabled = true;
+  updateApply.textContent = "重启并更新";
+}
+
+function updateError(message) {
+  updateBody.innerHTML = "";
+  const error = document.createElement("div");
+  error.className = "update-loading update-error";
+  error.textContent = message;
+  updateBody.appendChild(error);
+  updateMarkAll.classList.add("hidden");
+  updateApply.classList.add("hidden");
+}
+
+function updateRow(project) {
+  const row = document.createElement("div");
+  row.className = "update-item";
+
+  const info = document.createElement("div");
+  info.className = "update-item-info";
+  const name = document.createElement("div");
+  name.className = "update-item-name";
+  name.textContent = project.name || project.id || "工程";
+  const versions = document.createElement("div");
+  versions.className = "update-item-versions";
+  const latest = document.createElement("code");
+  latest.className = project.checking ? "update-checking" : "";
+  latest.textContent = project.checking ? project.latest || "检查中…" : project.latest || "—";
+  versions.append(
+    "当前 ",
+    Object.assign(document.createElement("code"), { textContent: project.current || "unknown" }),
+    " → ",
+    "最新 ",
+    latest
+  );
+  info.append(name, versions);
+  if (project.error) {
+    const error = document.createElement("div");
+    error.className = "update-item-error";
+    error.textContent = project.error;
+    info.appendChild(error);
+  }
+
+  const action = document.createElement("div");
+  action.className = "update-item-action";
+  if (project.checking) {
+    const checking = document.createElement("span");
+    checking.className = "update-item-checking";
+    checking.textContent = "检测中…";
+    action.appendChild(checking);
+  } else if (project.error) {
+    const unavailable = document.createElement("span");
+    unavailable.className = "update-item-unavailable";
+    unavailable.textContent = "不可检查";
+    action.appendChild(unavailable);
+  } else if (project.behind) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "primary update-run";
+    button.dataset.updateId = project.id;
+    button.textContent = "更新";
+    action.appendChild(button);
+  } else {
+    const ok = document.createElement("span");
+    ok.className = "update-item-ok";
+    ok.textContent = "已是最新";
+    action.appendChild(ok);
+  }
+
+  row.append(info, action);
+  return row;
+}
+
+function markProjectUpdate(id) {
+  if (!id || updateSelection.has(id)) return;
+  updateSelection.add(id);
+  for (const button of updateBody.querySelectorAll(".update-run")) {
+    if (button.dataset.updateId === id) {
+      button.disabled = true;
+      button.textContent = "待重启";
+      button.classList.add("pending");
+    }
+  }
+  updateApply.disabled = false;
+  updateApply.textContent = `重启并更新（${updateSelection.size}）`;
+}
+
+function renderUpdateDialog(status) {
+  updateBody.innerHTML = "";
+  resetUpdateSelection();
+  const projects = Array.isArray(status && status.projects) ? status.projects : [];
+  const behind = projects.filter((project) => project && project.behind && !project.error);
+  const checking = projects.filter((project) => project && project.checking).length;
+  const summary = document.createElement("div");
+  summary.className = "update-summary";
+  summary.textContent =
+    checking > 0
+      ? `${projects.length} 个工程，正在检测更新…`
+      : behind.length > 0
+        ? `${behind.length} 个工程有可用更新。点各行「更新」确认要更新的工程，再点「重启并更新」；dsh-gui 会退出，更新过程在弹出窗口中显示，完成后自动重启。`
+        : "所有工程均为最新版本。";
+  updateBody.appendChild(summary);
+  for (const project of projects) updateBody.appendChild(updateRow(project));
+  updateMarkAll.classList.toggle("hidden", behind.length === 0);
+  updateApply.classList.toggle("hidden", behind.length === 0);
+}
+
+function openUpdateDialog() {
+  updateOverlay.classList.remove("hidden");
+  updateNote.classList.add("hidden");
+  updateNote.textContent = "";
+  updateBody.innerHTML = "";
+  resetUpdateSelection();
+  const loading = document.createElement("div");
+  loading.className = "update-loading";
+  loading.textContent = "正在检查更新…";
+  updateBody.appendChild(loading);
+  updateMarkAll.classList.add("hidden");
+  updateApply.classList.add("hidden");
+}
+
+function closeUpdateDialog() {
+  updateOverlay.classList.add("hidden");
+}
+
+function hasCachedUpdateStatus() {
+  return (
+    updateStatus &&
+    Array.isArray(updateStatus.projects) &&
+    updateStatus.projects.length > 0
+  );
+}
+
+// Menu entry: when the badge is on (a background check found updates), the
+// dialog reuses that result and must not fetch again. When nothing is cached,
+// show the local preview first; when a stale no-update cache exists, show it
+// immediately but still refresh it in the background.
+async function openUpdateDialogWithBestState() {
+  openUpdateDialog();
+  const hadCache = hasCachedUpdateStatus();
+  if (hadCache) {
+    renderUpdateDialog(updateStatus);
+    if (updateStatus.hasUpdates) return;
+  } else if (await previewUpdateProjects()) {
+    // A background check finished while the local preview was loading: show
+    // the fresh result and do not start another fetch.
+    renderUpdateDialog(updateStatus);
+    return;
+  }
+  void checkForUpdates(false);
+}
+
+// Cold-start preview: list every project and its local current version
+// immediately, with 检查中… placeholders on the latest-version column while
+// the slow check runs in the background. Returns true when a background check
+// completed and cached a result while the preview was loading.
+async function previewUpdateProjects() {
+  if (!tauri) {
+    updateError("当前不在 dsh-gui 应用中，无法检查更新。");
+    return false;
+  }
+  try {
+    const projects = await invoke("local_update_projects");
+    if (hasCachedUpdateStatus()) {
+      renderUpdateDialog(updateStatus);
+      return true;
+    }
+    if (Array.isArray(projects) && projects.length > 0) {
+      renderUpdateDialog({
+        projects,
+        hasUpdates: false,
+        updateCount: 0,
+        allChecked: false,
+      });
+    }
+  } catch (_) {
+    // Keep the generic loading row; checkForUpdates will still render.
+    if (hasCachedUpdateStatus()) {
+      renderUpdateDialog(updateStatus);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function checkForUpdates(showDialog) {
+  if (showDialog) openUpdateDialog();
+  if (updateChecking) return updateStatus;
+  if (!tauri) {
+    if (showDialog) updateError("当前不在 dsh-gui 应用中，无法检查更新。");
+    return null;
+  }
+  updateChecking = true;
+  try {
+    const status = await invoke("check_updates");
+    updateStatus = status;
+    // A partially failed check must not clear an existing badge; a successful
+    // one (or one that found updates) is authoritative.
+    if (status && (status.hasUpdates || status.allChecked)) {
+      applyUpdateIndicator(status);
+    }
+    if (showDialog || !updateOverlay.classList.contains("hidden")) {
+      renderUpdateDialog(status);
+    }
+    return status;
+  } catch (error) {
+    const message = String((error && error.message) || error);
+    if (showDialog || !updateOverlay.classList.contains("hidden")) {
+      updateError(`检查更新失败：${message}`);
+    }
+    toast(`检查更新失败：${message}`);
+    return null;
+  } finally {
+    updateChecking = false;
+  }
+}
+
+async function startUpdates(ids) {
+  const usable = (ids ?? []).filter((id) => id);
+  if (usable.length === 0) return;
+  const label = usable.length === 1 ? "所选工程" : `${usable.length} 个工程`;
+  updateNote.textContent =
+    `已确认更新${label}。dsh-gui 即将退出，更新过程会显示在控制台窗口中（非 Windows 平台写入 .dsh/gui/update.log），完成后自动重启。`;
+  updateNote.classList.remove("hidden");
+  updateMarkAll.disabled = true;
+  updateApply.disabled = true;
+  updateClose.disabled = true;
+  for (const button of updateBody.querySelectorAll(".update-run")) button.disabled = true;
+  try {
+    await invoke("start_update", { ids: usable });
+  } catch (error) {
+    updateNote.textContent = `启动更新失败：${String((error && error.message) || error)}`;
+    updateMarkAll.disabled = false;
+    updateApply.disabled = false;
+    updateClose.disabled = false;
+    for (const button of updateBody.querySelectorAll(".update-run")) {
+      if (updateSelection.has(button.dataset.updateId)) continue;
+      button.disabled = false;
+    }
+  }
+}
+
 /* ── Config menu ───────────────────────────────────────────── */
 function openMenu() {
   configMenu.classList.remove("hidden");
@@ -494,6 +761,28 @@ $("menu-newconn").addEventListener("click", () => {
 $("menu-closeconn").addEventListener("click", () => {
   closeMenu();
   if (activeId) closeTab(activeId);
+});
+$("menu-update").addEventListener("click", () => {
+  closeMenu();
+  void openUpdateDialogWithBestState();
+});
+updateClose.addEventListener("click", closeUpdateDialog);
+updateOverlay.addEventListener("click", (e) => {
+  if (e.target === updateOverlay) closeUpdateDialog();
+});
+updateMarkAll.addEventListener("click", () => {
+  const ids = (updateStatus?.projects ?? [])
+    .filter((project) => project.behind && !project.error)
+    .map((project) => project.id);
+  for (const id of ids) markProjectUpdate(id);
+});
+updateApply.addEventListener("click", () => {
+  void startUpdates([...updateSelection]);
+});
+updateBody.addEventListener("click", (e) => {
+  const button = e.target.closest(".update-run");
+  if (!button || !button.dataset.updateId || button.disabled) return;
+  markProjectUpdate(button.dataset.updateId);
 });
 
 /* ── New-connection dialog wiring ──────────────────────────── */
@@ -630,6 +919,7 @@ aboutOverlay.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (!$("conn-overlay").classList.contains("hidden")) $("conn-overlay").classList.add("hidden");
+    else if (!updateOverlay.classList.contains("hidden")) closeUpdateDialog();
     else if (!aboutOverlay.classList.contains("hidden")) closeAbout();
     else closeMenu();
   }
@@ -650,6 +940,11 @@ async function boot() {
   syncIframe();
   syncMaximizeIcon();
   wireControls();
+  // Update monitoring: one check shortly after startup, then a long-interval
+  // background poll. Results drive the badge + menu text; the Rust side keeps
+  // the detached update launcher in sync with what was found.
+  setTimeout(() => void checkForUpdates(false), 3000);
+  setInterval(() => void checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
 }
 
 boot();

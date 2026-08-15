@@ -19,13 +19,14 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod about;
+mod update;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
@@ -250,7 +251,12 @@ fn show_error_box(caption: &str, text: &str) {
         .chain(std::iter::once(0))
         .collect();
     unsafe {
-        MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_ICONERROR);
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            caption.as_ptr(),
+            MB_ICONERROR,
+        );
     }
 }
 
@@ -325,9 +331,7 @@ fn http_get_ok(port: u16) -> bool {
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-    let request = format!(
-        "GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-    );
+    let request = format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     if stream.write_all(request.as_bytes()).is_err() {
         return false;
     }
@@ -427,10 +431,17 @@ impl Drop for ChildGuard {
     }
 }
 
-/// App-global state handed to the window-control and About commands.
+/// App-global state handed to the window-control, About, and update commands.
 struct ShellState {
     root: PathBuf,
     port: u16,
+    /// PIDs the detached update launcher must wait for before touching the
+    /// checkout: this shell and the harness child it owns.
+    gui_pid: u32,
+    harness_pid: u32,
+    /// Serializes update checks / launches (git fetch can take tens of
+    /// seconds; two checks must never race each other's plan file).
+    update_lock: Arc<Mutex<()>>,
 }
 
 #[tauri::command]
@@ -476,13 +487,81 @@ fn about_info(state: State<'_, ShellState>) -> about::AboutInfo {
     about::collect(&state.root)
 }
 
+/// Cold-start preview for the update dialog: project list + local versions
+/// only (no network). The frontend renders these rows immediately with
+/// placeholders, then `check_updates` fills in the real latest/status.
+#[tauri::command]
+fn local_update_projects(state: State<'_, ShellState>) -> Vec<update::ProjectUpdate> {
+    update::local_check(&state.root)
+}
+
+/// Check the dsh-gui repository and every submodule for updates. Runs off the
+/// main thread: `git fetch` per repository can take tens of seconds, and the
+/// manual dialog as well as the startup/interval background checks call here.
+#[tauri::command]
+async fn check_updates(state: State<'_, ShellState>) -> Result<update::UpdateStatus, String> {
+    let root = state.root.clone();
+    let gui_pid = state.gui_pid;
+    let harness_pid = state.harness_pid;
+    let lock = Arc::clone(&state.update_lock);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = lock
+            .lock()
+            .map_err(|_| "an update check is already running".to_string())?;
+        update::check_and_sync(&root, gui_pid, harness_pid)
+    })
+    .await
+    .map_err(|e| format!("update check task failed: {e}"))?
+}
+
+/// Launch the detached update launcher for the selected project ids (empty:
+/// every pending project), then exit so the launcher can safely touch the
+/// checkout. Exiting drops `ChildGuard`, whose kill-on-close job tears the
+/// whole harness process tree down.
+#[tauri::command]
+fn start_update(
+    app: tauri::AppHandle,
+    state: State<'_, ShellState>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    let _guard = state
+        .update_lock
+        .lock()
+        .map_err(|_| "an update check is already running".to_string())?;
+    update::start(&state.root, state.gui_pid, state.harness_pid, &ids)?;
+    log_status(
+        &state.root,
+        &format!(
+            "update launcher spawned for: {}",
+            if ids.is_empty() {
+                "all".to_string()
+            } else {
+                ids.join(", ")
+            }
+        ),
+    );
+    app.exit(0);
+    Ok(())
+}
+
 /// Operation names the shell may forward to the harness `/remote-api` route.
 /// Whitelist only: the dsh-remote plugin host implements exactly these, and the
 /// shell must never reach outside them (path-injection guard on `op`).
 const REMOTE_OPS: &[&str] = &[
-    "env", "probe", "local.start", "local.stop", "local.list", "creds.has",
-    "creds.read", "creds.save", "creds.remove", "keyfile.write",
-    "auth.available", "tunnel.close", "ssh.connect", "diag",
+    "env",
+    "probe",
+    "local.start",
+    "local.stop",
+    "local.list",
+    "creds.has",
+    "creds.read",
+    "creds.save",
+    "creds.remove",
+    "keyfile.write",
+    "auth.available",
+    "tunnel.close",
+    "ssh.connect",
+    "diag",
 ];
 
 /// Minimal JSON HTTP/1.1 POST to the harness loopback server. The wrapper
@@ -512,8 +591,12 @@ fn http_post_json(port: u16, op: &str, body: &str) -> Result<String, String> {
         match stream.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => response.extend_from_slice(&buf[..n]),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
-                || e.kind() == std::io::ErrorKind::TimedOut => break,
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                break
+            }
             Err(e) => return Err(format!("failed reading /remote-api/{op} response: {e}")),
         }
     }
@@ -529,7 +612,10 @@ fn http_post_json(port: u16, op: &str, body: &str) -> Result<String, String> {
             body.chars().take(500).collect::<String>()
         ));
     }
-    let body = if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+    let body = if head
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
         dechunk(body)
     } else {
         body.to_string()
@@ -549,9 +635,14 @@ fn dechunk(body: &str) -> String {
         }
         let size_line = std::str::from_utf8(&bytes[i..line_end]).unwrap_or("0");
         let size_text = size_line.split(';').next().unwrap_or("0").trim();
-        let Ok(size) = usize::from_str_radix(size_text, 16) else { break };
+        let Ok(size) = usize::from_str_radix(size_text, 16) else {
+            break;
+        };
         let mut data_start = line_end;
-        if data_start + 1 < bytes.len() && bytes[data_start] == b'\r' && bytes[data_start + 1] == b'\n' {
+        if data_start + 1 < bytes.len()
+            && bytes[data_start] == b'\r'
+            && bytes[data_start + 1] == b'\n'
+        {
             data_start += 2;
         }
         if size == 0 {
@@ -603,6 +694,7 @@ fn main() {
     };
     log_status(&root, &format!("harness ready at http://127.0.0.1:{port}"));
 
+    let harness_pid = child.id();
     let child = ChildGuard::new(child);
     let setup_root = root.clone();
 
@@ -611,21 +703,28 @@ fn main() {
             app.manage(ShellState {
                 root: setup_root,
                 port,
+                gui_pid: std::process::id(),
+                harness_pid,
+                update_lock: Arc::new(Mutex::new(())),
             });
             app.manage(child);
             // Frameless: the wrapper page (ui/index.html) draws its own title
             // bar and window controls, and embeds the harness UI in an iframe.
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                .title("DeepSeek Harness")
-                .inner_size(1280.0, 800.0)
-                .min_inner_size(800.0, 600.0)
-                .decorations(false)
-                // Answer WebView2/WebKitGTK clipboard permission requests so
-                // the embedded harness page (a cross-origin iframe) may use
-                // the async Clipboard API; without this the code-block and
-                // message copy controls cannot write the system clipboard.
-                .enable_clipboard_access()
-                .build()?;
+            tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("DeepSeek Harness")
+            .inner_size(1280.0, 800.0)
+            .min_inner_size(800.0, 600.0)
+            .decorations(false)
+            // Answer WebView2/WebKitGTK clipboard permission requests so
+            // the embedded harness page (a cross-origin iframe) may use
+            // the async Clipboard API; without this the code-block and
+            // message copy controls cannot write the system clipboard.
+            .enable_clipboard_access()
+            .build()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -636,7 +735,10 @@ fn main() {
             start_window_drag,
             harness_url,
             about_info,
+            local_update_projects,
             remote_call,
+            check_updates,
+            start_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");
