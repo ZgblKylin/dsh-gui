@@ -13,7 +13,9 @@
  *  3. `dsh plugin --profile web add link:<package dir>` records the dependency
  *     (a `link:` spec, so edits to the package show up on the next boot),
  *  4. append an idempotent insert row to `.dsh/profiles/web/cordis.patch.yml`
- *     unless the package mounts itself through `dsh.bundle.patch`.
+ *     unless the package mounts itself through `dsh.bundle.patch`; the row is
+ *     the wrapper's explicit `mount` entry when given, else derived from the
+ *     package manifest.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -87,15 +89,44 @@ function addDependency(dshHome, packageDir) {
   })
 }
 
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/**
+ * Extract the mount rows from a cordis patch-list text: each `- insert:` list
+ * contributes its `- id:`/`name:` pairs. Comment lines are skipped and
+ * indentation is free-form, so a hand-reindented file keeps matching; rows
+ * outside an insert list (id-targeted config overrides) are ignored.
+ * @param {string} text - patch-list file content.
+ * @returns {{ id: string, name: string }[]}
+ */
+export function parseInsertRows(text) {
+  const rows = []
+  let inInsert = false
+  let pendingId = null
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*#/.test(line)) continue
+    if (/^\s*- insert:\s*$/.test(line)) {
+      inInsert = true
+      pendingId = null
+      continue
+    }
+    if (!inInsert) continue
+    const idMatch = /^\s*-\s*id:\s*(\S+)\s*$/.exec(line)
+    const nameMatch = /^\s*name:\s*(\S+)\s*$/.exec(line)
+    if (idMatch !== null) {
+      pendingId = idMatch[1]
+    } else if (nameMatch !== null && pendingId !== null) {
+      rows.push({ id: pendingId, name: nameMatch[1] })
+      pendingId = null
+    }
+  }
+  return rows
 }
 
 /**
  * Mount a plugin entry into the web composition. The harness scans the
  * Loader's ENTRIES for `dsh.client` declarations, so a plugin stays inert
  * until a cordis.patch.yml insert turns it into an entry. Appends are
- * idempotent; user content is preserved.
+ * idempotent (existing rows are parsed back with parseInsertRows, so
+ * reindented blocks still match); user content is preserved.
  * @param {string} profileDir - absolute path to the web profile directory.
  * @param {{ id: string, name: string }} mount - the loader entry to insert.
  * @returns {boolean} whether the insert was newly written.
@@ -114,11 +145,15 @@ function mountEntry(profileDir, mount) {
     ].join('\n'))
   }
   const text = readFileSync(patchPath, 'utf8')
-  // Inline modifiers ((?m) etc.) are rejected under Node's default
-  // type-stripping parse path, so flags go through the constructor.
-  const pattern = `^\\s*-\\s*insert\\s*:\\s*$[^\\r\\n]*\\r?\\n[^\\r\\n]*-\\s*id:\\s*${escapeRegExp(mount.id)}[^\\r\\n]*\\r?\\n[^\\r\\n]*name:\\s*${escapeRegExp(mount.name)}\\s*$`
-  if (new RegExp(pattern, 'm').test(text)) {
-    console.log(`  already mounted as entry '${mount.id}'`)
+  // Match by id, not by the block's exact bytes: a second row with the same
+  // id would double-mount the plugin, whatever its formatting or name.
+  const existing = parseInsertRows(text).find((row) => row.id === mount.id)
+  if (existing !== undefined) {
+    if (existing.name !== mount.name) {
+      console.warn(`  entry '${mount.id}' already mounts ${existing.name}; keeping it instead of ${mount.name}`)
+    } else {
+      console.log(`  already mounted as entry '${mount.id}'`)
+    }
     return false
   }
   const block = `- insert:\n    - id: ${mount.id}\n      name: ${mount.name}`
@@ -138,12 +173,16 @@ function mountEntry(profileDir, mount) {
 /**
  * Install one plugin package into the repo-local web profile.
  *
- * @param {{ id: string, packageDir: string, sourceHint?: string }} options
+ * @param {{ id: string, packageDir: string, sourceHint?: string | null,
+ *   mount?: { id: string, name: string } | null }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
  *   - packageDir: absolute path to the plugin package (second-level directory).
  *   - sourceHint: optional submodule-init hint shown when the package is missing.
+ *   - mount: explicit mount entry for plain packages; overrides the entry
+ *     derived from the manifest (usually owned by the wrapper's own
+ *     cordis.patch.yml mount recipe).
  */
-export function installPlugin({ id, packageDir, sourceHint = null }) {
+export function installPlugin({ id, packageDir, sourceHint = null, mount = null }) {
   const manifestPath = join(packageDir, 'package.json')
   if (!existsSync(manifestPath)) {
     const hint = sourceHint === null ? '' : ` — initialize it with: ${sourceHint}`
@@ -173,7 +212,8 @@ export function installPlugin({ id, packageDir, sourceHint = null }) {
     console.log(`installed plugin '${id}' into ${profileDir}`)
     return
   }
-  const mountId = String(manifest.dsh?.gui?.mountId ?? packageName.replace(/^dsh-/, ''))
-  mountEntry(profileDir, { id: mountId, name: packageName })
+  const mountId = String(mount?.id ?? manifest.dsh?.gui?.mountId ?? packageName.replace(/^dsh-/, ''))
+  const mountName = String(mount?.name ?? packageName)
+  mountEntry(profileDir, { id: mountId, name: mountName })
   console.log(`installed plugin '${id}' into ${profileDir}`)
 }

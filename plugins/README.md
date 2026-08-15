@@ -22,7 +22,9 @@ package directory, and submodule hint:
    toolchain pnpm + repo-local store),
 2. pin the profile's pnpm store,
 3. `dsh plugin --profile web add link:<package dir>`,
-4. append an idempotent insert to `.dsh/profiles/web/cordis.patch.yml`.
+4. append an idempotent insert to `.dsh/profiles/web/cordis.patch.yml` —
+   the wrapper's explicit `mount` entry when given, else derived from the
+   manifest.
 
 `DSH_HOME` is pinned to `./.dsh` by the desktop shell and by every install
 script, so installed plugins land under `.dsh/` inside this repository —
@@ -39,7 +41,10 @@ Two package shapes are handled specially:
   double-mount it).
 
 Plugins without either get a derived mount entry (id from `dsh.gui.mountId`,
-else the package name without a leading `dsh-`).
+else the package name without a leading `dsh-`). A wrapper may instead pass an
+explicit `mount` entry — usually parsed from the wrapper's own
+`cordis.patch.yml` mount recipe, as `review` does — and it overrides the
+derived entry.
 
 ## Current plugins
 
@@ -55,6 +60,12 @@ else the package name without a leading `dsh-`).
   ships prebuilt and mounts through its own `dsh.bundle.patch` layer. See
   `docs/plugins/dsh-file-explorer.md` in the repository root for integration
   notes, and its own `README.md` for the feature set.
+- `review` — in-tree plugin at `review/dsh-review`: the built-in `/review`
+  slash command. It injects the review instructions adapted from opencode's
+  review-mode prompt and submits the user's request (defaulting to all
+  uncommitted changes) to the current agent. Ships prebuilt with no harness
+  runtime imports; its mount row lives in the wrapper's
+  `review/cordis.patch.yml`. See `review/dsh-review/README.md`.
 
 ## One-shot layout migration
 

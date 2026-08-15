@@ -118,7 +118,10 @@ fn license_name(dir: &Path) -> String {
 fn package_name(dir: &Path) -> Option<String> {
     let manifest = std::fs::read_to_string(dir.join("package.json")).ok()?;
     let value = serde_json::from_str::<serde_json::Value>(&manifest).ok()?;
-    value.get("name").and_then(|n| n.as_str()).map(str::to_string)
+    value
+        .get("name")
+        .and_then(|n| n.as_str())
+        .map(str::to_string)
 }
 
 /// One About row for the repository at `dir`.

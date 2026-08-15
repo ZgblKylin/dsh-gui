@@ -1,0 +1,11 @@
+# dsh-review mount recipe (plugins/review wrapper).
+#
+# The install script reads the insert row below and mounts it idempotently
+# into the profile's cordis.patch.yml (the watched user patch layer, so a
+# reinstall mounts the entry without a restart). The same row is the
+# copy-paste mount for standalone installs: after
+# `dsh plugin --profile <name> add <this package>`, append it to
+# `$DSH_HOME/profiles/<name>/cordis.patch.yml`.
+- insert:
+    - id: review
+      name: dsh-review
