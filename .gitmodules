@@ -16,3 +16,6 @@
 [submodule "plugins/review/dsh-review"]
 	path = plugins/review/dsh-review
 	url = ../dsh-review
+[submodule "plugins/deep-whale/dsh-deep-whale"]
+	path = plugins/deep-whale/dsh-deep-whale
+	url = https://github.com/Small-tailqwq/dsh-deep-whale

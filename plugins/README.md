@@ -2,7 +2,9 @@
 
 Local DeepSeek Harness plugin packages, in the same preset-style layout as
 `presets/`: every first-level directory is a **plugin wrapper** that owns an
-`install.mjs` plus the plugin package/repo in a second-level directory.
+`install.mjs` plus the plugin package/repo checkout (for multi-package
+distribution repos such as `deep-whale`, the package path points one level
+deeper).
 
 ```
 plugins/
@@ -34,14 +36,17 @@ Two package shapes are handled specially:
 
 - **No `build` script** — the package is used as shipped (prebuilt `lib/` or
   config-only): the installer skips `pnpm install` + `pnpm run build` for it.
+- **Wrapper `build: false` opt-out** — a prebuilt distribution package that
+  still declares a `build` script for upstream development is used as shipped;
+  `deep-whale` uses this for its `maid-atelier` skin.
 - **`dsh.bundle.patch` declared** — the package carries its own
   `cordis.patch.yml` bundle layer. `dsh plugin add` reconciles it into the
   profile's `dsh.profile.bundles`, and that layer inserts its entry — the
   installer writes no `cordis.patch.yml` insert (a manual one would
   double-mount it).
 
-Plugins without either get a derived mount entry (id from `dsh.gui.mountId`,
-else the package name without a leading `dsh-`). A wrapper may instead pass an
+Plugins without any of these get a derived mount entry (id from
+`dsh.gui.mountId`, else the package name without a leading `dsh-`). A wrapper may instead pass an
 explicit `mount` entry — usually parsed from the wrapper's own
 `cordis.patch.yml` mount recipe, as `review` does — and it overrides the
 derived entry.
@@ -66,6 +71,13 @@ derived entry.
   uncommitted changes) to the current agent. Ships prebuilt with no harness
   runtime imports; its mount row lives in the wrapper's
   `review/cordis.patch.yml`. See `review/dsh-review/README.md`.
+- `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
+  `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current
+  package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,
+  CC BY-NC-SA 4.0), a hot-pluggable deep-sea maid atelier skin. It ships
+  prebuilt `lib/` (wrapper passes `build: false`) and mounts through its own
+  `dsh.bundle.patch` layer. See
+  `deep-whale/dsh-deep-whale/README.md` and its `maid-atelier/README.md`.
 
 ## One-shot layout migration
 

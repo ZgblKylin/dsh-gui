@@ -2,12 +2,13 @@
  * Shared implementation behind every per-plugin install script
  * `plugins/<id>/install.mjs`.
  *
- * Each wrapper script only owns its identity (id, package directory, and the
- * submodule hint); the build/install/mount pipeline lives here so every plugin
- * is handled identically:
+ * Each wrapper script only owns its identity (id, package directory, submodule
+ * hint, and optional build opt-out); the build/install/mount pipeline lives
+ * here so every plugin is handled identically:
  *
  *  1. build the package in place when it declares a `build` script (with the
- *     pinned toolchain pnpm and the repo-local store),
+ *     pinned toolchain pnpm and the repo-local store), unless the wrapper
+ *     explicitly opts out with `build: false` (prebuilt distribution packages),
  *  2. pin the web profile's pnpm store so plain-terminal and desktop-shell
  *     installs share `.pnpm-store`,
  *  3. `dsh plugin --profile web add link:<package dir>` records the dependency
@@ -174,15 +175,19 @@ function mountEntry(profileDir, mount) {
  * Install one plugin package into the repo-local web profile.
  *
  * @param {{ id: string, packageDir: string, sourceHint?: string | null,
- *   mount?: { id: string, name: string } | null }} options
+ *   mount?: { id: string, name: string } | null, build?: boolean }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
- *   - packageDir: absolute path to the plugin package (second-level directory).
+ *   - packageDir: absolute path to the plugin package (second-level directory,
+ *     or one level deeper for a multi-package distribution-repo submodule).
  *   - sourceHint: optional submodule-init hint shown when the package is missing.
  *   - mount: explicit mount entry for plain packages; overrides the entry
  *     derived from the manifest (usually owned by the wrapper's own
  *     cordis.patch.yml mount recipe).
+ *   - build: whether the shared build pipeline may run (default true). Set
+ *     false for packages that ship prebuilt output but still declare a
+ *     `build` script for upstream development.
  */
-export function installPlugin({ id, packageDir, sourceHint = null, mount = null }) {
+export function installPlugin({ id, packageDir, sourceHint = null, mount = null, build = true }) {
   const manifestPath = join(packageDir, 'package.json')
   if (!existsSync(manifestPath)) {
     const hint = sourceHint === null ? '' : ` — initialize it with: ${sourceHint}`
@@ -193,7 +198,11 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null 
 
   console.log(`\n==> install plugin '${id}' (${packageDir})`)
   bootstrapPnpm()
-  buildPackage(packageDir)
+  if (build) {
+    buildPackage(packageDir)
+  } else {
+    console.log(`  wrapper opted out of build — using ${basename(packageDir)} as shipped`)
+  }
 
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
   const profileDir = join(dshHome, 'profiles', 'web')

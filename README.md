@@ -71,10 +71,10 @@ dsh-gui/
 │                      #   its install.mjs; the build installs every preset into
 │                      #   .dsh/.agent-presets/ (see presets/README.md)
 ├─ plugins/            # plugin wrappers, preset-style: each plugins/<id>/ owns an
-│                      #   install.mjs plus the plugin package/repo in a
-│                      #   second-level directory (remote/dsh-remote in-tree;
-│                      #   terminal/dsh-terminal and file-explorer/
-│                      #   dsh-file-explorer are git submodules; see plugins/README.md)
+│                      #   install.mjs plus the plugin package/repo checkout
+│                      #   (remote/dsh-remote in-tree; terminal/dsh-terminal,
+│                      #   file-explorer/dsh-file-explorer and deep-whale/
+│                      #   dsh-deep-whale are git submodules; see plugins/README.md)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
 
@@ -163,7 +163,9 @@ npm run build             # reinstall + rebuild harness, then rebuild exe + plug
 
 Plugins are installed into the `web` profile under the repo-local `DSH_HOME`
 (`.dsh/`). The layout mirrors `presets/`: each `plugins/<id>/` wrapper owns an
-`install.mjs` plus the plugin package/repo in a second-level directory:
+`install.mjs` plus the plugin package/repo checkout — normally in a
+second-level directory, one level deeper for a multi-package distribution repo
+such as `deep-whale`:
 
 ```
 plugins/<id>/install.mjs     # builds + installs + mounts this one plugin
@@ -190,7 +192,9 @@ installPlugin({
 
 1. builds the package in place (`pnpm install` + `pnpm run build` with the
    pinned toolchain pnpm) — a package without a `build` script is used as
-   shipped (prebuilt `lib/`),
+   shipped (prebuilt `lib/`), and a wrapper may pass `build: false` to force
+   that for a prebuilt distribution package that still declares a `build`
+   script,
 2. pins the profile's pnpm store (`.dsh\profiles\web\pnpm-workspace.yaml`),
 3. installs it into the web profile as a `link:` dependency, and
 4. mounts it into the web composition by appending an `insert` entry to
