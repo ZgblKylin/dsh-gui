@@ -1008,18 +1008,13 @@ function toast(message) {
   toastTimer = setTimeout(() => el.remove(), 1600);
 }
 
+let aboutRequestId = 0;
+
 function closeAbout() {
   aboutOverlay.classList.add("hidden");
 }
 
-async function showAbout() {
-  let info;
-  try {
-    info = await invoke("about_info");
-  } catch (e) {
-    toast(`无法读取版本信息：${e}`);
-    return;
-  }
+function renderAboutInfo(info) {
   aboutList.innerHTML = "";
   const sections = [
     { label: "deepseek-harness", item: info.harness },
@@ -1032,12 +1027,39 @@ async function showAbout() {
   for (const section of sections) {
     aboutList.appendChild(aboutRow(section.label, section.item));
   }
-  aboutOverlay.classList.remove("hidden");
 }
 
-menuAbout.addEventListener("click", async () => {
+function renderAboutMessage(text, isError) {
+  aboutList.innerHTML = "";
+  const message = document.createElement("div");
+  message.className = isError ? "about-loading about-error" : "about-loading";
+  message.textContent = text;
+  aboutList.appendChild(message);
+}
+
+function openAboutDialog() {
+  aboutOverlay.classList.remove("hidden");
+  renderAboutMessage("正在读取各模块信息…", false);
+}
+
+async function showAbout() {
+  const requestId = ++aboutRequestId;
+  openAboutDialog();
+  try {
+    const info = await invoke("about_info");
+    if (requestId !== aboutRequestId || aboutOverlay.classList.contains("hidden")) return;
+    renderAboutInfo(info);
+  } catch (e) {
+    if (requestId !== aboutRequestId) return;
+    const message = `无法读取版本信息：${e}`;
+    if (!aboutOverlay.classList.contains("hidden")) renderAboutMessage(message, true);
+    toast(message);
+  }
+}
+
+menuAbout.addEventListener("click", () => {
   closeMenu();
-  await showAbout();
+  void showAbout();
 });
 menuExit.addEventListener("click", () => invoke("close_window").catch(() => {}));
 aboutClose.addEventListener("click", closeAbout);

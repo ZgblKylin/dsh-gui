@@ -481,10 +481,14 @@ fn harness_url(state: State<'_, ShellState>) -> String {
 }
 
 /// Everything the About dialog needs: version/license/repository for the
-/// shell, the harness submodule, and every plugin under `plugins/`.
+/// shell, the harness submodule, and every plugin under `plugins/`. Runs off
+/// the main thread: collecting it shells out to `git` for every module.
 #[tauri::command]
-fn about_info(state: State<'_, ShellState>) -> about::AboutInfo {
-    about::collect(&state.root)
+async fn about_info(state: State<'_, ShellState>) -> Result<about::AboutInfo, String> {
+    let root = state.root.clone();
+    tauri::async_runtime::spawn_blocking(move || about::collect(&root))
+        .await
+        .map_err(|e| format!("about info task failed: {e}"))
 }
 
 /// Cold-start preview for the update dialog: project list + local versions

@@ -455,6 +455,16 @@ button.update-run.pending:hover {
   gap: 10px;
 }
 
+.about-loading {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 10px 2px;
+}
+
+.about-loading.about-error {
+  color: #f85149;
+}
+
 .about-item {
   border: 1px solid var(--border);
   border-radius: 8px;

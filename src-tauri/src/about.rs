@@ -137,9 +137,10 @@ fn item(dir: &Path, fallback_name: &str) -> AboutItem {
 /// Collect the About rows for the shell, the harness submodule, the app-icon
 /// submodule, and every plugin package. The preset-style `plugins/` layout has
 /// one wrapper directory per plugin (`plugins/<id>/install.mjs`) holding the
-/// package/repo in a second-level directory; the old flat layout (a package.json
-/// directly under `plugins/`) is still recognized so the dialog works during
-/// migration.
+/// package/repo in a second-level directory; multi-package distribution repos
+/// (e.g. `deep-whale/dsh-deep-whale`) hold their package one level deeper. The
+/// old flat layout (a package.json directly under `plugins/`) is still
+/// recognized so the dialog works during migration.
 pub fn collect(root: &Path) -> AboutInfo {
     let shell = item(root, "dsh-gui");
     let harness = item(&root.join("deepseek-harness"), "deepseek-harness");
@@ -161,8 +162,27 @@ pub fn collect(root: &Path) -> AboutInfo {
             if let Ok(children) = std::fs::read_dir(&path) {
                 for child in children.flatten() {
                     let child_path = child.path();
-                    if child_path.is_dir() && child_path.join("package.json").is_file() {
+                    if !child_path.is_dir() {
+                        continue;
+                    }
+                    if child_path.join("package.json").is_file() {
                         plugins.push(item(&child_path, &child.file_name().to_string_lossy()));
+                        continue;
+                    }
+                    // Distribution-repo submodule: the checkout root itself is
+                    // not a package, but each skin/plugin lives in a child dir.
+                    if let Ok(grandchildren) = std::fs::read_dir(&child_path) {
+                        for grandchild in grandchildren.flatten() {
+                            let grandchild_path = grandchild.path();
+                            if grandchild_path.is_dir()
+                                && grandchild_path.join("package.json").is_file()
+                            {
+                                plugins.push(item(
+                                    &grandchild_path,
+                                    &grandchild.file_name().to_string_lossy(),
+                                ));
+                            }
+                        }
                     }
                 }
             }
