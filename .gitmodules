@@ -13,3 +13,6 @@
 [submodule "src-tauri/whale-icon"]
 	path = src-tauri/whale-icon
 	url = https://github.com/fornarwhal/deepseek-whale-girl-icon
+[submodule "plugins/review/dsh-review"]
+	path = plugins/review/dsh-review
+	url = ../dsh-review
