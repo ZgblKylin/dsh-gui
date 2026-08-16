@@ -87,9 +87,16 @@ browser.
 
 - **`review`（审阅模式）** — review-focused coding agent built from the opencode
   review prompt; reviews changes and replies in the user's language.
-- **`anchored-standard`** — experimental two-stage preset: shell/read-only
-  tools for the first request, then the full Standard toolset after the first
-  persisted tool call.
+- **`anchored-standard`** — experimental two-stage preset: the Minimal pair
+  (`bash` + `str_replace_editor`) for the first request, then a minimal
+  resident toolset after the first persisted tool call or reply; its install
+  script also injects the platform-specific instruction hint (Windows CRLF and
+  ripgrep) into the copied preset.
+- **`liangshen`（梁神模式）** — the dsh-web-ui distribution of the two-stage
+  anchored idea: phase 1 exposes the Minimal pair and quarantines injected
+  context, then the wire switches to Code Mode (PTC) after the anchored
+  promotion. Installed as a preset only by `plugins/dsh-web-ui/install.mjs`;
+  no dsh-web-ui npm plugin is built or mounted.
 
 ![dsh-gui with the plugin features expanded](docs/images/dsh-gui-features.png)
 
@@ -132,7 +139,9 @@ dsh-gui/
 │                      #   install.mjs plus the plugin package/repo checkout
 │                      #   (remote/dsh-remote in-tree; terminal/dsh-terminal,
 │                      #   file-explorer/dsh-file-explorer and deep-whale/
-│                      #   dsh-deep-whale are git submodules; see plugins/README.md)
+│                      #   dsh-deep-whale and dsh-web-ui/dsh-web-ui are git
+│                      #   submodules; dsh-web-ui is a preset-only wrapper;
+│                      #   see plugins/README.md)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
 
@@ -155,8 +164,10 @@ This is idempotent and fully repo-internal:
   and copies it to the repository root (`dsh-gui.exe` on Windows, `dsh-gui`
   elsewhere).
 - Runs every plugin install script under `plugins/` — each
-  `plugins/<id>/install.mjs` builds, installs, and mounts its plugin package
-  into the web profile (see [Adding plugins](#adding-plugins-at-runtime)).
+  `plugins/<id>/install.mjs` normally builds, installs, and mounts its plugin
+  package into the web profile; `dsh-web-ui/install.mjs` is the preset-only
+  exception and copies just the `liangshen` preset into
+  `.dsh\.agent-presets\liangshen` (see [Adding plugins](#adding-plugins-at-runtime)).
 - Runs every agent-preset install script under `presets/` — each
   `presets/<id>/` directory lands in `.dsh\.agent-presets\<id>\` and appears on
   the preset roster (see `presets/README.md` for the pattern).
@@ -226,7 +237,7 @@ second-level directory, one level deeper for a multi-package distribution repo
 such as `deep-whale`:
 
 ```
-plugins/<id>/install.mjs     # builds + installs + mounts this one plugin
+plugins/<id>/install.mjs     # plugin: builds + installs + mounts; dsh-web-ui: preset only
 plugins/<id>/<package>/      # the plugin package (in-tree, or a git submodule)
 ```
 
@@ -246,7 +257,7 @@ installPlugin({
 ```
 
 `npm run build` (or `npm run setup`, or `npm run install:plugins`) runs every
-`plugins/*/install.mjs` in directory-name order. Each one:
+`plugins/*/install.mjs` in directory-name order. Each plugin wrapper:
 
 1. builds the package in place (`pnpm install` + `pnpm run build` with the
    pinned toolchain pnpm) — a package without a `build` script is used as
@@ -265,6 +276,12 @@ A plugin that declares `dsh.bundle.patch` (its own `cordis.patch.yml` bundle
 layer, e.g. `dsh-file-explorer`) mounts itself: `dsh plugin add` reconciles it
 into the profile's `dsh.profile.bundles` list and its patch inserts the entry
 as a bundle layer — no `cordis.patch.yml` insert is written for it.
+
+`plugins/dsh-web-ui` is the exception: its install script does not use the
+plugin pipeline at all. It copies only
+`dsh-web-ui/packages/dsh-liangshen/presets/liangshen` to
+`.dsh\.agent-presets\liangshen`, so the preset appears in the roster while
+every other dsh-web-ui package stays uninstalled and unmounted.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing

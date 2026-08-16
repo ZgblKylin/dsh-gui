@@ -4,21 +4,22 @@ Local DeepSeek Harness plugin packages, in the same preset-style layout as
 `presets/`: every first-level directory is a **plugin wrapper** that owns an
 `install.mjs` plus the plugin package/repo checkout (for multi-package
 distribution repos such as `deep-whale`, the package path points one level
-deeper).
+deeper). One wrapper is preset-only instead: `dsh-web-ui` installs just the
+`liangshen` agent preset and nothing else from its distribution repo.
 
 ```
 plugins/
 ├─ <id>/
-│  ├─ install.mjs        # builds, installs, and mounts this one plugin
+│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: preset only
 │  └─ <package>/         # the plugin package (in-tree, or a git submodule)
 └─ ...
 ```
 
 The harness installs plugins into a *profile* (for the web surface, the `web`
 profile). `npm run install:plugins` (alias `npm run plugins`) runs every
-`plugins/*/install.mjs` in directory-name order. Each script delegates the
-shared pipeline to `scripts/plugin-install.mjs` and only owns its own id,
-package directory, and submodule hint:
+`plugins/*/install.mjs` in directory-name order. Plugin wrappers delegate the
+shared pipeline to `scripts/plugin-install.mjs` and only own their id, package
+directory, and submodule hint:
 
 1. build the package in place when it declares a `build` script (pinned
    toolchain pnpm + repo-local store),
@@ -51,6 +52,12 @@ explicit `mount` entry — usually parsed from the wrapper's own
 `cordis.patch.yml` mount recipe, as `review` does — and it overrides the
 derived entry.
 
+- **Preset-only wrapper** — `dsh-web-ui` does not delegate to the shared
+  plugin pipeline at all. Its `install.mjs` copies only
+  `dsh-web-ui/packages/dsh-liangshen/presets/liangshen` into
+  `.dsh/.agent-presets/liangshen`; no package build, profile dependency, or
+  cordis mount happens. See `dsh-web-ui/README.md`.
+
 ## Current plugins
 
 - `remote` — in-tree plugin at `remote/dsh-remote`: multi-backend remote mode
@@ -78,6 +85,11 @@ derived entry.
   prebuilt `lib/` (wrapper passes `build: false`) and mounts through its own
   `dsh.bundle.patch` layer. See
   `deep-whale/dsh-deep-whale/README.md` and its `maid-atelier/README.md`.
+- `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
+  `dsh-web-ui/dsh-web-ui`. Preset-only
+  wrapper: installs the `liangshen` preset (梁神模式) to
+  `.dsh/.agent-presets/liangshen` and intentionally does not install or mount
+  any other dsh-web-ui package. See `dsh-web-ui/README.md`.
 
 ## One-shot layout migration
 

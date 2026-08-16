@@ -126,12 +126,13 @@ function buildExe(debug) {
 }
 
 /**
- * Install every plugin under plugins/ by running its own install script.
- * Each `plugins/<id>/` directory is a self-contained plugin wrapper
- * (`install.mjs` + the plugin package/repo it owns); the CLI delegates build,
- * install, and mount to that script, so a plugin owns how it lands in the web
- * profile (`.dsh/profiles/web/`) and adding one never touches this CLI.
- * Scripts run in directory-name order for a deterministic install sequence.
+ * Run every install script under plugins/.
+ * Each `plugins/<id>/` directory is self-contained (`install.mjs` + whatever
+ * source it owns); plugin wrappers land in the web profile
+ * (`.dsh/profiles/web/`), while preset-only wrappers such as `dsh-web-ui`
+ * copy an agent preset into `.dsh/.agent-presets/`. The CLI delegates the
+ * work to the wrapper script, so adding one never touches this CLI. Scripts
+ * run in directory-name order for a deterministic install sequence.
  */
 function installPluginScripts() {
   if (!existsSync(PLUGINS)) return
@@ -144,7 +145,7 @@ function installPluginScripts() {
     console.log('No plugin install scripts under plugins/ — nothing to build or install.')
     return
   }
-  step('Install plugins into the web profile', () => {
+  step('Run plugin install scripts', () => {
     for (const script of scripts) {
       console.log(`--- ${script}`)
       // The same DSH_HOME pin the desktop shell and the preset installer use.
@@ -156,8 +157,8 @@ function installPluginScripts() {
 function plugins() {
   bootstrapPnpm()
   installPluginScripts()
-  console.log('\nDone. Plugin install scripts ran against .dsh/profiles/web.')
-  console.log('Restart dsh-gui for the composition to reload and the plugins to appear.')
+  console.log('\nDone. Plugin install scripts ran against the repo-local .dsh.')
+  console.log('Restart dsh-gui for the composition and agent-preset roster to reload.')
 }
 
 /**
