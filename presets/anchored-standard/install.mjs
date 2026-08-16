@@ -150,8 +150,11 @@ function applyEnvironmentPatch(target) {
  * Windows. After promotion the resident catalog replaces that shell with the
  * standard preset's platform shell — `pwsh` on Windows (so `custom-bash` is
  * dropped from the model-facing toolset) and `bash` elsewhere — and the
- * `dev_tool_search` description is kept in sync. The controlled
- * post-compaction phase keeps the original bootstrap pair and is not patched.
+ * `dev_tool_search` description is kept in sync. On Windows the patch also
+ * installs a reversible agent-scope `tools.restrict()` so the dropped
+ * `custom-bash` name is denied at RUNTIME after promotion, not just hidden
+ * from the prompt; the restriction is lifted for the controlled
+ * post-compaction phase, which keeps the original bootstrap pair.
  *
  * The source checkout in the submodule is never modified. The patch is
  * marker-based and fails loudly when the upstream plugin shape no longer
@@ -180,6 +183,48 @@ function applyPromotedShellPatch(target) {
       ' * toolset while the bootstrap request keeps it.',
       ' */',
       "const PROMOTED_SHELL_TOOLS = process.platform === 'win32' ? ['pwsh'] : ['bash']",
+      '',
+      '/**',
+      ' * Runtime-side companion to the promoted catalog change. On Windows the',
+      ' * bootstrap phase needs `custom-bash`\'s `bash` registration; after',
+      ' * promotion the model-facing catalog drops it, but the registration',
+      ' * stays in the preset layer. `tools.restrict()` on the AGENT scope',
+      ' * removes it from that session\'s actual registry view and execution',
+      ' * path, so a stale or historical bash call after promotion is denied',
+      ' * instead of merely hidden from the prompt.',
+      ' *',
+      ' * The restriction is reversible: a compaction demotes the session back',
+      ' * to the controlled phase, whose catalog re-exposes the bootstrap pair,',
+      ' * so the restriction is lifted then and re-applied when the session',
+      ' * promotes again.',
+      ' */',
+      "const PROMOTED_DENY_TOOLS = process.platform === 'win32' ? ['bash'] : []",
+      '',
+      '/** Agent-scope restriction disposers, keyed by agent instance (weak). */',
+      'const runtimeRestrictions = new WeakMap()',
+      '',
+      '/**',
+      ' * Keep the runtime registry in sync with the phase the model catalog',
+      ' * shows.',
+      ' *',
+      ' * `agent.ctx.tools.restrict()` files the deny into the agent\'s own scope',
+      ' * layer and returns the exact disposer. The standing preset layer keeps',
+      ' * its `bash` registration untouched, so other sessions still bootstrap',
+      ' * through `custom-bash`; only this promoted agent loses it until',
+      ' * compaction (or agent teardown, which disposes the restriction with',
+      ' * the scope anyway).',
+      ' */',
+      'function syncPromotedRuntimeRestriction(agent, promoted) {',
+      '  if (PROMOTED_DENY_TOOLS.length === 0) return',
+      '  if (agent?.ctx === undefined) return',
+      '  const active = runtimeRestrictions.get(agent)',
+      '  if (promoted) {',
+      '    if (active === undefined) runtimeRestrictions.set(agent, agent.ctx.tools.restrict({ deny: PROMOTED_DENY_TOOLS }))',
+      '  } else if (active !== undefined) {',
+      '    active()',
+      '    runtimeRestrictions.delete(agent)',
+      '  }',
+      '}',
       '',
     ].join('\n'),
   )
@@ -211,6 +256,20 @@ function applyPromotedShellPatch(target) {
     '      }',
   ].join('\n')
   source = source.replace(promotedBlock, patchedPromotedBlock)
+
+  const statusMarker = '      const status = promotion.status(context.agent)'
+  if (!source.includes(statusMarker)) {
+    throw new Error(`${PRESET_ID}: cannot patch ${BOOTSTRAP_PLUGIN} — promotion-status marker not found`)
+  }
+  const patchedStatusBlock = [
+    '      const status = promotion.status(context.agent)',
+    '      try {',
+    '        syncPromotedRuntimeRestriction(context.agent, status.promoted)',
+    '      } catch (error) {',
+    '        warnOnce(`${name}: runtime restriction sync failed, catalog filter still applies: ${String((error && error.message) || error)}`)',
+    '      }',
+  ].join('\n')
+  source = source.replace(statusMarker, patchedStatusBlock)
   writeFileSync(file, source)
 
   const devSearchFile = join(target, DEV_SEARCH_PLUGIN)
@@ -233,7 +292,7 @@ function applyPromotedShellPatch(target) {
   )
   writeFileSync(devSearchFile, devSearchSource)
 
-  console.log(`  ${PRESET_ID} promoted-shell patch: windows=${process.platform === 'win32'}`)
+  console.log(`  ${PRESET_ID} promoted-shell patch: windows=${process.platform === 'win32'} runtime-deny=${JSON.stringify(process.platform === 'win32' ? ['bash'] : [])}`)
 }
 
 const dshHome = process.env.DSH_HOME ?? join(ROOT, '.dsh')
