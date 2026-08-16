@@ -4,13 +4,14 @@ Local DeepSeek Harness plugin packages, in the same preset-style layout as
 `presets/`: every first-level directory is a **plugin wrapper** that owns an
 `install.mjs` plus the plugin package/repo checkout (for multi-package
 distribution repos such as `deep-whale`, the package path points one level
-deeper). One wrapper is preset-only instead: `dsh-web-ui` installs just the
-`liangshen` agent preset and nothing else from its distribution repo.
+deeper). `dsh-web-ui` is the exception: it installs the `liangshen` agent
+preset, the `dsh-pet` plugin, and the `dsh-web-ui-settings` compatibility
+bundle — and nothing else from its distribution repo.
 
 ```
 plugins/
 ├─ <id>/
-│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: preset only
+│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: preset + pet + settings bridge
 │  └─ <package>/         # the plugin package (in-tree, or a git submodule)
 └─ ...
 ```
@@ -52,12 +53,15 @@ explicit `mount` entry — usually parsed from the wrapper's own
 `cordis.patch.yml` mount recipe, as `review` does — and it overrides the
 derived entry.
 
-- **Preset-only wrapper** — `dsh-web-ui` does not delegate to the shared
-  plugin pipeline at all. Its `install.mjs` copies only
+- **Preset + dsh-pet + settings bridge wrapper** — `dsh-web-ui` first copies
   `dsh-web-ui/packages/dsh-liangshen/presets/liangshen` into
-  `.dsh/.agent-presets/liangshen`, then applies a dsh-gui-side Windows patch
-  (custom-bash for the phase-1 shell; see `dsh-web-ui/README.md`); no package
-  build, profile dependency, or cordis mount happens.
+  `.dsh/.agent-presets/liangshen` and applies a dsh-gui-side Windows patch
+  (custom-bash for the phase-1 shell). It then builds `dsh-pet` and
+  `dsh-web-ui-settings` with one filtered pnpm install and delegates both
+  profile installs to the shared pipeline. Both packages declare
+  `dsh.bundle.patch`, so each mounts through its own bundle layer (no manual
+  cordis inserts), and the wrapper orders the settings bridge before
+  `dsh-pet`. See `dsh-web-ui/README.md`.
 
 ## Current plugins
 
@@ -124,10 +128,12 @@ derived entry.
   bottom panels. See `deep-whale/dsh-deep-whale/README.md` and its
   `maid-atelier/README.md`.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
-  `dsh-web-ui/dsh-web-ui`. Preset-only
-  wrapper: installs the `liangshen` preset (梁神模式) to
-  `.dsh/.agent-presets/liangshen` and intentionally does not install or mount
-  any other dsh-web-ui package. See `dsh-web-ui/README.md`.
+  `dsh-web-ui/dsh-web-ui`. Installs the `liangshen` preset (梁神模式) to
+  `.dsh/.agent-presets/liangshen`, plus the `dsh-pet` plugin
+  (`@linxin666/dsh-pet`) and the `dsh-web-ui-settings` compatibility bundle
+  (`@linxin666/dsh-client-ui-web-ui-settings`) into the web profile, with the
+  settings bridge ordered before dsh-pet; it intentionally does not install
+  or mount any other dsh-web-ui package. See `dsh-web-ui/README.md`.
 
 ## One-shot layout migration
 

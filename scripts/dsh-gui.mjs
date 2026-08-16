@@ -129,8 +129,9 @@ function buildExe(debug) {
  * Run every install script under plugins/.
  * Each `plugins/<id>/` directory is self-contained (`install.mjs` + whatever
  * source it owns); plugin wrappers land in the web profile
- * (`.dsh/profiles/web/`), while preset-only wrappers such as `dsh-web-ui`
- * copy an agent preset into `.dsh/.agent-presets/`. The CLI delegates the
+ * (`.dsh/profiles/web/`), while hybrid wrappers such as `dsh-web-ui`
+ * first copy an agent preset into `.dsh/.agent-presets/` and then install
+ * their package profile-side. The CLI delegates the
  * work to the wrapper script, so adding one never touches this CLI. Scripts
  * run in directory-name order for a deterministic install sequence.
  */

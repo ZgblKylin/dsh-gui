@@ -64,12 +64,13 @@ browser.
   GitHub link for dsh-gui, the harness, the icon submodule, and every plugin.
 - **Update dialog** — checks every in-repo project for updates, lets you choose
   which ones to update and their target (latest commit / latest tag), then
-  exits, updates in a console window, and restarts. Each updatable row and the
-  bottom bar also offer an **AI 更新** button: it returns to the project home
-  screen, selects the dsh-gui directory there, and prefills a prompt that asks
-  the agent to sync the submodule(s) to the chosen target and run the install
-  scripts (the bottom button lists every updatable module with its combo
-  choice). The agent preset is left for you to pick.
+  exits, updates in a console window, and restarts. The dialog recommends
+  AI-sync updates: each updatable row and the bottom bar offer an **AI 更新**
+  button that returns to the project home screen, selects the dsh-gui
+  directory there, and prefills a prompt that asks the agent to sync the
+  submodule(s) to the chosen target and run the install scripts (the bottom
+  button lists every updatable module with its combo choice). The agent preset
+  is left for you to pick.
 
 ### Plugins
 
@@ -121,9 +122,11 @@ browser.
 - **`liangshen`（梁神模式）** — the dsh-web-ui distribution of the two-stage
   anchored idea: phase 1 exposes the Minimal pair and quarantines injected
   context, then the wire switches to Code Mode (PTC) after the anchored
-  promotion. Installed as a preset only by `plugins/dsh-web-ui/install.mjs`;
-  no dsh-web-ui npm plugin is built or mounted. The wrapper patches the
-  installed copy on Windows: the phase-1 `bash` becomes the wrapper's
+  promotion. Installed as a preset by `plugins/dsh-web-ui/install.mjs`, which
+  also builds and mounts `dsh-pet` and the `dsh-web-ui-settings` compatibility
+  bridge; no other dsh-web-ui npm plugin is built or mounted. The wrapper
+  patches the installed preset copy on Windows: the phase-1 `bash` becomes
+  the wrapper's
   custom-bash (Git Bash through the ordinary subprocess seam) because DSH's
   PTY backend is linux/darwin-only.
 
@@ -169,8 +172,8 @@ dsh-gui/
 │                      #   (remote/dsh-remote in-tree; terminal/dsh-terminal,
 │                      #   file-explorer/dsh-file-explorer, better-sidebar/
 │                      #   DSH-better-sidebar, deep-whale/dsh-deep-whale and
-│                      #   dsh-web-ui/dsh-web-ui are git submodules;
-│                      #   dsh-web-ui is a preset-only wrapper;
+│                      #   dsh-web-ui/dsh-web-ui are git submodules; dsh-web-ui
+│                      #   installs the liangshen preset + dsh-pet + the dsh-web-ui-settings bridge;
 │                      #   see plugins/README.md)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
@@ -195,11 +198,12 @@ This is idempotent and fully repo-internal:
   elsewhere).
 - Runs every plugin install script under `plugins/` — each
   `plugins/<id>/install.mjs` normally builds, installs, and mounts its plugin
-  package into the web profile; `dsh-web-ui/install.mjs` is the preset-only
-  exception and copies just the `liangshen` preset into
-  `.dsh\.agent-presets\liangshen`, then applies the dsh-gui-side Windows patch
-  (phase-1 custom-bash; see `plugins/dsh-web-ui/README.md`) (see
-  [Adding plugins](#adding-plugins-at-runtime)).
+  package into the web profile; `dsh-web-ui/install.mjs` additionally copies
+  the `liangshen` preset into `.dsh\.agent-presets\liangshen` and applies the
+  dsh-gui-side Windows patch (phase-1 custom-bash; see
+  `plugins/dsh-web-ui/README.md`), then builds and mounts `dsh-pet` and the
+  `dsh-web-ui-settings` settings bridge through the same profile pipeline
+  (see [Adding plugins](#adding-plugins-at-runtime)).
 - Runs every agent-preset install script under `presets/` — each
   `presets/<id>/` directory lands in `.dsh\.agent-presets\<id>\` and appears on
   the preset roster (see `presets/README.md` for the pattern).
@@ -269,7 +273,7 @@ second-level directory, one level deeper for a multi-package distribution repo
 such as `deep-whale`:
 
 ```
-plugins/<id>/install.mjs     # plugin: builds + installs + mounts; dsh-web-ui: preset only
+plugins/<id>/install.mjs     # plugin: builds + installs + mounts; dsh-web-ui: preset + pet + settings bridge
 plugins/<id>/<package>/      # the plugin package (in-tree, or a git submodule)
 ```
 
@@ -315,13 +319,17 @@ copies `maid-atelier` to `.dsh/plugins/deep-whale/maid-atelier`, applies
 out of better-sidebar/sidebar-qa right and bottom panels), and links the
 patched copy.
 
-`plugins/dsh-web-ui` is the exception: its install script does not use the
-plugin pipeline at all. It copies only
+`plugins/dsh-web-ui` is the partial exception: its install script first copies
 `dsh-web-ui/packages/dsh-liangshen/presets/liangshen` to
-`.dsh\.agent-presets\liangshen`, then patches that copy on Windows (the
+`.dsh\.agent-presets\liangshen` and patches that copy on Windows (the
 phase-1 `bash` becomes the wrapper's custom-bash, since DSH's PTY backend is
-linux/darwin-only; see `plugins/dsh-web-ui/README.md`), so the preset appears
-in the roster while every other dsh-web-ui package stays uninstalled and unmounted.
+linux/darwin-only; see `plugins/dsh-web-ui/README.md`). It then builds
+`dsh-web-ui/packages/dsh-pet` and `dsh-web-ui/packages/dsh-web-ui-settings`
+and installs both through the shared plugin pipeline (settings bridge ordered
+before pet). The bridge is required because dsh-host-apiproxy's hard-coded
+settings allowlist does not expose third-party namespaces such as `pet`, so
+without it the pet's configuration form is read-only. Every other dsh-web-ui
+package stays uninstalled and unmounted.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing
