@@ -55,8 +55,9 @@ derived entry.
 - **Preset-only wrapper** — `dsh-web-ui` does not delegate to the shared
   plugin pipeline at all. Its `install.mjs` copies only
   `dsh-web-ui/packages/dsh-liangshen/presets/liangshen` into
-  `.dsh/.agent-presets/liangshen`; no package build, profile dependency, or
-  cordis mount happens. See `dsh-web-ui/README.md`.
+  `.dsh/.agent-presets/liangshen`, then applies a dsh-gui-side Windows patch
+  (custom-bash for the phase-1 shell; see `dsh-web-ui/README.md`); no package
+  build, profile dependency, or cordis mount happens.
 
 ## Current plugins
 

@@ -109,7 +109,10 @@ browser.
   anchored idea: phase 1 exposes the Minimal pair and quarantines injected
   context, then the wire switches to Code Mode (PTC) after the anchored
   promotion. Installed as a preset only by `plugins/dsh-web-ui/install.mjs`;
-  no dsh-web-ui npm plugin is built or mounted.
+  no dsh-web-ui npm plugin is built or mounted. The wrapper patches the
+  installed copy on Windows: the phase-1 `bash` becomes the wrapper's
+  custom-bash (Git Bash through the ordinary subprocess seam) because DSH's
+  PTY backend is linux/darwin-only.
 
 ![dsh-gui with the plugin features expanded](docs/images/dsh-gui-features.png)
 
@@ -180,7 +183,9 @@ This is idempotent and fully repo-internal:
   `plugins/<id>/install.mjs` normally builds, installs, and mounts its plugin
   package into the web profile; `dsh-web-ui/install.mjs` is the preset-only
   exception and copies just the `liangshen` preset into
-  `.dsh\.agent-presets\liangshen` (see [Adding plugins](#adding-plugins-at-runtime)).
+  `.dsh\.agent-presets\liangshen`, then applies the dsh-gui-side Windows patch
+  (phase-1 custom-bash; see `plugins/dsh-web-ui/README.md`) (see
+  [Adding plugins](#adding-plugins-at-runtime)).
 - Runs every agent-preset install script under `presets/` — each
   `presets/<id>/` directory lands in `.dsh\.agent-presets\<id>\` and appears on
   the preset roster (see `presets/README.md` for the pattern).
@@ -293,8 +298,10 @@ as a bundle layer — no `cordis.patch.yml` insert is written for it.
 `plugins/dsh-web-ui` is the exception: its install script does not use the
 plugin pipeline at all. It copies only
 `dsh-web-ui/packages/dsh-liangshen/presets/liangshen` to
-`.dsh\.agent-presets\liangshen`, so the preset appears in the roster while
-every other dsh-web-ui package stays uninstalled and unmounted.
+`.dsh\.agent-presets\liangshen`, then patches that copy on Windows (the
+phase-1 `bash` becomes the wrapper's custom-bash, since DSH's PTY backend is
+linux/darwin-only; see `plugins/dsh-web-ui/README.md`), so the preset appears
+in the roster while every other dsh-web-ui package stays uninstalled and unmounted.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing

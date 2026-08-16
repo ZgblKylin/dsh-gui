@@ -1,26 +1,34 @@
 #!/usr/bin/env node
 /**
- * install.mjs — install ONLY the `liangshen` agent preset from the dsh-web-ui
- * checkout into the harness home.
+ * install.mjs — install the `liangshen` agent preset from the dsh-web-ui
+ * checkout into the harness home, then apply dsh-gui's own Windows patch.
  *
  * dsh-web-ui is a multi-package distribution repo tracked as the
  * `plugins/dsh-web-ui/dsh-web-ui` git submodule; this wrapper deliberately
- * does NOT use the shared
- * `scripts/plugin-install.mjs` pipeline. No dsh-web-ui package is installed,
- * built, linked, or mounted into the web profile here. The only artifact this
- * script lands is the preset directory:
+ * does NOT use the shared `scripts/plugin-install.mjs` pipeline. No
+ * dsh-web-ui package is installed, built, linked, or mounted into the web
+ * profile here. The only artifact this script lands is the preset directory:
  *
  *   dsh-web-ui/packages/dsh-liangshen/presets/liangshen
  *     -> $DSH_HOME/.agent-presets/liangshen
  *
  * The preset keeps its own composition (`agent.cordis.yml`), display metadata
- * (`preset.yml`), local plugin (`tool-bootstrap.mjs`), and license notices.
- * The host plugin half of dsh-liangshen (`src/`, `cordis.patch.yml`, the npm
- * package) is intentionally NOT installed: the preset alone is enough for the
- * harness roster, and no dsh-web-ui bundle enters the web profile.
+ * (`preset.yml`), and local plugins (`tool-bootstrap.mjs`). The host plugin
+ * half of dsh-liangshen (`src/`, `cordis.patch.yml`, the npm package) is
+ * intentionally NOT installed: the preset alone is enough for the harness
+ * roster, and no dsh-web-ui bundle enters the web profile.
+ *
+ * UPSTREAM IS NEVER MODIFIED: after the pristine copy, `patch-liangshen.mjs`
+ * applies dsh-gui's Windows patch to the INSTALLED copy only — it adds
+ * `custom-bash.mjs` (vendored from xiaobright/dsh-anchored-standard, MIT) and
+ * switches the phase-1 `bash` to it on win32 (DSH's PTY backend is
+ * linux/darwin-only), so the cold-start bootstrap does not fall into the
+ * degraded fallback. See plugins/dsh-web-ui/README.md.
  *
  * The target is replaced and re-copied on every run, so re-installs are
- * idempotent and stale files cannot survive a source change.
+ * idempotent and stale files cannot survive a source change; the patch step
+ * re-applies on the fresh copy and is itself a no-op on already-patched
+ * output.
  *
  * Target: `$DSH_HOME/.agent-presets/liangshen`. `DSH_HOME` is pinned to
  * `<repo>/.dsh` by the desktop shell; this script honors an explicit
@@ -31,6 +39,7 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { applyLiangshenWindowsPatch } from './patch-liangshen.mjs'
 
 /** This wrapper directory: plugins/dsh-web-ui/. */
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -60,4 +69,7 @@ const target = join(dshHome, '.agent-presets', PRESET_ID)
 rmSync(target, { recursive: true, force: true })
 mkdirSync(target, { recursive: true })
 cpSync(SOURCE, target, { recursive: true })
+
+const patched = applyLiangshenWindowsPatch(target)
 console.log(`installed agent preset '${PRESET_ID}' (${SOURCE}) -> ${target}`)
+console.log(`  patched: ${patched.join(', ')}`)
