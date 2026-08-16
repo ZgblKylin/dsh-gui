@@ -12,13 +12,29 @@
  * target is replaced and re-copied on every run, so re-installs are
  * idempotent and stale files cannot survive a source change.
  *
+ * Install-time patches: after copying, the script applies two idempotent
+ * patches to the copied preset.
+ *
+ *  - Environment hints: probes the host environment (Windows? ripgrep on
+ *    PATH?) and patches the copied `instruction-hint.mjs` with the matching
+ *    platform hints.
+ *  - Promoted shell: patches the copied `tool-bootstrap.mjs` so the promoted
+ *    resident catalog uses the standard preset's platform shell — `pwsh` on
+ *    Windows (dropping `custom-bash` from the model-facing toolset) and
+ *    `bash` elsewhere — while the bootstrap request keeps the Minimal pair.
+ *    The copied `dev-tool-search.mjs` description is patched to stay in sync.
+ *
+ * The submodule source stays untouched; a re-install re-applies both patches
+ * from scratch.
+ *
  * Target: `$DSH_HOME/.agent-presets/anchored-standard/`. `DSH_HOME` is pinned
  * to `<repo>/.dsh` by the desktop shell; this script honors an explicit
  * `DSH_HOME` override (the build passes one) and otherwise pins the same
  * repo-local default.
  */
 
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -30,6 +46,195 @@ const ROOT = resolve(HERE, '..', '..')
 const PRESET_ID = 'anchored-standard'
 /** Source of truth inside the dsh-anchored-standard submodule, per its README. */
 const SOURCE = join(HERE, 'dsh-anchored-standard', 'preset')
+
+/** The copied plugin that owns the post-promotion hint message. */
+const HINT_PLUGIN = 'instruction-hint.mjs'
+/** The copied plugin that owns the per-phase tool catalog. */
+const BOOTSTRAP_PLUGIN = 'tool-bootstrap.mjs'
+/** The copied plugin that advertises the resident catalog to the model. */
+const DEV_SEARCH_PLUGIN = 'dev-tool-search.mjs'
+
+/**
+ * Probe whether `rg` (ripgrep) is callable on PATH at install time.
+ * The probe never throws: a missing executable or a non-zero exit means
+ * "unavailable", and the generated hint simply omits the ripgrep line.
+ */
+function hasRipgrep() {
+  const probe = spawnSync('rg', ['--version'], { stdio: 'ignore', windowsHide: true })
+  return probe.error === undefined && probe.status === 0
+}
+
+/**
+ * Patch the copied preset with the platform hints detected at install time.
+ *
+ * The anchored-standard preset keeps its bootstrap round deliberately minimal;
+ * this patch adds one or two short prompt lines to the existing
+ * `instruction-hint` message that appears once after promotion — Windows CRLF
+ * awareness and, when ripgrep is installed, an `rg`-over-`grep` preference.
+ * The source checkout in the submodule is never modified.
+ *
+ * The patch is marker-based and fails loudly when the upstream plugin shape
+ * no longer matches, instead of silently producing a preset without the hint.
+ */
+function applyEnvironmentPatch(target) {
+  const isWindows = process.platform === 'win32'
+  const rgAvailable = hasRipgrep()
+  if (!isWindows && !rgAvailable) return
+
+  const hints = []
+  if (isWindows) {
+    hints.push('Current environment is Windows; read and edit files with Windows CRLF line endings in mind.')
+  }
+  if (rgAvailable) {
+    hints.push('ripgrep (`rg`) is available; prefer `rg` over `grep` when searching files or content.')
+  }
+
+  const file = join(target, HINT_PLUGIN)
+  let source = readFileSync(file, 'utf8').replaceAll('\r\n', '\n')
+
+  const constantMarker = "const USER_GLOBAL_CANDIDATE = 'AGENTS.md'\n"
+  if (!source.includes(constantMarker)) {
+    throw new Error(`${PRESET_ID}: cannot patch ${HINT_PLUGIN} — environment-hint marker not found`)
+  }
+  source = source.replace(
+    constantMarker,
+    `${constantMarker}\n/** Environment hints injected by presets/anchored-standard/install.mjs. */\nconst ENVIRONMENT_HINTS = ${JSON.stringify(hints)}\n`,
+  )
+
+  const hintBlock = [
+    '      const sections = []',
+    '      if (projectFiles.length > 0) {',
+    '        sections.push(`Workspace instruction files exist: ${projectFiles.join(\', \')} (project root: ${root}).`)',
+    '      }',
+    '      if (userGlobalFiles.length > 0) {',
+    '        sections.push(`A user-global instruction file exists: ${USER_GLOBAL_CANDIDATE}.`)',
+    '      }',
+    '      if (sections.length === 0) return decision',
+    '',
+    '      const text = [',
+    '        ...sections,',
+    "        'Do NOT assume their content. When a task touches this workspace, read the relevant instruction files first and follow them.',",
+    "      ].join(' ')",
+  ].join('\n')
+  if (!source.includes(hintBlock)) {
+    throw new Error(`${PRESET_ID}: cannot patch ${HINT_PLUGIN} — hint block not found`)
+  }
+  const patchedHintBlock = [
+    '      const instructionSections = []',
+    '      if (projectFiles.length > 0) {',
+    '        instructionSections.push(`Workspace instruction files exist: ${projectFiles.join(\', \')} (project root: ${root}).`)',
+    '      }',
+    '      if (userGlobalFiles.length > 0) {',
+    '        instructionSections.push(`A user-global instruction file exists: ${USER_GLOBAL_CANDIDATE}.`)',
+    '      }',
+    '      if (instructionSections.length === 0 && ENVIRONMENT_HINTS.length === 0) return decision',
+    '',
+    '      const text = [',
+    '        ...ENVIRONMENT_HINTS,',
+    '        ...instructionSections,',
+    "        ...(instructionSections.length === 0 ? [] : ['Do NOT assume their content. When a task touches this workspace, read the relevant instruction files first and follow them.']),",
+    "      ].join(' ')",
+  ].join('\n')
+  source = source.replace(hintBlock, patchedHintBlock)
+
+  writeFileSync(file, source)
+  console.log(`  ${PRESET_ID} environment patch: windows=${isWindows} rg=${rgAvailable}`)
+}
+
+/**
+ * Patch the copied preset's promoted shell toolset to match the standard
+ * preset's platform gate.
+ *
+ * The bootstrap phase stays untouched: request #1 still sees the Minimal pair
+ * (`bash` + `str_replace_editor`), with `custom-bash` backing `bash` on
+ * Windows. After promotion the resident catalog replaces that shell with the
+ * standard preset's platform shell — `pwsh` on Windows (so `custom-bash` is
+ * dropped from the model-facing toolset) and `bash` elsewhere — and the
+ * `dev_tool_search` description is kept in sync. The controlled
+ * post-compaction phase keeps the original bootstrap pair and is not patched.
+ *
+ * The source checkout in the submodule is never modified. The patch is
+ * marker-based and fails loudly when the upstream plugin shape no longer
+ * matches, instead of silently producing a preset without the shell change.
+ */
+function applyPromotedShellPatch(target) {
+  const file = join(target, BOOTSTRAP_PLUGIN)
+  let source = readFileSync(file, 'utf8').replaceAll('\r\n', '\n')
+
+  const discoveryMarker = [
+    '/** Discovery tools always resident after promotion (the tool-search pattern). */',
+    "const RESIDENT_DISCOVERY_TOOLS = ['dev_tool_search', 'skill_search', 'skill_load']",
+    '',
+  ].join('\n')
+  if (!source.includes(discoveryMarker)) {
+    throw new Error(`${PRESET_ID}: cannot patch ${BOOTSTRAP_PLUGIN} — discovery-tool marker not found`)
+  }
+  source = source.replace(
+    discoveryMarker,
+    [
+      discoveryMarker,
+      '/**',
+      ' * Shell tools resident after promotion, matching the standard preset\'s',
+      " * platform gate: `pwsh` on Windows, `bash` elsewhere. On Windows this",
+      ' * drops the `custom-bash`-backed `bash` from the model-facing promoted',
+      ' * toolset while the bootstrap request keeps it.',
+      ' */',
+      "const PROMOTED_SHELL_TOOLS = process.platform === 'win32' ? ['pwsh'] : ['bash']",
+      '',
+    ].join('\n'),
+  )
+
+  const promotedBlock = [
+    '      if (status.promoted) {',
+    '        // PROMOTED: keep the minimal resident set — the bootstrap pair + the',
+    '        // discovery tools + whatever the model explicitly unlocked via',
+    '        // dev_tool_search — instead of dumping the whole Standard catalog at',
+    '        // once (the post-promotion regression fix; see the header note).',
+    "        const keep = new Set([...bootstrapTools, ...RESIDENT_DISCOVERY_TOOLS, ...unlockedFor(context.agent?.session)])",
+    '        return keepTools(assembled, keep, false)',
+    '      }',
+  ].join('\n')
+  if (!source.includes(promotedBlock)) {
+    throw new Error(`${PRESET_ID}: cannot patch ${BOOTSTRAP_PLUGIN} — promoted-catalog block not found`)
+  }
+  const patchedPromotedBlock = [
+    '      if (status.promoted) {',
+    '        // PROMOTED: keep the minimal resident set — the standard preset\'s',
+    '        // platform shell (pwsh on Windows, bash elsewhere) +',
+    '        // str_replace_editor + the discovery tools + whatever the model',
+    '        // explicitly unlocked via dev_tool_search — instead of dumping the',
+    '        // whole Standard catalog at once (the post-promotion regression fix;',
+    '        // see the header note). On Windows this deliberately drops the',
+    '        // custom-bash-backed `bash` from the promoted toolset.',
+    "        const keep = new Set([...PROMOTED_SHELL_TOOLS, 'str_replace_editor', ...RESIDENT_DISCOVERY_TOOLS, ...unlockedFor(context.agent?.session)])",
+    '        return keepTools(assembled, keep, false)',
+    '      }',
+  ].join('\n')
+  source = source.replace(promotedBlock, patchedPromotedBlock)
+  writeFileSync(file, source)
+
+  const devSearchFile = join(target, DEV_SEARCH_PLUGIN)
+  let devSearchSource = readFileSync(devSearchFile, 'utf8').replaceAll('\r\n', '\n')
+  const residentLine = "      'This session starts with a minimal resident set: bash, str_replace_editor, skill_search, skill_load. Everything else is unlocked on demand through this tool.',"
+  if (!devSearchSource.includes(residentLine)) {
+    throw new Error(`${PRESET_ID}: cannot patch ${DEV_SEARCH_PLUGIN} — resident-catalog marker not found`)
+  }
+  devSearchSource = devSearchSource.replace(
+    residentLine,
+    "      `This session starts with a minimal resident set: ${process.platform === 'win32' ? 'pwsh' : 'bash'}, str_replace_editor, skill_search, skill_load. Everything else is unlocked on demand through this tool.`,",
+  )
+  const workaroundLine = "      'If the current task needs any of the following, call dev_tool_search FIRST — do not try to work around them with bash:',"
+  if (!devSearchSource.includes(workaroundLine)) {
+    throw new Error(`${PRESET_ID}: cannot patch ${DEV_SEARCH_PLUGIN} — workaround-line marker not found`)
+  }
+  devSearchSource = devSearchSource.replace(
+    workaroundLine,
+    "      'If the current task needs any of the following, call dev_tool_search FIRST — do not try to work around them with the resident shell:',",
+  )
+  writeFileSync(devSearchFile, devSearchSource)
+
+  console.log(`  ${PRESET_ID} promoted-shell patch: windows=${process.platform === 'win32'}`)
+}
 
 const dshHome = process.env.DSH_HOME ?? join(ROOT, '.dsh')
 const target = join(dshHome, '.agent-presets', PRESET_ID)
@@ -44,4 +249,6 @@ if (!existsSync(join(SOURCE, 'agent.cordis.yml'))) {
 rmSync(target, { recursive: true, force: true })
 mkdirSync(target, { recursive: true })
 cpSync(SOURCE, target, { recursive: true })
+applyEnvironmentPatch(target)
+applyPromotedShellPatch(target)
 console.log(`installed agent preset '${PRESET_ID}' (${SOURCE}) -> ${target}`)
