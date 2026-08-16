@@ -29,6 +29,7 @@ const updateBadge = $("update-badge");
 const updateOverlay = $("update-overlay");
 const updateBody = $("update-body");
 const updateMarkAll = $("update-mark-all");
+const updateAiAll = $("update-ai-all");
 const updateApply = $("update-apply");
 const updateClose = $("update-close");
 const updateNote = $("update-note");
@@ -678,6 +679,7 @@ function updateError(message) {
   error.textContent = message;
   updateBody.appendChild(error);
   updateMarkAll.classList.add("hidden");
+  updateAiAll.classList.add("hidden");
   updateApply.classList.add("hidden");
 }
 
@@ -723,12 +725,28 @@ function updateRow(project) {
     unavailable.textContent = "不可检查";
     action.appendChild(unavailable);
   } else if (project.behind) {
+    const mode = document.createElement("select");
+    mode.className = "update-mode";
+    mode.dataset.updateId = project.id;
+    mode.title = "更新目标";
+    const tagOption = new Option(
+      project.latestTag ? `最新tag（${project.latestTag}）` : "最新tag（无）",
+      "tag"
+    );
+    if (!project.latestTag) tagOption.disabled = true;
+    mode.append(new Option("最新提交", "commit"), tagOption);
+    const ai = document.createElement("button");
+    ai.type = "button";
+    ai.className = "secondary update-ai";
+    ai.dataset.updateId = project.id;
+    ai.textContent = "AI 更新";
+    ai.title = "回到项目首页选中 dsh-gui 目录并预填提示词，预设由你自选";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "primary update-run";
     button.dataset.updateId = project.id;
     button.textContent = "更新";
-    action.appendChild(button);
+    action.append(mode, ai, button);
   } else {
     const ok = document.createElement("span");
     ok.className = "update-item-ok";
@@ -766,11 +784,12 @@ function renderUpdateDialog(status) {
     checking > 0
       ? `${projects.length} 个工程，正在检测更新…`
       : behind.length > 0
-        ? `${behind.length} 个工程有可用更新。点各行「更新」确认要更新的工程，再点「重启并更新」；dsh-gui 会退出，更新过程在弹出窗口中显示，完成后自动重启。`
+        ? `${behind.length} 个工程有可用更新。每行可先选更新目标（最新提交 / 最新 tag），点「更新」确认要更新的工程，再点「重启并更新」；dsh-gui 会退出，更新过程在弹出窗口中显示，完成后自动重启。也可以点各行或底部的「AI 更新」，回到项目首页选中 dsh-gui 目录并预填更新提示词（agent 预设由你自选）。`
         : "所有工程均为最新版本。";
   updateBody.appendChild(summary);
   for (const project of projects) updateBody.appendChild(updateRow(project));
   updateMarkAll.classList.toggle("hidden", behind.length === 0);
+  updateAiAll.classList.toggle("hidden", behind.length === 0);
   updateApply.classList.toggle("hidden", behind.length === 0);
 }
 
@@ -785,6 +804,7 @@ function openUpdateDialog() {
   loading.textContent = "正在检查更新…";
   updateBody.appendChild(loading);
   updateMarkAll.classList.add("hidden");
+  updateAiAll.classList.add("hidden");
   updateApply.classList.add("hidden");
 }
 
@@ -887,25 +907,177 @@ async function checkForUpdates(showDialog) {
 async function startUpdates(ids) {
   const usable = (ids ?? []).filter((id) => id);
   if (usable.length === 0) return;
+  const modes = {};
+  for (const id of usable) modes[id] = updateModeOf(id);
   const label = usable.length === 1 ? "所选工程" : `${usable.length} 个工程`;
   updateNote.textContent =
     `已确认更新${label}。dsh-gui 即将退出，更新过程会显示在控制台窗口中（非 Windows 平台写入 .dsh/gui/update.log），完成后自动重启。`;
   updateNote.classList.remove("hidden");
   updateMarkAll.disabled = true;
+  updateAiAll.disabled = true;
   updateApply.disabled = true;
   updateClose.disabled = true;
   for (const button of updateBody.querySelectorAll(".update-run")) button.disabled = true;
+  for (const select of updateBody.querySelectorAll(".update-mode")) select.disabled = true;
   try {
-    await invoke("start_update", { ids: usable });
+    await invoke("start_update", { ids: usable, modes });
   } catch (error) {
     updateNote.textContent = `启动更新失败：${String((error && error.message) || error)}`;
     updateMarkAll.disabled = false;
+    updateAiAll.disabled = false;
     updateApply.disabled = false;
     updateClose.disabled = false;
+    for (const select of updateBody.querySelectorAll(".update-mode")) select.disabled = false;
     for (const button of updateBody.querySelectorAll(".update-run")) {
       if (updateSelection.has(button.dataset.updateId)) continue;
       button.disabled = false;
     }
+  }
+}
+
+function updateModeOf(projectId) {
+  const select = updateBody.querySelector('.update-mode[data-update-id="' + projectId + '"]');
+  return select && select.value === "tag" ? "tag" : "commit";
+}
+
+/* ── AI update (项目首页选中 dsh-gui + 预填充提示词) ─────── */
+// The shell only builds the message; the dsh-ai-update browser plugin inside
+// the harness page returns the page to the new-session home, selects the
+// dsh-gui workspace there, and prefills the composer draft (the agent preset
+// choice stays with the user). It replies with a result message.
+const AI_UPDATE_MESSAGE = "dsh-gui:ai-update";
+const AI_UPDATE_RESULT = "dsh-gui:ai-update-result";
+const AI_UPDATE_VERSION = 1;
+const AI_UPDATE_TIMEOUT_MS = 10000;
+let aiUpdateSeq = 0;
+
+function updatableProjects(projects) {
+  return (projects ?? []).filter((project) => project && project.behind && !project.error);
+}
+
+function aiModuleLabel(project) {
+  const kind = project.id === "dsh-gui" ? "仓库本体" : "submodule " + project.id;
+  const path = project.path ? "，路径：" + project.path : "";
+  return project.name + "（" + kind + path + "）";
+}
+
+function aiUpdateTargetText(project) {
+  const current = project.current || "unknown";
+  if (updateModeOf(project.id) === "tag") {
+    const tag = project.latestTag
+      ? "最新 tag「" + project.latestTag + "」"
+      : "最新 tag（用 git describe --tags --abbrev=0 origin/<默认分支> 确定）";
+    return "更新目标：" + tag + "（当前 " + current + "）";
+  }
+  return "更新目标：最新提交（远端默认分支 HEAD；当前 " + current + "，最新 " + (project.latest || "?") + "）";
+}
+
+function buildAiUpdatePrompt(projects) {
+  const list = updatableProjects(projects);
+  const lines = [];
+  if (list.length === 1) {
+    const project = list[0];
+    lines.push("请更新当前 dsh-gui 仓库中的「" + project.name + "」模块：");
+    lines.push("");
+    lines.push("- 模块：" + aiModuleLabel(project));
+    lines.push("- " + aiUpdateTargetText(project));
+    lines.push("");
+    lines.push("步骤：");
+    if (updateModeOf(project.id) === "tag") {
+      lines.push("1. 先 fetch origin（git -C <path> fetch --prune origin），再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到远端默认分支可达的最新 tag，然后 checkout/reset 到该 tag；");
+    } else {
+      lines.push("1. 将该模块快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>，或在模块目录里 fetch origin 后检出 origin/<默认分支>；仓库本体则 pull/reset 到 origin 默认分支）；");
+    }
+    lines.push("2. 运行对应的安装脚本：插件模块运行其 plugins/<id>/install.mjs（或仓库根目录的 npm run install:plugins）；");
+    lines.push("3. 若改动涉及 harness 或需要重建，按需执行仓库构建脚本；");
+    lines.push("4. 完成后汇报改动了哪些文件、执行了哪些安装/构建命令及结果；");
+    lines.push("5. 基于该模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+  } else {
+    lines.push("请批量更新当前 dsh-gui 仓库中以下可更新的模块：");
+    lines.push("");
+    for (const project of list) {
+      const path = project.path ? "路径 " + project.path + "，" : "";
+      const target = updateModeOf(project.id) === "tag"
+        ? "更新到最新 tag" + (project.latestTag ? "「" + project.latestTag + "」" : "")
+        : "更新到最新提交（最新 " + (project.latest || "?") + "）";
+      lines.push("- " + project.name + "（" + path + "当前 " + (project.current || "unknown") + "，" + target + "）");
+    }
+    lines.push("");
+    lines.push("对每个模块按其标注的更新目标处理：");
+    lines.push("1. 最新提交：快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>；仓库本体用 git pull）；");
+    lines.push("2. 最新 tag：先 fetch origin，再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag；");
+    lines.push("3. 更新后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
+    lines.push("4. 必要时重建；");
+    lines.push("5. 全部完成后汇报每个模块的改动与安装结果；");
+    lines.push("6. 基于各模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，并逐模块汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+  }
+  lines.push("");
+  lines.push("注意：以上路径均相对于 dsh-gui 仓库根目录；请确认会话工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。");
+  return lines.join("\n");
+}
+
+// Post one request to the embedded harness page and wait for the plugin's
+// result message. Resolves true when the plugin confirmed the session, false
+// when it reported an error or never answered.
+function postAiUpdateRequest(prompt) {
+  return new Promise((resolve) => {
+    const tab = activeTab();
+    const win = harnessFrame.contentWindow;
+    if (!tab || !win) {
+      toast("当前没有打开的连接，无法启动 AI 更新");
+      resolve(false);
+      return;
+    }
+    const requestId = "ai-update-" + (++aiUpdateSeq);
+    let settled = false;
+    const finish = (ok, error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener("message", onResult);
+      if (ok) toast("已在项目首页选中 dsh-gui 目录并预填充提示词，请选择预设后发送");
+      else toast("AI 更新启动失败：" + (error || "未知错误"));
+      resolve(ok);
+    };
+    const onResult = (event) => {
+      if (event.source !== win) return;
+      const data = event.data;
+      if (!data || data.type !== AI_UPDATE_RESULT || data.requestId !== requestId) return;
+      finish(data.ok === true, data.ok === true ? "" : data.error);
+    };
+    const timer = setTimeout(() => finish(false, "内嵌前端无响应（确认 dsh-ai-update 插件已安装并重启）"), AI_UPDATE_TIMEOUT_MS);
+    window.addEventListener("message", onResult);
+    try {
+      win.postMessage(
+        {
+          type: AI_UPDATE_MESSAGE,
+          version: AI_UPDATE_VERSION,
+          requestId,
+          prompt,
+        },
+        tab.url
+      );
+    } catch (error) {
+      finish(false, String((error && error.message) || error));
+    }
+  });
+}
+
+async function startAiUpdate(projects) {
+  const list = updatableProjects(projects);
+  if (list.length === 0) {
+    toast("没有可用的更新工程");
+    return;
+  }
+  updateNote.textContent = "正在启动 AI 更新会话…";
+  updateNote.classList.remove("hidden");
+  const ok = await postAiUpdateRequest(buildAiUpdatePrompt(list));
+  if (ok) {
+    updateNote.textContent = "";
+    updateNote.classList.add("hidden");
+    closeUpdateDialog();
+  } else {
+    updateNote.textContent = "AI 更新会话未启动；可检查内嵌页面或重试。";
   }
 }
 
@@ -956,7 +1128,16 @@ updateMarkAll.addEventListener("click", () => {
 updateApply.addEventListener("click", () => {
   void startUpdates([...updateSelection]);
 });
+updateAiAll.addEventListener("click", () => {
+  void startAiUpdate(updateStatus?.projects);
+});
 updateBody.addEventListener("click", (e) => {
+  const ai = e.target.closest(".update-ai");
+  if (ai && ai.dataset.updateId && !ai.disabled) {
+    const project = (updateStatus?.projects ?? []).find((p) => p.id === ai.dataset.updateId);
+    void startAiUpdate(project ? [project] : []);
+    return;
+  }
   const button = e.target.closest(".update-run");
   if (!button || !button.dataset.updateId || button.disabled) return;
   markProjectUpdate(button.dataset.updateId);

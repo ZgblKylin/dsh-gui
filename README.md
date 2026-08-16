@@ -63,7 +63,13 @@ browser.
 - **About dialog** — version (git tag or commit short hash), license, and
   GitHub link for dsh-gui, the harness, the icon submodule, and every plugin.
 - **Update dialog** — checks every in-repo project for updates, lets you choose
-  which ones to update, then exits, updates in a console window, and restarts.
+  which ones to update and their target (latest commit / latest tag), then
+  exits, updates in a console window, and restarts. Each updatable row and the
+  bottom bar also offer an **AI 更新** button: it returns to the project home
+  screen, selects the dsh-gui directory there, and prefills a prompt that asks
+  the agent to sync the submodule(s) to the chosen target and run the install
+  scripts (the bottom button lists every updatable module with its combo
+  choice). The agent preset is left for you to pick.
 
 ### Plugins
 
@@ -79,6 +85,11 @@ browser.
 - **`dsh-review`** — `/review` slash command for code review of uncommitted
   changes, a commit, a branch diff, a PR URL/number, or a custom request (see
   `plugins/review/dsh-review/README.md`).
+- **`dsh-ai-update`** — browser-half bridge behind the update dialog's AI
+  update buttons: receives the shell's `dsh-gui:ai-update` message, returns
+  to the new-session home, selects the dsh-gui workspace, and prefills the
+  composer with the update prompt — never creating a session directly and
+  never picking a preset (see `plugins/ai-update/dsh-ai-update/docs/`).
 - **`dsh-deep-whale`** — whale-girl skin series; currently ships the
   hot-pluggable `maid-atelier` skin (light/dark palace backgrounds, navy lace
   UI overlay, Q-version sidebar, embedded assets).
@@ -91,7 +102,9 @@ browser.
   (`bash` + `str_replace_editor`) for the first request, then a minimal
   resident toolset after the first persisted tool call or reply; its install
   script also injects the platform-specific instruction hint (Windows CRLF and
-  ripgrep) into the copied preset.
+  ripgrep), promotes the Windows shell to `pwsh`, and denies the promoted
+  session's `bash` at runtime via an agent-scope `tools.restrict()` (lifted
+  again when compaction returns the session to the controlled phase).
 - **`liangshen`（梁神模式）** — the dsh-web-ui distribution of the two-stage
   anchored idea: phase 1 exposes the Minimal pair and quarantines injected
   context, then the wire switches to Code Mode (PTC) after the anchored

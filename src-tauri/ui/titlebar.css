@@ -410,6 +410,32 @@ body {
 
 .update-item-action {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+select.update-mode {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 6px 6px;
+  outline: none;
+  cursor: default;
+}
+
+select.update-mode:focus {
+  border-color: var(--accent);
+}
+
+select.update-mode:disabled {
+  opacity: 0.5;
+}
+
+button.update-ai {
+  min-width: 64px;
 }
 
 .update-item-ok {

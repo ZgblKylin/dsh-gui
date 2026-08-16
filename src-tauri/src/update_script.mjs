@@ -153,6 +153,27 @@ function requestedIds(argv) {
     .filter(Boolean);
 }
 
+// Per-project update targets passed by the shell: "--modes id=mode,id=mode".
+// "commit" (default) fast-forwards to the remote default branch HEAD, "tag"
+// resets to the newest tag reachable from that branch.
+function requestedModes(argv) {
+  const index = argv.indexOf('--modes');
+  if (index < 0 || index + 1 >= argv.length) return new Map();
+  const modes = new Map();
+  for (const entry of String(argv[index + 1]).split(',')) {
+    const [id, mode] = entry.split('=').map((value) => value.trim());
+    if (id && mode) modes.set(id, mode);
+  }
+  return modes;
+}
+
+// The newest tag reachable from origin/<branch> (bare tag name), or null when
+// the branch carries no tags.
+function latestTagOn(dir, branch) {
+  const tag = capture('git', ['-C', dir, 'describe', '--tags', '--abbrev=0', 'origin/' + branch]);
+  return tag === null || tag === '' ? null : tag;
+}
+
 function remoteDefaultBranch(dir) {
   const symrefs = capture('git', ['-C', dir, 'ls-remote', '--symref', 'origin', 'HEAD']) ?? '';
   for (const line of symrefs.split(/\r?\n/)) {
@@ -202,6 +223,7 @@ async function main() {
   }
   const projects = Array.isArray(plan) ? plan : (plan.projects ?? []);
   const only = requestedIds(process.argv.slice(2));
+  const modes = requestedModes(process.argv.slice(2));
   let targets = projects.filter((project) => project && project.behind && !project.error);
   if (only.length > 0) {
     targets = targets.filter((project) => only.includes(project.id));
@@ -233,8 +255,16 @@ async function main() {
       log(`[${project.id}] fetching origin in ${dir}`);
       run('git', ['-C', dir, 'fetch', '--prune', 'origin'], { env: { GIT_TERMINAL_PROMPT: '0' } });
       const branch = remoteDefaultBranch(dir);
-      log(`[${project.id}] resetting to origin/${branch}`);
-      run('git', ['-C', dir, 'reset', '--hard', `origin/${branch}`]);
+      const mode = modes.get(project.id) ?? 'commit';
+      if (mode === 'tag') {
+        const tag = latestTagOn(dir, branch);
+        if (tag === null) throw new Error(`[${project.id}] no tag found on origin/${branch}`);
+        log(`[${project.id}] resetting to latest tag ${tag}`);
+        run('git', ['-C', dir, 'reset', '--hard', tag]);
+      } else {
+        log(`[${project.id}] resetting to origin/${branch}`);
+        run('git', ['-C', dir, 'reset', '--hard', `origin/${branch}`]);
+      }
       if (project.path === '') {
         // The root checkout moved: bring every submodule to the commit the new
         // root revision records (later loop iterations then move submodules that

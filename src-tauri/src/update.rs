@@ -13,6 +13,7 @@
 //! the git updates, rebuilds, and relaunches dsh-gui.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -45,6 +46,10 @@ pub struct ProjectUpdate {
     pub current: String,
     /// Human-readable latest version on the remote default branch.
     pub latest: String,
+    /// Newest tag reachable from the remote default branch, when one exists.
+    /// This is the target the "latest tag" update mode resets to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_tag: Option<String>,
     /// True when the remote default branch is strictly ahead of local HEAD.
     pub behind: bool,
     /// True while this row is only a local preview: `latest` is a placeholder
@@ -292,6 +297,7 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
         },
         current: "unknown".to_string(),
         latest: "—".to_string(),
+        latest_tag: None,
         behind: false,
         checking: false,
         error: None,
@@ -330,6 +336,10 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
         return project;
     };
     project.latest = git_version(path, &latest_ref);
+    // The "latest tag" update target: the newest tag reachable from the
+    // remote default branch (describe output is the bare tag name with
+    // --abbrev=0). Absent when the branch carries no tags.
+    project.latest_tag = git_output(path, &["describe", "--tags", "--abbrev=0", &latest_ref]);
 
     if current_sha != latest_sha {
         let range = format!("{current_sha}..{latest_ref}");
@@ -358,6 +368,7 @@ fn local_preview_project(root: &Path, id: &str, fallback_name: &str, path: &Path
         },
         current: "unknown".to_string(),
         latest: "检查中…".to_string(),
+        latest_tag: None,
         behind: false,
         checking: true,
         error: None,
@@ -469,19 +480,23 @@ fn copy_update_script_to_temp(root: &Path) -> Result<PathBuf, String> {
 /// script is a temp-dir copy; on Windows it runs inside a new PowerShell
 /// console window so the user watches the real progress, on Unix it keeps
 /// running detached with output in update.log.
-fn spawn_update_script(root: &Path, ids: &[String]) -> Result<(), String> {
+fn spawn_update_script(
+    root: &Path,
+    ids: &[String],
+    modes: &HashMap<String, String>,
+) -> Result<(), String> {
     let dir = gui_dir(root);
     fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     let script = copy_update_script_to_temp(root)?;
 
     #[cfg(windows)]
     {
-        let launcher = write_windows_console_launcher(root, ids, &script)?;
+        let launcher = write_windows_console_launcher(root, ids, modes, &script)?;
         spawn_windows_update_console(root, &launcher)
     }
     #[cfg(not(windows))]
     {
-        spawn_unix_update_node(root, &script, ids)
+        spawn_unix_update_node(root, &script, ids, modes)
     }
 }
 
@@ -491,13 +506,26 @@ fn ps_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+/// Render the "--modes id=mode,..." argument (per-project update target).
+fn modes_argument(modes: &HashMap<String, String>) -> String {
+    let mut entries: Vec<&String> = modes.keys().collect();
+    entries.sort();
+    entries
+        .into_iter()
+        .map(|id| format!("{id}={}", modes.get(id).map(String::as_str).unwrap_or("commit")))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Write the tiny PowerShell file the visible console runs. It invokes the
-/// generated update.mjs with the selected ids; `powershell -NoExit` keeps the
-/// window open afterwards so success/failure is always readable.
+/// generated update.mjs with the selected ids and per-project update targets;
+/// powershell -NoExit keeps the window open afterwards so success/failure is
+/// always readable.
 #[cfg(windows)]
 fn write_windows_console_launcher(
     root: &Path,
     ids: &[String],
+    modes: &HashMap<String, String>,
     script: &Path,
 ) -> Result<PathBuf, String> {
     let mut content = String::from("\u{feff}$ErrorActionPreference = 'Continue'\n");
@@ -509,6 +537,9 @@ fn write_windows_console_launcher(
     content.push_str(&format!("& node {}", ps_quote(&script.to_string_lossy())));
     if !ids.is_empty() {
         content.push_str(&format!(" --ids {}", ps_quote(&ids.join(","))));
+    }
+    if !modes.is_empty() {
+        content.push_str(&format!(" --modes {}", ps_quote(&modes_argument(modes))));
     }
     content.push('\n');
     content.push_str("$code = $LASTEXITCODE\n");
@@ -573,7 +604,12 @@ fn spawn_windows_update_console(root: &Path, launcher: &Path) -> Result<(), Stri
 
 /// Unix fallback: detached node with stdout/stderr appended to update.log.
 #[cfg(not(windows))]
-fn spawn_unix_update_node(root: &Path, script: &Path, ids: &[String]) -> Result<(), String> {
+fn spawn_unix_update_node(
+    root: &Path,
+    script: &Path,
+    ids: &[String],
+    modes: &HashMap<String, String>,
+) -> Result<(), String> {
     let log = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -593,6 +629,9 @@ fn spawn_unix_update_node(root: &Path, script: &Path, ids: &[String]) -> Result<
         .stderr(Stdio::from(log));
     if !ids.is_empty() {
         command.arg("--ids").arg(ids.join(","));
+    }
+    if !modes.is_empty() {
+        command.arg("--modes").arg(modes_argument(modes));
     }
     use std::os::unix::process::CommandExt;
     // Detach from the launching terminal/session like DETACHED_PROCESS does
@@ -617,10 +656,18 @@ fn spawn_unix_update_node(root: &Path, script: &Path, ids: &[String]) -> Result<
 }
 
 /// Prepare and launch the detached update for `ids` (empty means every pending
-/// project). The plan written by the most recent check is authoritative; the
-/// launcher is refreshed so it waits for the exact running dsh-gui/harness
-/// processes.
-pub fn start(root: &Path, gui_pid: u32, harness_pid: u32, ids: &[String]) -> Result<(), String> {
+/// project). `modes` maps a project id to its update target ("commit" for the
+/// remote default branch HEAD, "tag" for the newest tag reachable from it);
+/// missing entries default to "commit". The plan written by the most recent
+/// check is authoritative; the launcher is refreshed so it waits for the exact
+/// running dsh-gui/harness processes.
+pub fn start(
+    root: &Path,
+    gui_pid: u32,
+    harness_pid: u32,
+    ids: &[String],
+    modes: &HashMap<String, String>,
+) -> Result<(), String> {
     let plan_file = plan_path(root);
     let text = fs::read_to_string(&plan_file)
         .map_err(|_| "还没有检查到可用更新，请先点击「检查更新」".to_string())?;
@@ -643,7 +690,7 @@ pub fn start(root: &Path, gui_pid: u32, harness_pid: u32, ids: &[String]) -> Res
 
     write_update_script(root, gui_pid, harness_pid)
         .map_err(|e| format!("cannot write {}: {e}", script_path(root).display()))?;
-    spawn_update_script(root, ids)?;
+    spawn_update_script(root, ids, modes)?;
     Ok(())
 }
 
@@ -681,16 +728,21 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn windows_console_launcher_carries_selected_ids() {
+    fn windows_console_launcher_carries_selected_ids_and_modes() {
         let temp =
             std::env::temp_dir().join(format!("dsh-gui-console-test-{}", std::process::id()));
         let script = write_update_script(&temp, 4242, 4343).expect("script generation must work");
         let ids = vec!["deepseek-harness".to_string(), "dsh-terminal".to_string()];
-        let launcher =
-            write_windows_console_launcher(&temp, &ids, &script).expect("ps1 generation must work");
+        let modes = HashMap::from([
+            ("deepseek-harness".to_string(), "tag".to_string()),
+            ("dsh-terminal".to_string(), "commit".to_string()),
+        ]);
+        let launcher = write_windows_console_launcher(&temp, &ids, &modes, &script)
+            .expect("ps1 generation must work");
         let content = fs::read_to_string(&launcher).expect("ps1 must be readable");
         assert!(content.contains("& node"));
         assert!(content.contains("--ids 'deepseek-harness,dsh-terminal'"));
+        assert!(content.contains("--modes 'deepseek-harness=tag,dsh-terminal=commit'"));
         let _ = fs::remove_dir_all(temp.join(".dsh"));
     }
 

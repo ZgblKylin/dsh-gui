@@ -23,6 +23,7 @@ mod about;
 mod native_window;
 mod update;
 
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -553,12 +554,13 @@ fn start_update(
     app: tauri::AppHandle,
     state: State<'_, ShellState>,
     ids: Vec<String>,
+    modes: HashMap<String, String>,
 ) -> Result<(), String> {
     let _guard = state
         .update_lock
         .lock()
         .map_err(|_| "an update check is already running".to_string())?;
-    update::start(&state.root, state.gui_pid, state.harness_pid, &ids)?;
+    update::start(&state.root, state.gui_pid, state.harness_pid, &ids, &modes)?;
     log_status(
         &state.root,
         &format!(

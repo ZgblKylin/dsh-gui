@@ -78,6 +78,12 @@ derived entry.
   uncommitted changes) to the current agent. Ships prebuilt with no harness
   runtime imports; its mount row lives in the wrapper's
   `review/cordis.patch.yml`. See `review/dsh-review/README.md`.
+- `ai-update` — in-tree plugin at `ai-update/dsh-ai-update`: browser-half
+  bridge behind the update dialog's AI update buttons. The desktop shell
+  posts a `dsh-gui:ai-update` message into the embedded page, and the plugin
+  returns to the new-session home, selects the dsh-gui workspace there, and
+  prefills the update prompt (it never creates a session directly and never
+  picks a preset). See `ai-update/dsh-ai-update/docs/`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current
   package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,
