@@ -126,6 +126,15 @@ derived entry.
   `.dsh/.agent-presets/`). The nested component submodules need a recursive
   init: `git submodule update --init --recursive
   plugins/routing-suite/dsh-routing-suite`. See `routing-suite/README.md`.
+- `cache-hit-precision` — git submodule
+  (`ZgblKylin/dsh-cache-hit-precision`) at
+  `cache-hit-precision/dsh-cache-hit-precision`: browser-half presentation
+  tweak that shows the composer stats line's cache-hit percentage with two
+  decimals and caps it at 99.99% (never 100%). It reads the same
+  `tokenUsage` projection the stock stats line rounds, and rewrites the
+  rendered digits under the `conversation.composer.dock` slot anchor; every
+  DOM write is restored on disposal. See
+  `cache-hit-precision/dsh-cache-hit-precision/README.md`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current
   package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,

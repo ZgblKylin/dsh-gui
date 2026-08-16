@@ -31,3 +31,6 @@
 [submodule "plugins/routing-suite/dsh-routing-suite"]
 	path = plugins/routing-suite/dsh-routing-suite
 	url = https://github.com/yjh051108/dsh-routing-suite.git
+[submodule "plugins/cache-hit-precision/dsh-cache-hit-precision"]
+	path = plugins/cache-hit-precision/dsh-cache-hit-precision
+	url = https://github.com/ZgblKylin/dsh-cache-hit-precision
