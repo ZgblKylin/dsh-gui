@@ -95,6 +95,9 @@ function addDependency(dshHome, packageDir) {
  * contributes its `- id:`/`name:` pairs. Comment lines are skipped and
  * indentation is free-form, so a hand-reindented file keeps matching; rows
  * outside an insert list (id-targeted config overrides) are ignored.
+ * Names may be single-quoted YAML scalars (e.g. scoped package names like
+ * '@dsh-external/dsh-mode-boost'); quotes are stripped and `''` escapes are
+ * unescaped before the row is returned.
  * @param {string} text - patch-list file content.
  * @returns {{ id: string, name: string }[]}
  */
@@ -111,11 +114,15 @@ export function parseInsertRows(text) {
     }
     if (!inInsert) continue
     const idMatch = /^\s*-\s*id:\s*(\S+)\s*$/.exec(line)
-    const nameMatch = /^\s*name:\s*(\S+)\s*$/.exec(line)
+    // A name may be a quoted YAML scalar ('@scope/name'); match the quoted
+    // form first so the quotes are not captured as part of the value.
+    const nameMatch =
+      /^\s*name:\s*'([^']*)'\s*$/.exec(line)
+      ?? /^\s*name:\s*(\S+)\s*$/.exec(line)
     if (idMatch !== null) {
       pendingId = idMatch[1]
     } else if (nameMatch !== null && pendingId !== null) {
-      rows.push({ id: pendingId, name: nameMatch[1] })
+      rows.push({ id: pendingId, name: (nameMatch[1] ?? nameMatch[2]).replace(/''/g, "'") })
       pendingId = null
     }
   }
@@ -157,7 +164,13 @@ function mountEntry(profileDir, mount) {
     }
     return false
   }
-  const block = `- insert:\n    - id: ${mount.id}\n      name: ${mount.name}`
+  // Quote names that are not plain YAML scalars: scoped package names
+  // start with '@', a YAML indicator character, and would make the written
+  // row unparsable. parseInsertRows strips the quotes back off on re-read.
+  const name = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(mount.name)
+    ? mount.name
+    : `'${mount.name.replace(/'/g, "''")}'`
+  const block = `- insert:\n    - id: ${mount.id}\n      name: ${name}`
   const body = text.split(/\r?\n/).filter((line) => !/^\s*#/.test(line) && !/^\s*$/.test(line)).join('\n')
   let newText
   if (body.trim() === '[]') {

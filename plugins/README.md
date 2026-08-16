@@ -116,6 +116,16 @@ derived entry.
   returns to the new-session home, selects the dsh-gui workspace there, and
   prefills the update prompt (it never creates a session directly and never
   picks a preset). See `ai-update/dsh-ai-update/docs/`.
+- `routing-suite` — git submodule (`yjh051108/dsh-routing-suite`) at
+  `routing-suite/dsh-routing-suite`: aggregator suite with three pinned
+  component submodules — `injector` (`dsh-super-injector`, copied to
+  `.dsh/plugins/` and built against the harness checkout, then mounted through
+  its own `dsh.bundle.patch`), `mode-boost` (`dsh-mode-boost`, prebuilt,
+  mounted as entry id `mode-boost` with a YAML-quoted scoped name), and
+  `preset` (`router-standard` + `router-spec` agent presets copied whole into
+  `.dsh/.agent-presets/`). The nested component submodules need a recursive
+  init: `git submodule update --init --recursive
+  plugins/routing-suite/dsh-routing-suite`. See `routing-suite/README.md`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current
   package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,

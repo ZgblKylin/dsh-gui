@@ -107,6 +107,10 @@ browser.
 - **`dsh-deep-whale`** — whale-girl skin series; currently ships the
   hot-pluggable `maid-atelier` skin (light/dark palace backgrounds, navy lace
   UI overlay, Q-version sidebar, embedded assets).
+- **`dsh-routing-suite`** — the runtime plugin injector (`dsh-super-injector`:
+  `dev_*` tool family, hot reload, staging-promote/uninject, plugin management
+  UI) plus the `dsh-mode-boost` host-plane mode-boost plugin, installed from
+  the `dsh-routing-suite` submodule (see `plugins/routing-suite/README.md`).
 
 ### Agent presets
 
@@ -129,6 +133,12 @@ browser.
   the wrapper's
   custom-bash (Git Bash through the ordinary subprocess seam) because DSH's
   PTY backend is linux/darwin-only.
+- **`router-standard`（Router Standard (experimental)）** — task-aware
+  reasoning-mode routing (spec/react/weak bands, self-optimization tools
+  `dev_router_status` / `dev_router_mode`); installed by
+  `plugins/routing-suite/install.mjs` alongside its deep-think-first variant
+  **`router-spec`（Router Spec (experimental)）**. Both presets come from the
+  `dsh-routing-suite` submodule and land in `.dsh\.agent-presets\`.
 
 ![dsh-gui with the plugin features expanded](docs/images/dsh-gui-features.png)
 
@@ -171,9 +181,12 @@ dsh-gui/
 │                      #   install.mjs plus the plugin package/repo checkout
 │                      #   (remote/dsh-remote in-tree; terminal/dsh-terminal,
 │                      #   file-explorer/dsh-file-explorer, better-sidebar/
-│                      #   DSH-better-sidebar, deep-whale/dsh-deep-whale and
-│                      #   dsh-web-ui/dsh-web-ui are git submodules; dsh-web-ui
-│                      #   installs the liangshen preset + dsh-pet + the dsh-web-ui-settings bridge;
+│                      #   DSH-better-sidebar, deep-whale/dsh-deep-whale,
+│                      #   dsh-web-ui/dsh-web-ui and routing-suite/dsh-routing-suite
+│                      #   are git submodules; dsh-web-ui installs the liangshen
+│                      #   preset + dsh-pet + the dsh-web-ui-settings bridge, and
+│                      #   routing-suite installs dsh-super-injector + dsh-mode-boost
+│                      #   + the router-standard/router-spec presets;
 │                      #   see plugins/README.md)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
