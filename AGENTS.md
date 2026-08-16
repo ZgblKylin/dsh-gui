@@ -15,7 +15,16 @@
 不清楚当前运行环境时，先确认当前 shell 和系统，再继续操作：是 PowerShell
 （pwsh）、Git Bash，还是 WSL、Linux、macOS。尤其在处理换行符、路径分隔符
 或 git 行尾转换（core.autocrlf）之前必须确认；可用 `uname -a`（类 Unix
-环境）或 `$PSVersionTable`（pwsh）辅助判断。
+环境）或 `$PSVersionTable`（pwsh）辅助判断。只有 `run_code` 可直接调用时
+（Code Mode），用一个 `run_code` 程序检测系统即可，无需检测 shell：
+
+```ts
+// 仅检测系统（不检测 shell）
+console.log({ platform: process.platform, arch: process.arch })
+// 例：{ platform: 'win32', arch: 'x64' }
+```
+
+其中 `win32` 为 Windows、`linux` 为 Linux、`darwin` 为 macOS。
 
 ## 工具与终端
 
