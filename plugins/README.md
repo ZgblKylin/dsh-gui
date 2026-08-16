@@ -117,8 +117,12 @@ derived entry.
   package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,
   CC BY-NC-SA 4.0), a hot-pluggable deep-sea maid atelier skin. It ships
   prebuilt `lib/` (wrapper passes `build: false`) and mounts through its own
-  `dsh.bundle.patch` layer. See
-  `deep-whale/dsh-deep-whale/README.md` and its `maid-atelier/README.md`.
+  `dsh.bundle.patch` layer. The wrapper keeps the submodule pristine: it copies
+  the package to `.dsh/plugins/deep-whale/maid-atelier` and applies
+  `deep-whale/patch-sidebar-qa.mjs` to the copy so the palace backdrop and
+  whale-girl art shrink out of `dsh-better-sidebar`/`dsh-sidebar-qa` right and
+  bottom panels. See `deep-whale/dsh-deep-whale/README.md` and its
+  `maid-atelier/README.md`.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
   `dsh-web-ui/dsh-web-ui`. Preset-only
   wrapper: installs the `liangshen` preset (梁神模式) to

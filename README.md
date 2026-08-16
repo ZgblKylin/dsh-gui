@@ -309,6 +309,12 @@ layer, e.g. `dsh-file-explorer`) mounts itself: `dsh plugin add` reconciles it
 into the profile's `dsh.profile.bundles` list and its patch inserts the entry
 as a bundle layer — no `cordis.patch.yml` insert is written for it.
 
+`plugins/deep-whale` also keeps its submodule pristine: its install script
+copies `maid-atelier` to `.dsh/plugins/deep-whale/maid-atelier`, applies
+`patch-sidebar-qa.mjs` to the copy (the palace backdrop and whale art shrink
+out of better-sidebar/sidebar-qa right and bottom panels), and links the
+patched copy.
+
 `plugins/dsh-web-ui` is the exception: its install script does not use the
 plugin pipeline at all. It copies only
 `dsh-web-ui/packages/dsh-liangshen/presets/liangshen` to
