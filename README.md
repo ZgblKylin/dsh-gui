@@ -76,6 +76,10 @@ browser.
 - **`dsh-remote`** — multi-backend remote mode: the connection tabs,
   new-connection dialog, local backend start, and VSCode Remote SSH-style
   deploy/tunnel described above (see `plugins/remote/dsh-remote/docs/`).
+- **`dsh-sidebar-qa`** — select conversation text → right-panel follow-up
+  question in a dedicated same-workspace session (`❓追问·<主题>`), without
+  interrupting the main conversation; thin consumer of `dsh-better-sidebar`
+  (see `plugins/sidebar-qa/dsh-sidebar-qa/README.md`).
 - **`dsh-better-sidebar`** — service-first sidebar workbench (right sidebar
   + bottom panel): per-session explorer, CodeMirror editor + file viewers
   (image/PDF/Markdown/HTML/code), real terminal (xterm.js + node-pty with

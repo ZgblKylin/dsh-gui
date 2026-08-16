@@ -92,6 +92,14 @@ derived entry.
   own bundle layer (no manual cordis insert). Currently supersedes the
   `terminal` and `file-explorer` wrappers. See its `README.md` and
   `docs/`.
+- `sidebar-qa` — git submodule (`ChenRuoT/dsh-sidebar-qa`) at
+  `sidebar-qa/dsh-sidebar-qa`: select conversation text → right-panel
+  follow-up question → a dedicated same-workspace session (`❓追问·<主题>`)
+  that never interrupts the main conversation. Thin consumer of
+  `dsh-better-sidebar` (hard peer dependency; stays inactive without it),
+  registers two better-sidebar tabs via `ctx.betterSidebar` and declares
+  `dsh.bundle.patch`, so it mounts through its own bundle layer. See its
+  `README.md`.
 - `review` — in-tree plugin at `review/dsh-review`: the built-in `/review`
   slash command. It injects the review instructions adapted from opencode's
   review-mode prompt and submits the user's request (defaulting to all
