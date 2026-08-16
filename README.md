@@ -76,12 +76,21 @@ browser.
 - **`dsh-remote`** — multi-backend remote mode: the connection tabs,
   new-connection dialog, local backend start, and VSCode Remote SSH-style
   deploy/tunnel described above (see `plugins/remote/dsh-remote/docs/`).
+- **`dsh-better-sidebar`** — service-first sidebar workbench (right sidebar
+  + bottom panel): per-session explorer, CodeMirror editor + file viewers
+  (image/PDF/Markdown/HTML/code), real terminal (xterm.js + node-pty with
+  reconnect replay; optional `terminal_*` model tools, off by default), Git
+  panel, embedded browser, and background-job page (see
+  `plugins/better-sidebar/DSH-better-sidebar/README.md`).
 - **`dsh-terminal`** — VSCode-style integrated terminal panel (xterm.js +
   node-pty): ``Ctrl+` `` toggle, resizable panel under the composer, multiple
-  terminals with a dropdown, and new/close terminal controls.
+  terminals with a dropdown, and new/close terminal controls. ⛔ Temporarily
+  masked by `dsh-better-sidebar` (its installer skips installation).
 - **`dsh-file-explorer`** — right-side resizable file tree (260–900 px) with
   recursive search, Markdown/syntax-highlighted preview, in-panel editing, and
-  one-click VS Code open (see `docs/plugins/dsh-file-explorer.md`).
+  one-click VS Code open (see `docs/plugins/dsh-file-explorer.md`). ⛔
+  Temporarily masked by `dsh-better-sidebar` (its installer skips
+  installation).
 - **`dsh-review`** — `/review` slash command for code review of uncommitted
   changes, a commit, a branch diff, a PR URL/number, or a custom request (see
   `plugins/review/dsh-review/README.md`).
@@ -154,9 +163,10 @@ dsh-gui/
 ├─ plugins/            # plugin wrappers, preset-style: each plugins/<id>/ owns an
 │                      #   install.mjs plus the plugin package/repo checkout
 │                      #   (remote/dsh-remote in-tree; terminal/dsh-terminal,
-│                      #   file-explorer/dsh-file-explorer and deep-whale/
-│                      #   dsh-deep-whale and dsh-web-ui/dsh-web-ui are git
-│                      #   submodules; dsh-web-ui is a preset-only wrapper;
+│                      #   file-explorer/dsh-file-explorer, better-sidebar/
+│                      #   DSH-better-sidebar, deep-whale/dsh-deep-whale and
+│                      #   dsh-web-ui/dsh-web-ui are git submodules;
+│                      #   dsh-web-ui is a preset-only wrapper;
 │                      #   see plugins/README.md)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```

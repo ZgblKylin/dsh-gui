@@ -67,12 +67,31 @@ derived entry.
 - `terminal` — git submodule (`ZgblKylin/dsh-terminal`) at
   `terminal/dsh-terminal`: VSCode-style integrated terminal panel. See
   `terminal/dsh-terminal/docs/`.
+  ⛔ **Temporarily masked** — superseded by `better-sidebar`'s terminal tabs:
+  its `install.mjs` skips the install pipeline (guard `MASKED` at the top
+  of the script) and its insert row was removed from
+  `.dsh/profiles/web/cordis.patch.yml`.
 - `file-explorer` — git submodule (`joejojoking-cloud/dsh-file-explorer`) at
   `file-explorer/dsh-file-explorer`: right-side resizable file tree with
   search, syntax-highlighted preview, in-panel editing, and VS Code open. It
   ships prebuilt and mounts through its own `dsh.bundle.patch` layer. See
   `docs/plugins/dsh-file-explorer.md` in the repository root for integration
   notes, and its own `README.md` for the feature set.
+  ⛔ **Temporarily masked** — superseded by `better-sidebar`'s explorer/viewers:
+  its `install.mjs` skips the install pipeline (guard `MASKED` at the top
+  of the script) and its dependency + bundle entry were removed from
+  `.dsh/profiles/web/package.json`.
+- `better-sidebar` — git submodule (`omdsh-dev/DSH-better-sidebar`) at
+  `better-sidebar/DSH-better-sidebar`: service-first sidebar workbench
+  (right sidebar + bottom panel) with per-session explorer, CodeMirror editor
+  and file-viewer registry (image/PDF/Markdown/HTML/code/binary), real
+  terminal (xterm.js + node-pty, reconnect replay, optional `terminal_*`
+  model tools — **off by default**), Git panel, embedded browser,
+  background-job page, and the `ctx.betterSidebar` extension API. It
+  declares `dsh.bundle.patch`, so `dsh plugin add` mounts it through its
+  own bundle layer (no manual cordis insert). Currently supersedes the
+  `terminal` and `file-explorer` wrappers. See its `README.md` and
+  `docs/`.
 - `review` — in-tree plugin at `review/dsh-review`: the built-in `/review`
   slash command. It injects the review instructions adapted from opencode's
   review-mode prompt and submits the user's request (defaulting to all

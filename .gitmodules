@@ -22,3 +22,6 @@
 [submodule "plugins/dsh-web-ui/dsh-web-ui"]
 	path = plugins/dsh-web-ui/dsh-web-ui
 	url = https://github.com/zhu1090093659/dsh-web-ui.git
+[submodule "plugins/better-sidebar/DSH-better-sidebar"]
+	path = plugins/better-sidebar/DSH-better-sidebar
+	url = https://github.com/omdsh-dev/DSH-better-sidebar
