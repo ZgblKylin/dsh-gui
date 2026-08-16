@@ -19,6 +19,8 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod about;
+#[cfg(windows)]
+mod native_window;
 mod update;
 
 use std::fs::{self, File, OpenOptions};
@@ -32,6 +34,7 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::{Manager, State};
 
 #[cfg(windows)]
@@ -444,6 +447,11 @@ struct ShellState {
     update_lock: Arc<Mutex<()>>,
 }
 
+/// The native-looking menu shown by the custom top-left window icon.
+struct WindowMenuState {
+    menu: Menu<tauri::Wry>,
+}
+
 #[tauri::command]
 fn minimize_window(window: tauri::Window) {
     let _ = window.minimize();
@@ -471,6 +479,24 @@ fn close_window(window: tauri::Window) {
 #[tauri::command]
 fn start_window_drag(window: tauri::Window) {
     let _ = window.start_dragging();
+}
+
+/// Shows the window-control menu from the custom top-left window icon.
+/// The actual `TrackPopupMenu` call is modal and must run on the window thread;
+/// a background thread is used as a bridge so the IPC command itself returns
+/// immediately and does not wait for the menu to close.
+#[tauri::command]
+fn show_window_menu(
+    window: tauri::Window,
+    state: State<'_, WindowMenuState>,
+) -> Result<(), String> {
+    // Logical window coordinates: just below the 32x36 title-bar icon.
+    let position = tauri::Position::Logical(tauri::LogicalPosition::new(6.0, 36.0));
+    let menu = state.menu.clone();
+    std::thread::spawn(move || {
+        let _ = window.popup_menu_at(&menu, position);
+    });
+    Ok(())
 }
 
 /// The self-hosted harness UI URL, so the wrapper page can point its iframe at
@@ -703,6 +729,12 @@ fn main() {
     let setup_root = root.clone();
 
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_snap_layout::init()
+                .button_id("btn-max")
+                .cursor(tauri_plugin_snap_layout::SnapCursor::Arrow)
+                .build(),
+        )
         .setup(move |app| {
             app.manage(ShellState {
                 root: setup_root,
@@ -714,7 +746,7 @@ fn main() {
             app.manage(child);
             // Frameless: the wrapper page (ui/index.html) draws its own title
             // bar and window controls, and embeds the harness UI in an iframe.
-            tauri::WebviewWindowBuilder::new(
+            let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
@@ -733,6 +765,53 @@ fn main() {
             // message copy controls cannot write the system clipboard.
             .enable_clipboard_access()
             .build()?;
+
+            // Add the native non-client interactions missing from a plain
+            // `decorations(false)` window: forward the top/bottom resize
+            // border double-click to the parent so Windows' default WndProc
+            // performs its native vertical fill/restore action. (The actual
+            // OS Snap Layouts flyout is provided by the snap-layout plugin.)
+            #[cfg(windows)]
+            native_window::install(window.hwnd()?.0);
+
+            // Window-control menu shown by the custom top-left icon. Predefined
+            // minimize/maximize/close items act on the HWND the menu is shown
+            // for; restore/move/size are forwarded here.
+            let handle = app.handle().clone();
+            let restore = MenuItem::with_id(&handle, "window.restore", "还原", true, None::<&str>)?;
+            let move_item = MenuItem::with_id(&handle, "window.move", "移动", true, None::<&str>)?;
+            let size_item = MenuItem::with_id(&handle, "window.size", "大小", true, None::<&str>)?;
+            let minimize = PredefinedMenuItem::minimize(&handle, Some("最小化"))?;
+            let maximize = PredefinedMenuItem::maximize(&handle, Some("最大化"))?;
+            let close = PredefinedMenuItem::close_window(&handle, Some("关闭"))?;
+            let sep1 = PredefinedMenuItem::separator(&handle)?;
+            let sep2 = PredefinedMenuItem::separator(&handle)?;
+            let menu = Menu::with_items(
+                &handle,
+                &[
+                    &restore, &sep1, &move_item, &size_item, &minimize, &maximize, &sep2, &close,
+                ],
+            )?;
+
+            window.on_menu_event(|window, event| match event.id().0.as_str() {
+                "window.restore" => {
+                    let _ = window.unmaximize();
+                }
+                "window.move" => {
+                    let _ = window.start_dragging();
+                }
+                "window.size" => {
+                    #[cfg(windows)]
+                    if let Ok(hwnd) = window.hwnd() {
+                        native_window::start_system_size(hwnd.0);
+                    }
+                    #[cfg(not(windows))]
+                    let _ = window;
+                }
+                _ => {}
+            });
+
+            app.manage(WindowMenuState { menu });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -741,6 +820,7 @@ fn main() {
             is_window_maximized,
             close_window,
             start_window_drag,
+            show_window_menu,
             harness_url,
             about_info,
             local_update_projects,

@@ -65,6 +65,36 @@ body {
   overflow: hidden;
 }
 
+/* Native top-left window icon. The image is the same whale-girl icon the
+   bundled exe uses; clicking it opens the window-control menu. */
+.titlebar-icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: var(--titlebar-h);
+  margin-left: -4px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  cursor: default;
+}
+
+.titlebar-icon img {
+  width: 16px;
+  height: 16px;
+  display: block;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.titlebar-icon:focus,
+.titlebar-icon:focus-visible {
+  outline: none;
+}
+
 .titlebar-title {
   font-size: 13px;
   color: var(--titlebar-theme-muted);
@@ -164,6 +194,14 @@ body {
 }
 
 .titlebar-btn:hover {
+  background: var(--titlebar-theme-hover);
+}
+
+/* The snap-layout plugin covers #btn-max with a native Win32 hit-test child on
+   Windows 11, so the DOM does not see :hover. The plugin mirrors :hover rules
+   into .is-hovered; declare it explicitly as a fallback as well. */
+.titlebar-btn.is-hovered,
+#btn-max.is-hovered {
   background: var(--titlebar-theme-hover);
 }
 

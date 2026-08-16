@@ -1,6 +1,11 @@
 {
   "identifier": "default",
   "description": "Capability for the main webview window. Window controls and the About dialog use app-defined commands (no ACL plugin permissions required); the harness UI runs in an embedded iframe.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "snap-layout:default"
+  ]
 }

@@ -46,6 +46,11 @@ browser.
 - **Frameless single-window shell** — a drag-anywhere custom title bar with
   native minimize / maximize / close controls; the title bar colors follow the
   light/dark theme reported by the embedded harness page.
+- **Native Windows 11 title-bar interactions** — hovering maximize shows the
+  OS Snap Layouts flyout, double-clicking the title bar toggles
+  maximize/restore, double-clicking the top border vertically fills/restores
+  the window (including drag-to-restore), and the top-left app icon opens the
+  window-control menu.
 - **VSCode-style connection tabs** — one tab per connected DSH backend, with
   close buttons and persisted tab/active state; closing the last tab reopens
   the new-connection dialog.

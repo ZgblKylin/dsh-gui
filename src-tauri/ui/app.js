@@ -18,6 +18,7 @@ const harnessFrame = $("harness-frame");
 const btnMin = $("btn-min");
 const btnMax = $("btn-max");
 const btnClose = $("btn-close");
+const btnWindowIcon = $("btn-window-icon");
 const btnConfig = $("btn-config");
 const configWrap = $("config-wrap");
 const configMenu = $("config-menu");
@@ -569,19 +570,67 @@ function wireControls() {
     return;
   }
   btnMin.addEventListener("click", () => invoke("minimize_window").catch(() => {}));
+  // On Windows 11 the snap-layout plugin covers this button with a native
+  // HTMAXBUTTON overlay, so the OS handles click + Snap Layouts flyout there.
+  // This click handler remains the fallback for Windows 10 and non-Windows.
   btnMax.addEventListener("click", () => invoke("toggle_maximize_window").then(syncMaximizeIcon).catch(() => {}));
   btnClose.addEventListener("click", () => invoke("close_window").catch(() => {}));
 
+  // Native top-left window icon: left click and right click both open the
+  // window-control menu (还原/移动/大小/最小化/最大化/关闭).
+  btnWindowIcon.addEventListener("click", () => invoke("show_window_menu").catch(() => {}));
+  btnWindowIcon.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    invoke("show_window_menu").catch(() => {});
+  });
+
   // Drag the window from the empty title-bar area; double-click toggles
   // maximize/restore like a native title bar. Tabs/buttons/menu are exempt.
+  //
+  // start_window_drag() is deliberately not called on mousedown: Win32 enters
+  // a modal move loop from the synthetic WM_NCLBUTTONDOWN, which can swallow
+  // the second click of a double-click. Start the move after a short hold or
+  // as soon as the pointer travels a few pixels instead.
   const titlebar = $("titlebar");
-  titlebar.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
-    if (e.target.closest("button,a,.remote-tab,.config-menu,.titlebar-controls")) return;
+  const interactive = (target) =>
+    !!target.closest("button,a,.remote-tab,.config-menu,.titlebar-controls");
+  const DRAG_THRESHOLD_PX = 3;
+  let drag = null;
+
+  function beginDrag() {
+    if (!drag || drag.started) return;
+    drag.started = true;
+    if (drag.timer) {
+      clearTimeout(drag.timer);
+      drag.timer = 0;
+    }
     invoke("start_window_drag").catch(() => {});
+  }
+
+  titlebar.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || interactive(e.target)) return;
+    drag = {
+      x: e.clientX,
+      y: e.clientY,
+      started: false,
+      timer: setTimeout(beginDrag, 160),
+    };
   });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!drag || drag.started) return;
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) >= DRAG_THRESHOLD_PX) {
+      beginDrag();
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (drag?.timer) clearTimeout(drag.timer);
+    drag = null;
+  });
+
   titlebar.addEventListener("dblclick", (e) => {
-    if (e.target.closest("button,a,.remote-tab,.config-menu,.titlebar-controls")) return;
+    if (interactive(e.target)) return;
     invoke("toggle_maximize_window").then(syncMaximizeIcon).catch(() => {});
   });
 
