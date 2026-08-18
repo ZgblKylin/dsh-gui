@@ -135,16 +135,26 @@ derived entry.
   rendered digits under the `conversation.composer.dock` slot anchor; every
   DOM write is restored on disposal. See
   `cache-hit-precision/dsh-cache-hit-precision/README.md`.
+- `modlens` — git submodule (`liustack/modlens`) at
+  `modlens/modlens`: plug-in vision for text-only LLMs. It registers the
+  `modlens_read_image` tool (path or URL → structured OCR/layout evidence),
+  adds `(modlens vision)` model entries, and provides paste-to-path for the
+  web profile. It declares `dsh.bundle.patch`, so `dsh plugin add` mounts it
+  through its own bundle layer; the CLI is built from source during install.
+  The wrapper pins `allowBuilds.esbuild: false` in the package's
+  `pnpm-workspace.yaml` before building. See `modlens/modlens/README.md` and
+  `modlens/modlens/docs/`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current
   package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,
   CC BY-NC-SA 4.0), a hot-pluggable deep-sea maid atelier skin. It ships
   prebuilt `lib/` (wrapper passes `build: false`) and mounts through its own
   `dsh.bundle.patch` layer. The wrapper keeps the submodule pristine: it copies
-  the package to `.dsh/plugins/deep-whale/maid-atelier` and applies
-  `deep-whale/patch-sidebar-qa.mjs` to the copy so the palace backdrop and
-  whale-girl art shrink out of `dsh-better-sidebar`/`dsh-sidebar-qa` right and
-  bottom panels. See `deep-whale/dsh-deep-whale/README.md` and its
+  the package to `.dsh/plugins/deep-whale/maid-atelier` and invokes
+  `deep-whale/patch-sidebar-qa.mjs` as a fallback. Current upstream tracks the
+  native conversation geometry itself (`--maid-conversation-*`), so the palace
+  backdrop and whale-girl art shrink out of any right/bottom panels generically;
+  the patch no-ops for that bundle. See `deep-whale/dsh-deep-whale/README.md` and its
   `maid-atelier/README.md`.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
   `dsh-web-ui/dsh-web-ui`. Installs the `liangshen` preset (梁神模式) to
