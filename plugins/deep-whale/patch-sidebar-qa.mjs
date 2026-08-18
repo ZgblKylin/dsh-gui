@@ -101,6 +101,9 @@ const SYNC_BACKDROP_NEW = [
   '\t\t\t};',
 ].join('\n')
 
+const OLD_BETTER_SIDEBAR_RIGHT_460 = 'body[data-dsh-maid-atelier][data-maid-better-sidebar-open] [data-maid-character=right]{translate:clamp(-460px,-24vw,-320px)}body[data-dsh-maid-atelier][data-maid-better-sidebar-open][data-maid-chat-active] [data-maid-character=right]{opacity:.86;height:clamp(360px,56vh,680px);translate:clamp(-460px,-24vw,-320px)}'
+const NEW_BETTER_SIDEBAR_RIGHT_NO_OVERINDENT = 'body[data-dsh-maid-atelier][data-maid-better-sidebar-open] [data-maid-character=right]{translate:clamp(-24px,-1.3vw,-8px)}body[data-dsh-maid-atelier][data-maid-better-sidebar-open][data-maid-chat-active] [data-maid-character=right]{opacity:.86;height:clamp(360px,56vh,680px);translate:clamp(-24px,-1.3vw,-8px)}'
+
 const CSS_END_ANCHOR = '}\";\n\t\tconst tagId = "@dsh-external/dsh-client-ui-skin-maid-atelier/maid-atelier.module.css";'
 
 const CSS_PATCH = [
@@ -108,17 +111,18 @@ const CSS_PATCH = [
   '   better-sidebar\'s right/bottom panels. The variables default to 0px when',
   '   dsh-better-sidebar is absent, so the original full-viewport composition',
   '   is preserved pixel-for-pixel. */',
-  'body[data-dsh-maid-atelier] [data-skin-chrome=palace-stage]{position:fixed;top:0;right:var(--dsh-sidebar-width,0px);bottom:var(--dsh-sidebar-height,0px);left:0;z-index:-1;overflow:hidden;pointer-events:none;contain:strict}',
-  'body[data-dsh-maid-atelier] [data-skin-chrome=character-stage]{right:var(--dsh-sidebar-width,0px);bottom:var(--dsh-sidebar-height,0px)}',
-  'body[data-dsh-maid-atelier] [data-skin-chrome=top-trim]{right:var(--dsh-sidebar-width,0px)}',
-  'body[data-dsh-maid-atelier] [data-skin-chrome=bottom-trim]{right:var(--dsh-sidebar-width,0px);bottom:var(--dsh-sidebar-height,0px)}',
-  'body[data-dsh-maid-atelier] [data-maid-character=left]{height:min(clamp(560px,96vh,1180px),calc(100vh - var(--dsh-sidebar-height,0px)))}',
-  'body[data-dsh-maid-atelier] [data-maid-character=right]{height:min(clamp(540px,92vh,1120px),calc(100vh - var(--dsh-sidebar-height,0px)))}',
-  'body[data-dsh-maid-atelier][data-maid-chat-active] [data-maid-character=left]{height:min(clamp(420px,64vh,760px),calc(100vh - var(--dsh-sidebar-height,0px)))}',
-  'body[data-dsh-maid-atelier][data-maid-chat-active] [data-maid-character=right]{height:min(clamp(420px,62vh,730px),calc(100vh - var(--dsh-sidebar-height,0px)))}',
-  'body[data-dsh-maid-atelier][data-maid-better-sidebar-open] [data-maid-character=right]{translate:clamp(-8px,-0.2vw,0)}',
-  'body[data-dsh-maid-atelier][data-maid-better-sidebar-open][data-maid-chat-active] [data-maid-character=right]{opacity:.9;height:min(clamp(420px,62vh,730px),calc(100vh - var(--dsh-sidebar-height,0px)));translate:clamp(-8px,-0.5vw,0)}',
-  '@media (width<=700px){body[data-dsh-maid-atelier][data-maid-better-sidebar-open] [data-maid-character=right]{opacity:0;translate:0}body[data-dsh-maid-atelier][data-maid-chat-active] [data-maid-character=left]{height:min(clamp(300px,46vh,410px),calc(100vh - var(--dsh-sidebar-height,0px)))}body[data-dsh-maid-atelier][data-maid-chat-active] [data-maid-character=right]{height:min(clamp(300px,44vh,390px),calc(100vh - var(--dsh-sidebar-height,0px)))}}',
+  'body[data-dsh-maid-atelier] [data-skin-chrome=palace-stage]{position:fixed;top:0;right:var(--maid-conversation-right-gap,0px);bottom:var(--maid-conversation-bottom-gap,0px);left:0;z-index:-1;overflow:hidden;pointer-events:none;contain:strict}',
+  'body[data-dsh-maid-atelier] [data-skin-chrome=character-stage]{right:var(--maid-conversation-right-gap,0px);bottom:var(--maid-conversation-bottom-gap,0px)}',
+  'body[data-dsh-maid-atelier] [data-skin-chrome=top-trim]{right:var(--maid-conversation-right-gap,0px)}',
+  'body[data-dsh-maid-atelier] [data-skin-chrome=bottom-trim]{right:var(--maid-conversation-right-gap,0px);bottom:var(--maid-conversation-bottom-gap,0px)}',
+  'body[data-dsh-maid-atelier] [data-maid-character=left]{height:min(clamp(560px,96vh,1180px),calc(100vh - var(--maid-conversation-bottom-gap,0px)))}',
+  'body[data-dsh-maid-atelier] [data-maid-character=right]{height:min(clamp(540px,92vh,1120px),calc(100vh - var(--maid-conversation-bottom-gap,0px)))}',
+  'body[data-dsh-maid-atelier][data-maid-chat-active] [data-maid-character=left]{height:min(clamp(420px,64vh,760px),calc(100vh - var(--maid-conversation-bottom-gap,0px)))}',
+  'body[data-dsh-maid-atelier][data-maid-chat-active] [data-maid-character=right]{height:min(clamp(420px,62vh,730px),calc(100vh - var(--maid-conversation-bottom-gap,0px)))}',
+  'body[data-dsh-maid-atelier][data-maid-better-sidebar-open] [data-maid-character=right]{translate:clamp(-24px,-1.3vw,-8px)}',
+  'body[data-dsh-maid-atelier][data-maid-better-sidebar-open][data-maid-chat-active] [data-maid-character=left]{opacity:.86;height:min(clamp(360px,56vh,680px),calc(100vh - var(--maid-conversation-bottom-gap,0px)))}',
+  'body[data-dsh-maid-atelier][data-maid-better-sidebar-open][data-maid-chat-active] [data-maid-character=right]{opacity:.86;height:min(clamp(360px,56vh,680px),calc(100vh - var(--maid-conversation-bottom-gap,0px)));translate:clamp(-24px,-1.3vw,-8px)}',
+  '@media (width<=700px){body[data-dsh-maid-atelier][data-maid-better-sidebar-open] [data-maid-character=right]{opacity:0;translate:0}body[data-dsh-maid-atelier][data-maid-chat-active] [data-maid-character=left]{height:min(clamp(300px,46vh,410px),calc(100vh - var(--maid-conversation-bottom-gap,0px)))}body[data-dsh-maid-atelier][data-maid-chat-active] [data-maid-character=right]{height:min(clamp(300px,44vh,390px),calc(100vh - var(--maid-conversation-bottom-gap,0px)))}}',
 ].join('')
 
 const CSS_PATCHED_END = `${CSS_PATCH}${CSS_END_ANCHOR}`
@@ -128,6 +132,33 @@ const CSS_PATCHED_END = `${CSS_PATCH}${CSS_END_ANCHOR}`
  * @param {string} packageDir - 已复制的 maid-atelier 包目录。
  * @returns {string[]} 本次实际应用的动作。
  */
+function applyConversationGeometryPatch(text) {
+  const applied = []
+  let result
+
+  result = patchOnce(text, '// dsh-gui: sidebar-qa layout patch — conversation pane selector', 'const CORDIS_PANEL_SELECTOR = "[data-cordis-panel]";', 'const CORDIS_PANEL_SELECTOR = "[data-cordis-panel]";\n\t\tconst CONVERSATION_PANE_SELECTOR = ":is([data-pane=\'conversation\'], [class*=\'centerCol\'])";', 'conversation pane selector')
+  if (result.applied) { applied.push('lib/client.js: conversation pane selector'); text = result.text }
+
+  result = patchOnce(text, '// dsh-gui: sidebar-qa layout patch — conversation observer vars', 'let resizeObserver;', 'let resizeObserver;\n\t\t\tlet conversationResizeObserver;\n\t\t\tlet observedConversation;', 'conversation observer vars')
+  if (result.applied) { applied.push('lib/client.js: conversation observer vars'); text = result.text }
+
+  result = patchOnce(text, '// dsh-gui: sidebar-qa layout patch — conversation cleanup', 'resizeObserver?.disconnect();', 'resizeObserver?.disconnect();\n\t\t\t\tconversationResizeObserver?.disconnect();', 'conversation cleanup')
+  if (result.applied) { applied.push('lib/client.js: conversation cleanup'); text = result.text }
+
+  result = patchOnce(text, '// dsh-gui: sidebar-qa layout patch — conversation rect helpers', '\t\t\tconst syncProjectedState = () => {', '\t\t\tconst applyConversationRect = () => {\n\t\t\t\tconst pane = document.querySelector(CONVERSATION_PANE_SELECTOR);\n\t\t\t\tif (pane === null) {\n\t\t\t\t\twidthRule.style.setProperty("--maid-conversation-right-gap", "0px");\n\t\t\t\t\twidthRule.style.setProperty("--maid-conversation-bottom-gap", "0px");\n\t\t\t\t\treturn;\n\t\t\t\t}\n\t\t\t\tconst rect = pane.getBoundingClientRect();\n\t\t\t\tconst rightGap = Math.max(0, window.innerWidth - rect.right);\n\t\t\t\tconst bottomGap = Math.max(0, window.innerHeight - rect.bottom);\n\t\t\t\twidthRule.style.setProperty("--maid-conversation-right-gap", `${Math.round(rightGap * 100) / 100}px`);\n\t\t\t\twidthRule.style.setProperty("--maid-conversation-bottom-gap", `${Math.round(bottomGap * 100) / 100}px`);\n\t\t\t};\n\t\t\tconst ensureConversationObserved = () => {\n\t\t\t\tconst pane = document.querySelector(CONVERSATION_PANE_SELECTOR);\n\t\t\t\tif (!conversationResizeObserver) return;\n\t\t\t\tif (pane === observedConversation) return;\n\t\t\t\tif (observedConversation) conversationResizeObserver.unobserve(observedConversation);\n\t\t\t\tobservedConversation = pane ?? void 0;\n\t\t\t\tif (observedConversation) conversationResizeObserver.observe(observedConversation);\n\t\t\t};\n\t\t\tconst syncProjectedState = () => {', 'conversation rect helpers')
+  if (result.applied) { applied.push('lib/client.js: conversation rect helpers'); text = result.text }
+
+  result = patchOnce(text, '// dsh-gui: sidebar-qa layout patch — conversation observer init', '\t\t\tif (typeof ResizeObserver !== "undefined") resizeObserver = new ResizeObserver((entries) => {\n\t\t\t\tconst entry = entries.at(-1);\n\t\t\t\tif (!entry) return;\n\t\t\t\tapplySidebarWidth(entry.contentRect.width);\n\t\t\t});', '\t\t\tif (typeof ResizeObserver !== "undefined") resizeObserver = new ResizeObserver((entries) => {\n\t\t\t\tconst entry = entries.at(-1);\n\t\t\t\tif (!entry) return;\n\t\t\t\tapplySidebarWidth(entry.contentRect.width);\n\t\t\t});\n\t\t\tif (typeof ResizeObserver !== "undefined") conversationResizeObserver = new ResizeObserver(() => {\n\t\t\t\tapplyConversationRect();\n\t\t\t});', 'conversation observer init')
+  if (result.applied) { applied.push('lib/client.js: conversation observer init'); text = result.text }
+
+  result = patchOnce(text, '// dsh-gui: sidebar-qa layout patch — conversation initial measure', '\t\t\tensureSidebarObserved();\n\t\t\tconst initialSidebar = document.querySelector(SIDEBAR_COLUMN_SELECTOR);', '\t\t\tensureSidebarObserved();\n\t\t\tensureConversationObserved();\n\t\t\tapplyConversationRect();\n\t\t\tconst initialSidebar = document.querySelector(SIDEBAR_COLUMN_SELECTOR);', 'conversation initial measure')
+  if (result.applied) { applied.push('lib/client.js: conversation initial measure'); text = result.text }
+
+  result = patchOnce(text, '// dsh-gui: sidebar-qa layout patch — conversation sync measure', '\t\t\t\tensureSidebarObserved();\n\t\t\t\tconst sidebar = document.querySelector(SIDEBAR_COLUMN_SELECTOR);', '\t\t\t\tensureSidebarObserved();\n\t\t\t\tensureConversationObserved();\n\t\t\t\tapplyConversationRect();\n\t\t\t\tconst sidebar = document.querySelector(SIDEBAR_COLUMN_SELECTOR);', 'conversation sync measure')
+  if (result.applied) { applied.push('lib/client.js: conversation sync measure'); text = result.text }
+
+  return { text, applied }
+}
 export function applyMaidAtelierSidebarQaPatch(packageDir) {
   const bundle = join(packageDir, 'lib', 'client.js')
   const { text, eol } = readNormalized(bundle)
@@ -139,8 +170,15 @@ export function applyMaidAtelierSidebarQaPatch(packageDir) {
   result = patchOnce(result.text, BACKDROP_SYNC_MARKER, SYNC_BACKDROP_OLD, SYNC_BACKDROP_NEW, 'palace backdrop sync')
   if (result.applied) applied.push('lib/client.js: palace backdrop sync')
 
+  result = patchOnce(result.text, '// dsh-gui: sidebar-qa layout patch — remove upstream right overindent', OLD_BETTER_SIDEBAR_RIGHT_460, NEW_BETTER_SIDEBAR_RIGHT_NO_OVERINDENT, 'right maid overindent replacement')
+  if (result.applied) applied.push('lib/client.js: right maid overindent replacement')
+
   result = patchOnce(result.text, CSS_MARKER, CSS_END_ANCHOR, CSS_PATCHED_END, 'sidebar-qa layout CSS')
   if (result.applied) applied.push('lib/client.js: sidebar-qa layout CSS')
+
+  const geometry = applyConversationGeometryPatch(result.text)
+  if (geometry.applied.length > 0) applied.push(...geometry.applied)
+  result = { text: geometry.text }
 
   writeWithEol(bundle, result.text, eol)
   return applied
