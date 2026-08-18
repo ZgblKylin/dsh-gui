@@ -38,11 +38,26 @@ const PLATFORM_EXTERNALS = [
 const PLUGIN_ID = 'dsh-ai-update'
 
 function esbuildBinary() {
-  const matches = globSync('node_modules/.pnpm/@esbuild+win32-x64@*/node_modules/@esbuild/win32-x64/esbuild.exe')
-  if (matches.length > 0) return matches[0]
-  const fallback = globSync('node_modules/@esbuild/win32-x64/esbuild.exe')
-  if (fallback.length > 0) return fallback[0]
-  throw new Error('esbuild native binary not found — run pnpm install first')
+  // The native binary ships as the `esbuild` package's platform-specific
+  // optional dependency `@esbuild/<platform>-<arch>` (e.g. @esbuild/win32-x64,
+  // @esbuild/linux-x64). It lives at the package root on Windows
+  // (esbuild.exe) and under bin/ on Unix. pnpm keeps it under
+  // node_modules/.pnpm/<pkg>@<ver>/ while a bare install keeps it flat at
+  // node_modules/<pkg>/ — check both layouts.
+  const platformPkg = `@esbuild/${process.platform}-${process.arch}`
+  const relative = process.platform === 'win32' ? 'esbuild.exe' : 'bin/esbuild'
+  // pnpm virtualizes scoped packages under .pnpm as `@scope+pkg@<ver>`
+  // (e.g. @esbuild+win32-x64@0.24.2), while the inner real package keeps the
+  // `@scope/pkg` path form — sanitize the pnpm directory name accordingly.
+  const pnpmPkg = platformPkg.replaceAll('/', '+')
+  for (const pattern of [
+    `node_modules/.pnpm/${pnpmPkg}@*/node_modules/${platformPkg}/${relative}`,
+    `node_modules/${platformPkg}/${relative}`,
+  ]) {
+    const matches = globSync(pattern)
+    if (matches.length > 0) return matches[0]
+  }
+  throw new Error(`esbuild native binary not found — run pnpm install first (expected ${platformPkg}/${relative})`)
 }
 
 function run(args) {
