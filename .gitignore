@@ -5,6 +5,8 @@
 .toolchain/
 # Any stray node_modules at the repo root.
 node_modules/
+# Temporary npm cache (used by `npm run setup` to bootstrap the toolchain).
+.npm-tmp-cache/
 
 # ── Tauri / Rust build output (entry exe lives here, but is never committed) ──
 src-tauri/target/
