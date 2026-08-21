@@ -319,7 +319,7 @@ body {
 
 /* ── Overlay / Update dialog ───────────────────────────────── */
 .update-dialog {
-  width: min(640px, 92vw);
+  width: min(880px, 94vw);
   max-height: 84vh;
   overflow-y: auto;
   background: var(--titlebar-bg);
@@ -384,12 +384,13 @@ body {
   font-size: 14px;
 }
 
+/* Version comparison stays fully visible: wraps instead of clipping, so a
+   long tag name / hash never truncates at the dialog edge. */
 .update-item-versions {
   color: var(--muted);
   font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .update-item-versions code {

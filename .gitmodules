@@ -26,7 +26,7 @@
 	path = plugins/better-sidebar/DSH-better-sidebar
 	url = https://github.com/omdsh-dev/DSH-better-sidebar
 [submodule "plugins/sidebar-qa/dsh-sidebar-qa"]
-	path = plugins/sidebar-qa/dsh-sidebar-qa
+	path = plugins/better-sidebar/dsh-sidebar-qa
 	url = https://github.com/ChenRuoT/dsh-sidebar-qa.git
 [submodule "plugins/routing-suite/dsh-routing-suite"]
 	path = plugins/routing-suite/dsh-routing-suite

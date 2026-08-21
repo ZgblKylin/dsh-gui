@@ -772,7 +772,13 @@ function updateRow(project) {
   versions.className = "update-item-versions";
   const latest = document.createElement("code");
   latest.className = project.checking ? "update-checking" : "";
-  latest.textContent = project.checking ? project.latest || "检查中…" : project.latest || "—";
+  // When a usable latest tag exists, the 最新 column shows the tag name
+  // instead of a commit hash; a stale tag (older than the current commit)
+  // stays a hash, matching the disabled mode option beside it.
+  const usableTag = project.latestTag && project.latestTagStale !== true ? project.latestTag : "";
+  latest.textContent = project.checking
+    ? project.latest || "检查中…"
+    : usableTag || project.latest || "—";
   versions.append(
     "当前 ",
     Object.assign(document.createElement("code"), { textContent: project.current || "unknown" }),
