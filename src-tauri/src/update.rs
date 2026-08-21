@@ -50,11 +50,18 @@ pub struct ProjectUpdate {
     /// This is the target the "latest tag" update mode resets to.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_tag: Option<String>,
-    /// True when `latest_tag` is strictly older than the local HEAD (the tag
-    /// commit is an ancestor of HEAD with further commits beyond it):
-    /// resetting to it would be a downgrade, so the UI disables that option.
+    /// True when `latest_tag` is NOT strictly newer than the local HEAD (an
+    /// ancestor of HEAD with further commits beyond it, or the very same
+    /// commit): resetting to it would downgrade or no-op, so the UI disables
+    /// that option.
     #[serde(default)]
     pub latest_tag_stale: bool,
+    /// True when this row counts toward the update badge/notification. A
+    /// checkout sitting exactly on a tag whose update carries no newer tag
+    /// (only commits beyond the current tag) still appears in the dialog but
+    /// must not light the badge.
+    #[serde(default = "default_announce")]
+    pub announce: bool,
     /// True when the remote default branch is strictly ahead of local HEAD.
     pub behind: bool,
     /// True while this row is only a local preview: `latest` is a placeholder
@@ -65,6 +72,10 @@ pub struct ProjectUpdate {
     pub error: Option<String>,
 }
 
+fn default_announce() -> bool {
+    true
+}
+
 /// Everything the frontend needs after a check.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +83,9 @@ pub struct UpdateStatus {
     pub projects: Vec<ProjectUpdate>,
     pub has_updates: bool,
     pub update_count: usize,
+    /// Rows that are behind AND badge-worthy ([`ProjectUpdate::announce`]);
+    /// drives the menu badge / dot only.
+    pub notify_count: usize,
     /// False when at least one repository could not be checked (network/auth),
     /// so a transient failure never clears the badge or the pending plan.
     pub all_checked: bool,
@@ -270,15 +284,13 @@ fn git_version(dir: &Path, commitish: &str) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// Whether `tag` is strictly older than the current HEAD: the tag commit is
-/// an ancestor of HEAD while HEAD carries commits beyond it. Resetting to such
-/// a tag would be a downgrade, so the update UI must not offer it as a target
-/// (version-string comparison would be fragile; git ancestry is exact).
-fn tag_is_stale(dir: &Path, tag: &str, head: &str) -> bool {
-    let Some(tag_sha) = git_output(dir, &["rev-parse", &format!("{tag}^{{commit}}")]) else {
-        return false;
-    };
-    if tag_sha == head {
+/// Whether `tag` is NOT strictly newer than the current HEAD: an ancestor
+/// (older) of HEAD, or the very same commit. `git merge-base --is-ancestor`
+/// treats a commit as an ancestor of itself, so one check covers both.
+/// Resetting to such a tag would downgrade or no-op, so the UI never offers
+/// it as an update target.
+fn tag_is_stale(dir: &Path, tag: &str) -> bool {
+    if git_output(dir, &["rev-parse", &format!("{tag}^{{commit}}")]).is_none() {
         return false;
     }
     run_git_captured(dir, &["merge-base", "--is-ancestor", tag, "HEAD"])
@@ -328,6 +340,7 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
         latest: "—".to_string(),
         latest_tag: None,
         latest_tag_stale: false,
+        announce: true,
         behind: false,
         checking: false,
         error: None,
@@ -370,12 +383,12 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
     // remote default branch (describe output is the bare tag name with
     // --abbrev=0). Absent when the branch carries no tags.
     project.latest_tag = git_output(path, &["describe", "--tags", "--abbrev=0", &latest_ref]);
-    // A tag that the local HEAD already contains (plus commits beyond it) is
-    // older than the current checkout; resetting to it would be a downgrade.
+    // A tag that is not strictly newer than the local HEAD (older, or the very
+    // commit currently checked out) is never a usable update target.
     project.latest_tag_stale = project
         .latest_tag
         .as_deref()
-        .is_some_and(|tag| tag_is_stale(path, tag, &current_sha));
+        .is_some_and(|tag| tag_is_stale(path, tag));
 
     if current_sha != latest_sha {
         let range = format!("{current_sha}..{latest_ref}");
@@ -383,6 +396,19 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
             .and_then(|count| count.parse::<u32>().ok())
             .unwrap_or(0);
         project.behind = behind > 0;
+        // The update badge only announces new-tag updates: while the checkout
+        // sits exactly on a tag and the remote adds commits beyond it without
+        // a newer tag, the update stays visible in the dialog but is not
+        // counted into the badge notification.
+        if project.behind {
+            let on_exact_tag =
+                git_output(path, &["describe", "--tags", "--exact-match", "HEAD"]).is_some();
+            let has_newer_tag = project
+                .latest_tag
+                .as_deref()
+                .is_some_and(|tag| !tag_is_stale(path, tag));
+            project.announce = !(on_exact_tag && !has_newer_tag);
+        }
     }
     project
 }
@@ -406,6 +432,7 @@ fn local_preview_project(root: &Path, id: &str, fallback_name: &str, path: &Path
         latest: "检查中…".to_string(),
         latest_tag: None,
         latest_tag_stale: false,
+        announce: true,
         behind: false,
         checking: true,
         error: None,
@@ -439,10 +466,12 @@ pub fn check(root: &Path) -> UpdateStatus {
         projects.push(check_project(root, &name, &name, &path));
     }
     let update_count = projects.iter().filter(|p| p.behind).count();
+    let notify_count = projects.iter().filter(|p| p.behind && p.announce).count();
     let all_checked = projects.iter().all(|p| p.error.is_none());
     UpdateStatus {
         has_updates: update_count > 0,
         update_count,
+        notify_count,
         all_checked,
         projects,
     }
@@ -835,14 +864,111 @@ mod tests {
         fs::write(dir.join("a.txt"), "ab").unwrap();
         assert!(git(&["add", "a.txt"]));
         assert!(git(&["commit", "-q", "-m", "b"]));
-        let head = git_output(&dir, &["rev-parse", "HEAD"]).unwrap();
 
         // Tag strictly before HEAD: stale (resetting would downgrade).
-        assert!(tag_is_stale(&dir, "v1.0.0", &head));
-        // HEAD itself is not stale.
-        assert!(!tag_is_stale(&dir, "HEAD", &head));
-        // Unknown tag: not stale (falls back to usable).
-        assert!(!tag_is_stale(&dir, "v9.9.9", &head));
+        assert!(tag_is_stale(&dir, "v1.0.0"));
+        // HEAD itself: a reset to it is a no-op, so it is never a usable
+        // update target either.
+        assert!(tag_is_stale(&dir, "HEAD"));
+        // Unknown tag: never stale (falls back to usable).
+        assert!(!tag_is_stale(&dir, "v9.9.9"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn badge_skips_commit_only_updates_while_on_tag() {
+        // Local sits exactly on tag v1.0.0 and the remote has ONLY new
+        // commits beyond it (no newer tag): the row stays behind (dialog)
+        // but is not announced by the badge.
+        let dir = std::env::temp_dir().join(format!("dsh-gui-badge-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("root");
+        let origin = dir.join("origin.git");
+        let git = |cwd: &Path, args: &[&str]| -> bool {
+            let output = Command::new("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .expect("git must run");
+            if !output.status.success() {
+                eprintln!(
+                    "git {:?} in {} failed:\n{}",
+                    args,
+                    cwd.display(),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            output.status.success()
+        };
+        let git_ok = |cwd: &Path, args: &[&str]| {
+            assert!(git(cwd, args), "git {args:?} failed in {}", cwd.display())
+        };
+        let init_signed_off = |cwd: &Path| {
+            git_ok(cwd, &["config", "user.name", "test"]);
+            git_ok(cwd, &["config", "user.email", "test@example.com"]);
+            git_ok(cwd, &["config", "commit.gpgsign", "false"]);
+            git_ok(cwd, &["config", "tag.gpgsign", "false"]);
+        };
+
+        git_ok(&dir, &["init", "-q", "-b", "main", "root"]);
+        init_signed_off(&root);
+        fs::write(root.join("a.txt"), "a").unwrap();
+        git_ok(&root, &["add", "a.txt"]);
+        git_ok(&root, &["commit", "-q", "-m", "a"]);
+        let tag_sha = git_output(&root, &["rev-parse", "HEAD"]).unwrap();
+        git_ok(&root, &["tag", "v1.0.0", &tag_sha]);
+        git_ok(&dir, &["init", "--bare", "-q", "origin.git"]);
+        git_ok(&origin, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+        let check_row = |root: &Path| {
+            let status = check(root);
+            assert_eq!(status.projects.len(), 1);
+            status.projects.into_iter().next().unwrap()
+        };
+
+        // Remote gains one untagged commit while local stays on the tag.
+        fs::write(root.join("b.txt"), "b").unwrap();
+        git_ok(&root, &["add", "b.txt"]);
+        git_ok(&root, &["commit", "-q", "-m", "b"]);
+        git_ok(
+            &root,
+            &["remote", "add", "origin", &origin.to_string_lossy()],
+        );
+        git_ok(&root, &["push", "-q", "origin", "main"]);
+        let commit_sha = git_output(&root, &["rev-parse", "HEAD"]).unwrap();
+        git_ok(&root, &["reset", "--hard", &tag_sha]);
+
+        let project = check_row(&root);
+        assert!(project.behind, "remote commits beyond the tag must show as behind");
+        assert!(
+            !project.announce,
+            "on-tag checkout with only commit updates must not announce"
+        );
+        assert_eq!(project.latest_tag.as_deref(), Some("v1.0.0"));
+        assert!(
+            project.latest_tag_stale,
+            "the tag at the current commit is not a usable target"
+        );
+
+        // Dropping the local tag moves the checkout off any tag: the same
+        // update is announced again.
+        git_ok(&root, &["tag", "-d", "v1.0.0"]);
+        let project = check_row(&root);
+        assert!(project.behind);
+        assert!(project.announce, "not on a tag: commit-only update must announce");
+        assert!(project.latest_tag.is_none());
+
+        // A newer tag on the remote restores announcement even on a tag.
+        git_ok(&root, &["tag", "v1.0.0", &tag_sha]);
+        git_ok(&root, &["tag", "v2.0.0", &commit_sha]);
+        git_ok(&root, &["push", "-q", "origin", "v2.0.0"]);
+        let project = check_row(&root);
+        assert!(project.behind);
+        assert!(project.announce, "a newer release tag must announce");
+        assert_eq!(project.latest_tag.as_deref(), Some("v2.0.0"));
+        assert!(!project.latest_tag_stale);
+
         let _ = fs::remove_dir_all(&dir);
     }
 

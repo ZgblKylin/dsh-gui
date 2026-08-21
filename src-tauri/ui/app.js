@@ -661,7 +661,10 @@ let updateChecking = false;
 let updateSelection = new Set();
 
 function applyUpdateIndicator(status) {
-  const has = !!(status && status.hasUpdates);
+  // Only badge-worthy updates light the indicator (notifyCount): a checkout
+  // sitting exactly on a tag whose update is only commits (no newer tag)
+  // stays in the dialog but is not announced.
+  const has = !!(status && (status.notifyCount ?? 0) > 0);
   updateBadge.classList.toggle("hidden", !has);
   menuUpdate.textContent = has ? "更新软件" : "检查更新";
   menuUpdate.classList.toggle("update-available", has);
@@ -773,8 +776,9 @@ function updateRow(project) {
   const latest = document.createElement("code");
   latest.className = project.checking ? "update-checking" : "";
   // When a usable latest tag exists, the 最新 column shows the tag name
-  // instead of a commit hash; a stale tag (older than the current commit)
-  // stays a hash, matching the disabled mode option beside it.
+  // instead of a commit hash; an unusable tag (older than the current
+  // commit, or exactly the commit we are on) stays a hash, matching the
+  // disabled mode option beside it.
   const usableTag = project.latestTag && project.latestTagStale !== true ? project.latestTag : "";
   latest.textContent = project.checking
     ? project.latest || "检查中…"
@@ -813,16 +817,23 @@ function updateRow(project) {
     mode.dataset.updateId = project.id;
     mode.title = "更新目标";
     const staleTag = project.latestTagStale === true;
+    // Stale covers both "older than current" and "the very commit we are on";
+    // label the equality case separately so the text stays truthful.
+    const atCurrentTag =
+      staleTag && project.latestTag && project.latestTag === project.current;
     const tagOption = new Option(
       !project.latestTag
         ? "最新tag（无）"
-        : staleTag
-          ? `最新tag（${project.latestTag} 早于当前）`
-          : `最新tag（${project.latestTag}）`,
+        : atCurrentTag
+          ? `最新tag（${project.latestTag} 即当前）`
+          : staleTag
+            ? `最新tag（${project.latestTag} 早于当前）`
+            : `最新tag（${project.latestTag}）`,
       "tag"
     );
     if (!project.latestTag || staleTag) tagOption.disabled = true;
-    // 新 tag 排在最上面并作为默认目标；tag 早于当前提交时不可用，自动回落到最新提交。
+    // 新 tag 排在最上面并作为默认目标；tag 早于当前或即当前提交时不可用，
+    // 自动回落到最新提交。
     mode.append(tagOption, new Option("最新提交", "commit"));
     mode.value = project.latestTag && !staleTag ? "tag" : "commit";
     const button = document.createElement("button");
