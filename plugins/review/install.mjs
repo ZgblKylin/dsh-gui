@@ -2,8 +2,9 @@
 /**
  * install.mjs — install and mount the `review` plugin into the web profile.
  *
- * The plugin source lives in the `dsh-review` package beside this script. It
- * ships prebuilt (`lib/index.js`, plain ESM with no build step), so the shared
+ * The plugin source lives in the `dsh-review` git submodule checkout beside
+ * this script (upstream: the `../dsh-review` fork recorded in `.gitmodules`).
+ * It ships prebuilt (`lib/index.js`, plain ESM with no build step), so the shared
  * installer skips pnpm install + build for it and links the package directory
  * as-is into `.dsh/profiles/web/`. The package declares no `dsh` manifest
  * convention; this wrapper owns the mount: `cordis.patch.yml` beside this
@@ -23,7 +24,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { installPlugin, parseInsertRows } from '../../scripts/plugin-install.mjs'
 
-/** This plugin's wrapper directory — owns the in-tree plugin package. */
+/** This plugin's wrapper directory — owns the submodule plugin package. */
 const HERE = dirname(fileURLToPath(import.meta.url))
 
 /**
@@ -46,5 +47,6 @@ function readMount() {
 installPlugin({
   id: 'review',
   packageDir: join(HERE, 'dsh-review'),
+  sourceHint: 'git submodule update --init plugins/review/dsh-review',
   mount: readMount(),
 })
