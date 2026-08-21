@@ -34,9 +34,6 @@
 [submodule "plugins/cache-hit-precision/dsh-cache-hit-precision"]
 	path = plugins/cache-hit-precision/dsh-cache-hit-precision
 	url = https://github.com/ZgblKylin/dsh-cache-hit-precision
-[submodule "plugins/modlens/modlens"]
-	path = plugins/modlens/modlens
-	url = https://github.com/liustack/modlens.git
 [submodule "plugins/plugin-market/dsh-market"]
 	path = plugins/plugin-market/dsh-market
 	url = https://github.com/dsh-market/dsh-market

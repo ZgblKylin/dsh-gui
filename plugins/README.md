@@ -30,6 +30,13 @@ directory, and submodule hint:
    the wrapper's explicit `mount` entry when given, else derived from the
    manifest.
 
+Wrappers for npm-published plugins (per the 安装方式 section: not marked as
+source installs) skip the local build/link pipeline and call the shared
+`installNpmPlugin` instead, which runs
+`dsh plugin --profile web add <package>` (npm registry) and lets the package's
+own `dsh.bundle.patch` reconcile it into `dsh.profile.bundles` — no manual
+cordis insert.
+
 `DSH_HOME` is pinned to `./.dsh` by the desktop shell and by every install
 script, so installed plugins land under `.dsh/` inside this repository —
 nothing is written to `~/.dsh` or any global location.
@@ -56,12 +63,29 @@ derived entry.
 - **Preset + dsh-pet + settings bridge wrapper** — `dsh-web-ui` first copies
   `dsh-web-ui/packages/dsh-liangshen/presets/liangshen` into
   `.dsh/.agent-presets/liangshen` and applies a dsh-gui-side Windows patch
-  (custom-bash for the phase-1 shell). It then builds `dsh-pet` and
-  `dsh-web-ui-settings` with one filtered pnpm install and delegates both
-  profile installs to the shared pipeline. Both packages declare
+  (custom-bash for the phase-1 shell). It then installs `dsh-pet` and
+  `dsh-web-ui-settings` from npm as `@linxin666/dsh-pet@latest` /
+  `@linxin666/dsh-client-ui-web-ui-settings@latest` (per the 安装方式 section
+  below: not marked as source installs). Both packages declare
   `dsh.bundle.patch`, so each mounts through its own bundle layer (no manual
   cordis inserts), and the wrapper orders the settings bridge before
   `dsh-pet`. See `dsh-web-ui/README.md`.
+
+## 安装方式
+
+未标注源码安装的，均使用`dsh plugin --profile <profile> add <package>`安装npm包，package参数见列表。
+标注源码安装的，基于源码编译后，基于link模式引入源码安装。
+
+- [dsh-cache-hit-precision](https://github.com/ZgblKylin/dsh-cache-hit-precision) 源码安装
+- [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
+- [dshmarket](https://github.com/dsh-market/dsh-market) npm包
+- [DSH-better-sidebar@latest](https://github.com/omdsh-dev/DSH-better-sidebar) npm包
+  - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包
+- [dsh-deep-whale/maid-atelier](https://github.com/Small-tailqwq/dsh-deep-whale) 源码安装
+- [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 源码安装
+- [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
+  - [@linxin666/dsh-liangshen@latest](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
+  - [@linxin666/dsh-pet@latest](dsh-web-ui/packages/dsh-pet/README.zh.md) npm包
 
 ## Current plugins
 
@@ -91,25 +115,35 @@ derived entry.
   and file-viewer registry (image/PDF/Markdown/HTML/code/binary), real
   terminal (xterm.js + node-pty, reconnect replay, optional `terminal_*`
   model tools — **off by default**), Git panel, embedded browser,
-  background-job page, and the `ctx.betterSidebar` extension API. It
-  declares `dsh.bundle.patch`, so `dsh plugin add` mounts it through its
-  own bundle layer (no manual cordis insert). Currently supersedes the
-  `terminal` and `file-explorer` wrappers. See its `README.md` and
-  `docs/`.
+  background-job page, and the `ctx.betterSidebar` extension API. It is
+  installed from npm as `dsh-better-sidebar@latest` (per the 安装方式 section;
+  the submodule checkout is kept as a source reference only), declares
+  `dsh.bundle.patch`, so `dsh plugin add` mounts it through its own bundle
+  layer (no manual cordis insert). Currently supersedes the `terminal` and
+  `file-explorer` wrappers. See its `README.md` and `docs/`.
 - `sidebar-qa` — git submodule (`ChenRuoT/dsh-sidebar-qa`) at
   `sidebar-qa/dsh-sidebar-qa`: select conversation text → right-panel
   follow-up question → a dedicated same-workspace session (`❓追问·<主题>`)
   that never interrupts the main conversation. Thin consumer of
   `dsh-better-sidebar` (hard peer dependency; stays inactive without it),
   registers two better-sidebar tabs via `ctx.betterSidebar` and declares
-  `dsh.bundle.patch`, so it mounts through its own bundle layer. See its
-  `README.md`.
-- `review` — in-tree plugin at `review/dsh-review`: the built-in `/review`
+  `dsh.bundle.patch`, so it mounts through its own bundle layer. It is
+  installed from npm as `dsh-sidebar-qa` (per the 安装方式 section; the
+  submodule checkout is kept as a source reference only). See its `README.md`.
+- `plugin-market` — git submodule (`dsh-market/dsh-market`) at
+  `plugin-market/dsh-market`: visual plugin market (browse/search/one-click
+  install community plugins). It is installed from npm as `dshmarket`
+  (per the 安装方式 section; the submodule checkout is kept as a source
+  reference only), declares `dsh.bundle.patch`, so `dsh plugin add` mounts it
+  through its own bundle layer. See its `README.md`.
+- `review` — git submodule (`../dsh-review`, recorded in `.gitmodules`) at
+  `review/dsh-review`: the built-in `/review`
   slash command. It injects the review instructions adapted from opencode's
   review-mode prompt and submits the user's request (defaulting to all
   uncommitted changes) to the current agent. Ships prebuilt with no harness
   runtime imports; its mount row lives in the wrapper's
-  `review/cordis.patch.yml`. See `review/dsh-review/README.md`.
+  `review/cordis.patch.yml` (read by `review/install.mjs`). See
+  `review/dsh-review/README.md`.
 - `ai-update` — in-tree plugin at `ai-update/dsh-ai-update`: browser-half
   bridge behind the update dialog's AI update buttons. The desktop shell
   posts a `dsh-gui:ai-update` message into the embedded page, and the plugin
@@ -117,13 +151,14 @@ derived entry.
   prefills the update prompt (it never creates a session directly and never
   picks a preset). See `ai-update/dsh-ai-update/docs/`.
 - `routing-suite` — git submodule (`yjh051108/dsh-routing-suite`) at
-  `routing-suite/dsh-routing-suite`: aggregator suite with three pinned
+  `routing-suite/dsh-routing-suite`: aggregator suite with two pinned
   component submodules — `injector` (`dsh-super-injector`, copied to
   `.dsh/plugins/` and built against the harness checkout, then mounted through
-  its own `dsh.bundle.patch`), `mode-boost` (`dsh-mode-boost`, prebuilt,
-  mounted as entry id `mode-boost` with a YAML-quoted scoped name), and
+  its own `dsh.bundle.patch`) and
   `preset` (`router-standard` + `router-spec` agent presets copied whole into
-  `.dsh/.agent-presets/`). The nested component submodules need a recursive
+  `.dsh/.agent-presets/`). The former `mode-boost` component was cancelled
+  upstream and removed; the wrapper no longer installs it. The nested component
+  submodules need a recursive
   init: `git submodule update --init --recursive
   plugins/routing-suite/dsh-routing-suite`. See `routing-suite/README.md`.
 - `cache-hit-precision` — git submodule
@@ -135,15 +170,6 @@ derived entry.
   rendered digits under the `conversation.composer.dock` slot anchor; every
   DOM write is restored on disposal. See
   `cache-hit-precision/dsh-cache-hit-precision/README.md`.
-- `modlens` — git submodule (`liustack/modlens`) at
-  `modlens/modlens`: plug-in vision for text-only LLMs. It registers the
-  `modlens_read_image` tool (path or URL → structured OCR/layout evidence),
-  adds `(modlens vision)` model entries, and provides paste-to-path for the
-  web profile. It declares `dsh.bundle.patch`, so `dsh plugin add` mounts it
-  through its own bundle layer; the CLI is built from source during install.
-  The wrapper pins `allowBuilds.esbuild: false` in the package's
-  `pnpm-workspace.yaml` before building. See `modlens/modlens/README.md` and
-  `modlens/modlens/docs/`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current
   package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,
@@ -160,7 +186,8 @@ derived entry.
   `dsh-web-ui/dsh-web-ui`. Installs the `liangshen` preset (梁神模式) to
   `.dsh/.agent-presets/liangshen`, plus the `dsh-pet` plugin
   (`@linxin666/dsh-pet`) and the `dsh-web-ui-settings` compatibility bundle
-  (`@linxin666/dsh-client-ui-web-ui-settings`) into the web profile, with the
+  (`@linxin666/dsh-client-ui-web-ui-settings`) — both installed from npm
+  `@latest` per the 安装方式 section above — into the web profile, with the
   settings bridge ordered before dsh-pet; it intentionally does not install
   or mount any other dsh-web-ui package. See `dsh-web-ui/README.md`.
 
