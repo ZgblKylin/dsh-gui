@@ -734,19 +734,21 @@ function updateRow(project) {
       "tag"
     );
     if (!project.latestTag) tagOption.disabled = true;
-    mode.append(new Option("最新提交", "commit"), tagOption);
+    // 新 tag 排在最上面并作为默认目标；没有可用 tag 时自动回落到最新提交。
+    mode.append(tagOption, new Option("最新提交", "commit"));
+    mode.value = project.latestTag ? "tag" : "commit";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary update-run";
+    button.dataset.updateId = project.id;
+    button.textContent = "更新";
     const ai = document.createElement("button");
     ai.type = "button";
-    ai.className = "secondary update-ai";
+    ai.className = "primary update-ai";
     ai.dataset.updateId = project.id;
     ai.textContent = "AI 更新";
     ai.title = "回到项目首页选中 dsh-gui 目录并预填提示词，预设由你自选";
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "primary update-run";
-    button.dataset.updateId = project.id;
-    button.textContent = "更新";
-    action.append(mode, ai, button);
+    action.append(mode, button, ai);
   } else {
     const ok = document.createElement("span");
     ok.className = "update-item-ok";
@@ -784,7 +786,7 @@ function renderUpdateDialog(status) {
     checking > 0
       ? `${projects.length} 个工程，正在检测更新…`
       : behind.length > 0
-        ? `${behind.length} 个工程有可用更新。每行可先选更新目标（最新提交 / 最新 tag），点「更新」确认要更新的工程，再点「重启并更新」；dsh-gui 会退出，更新过程在弹出窗口中显示，完成后自动重启。也可以点各行或底部的「AI 更新」，回到项目首页选中 dsh-gui 目录并预填更新提示词（agent 预设由你自选）。`
+        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（可在下拉中切到最新提交）；「AI 更新」为推荐方式：点各行或底部的「AI 更新」，回到项目首页选中 dsh-gui 目录并预填更新提示词（agent 预设由你自选）；也可以点「更新」确认要更新的工程，再点「重启并更新」，dsh-gui 会退出，更新过程在弹出窗口中显示，完成后自动重启。`
         : "所有工程均为最新版本。";
   updateBody.appendChild(summary);
   for (const project of projects) updateBody.appendChild(updateRow(project));
@@ -988,10 +990,11 @@ function buildAiUpdatePrompt(projects) {
     } else {
       lines.push("1. 将该模块快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>，或在模块目录里 fetch origin 后检出 origin/<默认分支>；仓库本体则 pull/reset 到 origin 默认分支）；");
     }
-    lines.push("2. 运行对应的安装脚本：插件模块运行其 plugins/<id>/install.mjs（或仓库根目录的 npm run install:plugins）；");
-    lines.push("3. 若改动涉及 harness 或需要重建，按需执行仓库构建脚本；");
-    lines.push("4. 完成后汇报改动了哪些文件、执行了哪些安装/构建命令及结果；");
-    lines.push("5. 基于该模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+    lines.push("2. 运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、该模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，内容见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与上述约定一致。各插件安装脚本通常都很简单——「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」——并无复杂操作；仅当发现异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下来向用户报告，不要执行；");
+    lines.push("3. 确认安装脚本无误后运行：插件模块运行其 plugins/<id>/install.mjs（或仓库根目录的 npm run install:plugins）；");
+    lines.push("4. 若改动涉及 harness 或需要重建，按需执行仓库构建脚本；");
+    lines.push("5. 完成后汇报改动了哪些文件、执行了哪些安装/构建命令及结果；");
+    lines.push("6. 基于该模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
   } else {
     lines.push("请批量更新当前 dsh-gui 仓库中以下可更新的模块：");
     lines.push("");
@@ -1006,10 +1009,11 @@ function buildAiUpdatePrompt(projects) {
     lines.push("对每个模块按其标注的更新目标处理：");
     lines.push("1. 最新提交：快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>；仓库本体用 git pull）；");
     lines.push("2. 最新 tag：先 fetch origin，再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag；");
-    lines.push("3. 更新后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
-    lines.push("4. 必要时重建；");
-    lines.push("5. 全部完成后汇报每个模块的改动与安装结果；");
-    lines.push("6. 基于各模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，并逐模块汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+    lines.push("3. 更新后、运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；");
+    lines.push("4. 确认无误后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
+    lines.push("5. 必要时重建；");
+    lines.push("6. 全部完成后汇报每个模块的改动与安装结果；");
+    lines.push("7. 基于各模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，并逐模块汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
   }
   lines.push("");
   lines.push("注意：以上路径均相对于 dsh-gui 仓库根目录；请确认会话工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。");
