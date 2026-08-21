@@ -9,9 +9,11 @@ only reach the embedded harness page through postMessage. The harness web GUI
 has no deep-link for "go to the new-session home, select workspace X, and
 prefill Y", so the feature is split:
 
-- shell half — renders the AI update buttons, builds the Chinese prompt from
-  the update rows (module name, path, current/latest versions), posts the
-  request, toasts the reply;
+- shell half — renders the AI update buttons for submodule rows, builds the
+  Chinese prompt from the update rows (module name, path, current/latest
+  versions), posts the request, toasts the reply; the top-level dsh-gui row
+  has no AI update — its 「更新」 button runs a live in-dialog git update
+  (see below);
 - plugin half — this package's browser bundle, which drives the new-session
   home through public client services.
 
@@ -36,6 +38,34 @@ harness plugin usable without dsh-gui.
   agentPreset.select is therefore not part of this plugin.
 - The draft is written through conversation.input.for(actx).setDraft, the
   same single-write path the composer uses; the user reviews and sends it.
+
+## Prompt composition
+
+The shell builds the prefilled prompt in `src-tauri/ui/app.js`
+(`buildAiUpdatePrompt`). `deepseek-harness` gets a dedicated prompt: it is
+the engineering base (the harness itself, at the repository root) and not a
+plugin, so its prompt never references the `plugins/` layout or the plugin
+install pipeline — after the git fast-forward it first assesses the impact
+of the update on the current dsh-gui project (features/config/dependencies
+and adaptation points), and only then routes the rebuild through the
+repository build script (`node scripts/dsh-gui.mjs build`) and its own
+harness documentation. Such a
+prompt always closes with a quick-audit step: every unmasked plugin install
+script (`plugins/<id>/install.mjs`; entries carrying a `MASKED` guard, such
+as `terminal` and `file-explorer`, are skipped) is checked against the
+official spec the updated harness just pinned (repository-root AGENTS.md,
+`docs/official/`, and the dsh-plugin-install skill). Batch prompts include
+this audit only when `deepseek-harness` is among the updated modules.
+
+## Top-level project update (no AI)
+
+The top-level dsh-gui row deliberately has no AI update button: clicking its
+「更新」 runs `update_root` (Rust) in place — the root fast-forwards to the
+selected target and `git submodule update --init --recursive` syncs every
+submodule to the commits the new root revision records — while the dialog
+streams progress via `update-root-log` events. The shell keeps running and
+nothing is rebuilt: on completion the dialog reminds the user to re-run
+`npm run build` for the full rebuild and then restart dsh-gui.
 
 ## Failure handling
 

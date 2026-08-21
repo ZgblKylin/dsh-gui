@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 use std::os::windows::process::CommandExt;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 #[cfg(windows)]
 mod job {
@@ -579,6 +579,33 @@ fn start_update(
     Ok(())
 }
 
+/// In-dialog update of the top-level repository (dsh-gui 仓库本体): the row's
+/// 「更新」 button runs this instead of an AI update — it fast-forwards the
+/// root to its target and recursively syncs every submodule, streaming
+/// progress lines as `update-root-log` events while the shell keeps running.
+/// Nothing is rebuilt here: the dialog reminds the user to run
+/// `npm run build` afterwards and then restart.
+#[tauri::command]
+async fn update_root(
+    app: tauri::AppHandle,
+    state: State<'_, ShellState>,
+    mode: Option<String>,
+) -> Result<(), String> {
+    let root = state.root.clone();
+    let lock = Arc::clone(&state.update_lock);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = lock
+            .lock()
+            .map_err(|_| "另一个更新操作正在进行".to_string())?;
+        let mut log = |line: &str| {
+            let _ = app.emit("update-root-log", line);
+        };
+        update::run_root_update(&root, mode.as_deref().unwrap_or("commit"), &mut log)
+    })
+    .await
+    .map_err(|e| format!("更新任务失败：{e}"))?
+}
+
 /// Operation names the shell may forward to the harness `/remote-api` route.
 /// Whitelist only: the dsh-remote plugin host implements exactly these, and the
 /// shell must never reach outside them (path-injection guard on `op`).
@@ -832,6 +859,7 @@ fn main() {
             remote_call,
             check_updates,
             start_update,
+            update_root,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");

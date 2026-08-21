@@ -171,6 +171,26 @@ fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
     }
 }
 
+/// Short human-readable failure detail from a git capture: the first three
+/// non-empty stderr lines (stdout as fallback), trimmed to 300 chars.
+fn git_error_summary(capture: &GitCapture) -> String {
+    let detail = capture.stderr.trim();
+    let detail = if detail.is_empty() {
+        capture.stdout.trim()
+    } else {
+        detail
+    };
+    detail
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" | ")
+        .chars()
+        .take(300)
+        .collect()
+}
+
 /// `git fetch --prune origin` with the actual failure surfaced for the dialog.
 fn git_fetch(dir: &Path) -> Result<(), String> {
     let capture = run_git_captured(dir, &["fetch", "--prune", "origin"])
@@ -178,23 +198,11 @@ fn git_fetch(dir: &Path) -> Result<(), String> {
     if capture.success {
         return Ok(());
     }
-    let detail = capture.stderr.trim();
-    let detail = if detail.is_empty() {
-        capture.stdout.trim()
-    } else {
-        detail
-    };
-    let short: String = detail
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .take(3)
-        .collect::<Vec<_>>()
-        .join(" | ");
-    let short = short.chars().take(300).collect::<String>();
-    if short.is_empty() {
+    let detail = git_error_summary(&capture);
+    if detail.is_empty() {
         Err("git fetch 失败（未知原因）".to_string())
     } else {
-        Err(format!("git fetch 失败：{short}"))
+        Err(format!("git fetch 失败：{detail}"))
     }
 }
 
@@ -723,6 +731,64 @@ pub fn start(
     Ok(())
 }
 
+/// In-dialog update of the top-level repository: fast-forward the root to its
+/// update target, then recursively sync every submodule to the commits the
+/// new root revision records (`git submodule update --init --recursive`) —
+/// the same submodule handling the detached launcher applies to the root.
+///
+/// Runs while the shell stays up: no exit, no rebuild (the dialog reminds the
+/// user to run `npm run build` afterwards). Progress is reported line by line
+/// through `log`.
+pub fn run_root_update(
+    root: &Path,
+    mode: &str,
+    log: &mut dyn FnMut(&str),
+) -> Result<(), String> {
+    log("fetch origin（顶层工程）");
+    git_fetch(root)?;
+    let branch = remote_default_branch(root)
+        .ok_or_else(|| "无法确定远端默认分支".to_string())?;
+    let (target, label) = if mode == "tag" {
+        let tag = git_output(root, &["describe", "--tags", "--abbrev=0", &format!("origin/{branch}")])
+            .ok_or_else(|| format!("origin/{branch} 上没有可用 tag"))?;
+        (tag.clone(), format!("reset --hard 到最新 tag「{tag}」"))
+    } else {
+        let target = format!("origin/{branch}");
+        let label = format!("reset --hard 到 {target}");
+        (target, label)
+    };
+    log(&label);
+    match run_git_captured(root, &["reset", "--hard", &target]) {
+        Some(capture) if capture.success => {}
+        Some(capture) => {
+            let detail = git_error_summary(&capture);
+            return Err(if detail.is_empty() {
+                format!("git reset --hard {target} 失败（未知原因）")
+            } else {
+                format!("git reset --hard {target} 失败：{detail}")
+            });
+        }
+        None => return Err("无法启动 git（PATH 或沙箱策略禁止创建进程）".to_string()),
+    }
+    log(&format!("顶层工程已更新到 {}", git_version(root, "HEAD")));
+    log("递归同步子模块（git submodule update --init --recursive）…");
+    match run_git_captured(root, &["submodule", "update", "--init", "--recursive"]) {
+        Some(capture) if capture.success => {
+            log("子模块已同步到顶层修订记录的提交（个别子模块若自身还有更新，仍会在列表中单独显示）");
+        }
+        Some(capture) => {
+            let detail = git_error_summary(&capture);
+            return Err(if detail.is_empty() {
+                "子模块同步失败（未知原因）".to_string()
+            } else {
+                format!("子模块同步失败：{detail}")
+            });
+        }
+        None => return Err("无法启动 git（PATH 或沙箱策略禁止创建进程）".to_string()),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -777,6 +843,142 @@ mod tests {
         assert!(!tag_is_stale(&dir, "HEAD", &head));
         // Unknown tag: not stale (falls back to usable).
         assert!(!tag_is_stale(&dir, "v9.9.9", &head));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn root_update_fast_forwards_and_syncs_submodules() {
+        let dir = std::env::temp_dir().join(format!("dsh-gui-root-update-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("root");
+        let root_origin = dir.join("root-origin.git");
+        let sub_work = dir.join("sub-work");
+        let sub_origin = dir.join("sub-origin.git");
+
+        let git = |cwd: &Path, args: &[&str]| -> bool {
+            let output = Command::new("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .expect("git must run");
+            if !output.status.success() {
+                eprintln!(
+                    "git {:?} in {} failed:\n{}",
+                    args,
+                    cwd.display(),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            output.status.success()
+        };
+        let git_ok = |cwd: &Path, args: &[&str]| {
+            assert!(git(cwd, args), "git {args:?} failed in {}", cwd.display())
+        };
+        let init_signed_off = |cwd: &Path| {
+            git_ok(cwd, &["config", "user.name", "test"]);
+            git_ok(cwd, &["config", "user.email", "test@example.com"]);
+            git_ok(cwd, &["config", "commit.gpgsign", "false"]);
+            git_ok(cwd, &["config", "tag.gpgsign", "false"]);
+        };
+
+        // A submodule repo with two commits pushed to its origin.
+        git_ok(&dir, &["init", "--bare", "-q", "sub-origin.git"]);
+        git_ok(
+            &sub_origin,
+            &["symbolic-ref", "HEAD", "refs/heads/main"],
+        );
+        git_ok(&dir, &["init", "-q", "-b", "main", "sub-work"]);
+        init_signed_off(&sub_work);
+        fs::write(sub_work.join("a.txt"), "a").unwrap();
+        git_ok(&sub_work, &["add", "a.txt"]);
+        git_ok(&sub_work, &["commit", "-q", "-m", "sub a"]);
+        git_ok(
+            &sub_work,
+            &["remote", "add", "origin", &sub_origin.to_string_lossy()],
+        );
+        git_ok(&sub_work, &["push", "-q", "origin", "main"]);
+        let sub_sha1 = git_output(&sub_work, &["rev-parse", "HEAD"]).unwrap();
+
+        // Root repository that records the first submodule commit.
+        git_ok(&dir, &["init", "-q", "-b", "main", "root"]);
+        init_signed_off(&root);
+        fs::write(root.join("root.txt"), "root").unwrap();
+        git_ok(&root, &["add", "root.txt"]);
+        git_ok(&root, &["commit", "-q", "-m", "root init"]);
+        git_ok(
+            &root,
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                &sub_origin.to_string_lossy(),
+                "sub",
+            ],
+        );
+        git_ok(&root, &["commit", "-q", "-m", "add sub"]);
+        git_ok(
+            &root,
+            &["remote", "add", "origin", &root_origin.to_string_lossy()],
+        );
+        let root_old = git_output(&root, &["rev-parse", "HEAD"]).unwrap();
+        git_ok(&dir, &["init", "--bare", "-q", "root-origin.git"]);
+        git_ok(
+            &root_origin,
+            &["symbolic-ref", "HEAD", "refs/heads/main"],
+        );
+        git_ok(&root, &["push", "-q", "origin", "main"]);
+
+        // Later: the submodule advances, and the root advances recording the
+        // OLD submodule commit.
+        fs::write(sub_work.join("b.txt"), "b").unwrap();
+        git_ok(&sub_work, &["add", "b.txt"]);
+        git_ok(&sub_work, &["commit", "-q", "-m", "sub b"]);
+        git_ok(&sub_work, &["push", "-q", "origin", "main"]);
+        let sub_sha2 = git_output(&sub_work, &["rev-parse", "HEAD"]).unwrap();
+        fs::write(root.join("root2.txt"), "root2").unwrap();
+        git_ok(&root, &["add", "root2.txt"]);
+        git_ok(&root, &["commit", "-q", "-m", "root new"]);
+        git_ok(&root, &["push", "-q", "origin", "main"]);
+        let root_new = git_output(&root, &["rev-parse", "HEAD"]).unwrap();
+
+        // Simulate an outdated checkout: root at the old commit, the submodule
+        // worktree moved ahead of what the old root revision records.
+        git_ok(&root, &["reset", "--hard", &root_old]);
+        git_ok(&root.join("sub"), &["fetch", "-q", "origin"]);
+        git_ok(&root.join("sub"), &["checkout", "-q", &sub_sha2]);
+
+        let mut lines: Vec<String> = Vec::new();
+        run_root_update(&root, "commit", &mut |line| lines.push(line.to_string()))
+            .expect("root update must succeed");
+        assert_eq!(
+            git_output(&root, &["rev-parse", "HEAD"]).unwrap(),
+            root_new,
+            "root must fast-forward to the remote default branch"
+        );
+        assert_eq!(
+            git_output(&root.join("sub"), &["rev-parse", "HEAD"]).unwrap(),
+            sub_sha1,
+            "submodule must sync back to the commit the new root revision records"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("子模块已同步")),
+            "progress must report the recursive submodule sync"
+        );
+
+        // A tag-target run on the same repo: tags on the remote branch land at
+        // the latest tagged commit (here: root_new).
+        git_ok(&root, &["tag", "v1.0.0", &root_new]);
+        git_ok(&root, &["push", "-q", "origin", "v1.0.0"]);
+        git_ok(&root, &["reset", "--hard", &root_old]);
+        run_root_update(&root, "tag", &mut |_| {}).expect("tag update must succeed");
+        assert_eq!(
+            git_output(&root, &["rev-parse", "HEAD"]).unwrap(),
+            root_new,
+            "tag mode must settle at the newest tag on the remote branch"
+        );
+
         let _ = fs::remove_dir_all(&dir);
     }
 
