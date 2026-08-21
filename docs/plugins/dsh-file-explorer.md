@@ -31,9 +31,6 @@ dsh-gui 内置的全局文件资源管理器插件。上游仓库：
 安装/更新流程（全部仓库内自托管）：
 
 ```powershell
-# 布局迁移（从旧 plugins/dsh-file-explorer 路径，需要先关闭 dsh-gui）
-npm run migrate:plugins
-
 # 首次安装或安装器行为变化后
 npm run install:plugins
 

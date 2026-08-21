@@ -138,9 +138,7 @@ fn item(dir: &Path, fallback_name: &str) -> AboutItem {
 /// submodule, and every plugin package. The preset-style `plugins/` layout has
 /// one wrapper directory per plugin (`plugins/<id>/install.mjs`) holding the
 /// package/repo in a second-level directory; multi-package distribution repos
-/// (e.g. `deep-whale/dsh-deep-whale`) hold their package one level deeper. The
-/// old flat layout (a package.json directly under `plugins/`) is still
-/// recognized so the dialog works during migration.
+/// (e.g. `deep-whale/dsh-deep-whale`) hold their package one level deeper.
 pub fn collect(root: &Path) -> AboutInfo {
     let shell = item(root, "dsh-gui");
     let harness = item(&root.join("deepseek-harness"), "deepseek-harness");
@@ -153,10 +151,6 @@ pub fn collect(root: &Path) -> AboutInfo {
         for entry in entries.flatten() {
             let path: PathBuf = entry.path();
             if !path.is_dir() {
-                continue;
-            }
-            if path.join("package.json").is_file() {
-                plugins.push(item(&path, &entry.file_name().to_string_lossy()));
                 continue;
             }
             if let Ok(children) = std::fs::read_dir(&path) {

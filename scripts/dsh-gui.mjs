@@ -2,10 +2,8 @@
 /**
  * dsh-gui — cross-platform build/install/run commands for the desktop shell.
  *
- * Replaces the PowerShell scripts (setup.ps1 / build.ps1 / install-plugins.ps1
- * / run.ps1 / make-shortcut.ps1) with one Node CLI so the same commands work
- * on Windows, macOS, and Linux (WSL). Every path resolves from the repository
- * root regardless of the invoking cwd.
+ * One Node CLI so the same commands work on Windows, macOS, and Linux (WSL).
+ * Every path resolves from the repository root regardless of the invoking cwd.
  *
  * Commands:
  *   setup    one-shot bootstrap: pinned pnpm -> harness install+build -> entry

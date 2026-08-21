@@ -15,11 +15,11 @@ dsh-gui 内置的 `/review` 斜杠指令插件。仓库内自托管，位于
 1. **无 `build` 脚本**：`lib/index.js` 为纯 ESM，直接随仓库分发；
    `plugins/review/install.mjs` 委托 `scripts/plugin-install.mjs` 跳过
    `pnpm install` + `pnpm run build`。
-2. **普通依赖 + wrapper 挂载行**：包不声明 `dsh` 约定，`dsh plugin add`
-   只把包 link 进 `.dsh/profiles/web/`；挂载行由 wrapper 的
-   `plugins/review/cordis.patch.yml` 持有，`install.mjs` 读出后交给共享
-   安装器幂等写入 profile 的 `cordis.patch.yml`（该层被 boot 持续监听，
-   重装无需重启）。
+2. **自带 `dsh.bundle.patch`**（包内 `cordis.patch.yml`，插入
+   `id: review, name: dsh-review`）：`dsh plugin add` 的 reconcile 逻辑把包
+   追加进 profile 的 `dsh.profile.bundles`，该 bundle layer 自行把 entry
+   插进 host 组合；install 脚本对声明了 `dsh.bundle.patch` 的插件不再写
+   `cordis.patch.yml` insert（否则会重复挂载）。
 3. **运行期零 harness 运行时 import**：profile 的 `node_modules` 不安装
    `@deepseek-ai/*`，插件只用 `node:crypto`；命令注册表与 `Agent` 均通过
    Cordis context 注入，消息对象直接构造为 JSON 可序列化值。
@@ -30,8 +30,7 @@ dsh-gui 内置的 `/review` 斜杠指令插件。仓库内自托管，位于
 npm run install:plugins
 ```
 
-挂载行写入被 boot 持续监听的 profile patch 层，运行中的 dsh-gui 会热挂载，
-无需重启。
+重启 `dsh-gui` 后生效（插件集变更在 boot 时加载）。
 
 ## 验证
 

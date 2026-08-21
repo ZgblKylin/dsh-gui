@@ -347,22 +347,6 @@ Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing
 escapes this repository.
 
-### One-shot layout migration
-
-This checkout migrated from the flat `plugins/<package>` layout to the wrapper
-layout above. `remote` and `terminal` are already moved; the `dsh-file-explorer`
-submodule move must run while dsh-gui is closed (the app holds files under that
-checkout open):
-
-```powershell
-# 1. close dsh-gui
-npm run migrate:plugins
-```
-
-The script moves the submodule with `git mv`, then re-runs every plugin install
-script so the web profile links all packages at their new paths. It is
-idempotent.
-
 ## Linux / WSL
 
 The tooling is pure Node and runs on Linux (e.g. inside WSL): `npm run setup`,

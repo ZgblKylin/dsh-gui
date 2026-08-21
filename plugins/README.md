@@ -161,9 +161,8 @@ would double-mount it and fail the plugin tree with
   its own `dsh.bundle.patch`) and
   `preset` (`router-standard` + `router-spec` agent presets copied whole into
   `.dsh/.agent-presets/`, matching the suite README's manual install step).
-  The former `mode-boost` component was cancelled upstream and removed; the
-  wrapper no longer installs it. The nested component submodules need a
-  recursive init: `git submodule update --init --recursive
+  The nested component submodules need a recursive init:
+  `git submodule update --init --recursive
   plugins/routing-suite/dsh-routing-suite`. See `routing-suite/README.md`.
 - `cache-hit-precision` — git submodule
   (`ZgblKylin/dsh-cache-hit-precision`) at
@@ -196,19 +195,3 @@ would double-mount it and fail the plugin tree with
   `dsh-pet` companion plugin (`@linxin666/dsh-pet`) — each mounts through its
   own `dsh.bundle.patch` layer; it does not install agent presets or any other
   dsh-web-ui package. See `dsh-web-ui/README.md`.
-
-## One-shot layout migration
-
-This checkout migrated from the old flat layout (`plugins/<package>` directly)
-to the wrapper layout. `remote` and `terminal` are already moved; the
-`dsh-file-explorer` submodule move must run while dsh-gui is closed, because
-the app holds files under that checkout open:
-
-```powershell
-# 1. close dsh-gui (it tears its harness children down on exit)
-node scripts/migrate-plugin-layout.mjs   # or: npm run migrate:plugins
-```
-
-The script moves the submodule with `git mv`, then re-runs every plugin
-install script so the web profile links all packages at their new paths. It is
-idempotent and can be re-run safely.
