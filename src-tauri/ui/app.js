@@ -729,14 +729,19 @@ function updateRow(project) {
     mode.className = "update-mode";
     mode.dataset.updateId = project.id;
     mode.title = "更新目标";
+    const staleTag = project.latestTagStale === true;
     const tagOption = new Option(
-      project.latestTag ? `最新tag（${project.latestTag}）` : "最新tag（无）",
+      !project.latestTag
+        ? "最新tag（无）"
+        : staleTag
+          ? `最新tag（${project.latestTag} 早于当前）`
+          : `最新tag（${project.latestTag}）`,
       "tag"
     );
-    if (!project.latestTag) tagOption.disabled = true;
-    // 新 tag 排在最上面并作为默认目标；没有可用 tag 时自动回落到最新提交。
+    if (!project.latestTag || staleTag) tagOption.disabled = true;
+    // 新 tag 排在最上面并作为默认目标；tag 早于当前提交时不可用，自动回落到最新提交。
     mode.append(tagOption, new Option("最新提交", "commit"));
-    mode.value = project.latestTag ? "tag" : "commit";
+    mode.value = project.latestTag && !staleTag ? "tag" : "commit";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary update-run";
@@ -786,7 +791,7 @@ function renderUpdateDialog(status) {
     checking > 0
       ? `${projects.length} 个工程，正在检测更新…`
       : behind.length > 0
-        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（可在下拉中切到最新提交）；「AI 更新」为推荐方式：点各行或底部的「AI 更新」，回到项目首页选中 dsh-gui 目录并预填更新提示词（agent 预设由你自选）；也可以点「更新」确认要更新的工程，再点「重启并更新」，dsh-gui 会退出，更新过程在弹出窗口中显示，完成后自动重启。`
+        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）；「AI 更新」为推荐方式：点各行或底部的「AI 更新」，回到项目首页选中 dsh-gui 目录并预填更新提示词（agent 预设由你自选）；也可以点「更新」确认要更新的工程，再点「重启并更新」，dsh-gui 会退出，更新过程在弹出窗口中显示，完成后自动重启。`
         : "所有工程均为最新版本。";
   updateBody.appendChild(summary);
   for (const project of projects) updateBody.appendChild(updateRow(project));

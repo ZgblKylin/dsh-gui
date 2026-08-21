@@ -50,6 +50,11 @@ pub struct ProjectUpdate {
     /// This is the target the "latest tag" update mode resets to.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_tag: Option<String>,
+    /// True when `latest_tag` is strictly older than the local HEAD (the tag
+    /// commit is an ancestor of HEAD with further commits beyond it):
+    /// resetting to it would be a downgrade, so the UI disables that option.
+    #[serde(default)]
+    pub latest_tag_stale: bool,
     /// True when the remote default branch is strictly ahead of local HEAD.
     pub behind: bool,
     /// True while this row is only a local preview: `latest` is a placeholder
@@ -257,6 +262,22 @@ fn git_version(dir: &Path, commitish: &str) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Whether `tag` is strictly older than the current HEAD: the tag commit is
+/// an ancestor of HEAD while HEAD carries commits beyond it. Resetting to such
+/// a tag would be a downgrade, so the update UI must not offer it as a target
+/// (version-string comparison would be fragile; git ancestry is exact).
+fn tag_is_stale(dir: &Path, tag: &str, head: &str) -> bool {
+    let Some(tag_sha) = git_output(dir, &["rev-parse", &format!("{tag}^{{commit}}")]) else {
+        return false;
+    };
+    if tag_sha == head {
+        return false;
+    }
+    run_git_captured(dir, &["merge-base", "--is-ancestor", tag, "HEAD"])
+        .map(|capture| capture.success)
+        .unwrap_or(false)
+}
+
 /// The remote default branch (`origin/HEAD`). Ask the remote first so a stale
 /// local `refs/remotes/origin/HEAD` symbolic ref can never point the updater at
 /// an old branch; fall back to that local ref when the extra network roundtrip
@@ -298,6 +319,7 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
         current: "unknown".to_string(),
         latest: "—".to_string(),
         latest_tag: None,
+        latest_tag_stale: false,
         behind: false,
         checking: false,
         error: None,
@@ -340,6 +362,12 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
     // remote default branch (describe output is the bare tag name with
     // --abbrev=0). Absent when the branch carries no tags.
     project.latest_tag = git_output(path, &["describe", "--tags", "--abbrev=0", &latest_ref]);
+    // A tag that the local HEAD already contains (plus commits beyond it) is
+    // older than the current checkout; resetting to it would be a downgrade.
+    project.latest_tag_stale = project
+        .latest_tag
+        .as_deref()
+        .is_some_and(|tag| tag_is_stale(path, tag, &current_sha));
 
     if current_sha != latest_sha {
         let range = format!("{current_sha}..{latest_ref}");
@@ -369,6 +397,7 @@ fn local_preview_project(root: &Path, id: &str, fallback_name: &str, path: &Path
         current: "unknown".to_string(),
         latest: "检查中…".to_string(),
         latest_tag: None,
+        latest_tag_stale: false,
         behind: false,
         checking: true,
         error: None,
@@ -709,6 +738,46 @@ mod tests {
             .iter()
             .any(|(name, path)| name == "deepseek-harness" && path.ends_with("deepseek-harness")));
         assert!(entries.iter().any(|(name, _)| name == "dsh-terminal"));
+    }
+
+    #[test]
+    fn tag_staleness_is_ancestry_based() {
+        let dir = std::env::temp_dir().join(format!("dsh-gui-tag-stale-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .current_dir(&dir)
+                .args(args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .expect("git must run")
+                .success()
+        };
+        assert!(git(&["init", "-q"]));
+        assert!(git(&["config", "user.name", "test"]));
+        assert!(git(&["config", "user.email", "test@example.com"]));
+        // The test host may pin commit.gpgsign/tag.gpgsign globally; signing
+        // is unavailable here (and irrelevant for ancestry checks).
+        assert!(git(&["config", "commit.gpgsign", "false"]));
+        assert!(git(&["config", "tag.gpgsign", "false"]));
+        fs::write(dir.join("a.txt"), "a").unwrap();
+        assert!(git(&["add", "a.txt"]));
+        assert!(git(&["commit", "-q", "-m", "a"]));
+        assert!(git(&["tag", "v1.0.0"]));
+        fs::write(dir.join("a.txt"), "ab").unwrap();
+        assert!(git(&["add", "a.txt"]));
+        assert!(git(&["commit", "-q", "-m", "b"]));
+        let head = git_output(&dir, &["rev-parse", "HEAD"]).unwrap();
+
+        // Tag strictly before HEAD: stale (resetting would downgrade).
+        assert!(tag_is_stale(&dir, "v1.0.0", &head));
+        // HEAD itself is not stale.
+        assert!(!tag_is_stale(&dir, "HEAD", &head));
+        // Unknown tag: not stale (falls back to usable).
+        assert!(!tag_is_stale(&dir, "v9.9.9", &head));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
