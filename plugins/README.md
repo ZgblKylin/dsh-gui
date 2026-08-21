@@ -4,9 +4,11 @@ Local DeepSeek Harness plugin packages, in the same preset-style layout as
 `presets/`: every first-level directory is a **plugin wrapper** that owns an
 `install.mjs` plus the plugin package/repo checkout (for multi-package
 distribution repos such as `deep-whale`, the package path points one level
-deeper). `dsh-web-ui` is the exception: it installs the `liangshen` agent
-preset, the `dsh-pet` plugin, and the `dsh-web-ui-settings` compatibility
-bundle — and nothing else from its distribution repo.
+deeper). A wrapper may own several checkouts and install several npm
+packages in one script. `dsh-web-ui` is the exception: it installs the
+`liangshen` agent preset, the `dsh-pet` plugin, and the
+`dsh-web-ui-settings` compatibility bundle — and nothing else from its
+distribution repo.
 
 ```
 plugins/
@@ -79,7 +81,7 @@ would double-mount it and fail the plugin tree with
 
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包
-- [DSH-better-sidebar@latest](https://github.com/omdsh-dev/DSH-better-sidebar) npm包，下方插件需确保依赖本插件
+- [DSH-better-sidebar@latest](https://github.com/omdsh-dev/DSH-better-sidebar) npm包，下方插件需确保依赖本插件，install.mjs 先装本插件再装 dsh-sidebar-qa
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包
 - [dsh-deep-whale/maid-atelier](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装
 - [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 源码安装
@@ -110,27 +112,30 @@ would double-mount it and fail the plugin tree with
   its `install.mjs` skips the install pipeline (guard `MASKED` at the top
   of the script) and its dependency + bundle entry were removed from
   `.dsh/profiles/web/package.json`.
-- `better-sidebar` — git submodule (`omdsh-dev/DSH-better-sidebar`) at
-  `better-sidebar/DSH-better-sidebar`: service-first sidebar workbench
-  (right sidebar + bottom panel) with per-session explorer, CodeMirror editor
-  and file-viewer registry (image/PDF/Markdown/HTML/code/binary), real
-  terminal (xterm.js + node-pty, reconnect replay, optional `terminal_*`
-  model tools — **off by default**), Git panel, embedded browser,
-  background-job page, and the `ctx.betterSidebar` extension API. It is
-  installed from npm as `dsh-better-sidebar@latest` (per the 安装方式 section;
-  the submodule checkout is kept as a source reference only), declares
-  `dsh.bundle.patch`, so `dsh plugin add` mounts it through its own bundle
-  layer (no manual cordis insert). Currently supersedes the `terminal` and
-  `file-explorer` wrappers. See its `README.md` and `docs/`.
-- `sidebar-qa` — git submodule (`ChenRuoT/dsh-sidebar-qa`) at
-  `sidebar-qa/dsh-sidebar-qa`: select conversation text → right-panel
-  follow-up question → a dedicated same-workspace session (`❓追问·<主题>`)
-  that never interrupts the main conversation. Thin consumer of
-  `dsh-better-sidebar` (hard peer dependency; stays inactive without it),
-  registers two better-sidebar tabs via `ctx.betterSidebar` and declares
-  `dsh.bundle.patch`, so it mounts through its own bundle layer. It is
-  installed from npm as `dsh-sidebar-qa` (per the 安装方式 section; the
-  submodule checkout is kept as a source reference only). See its `README.md`.
+- `better-sidebar` — two git submodules at `better-sidebar/DSH-better-sidebar`
+  (`omdsh-dev/DSH-better-sidebar`) and `better-sidebar/dsh-sidebar-qa`
+  (`ChenRuoT/dsh-sidebar-qa`); its `install.mjs` installs both npm packages
+  in order — `dsh-better-sidebar@latest` FIRST, then `dsh-sidebar-qa@latest`
+  (dsh-sidebar-qa hard-depends on dsh-better-sidebar, so it must land after;
+  the same order ends up in `dsh.profile.bundles`). Both submodules are kept
+  as source references only (per the 安装方式 section; neither is built or
+  linked).
+  - `DSH-better-sidebar` — service-first sidebar workbench (right sidebar +
+    bottom panel) with per-session explorer, CodeMirror editor and
+    file-viewer registry (image/PDF/Markdown/HTML/code/binary), real
+    terminal (xterm.js + node-pty, reconnect replay, optional `terminal_*`
+    model tools — **off by default**), Git panel, embedded browser,
+    background-job page, and the `ctx.betterSidebar` extension API. It
+    declares `dsh.bundle.patch`, so `dsh plugin add` mounts it through its
+    own bundle layer (no manual cordis insert). Currently supersedes the
+    `terminal` and `file-explorer` wrappers. See its `README.md` and `docs/`.
+  - `dsh-sidebar-qa` — select conversation text → right-panel follow-up
+    question → a dedicated same-workspace session (`❓追问·<主题>`) that never
+    interrupts the main conversation. Thin consumer of `dsh-better-sidebar`
+    (hard peer dependency; stays inactive without it), registers two
+    better-sidebar tabs via `ctx.betterSidebar` and declares
+    `dsh.bundle.patch`, so it mounts through its own bundle layer. See its
+    `README.md`.
 - `plugin-market` — git submodule (`dsh-market/dsh-market`) at
   `plugin-market/dsh-market`: visual plugin market (browse/search/one-click
   install community plugins). It is installed from npm as `dshmarket`
