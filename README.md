@@ -37,7 +37,7 @@ browser.
 
 ## Screenshot
 
-![dsh-gui screenshot](docs/images/dsh-gui-screenshot.png)
+![dsh-gui screenshot](docs/dsh-gui/images/dsh-gui-screenshot.png)
 
 ## Features
 
@@ -143,7 +143,7 @@ browser.
   **`router-spec`（Router Spec (experimental)）**. Both presets come from the
   `dsh-routing-suite` submodule and land in `.dsh\.agent-presets\`.
 
-![dsh-gui with the plugin features expanded](docs/images/dsh-gui-features.png)
+![dsh-gui with the plugin features expanded](docs/dsh-gui/images/dsh-gui-features.png)
 
 ## Requirements
 
