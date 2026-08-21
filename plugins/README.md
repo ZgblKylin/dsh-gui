@@ -80,7 +80,7 @@ would double-mount it and fail the plugin tree with
 - [dsh-cache-hit-precision](https://github.com/ZgblKylin/dsh-cache-hit-precision) 源码安装
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包
-- [DSH-better-sidebar@latest](https://github.com/omdsh-dev/DSH-better-sidebar) npm包
+- [DSH-better-sidebar@latest](https://github.com/omdsh-dev/DSH-better-sidebar) npm包，下方插件需确保依赖本插件
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包
 - [dsh-deep-whale/maid-atelier](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装
 - [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 源码安装
