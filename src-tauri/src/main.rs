@@ -282,9 +282,11 @@ fn install_panic_log() {
     }));
 }
 
-/// Spawn `node <root>/deepseek-harness/apps/cli/lib/bin.js web --port <port>`
+/// Spawn `node <root>/deepseek-harness/apps/cli/lib/bin.js web --port <port> --no-open`
 /// with `DSH_HOME` pinned to `<root>/.dsh`, and redirect its output to a log
-/// file so a console-less launch is still debuggable.
+/// file so a console-less launch is still debuggable. `--no-open` stops the
+/// harness web bundle from handing the page to the default browser: the shell
+/// opens its own window, and the harness runs embedded in it.
 fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Error>> {
     let bin = root.join(HARNESS_BIN);
     if !bin.is_file() {
@@ -306,6 +308,7 @@ fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Er
         .arg("web")
         .arg("--port")
         .arg(port.to_string())
+        .arg("--no-open")
         .current_dir(root.join(HARNESS_DIR))
         .env("DSH_HOME", &home)
         .stdout(Stdio::from(log.try_clone()?))
