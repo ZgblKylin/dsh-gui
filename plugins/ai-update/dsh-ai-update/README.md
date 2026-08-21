@@ -40,9 +40,11 @@ origin is a Tauri custom protocol.
 ## Install
 
 Installed by the dsh-gui shared plugin pipeline (plugins/ai-update/install.mjs):
-build with the pinned toolchain pnpm, link the package into the web profile,
-and mount it as the "ai-update" loader entry. Restart dsh-gui (or dsh web)
-afterwards so the client-module scan picks up the new entry.
+build with the pinned toolchain pnpm, link the package into the web profile;
+the package declares `dsh.bundle.patch`, so `dsh plugin add` reconciles it into
+`dsh.profile.bundles` and its own `cordis.patch.yml` mounts it as the
+"ai-update" loader entry. Restart dsh-gui (or dsh web) afterwards so the
+client-module scan picks up the new entry.
 
 ## License
 

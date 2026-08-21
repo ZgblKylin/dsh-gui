@@ -85,8 +85,10 @@ node plugins/remote/install.mjs
 挂载到 web profile（由 install 脚本自动完成，等价于）：
 
 ```text
-注入 .dsh/profiles/web/package.json      "dsh-remote": "link:<repo>/plugins/remote/dsh-remote"
-注入 .dsh/profiles/web/cordis.patch.yml  - id: remote / name: dsh-remote
+注入 .dsh/profiles/web/package.json   "dsh-remote": "link:<repo>/plugins/remote/dsh-remote"
+注入 .dsh/profiles/web/package.json   dsh.profile.bundles: [... "dsh-remote"]
+（包内 cordis.patch.yml 是 dsh.bundle.patch，其 insert 行 - id: remote / name: dsh-remote
+  作为 bundle 层自行挂载，无需手工改 profile 的 cordis.patch.yml）
 ```
 
 外壳 UI 与 Rust 命令改动后需重新编译入口 exe：

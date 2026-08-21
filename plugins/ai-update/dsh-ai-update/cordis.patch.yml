@@ -1,0 +1,5 @@
+# dsh-ai-update bundle patch: registers the AI-update bridge loader entry.
+# Applied when a profile lists dsh-ai-update in dsh.profile.bundles.
+- insert:
+    - id: ai-update
+      name: dsh-ai-update

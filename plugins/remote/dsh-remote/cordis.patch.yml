@@ -1,0 +1,5 @@
+# dsh-remote bundle patch: registers the remote-mode loader entry.
+# Applied when a profile lists dsh-remote in dsh.profile.bundles.
+- insert:
+    - id: remote
+      name: dsh-remote
