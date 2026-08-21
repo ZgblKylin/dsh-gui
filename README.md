@@ -104,9 +104,6 @@ browser.
   to the new-session home, selects the dsh-gui workspace, and prefills the
   composer with the update prompt — never creating a session directly and
   never picking a preset (see `plugins/ai-update/dsh-ai-update/docs/`).
-- **`dsh-cache-hit-precision`** — two-decimal cache-hit percentage in the
-  composer usage line, capped at 99.99% so a fully cached session never shows
-  100% (see `plugins/cache-hit-precision/dsh-cache-hit-precision/README.md`).
 - **`dsh-deep-whale`** — whale-girl skin series; currently ships the
   hot-pluggable `maid-atelier` skin (light/dark palace backgrounds, navy lace
   UI overlay, Q-version sidebar, embedded assets).

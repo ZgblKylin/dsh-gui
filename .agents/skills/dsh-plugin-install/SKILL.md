@@ -115,7 +115,7 @@ profile 的 `allowBuilds` 白名单拦截：
 
 错误信息会建议在 `pnpm-workspace.yaml` 加 `allowBuilds: <pkg>@git+...#<commit>: true`。
 **但 key 绑定精确 commit hash，后续更新要改，维护不便**。优先采用下面的"构建后
-tgz"方案，与仓库内 `dsh-cache-hit-precision` 的 `file:` 模式一致。
+tgz"方案：受管安装器接受本地 tgz 并写入 `file:` 依赖。
 
 ### 推荐流程：third_party 克隆 → 本地构建 → pack → 受管安装
 
@@ -140,7 +140,7 @@ pnpm pack --pack-destination <父目录>
 # 5) 受管安装 tgz（从仓库根目录，自托管）
 $env:DSH_HOME = 'E:\Git\dsh-gui\.dsh'
 node deepseek-harness/apps/cli/lib/bin.js plugin --profile web add "E:\Git\dsh-plugins\third_party\<plugin>-<version>.tgz"
-# package.json 会写入 file:E:/.../<plugin>-<version>.tgz（与 dsh-cache-hit-precision 一致）
+# package.json 会写入 file:E:/.../<plugin>-<version>.tgz
 ```
 
 ### 沙箱要点（重要）

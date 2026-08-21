@@ -77,7 +77,6 @@ would double-mount it and fail the plugin tree with
 未标注源码安装的，均使用`dsh plugin --profile <profile> add <package>`安装npm包，package参数见列表。
 标注源码安装的，基于源码编译后，基于link模式引入源码安装。
 
-- [dsh-cache-hit-precision](https://github.com/ZgblKylin/dsh-cache-hit-precision) 源码安装
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包
 - [DSH-better-sidebar@latest](https://github.com/omdsh-dev/DSH-better-sidebar) npm包，下方插件需确保依赖本插件
@@ -164,15 +163,6 @@ would double-mount it and fail the plugin tree with
   The nested component submodules need a recursive init:
   `git submodule update --init --recursive
   plugins/routing-suite/dsh-routing-suite`. See `routing-suite/README.md`.
-- `cache-hit-precision` — git submodule
-  (`ZgblKylin/dsh-cache-hit-precision`) at
-  `cache-hit-precision/dsh-cache-hit-precision`: browser-half presentation
-  tweak that shows the composer stats line's cache-hit percentage with two
-  decimals and caps it at 99.99% (never 100%). It reads the same
-  `tokenUsage` projection the stock stats line rounds, and rewrites the
-  rendered digits under the `conversation.composer.dock` slot anchor; every
-  DOM write is restored on disposal. See
-  `cache-hit-precision/dsh-cache-hit-precision/README.md`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current
   package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,
