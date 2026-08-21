@@ -5,7 +5,7 @@
  *
  * The upstream distribution repo (https://github.com/yjh051108/dsh-routing-suite)
  * lives in the `dsh-routing-suite` git submodule checkout beside this
- * script; it aggregates three component submodules pinned by the suite:
+ * script; its install chain (per the suite README) is:
  *
  *  - injector/   dsh-super-injector  (@dsh-external/dsh-super-injector) —
  *                runtime plugin injector (dev_* tool family, hot reload,
@@ -14,14 +14,9 @@
  *                `dsh.profile.bundles` and its own bundle layer mounts the
  *                entry (id 'dsh-super-injector'); no manual cordis.patch.yml
  *                insert is written (that would double-mount it).
- *  - mode-boost/ dsh-mode-boost      (@dsh-external/dsh-mode-boost) —
- *                host-plane mode-boost plugin, mounted on top of official
- *                presets. It ships prebuilt `lib/` and declares no bundle
- *                patch, so this wrapper mounts it explicitly as entry id
- *                'mode-boost' (the scoped package name is not a usable loader
- *                entry id; the shared installer YAML-quotes the scoped name).
  *  - preset/     dsh-router-standard  router-standard / router-spec agent
- *                presets — whole-directory copies into
+ *                presets — the suite README's manual install step copies each
+ *                preset directory flat into
  *                `.dsh/.agent-presets/<id>/` (the compositions load
  *                ./router-bootstrap-v1.mjs by relative path, so single-file
  *                copies would break them); an install-time patch re-quotes
@@ -36,9 +31,7 @@
  * lib/index.js / lib/client.js release shape), then the copy is linked into
  * the web profile. The checkout is reused unchanged on re-installs; the
  * install target is replaced each run, so re-installs are idempotent and
- * stale build output cannot survive a source change. mode-boost's pristine
- * checkout is used as shipped (`node --check` runs the same verification
- * its build script performs).
+ * stale build output cannot survive a source change.
  *
  * Targets: `$DSH_HOME/profiles/web/` (plugins) and
  * `$DSH_HOME/.agent-presets/{router-standard,router-spec}` (presets).
@@ -63,23 +56,21 @@ import {
 
 /** This plugin's wrapper directory — owns the suite submodule checkout. */
 const HERE = dirname(fileURLToPath(import.meta.url))
-/** The pristine suite checkout (aggregator repo + three pinned submodules). */
+/** The pristine suite checkout (aggregator repo + two pinned submodules). */
 const SUITE = join(HERE, 'dsh-routing-suite')
 /** The injector package inside the suite checkout. */
 const INJECTOR_SOURCE = join(SUITE, 'injector')
-/** The mode-boost package inside the suite checkout. */
-const MODE_BOOST = join(SUITE, 'mode-boost')
 /** The router preset sources inside the suite checkout (preset submodule). */
 const PRESETS_SOURCE = join(SUITE, 'preset', 'preset')
 /** Preset ids installed into .dsh/.agent-presets/ (directory names upstream). */
 const PRESET_IDS = ['router-standard', 'router-spec']
 
-/** One hint covering the suite checkout and all three nested submodules. */
+/** One hint covering the suite checkout and its nested submodules. */
 const SOURCE_HINT = 'git submodule update --init --recursive plugins/routing-suite/dsh-routing-suite'
 
 /**
  * Fail with the recursive-submodule hint when a suite checkout (top level or
- * one of the three component checkouts) is missing or uninitialized.
+ * one of the two component checkouts) is missing or uninitialized.
  * @param {string} path - the missing path, used in the error message.
  */
 function missing(path) {
@@ -194,23 +185,6 @@ function buildInjector(dshHome) {
 }
 
 /**
- * Verify the prebuilt mode-boost package exactly the way its own build
- * script does (lib files present + syntactically valid); it is then linked
- * as shipped without running its bash build script.
- */
-function verifyModeBoost() {
-  if (!existsSync(join(MODE_BOOST, 'package.json'))) {
-    missing('plugins/routing-suite/dsh-routing-suite/mode-boost')
-  }
-  for (const file of ['lib/index.js', 'lib/core.js']) {
-    if (!existsSync(join(MODE_BOOST, file))) {
-      throw new Error(`routing-suite: mode-boost ships prebuilt ${file} but it is missing — initialize it with: ${SOURCE_HINT}`)
-    }
-    run('node', ['--check', file], { cwd: MODE_BOOST })
-  }
-}
-
-/**
  * Re-emit the copied preset's preset.yml as quoted YAML.
  *
  * The upstream display descriptions contain unquoted `: ` (e.g.
@@ -242,9 +216,10 @@ function patchPresetMetadata(target) {
 
 /**
  * Install the router presets: whole-directory copies of each preset source
- * into `.dsh/.agent-presets/<id>/`, then the preset.yml quoting patch. The
- * target is replaced and re-copied on every run, so re-installs are
- * idempotent and stale files cannot survive.
+ * into `.dsh/.agent-presets/<id>/` (flat, matching the suite README's manual
+ * step), then the preset.yml quoting patch. The target is replaced and
+ * re-copied on every run, so re-installs are idempotent and stale files
+ * cannot survive.
  * @param {string} dshHome - the harness home the presets install into.
  */
 function installPresets(dshHome) {
@@ -273,13 +248,5 @@ installPlugin({
   packageDir: injectorPackage,
   sourceHint: SOURCE_HINT,
   build: false,
-})
-verifyModeBoost()
-installPlugin({
-  id: 'dsh-mode-boost',
-  packageDir: MODE_BOOST,
-  sourceHint: SOURCE_HINT,
-  build: false,
-  mount: { id: 'mode-boost', name: '@dsh-external/dsh-mode-boost' },
 })
 installPresets(dshHome)

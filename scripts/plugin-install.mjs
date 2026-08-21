@@ -66,10 +66,32 @@ function pinProfileStore(profileDir) {
     // Mirror the harness's profile template (hoisted linker, no auto peers).
     writeFileSync(workspacePath, 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
   }
-  let lines = readFileSync(workspacePath, 'utf8').split(/\r?\n/).filter((line) => !/^\s*storeDir\s*:/.test(line))
-  while (lines.length > 0 && lines.at(-1) === '') lines.pop()
-  lines.push('', `storeDir: '${STORE.replace(/'/g, "''")}'`, '')
-  writeFileSync(workspacePath, lines.join('\n'))
+  let lines = readFileSync(workspacePath, 'utf8').split(/\r?\n/)
+  lines = lines.filter((line) => !/^\s*storeDir\s*:/.test(line))
+
+  // Keep the profile's allowBuilds section (pnpm 11's build-script approval
+  // list) but force-deny node-pty: its package ships prebuilt binaries under
+  // prebuilds/<platform>-<arch>/, so the install script (a check-only
+  // prebuild.js || node-gyp fallback) is a no-op — and pnpm's shell spawn for
+  // it is blocked in the sandbox (spawn EPERM). pnpm 11 also writes a
+  // placeholder value ('set this to true or false') on
+  // ERR_PNPM_IGNORED_BUILDS, which is not a valid boolean and would fail
+  // every subsequent install.
+  const allowIndex = lines.findIndex((line) => /^\s*allowBuilds\s*:/.test(line))
+  let rest = lines
+  let section = []
+  if (allowIndex >= 0) {
+    section = lines.slice(allowIndex + 1)
+    const end = section.findIndex((line) => /^\S/.test(line))
+    const tail = end === -1 ? [] : section.slice(end)
+    section = end === -1 ? section : section.slice(0, end)
+    rest = [...lines.slice(0, allowIndex), ...tail]
+  }
+  section = section.filter((line) => !/^\s*node-pty\s*:/.test(line))
+  section.push('  node-pty: false')
+  while (rest.length > 0 && rest.at(-1) === '') rest.pop()
+  rest.push('', `storeDir: '${STORE.replace(/'/g, "''")}'`, '', 'allowBuilds:', ...section, '')
+  writeFileSync(workspacePath, rest.join('\n'))
 }
 
 /**
@@ -96,7 +118,7 @@ function addDependency(dshHome, packageDir) {
  * indentation is free-form, so a hand-reindented file keeps matching; rows
  * outside an insert list (id-targeted config overrides) are ignored.
  * Names may be single-quoted YAML scalars (e.g. scoped package names like
- * '@dsh-external/dsh-mode-boost'); quotes are stripped and `''` escapes are
+ * '@linxin666/dsh-pet'); quotes are stripped and `''` escapes are
  * unescaped before the row is returned.
  * @param {string} text - patch-list file content.
  * @returns {{ id: string, name: string }[]}
@@ -234,6 +256,72 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null,
     console.log(`installed plugin '${id}' into ${profileDir}`)
     return
   }
+  const mountId = String(mount?.id ?? manifest.dsh?.gui?.mountId ?? packageName.replace(/^dsh-/, ''))
+  const mountName = String(mount?.name ?? packageName)
+  mountEntry(profileDir, { id: mountId, name: mountName })
+  console.log(`installed plugin '${id}' into ${profileDir}`)
+}
+
+/**
+ * Derive the bare package name from an npm install spec (e.g.
+ * `dsh-better-sidebar@latest` -> `dsh-better-sidebar`,
+ * `@linxin666/dsh-pet@latest` -> `@linxin666/dsh-pet`).
+ * @param {string} spec - the npm package spec.
+ * @returns {string} the package name.
+ */
+function packageNameFromSpec(spec) {
+  const at = spec.lastIndexOf('@')
+  return at > 0 ? spec.slice(0, at) : spec
+}
+
+/**
+ * Install one plugin package from the npm registry into the repo-local web
+ * profile (per plugins/README.md's 安装方式 section: plugins not marked as
+ * source installs use `dsh plugin add <package>`).
+ *
+ * `dsh plugin add <spec>` forwards to pnpm add in the profile directory; when
+ * the package declares `dsh.bundle.patch`, the CLI reconciles it into
+ * `dsh.profile.bundles` automatically and the package mounts itself — no
+ * manual cordis.patch.yml insert is written (that would double-mount it).
+ * Without a bundle patch the entry is appended like installPlugin does
+ * (explicit `mount` when given, else derived from the installed manifest).
+ *
+ * @param {{ id: string, packageSpec: string, mount?: { id: string, name: string } | null }} options
+ *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
+ *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@latest`.
+ *   - mount: explicit mount entry for packages without a bundle patch.
+ */
+export function installNpmPlugin({ id, packageSpec, mount = null }) {
+  const dshHome = process.env.DSH_HOME ?? WEB_HOME
+  const profileDir = join(dshHome, 'profiles', 'web')
+  console.log(`\n==> install plugin '${id}' (${packageSpec} from npm)`)
+  bootstrapPnpm()
+  pinProfileStore(profileDir)
+  if (!existsSync(HARNESS_BIN)) {
+    throw new Error(`${id}: harness CLI not built at ${HARNESS_BIN} — run "npm run setup" once`)
+  }
+  run('node', [HARNESS_BIN, 'plugin', '--profile', 'web', 'add', packageSpec], {
+    env: {
+      DSH_HOME: dshHome,
+      PATH: pinnedPath(),
+    },
+  })
+
+  const name = packageNameFromSpec(packageSpec)
+  const manifestPath = join(profileDir, 'node_modules', ...name.split('/'), 'package.json')
+  if (!existsSync(manifestPath)) {
+    console.log(`installed plugin '${id}' into ${profileDir}`)
+    return
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  if (manifest.dsh?.bundle?.patch !== undefined) {
+    // A bundle patch plugin mounts itself: `dsh plugin add` already
+    // reconciled it into dsh.profile.bundles.
+    console.log(`  ${name} declares dsh.bundle.patch — it mounts through its bundle layer, no cordis.patch.yml insert added`)
+    console.log(`installed plugin '${id}' into ${profileDir}`)
+    return
+  }
+  const packageName = String(manifest.name ?? name)
   const mountId = String(mount?.id ?? manifest.dsh?.gui?.mountId ?? packageName.replace(/^dsh-/, ''))
   const mountName = String(mount?.name ?? packageName)
   mountEntry(profileDir, { id: mountId, name: mountName })
