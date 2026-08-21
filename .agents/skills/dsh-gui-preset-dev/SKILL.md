@@ -1,6 +1,7 @@
 ---
 name: dsh-gui-preset-dev
 description: 'Use when creating, changing, installing, or reviewing an agent preset in the dsh-gui repo, when writing a `presets/<id>/install.mjs`, when deciding between the versioned `presets/` source tree and runtime `.dsh/.agent-presets`, or when authoring or validating an `agent.cordis.yml`. Covers dsh-gui preset layout and install flow, then routes composition authoring to the deepseek-harness Creator mode, shipped presets, and reference docs.'
+whenToUse: 在 dsh-gui 仓库 `presets/` 下创建、修改、安装、审查 agent preset，写 `presets/<id>/install.mjs`，在版本化 `presets/` 源目录与运行期 `.dsh/.agent-presets` 之间取舍，或编写/校验 `agent.cordis.yml` 时使用。组合写法问题交给 deepseek-harness 创造模式、随包 preset 与参考文档。
 ---
 
 # dsh-gui preset 开发

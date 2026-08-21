@@ -1,6 +1,7 @@
 ---
 name: dsh-gui-plugin-dev
 description: 'Use when adding, migrating, building, debugging, or reviewing a plugin under the dsh-gui `plugins/` tree, when writing or changing a `plugins/<id>/install.mjs` wrapper, when deciding how to wire a plugin git submodule, and when deciding whether a feature must depend on dsh-gui. Covers the current plugin directory/submodule layout and install-script pattern, then routes plugin-authoring questions to the deepseek-harness submodule docs and examples.'
+whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、审查插件，写或改 `plugins/<id>/install.mjs`，决定插件 git submodule 接线，或判断某功能是否必须依赖 dsh-gui 时使用。插件本体编写问题交给 deepseek-harness 子模块文档与 examples。
 ---
 
 # dsh-gui 插件开发
@@ -60,10 +61,11 @@ plugins/
 
 | wrapper | 包路径 | 来源形态 | 特殊处理 |
 |---|---|---|---|
-| `plugins/remote` | `remote/dsh-remote` | 内嵌源码 | 有 `build` 脚本，挂载 id 来自 `dsh.gui.mountId` |
-| `plugins/review` | `review/dsh-review` | 内嵌源码 | 无 `build` 脚本；mount 行由 wrapper 自己的 `cordis.patch.yml` 显式给出 |
-| `plugins/terminal` | `terminal/dsh-terminal` | git submodule | 有 `build` 脚本；`sourceHint` 提示如何初始化子模块 |
-| `plugins/file-explorer` | `file-explorer/dsh-file-explorer` | git submodule | 无 `build` 脚本；`dsh.bundle.patch` 自挂载 |
+| `plugins/remote` | `remote/dsh-remote` | 内嵌源码 | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
+| `plugins/review` | `review/dsh-review` | git submodule（`../dsh-review`） | 无 `build` 脚本；`dsh.bundle.patch` 自挂载；`sourceHint` 提示如何初始化子模块 |
+| `plugins/ai-update` | `ai-update/dsh-ai-update` | 内嵌源码 | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
+| `plugins/terminal` | `terminal/dsh-terminal` | git submodule | ⛔ masked：被 `better-sidebar` 取代，`install.mjs` 顶部有 `MASKED` guard 跳过安装 |
+| `plugins/file-explorer` | `file-explorer/dsh-file-explorer` | git submodule | ⛔ masked：同上；无 `build` 脚本；`dsh.bundle.patch` 自挂载 |
 | `plugins/deep-whale` | `deep-whale/dsh-deep-whale/maid-atelier` | git submodule（多包仓库） | `build: false` 使用预构建产物；`dsh.bundle.patch` 自挂载 |
 
 ### 1.2 两种来源
@@ -114,12 +116,13 @@ installPlugin({
 | `id` | wrapper 目录名，也是安装日志与定位 id |
 | `packageDir` | 插件包的绝对路径；不存在时按 `sourceHint` 报错 |
 | `sourceHint` | submodule 初始化提示；内嵌包可省略 |
-| `mount` | 显式 mount 行 `{ id, name }`；覆盖从 manifest 派生的值 |
+| `mount` | 显式 mount 行 `{ id, name }`；覆盖从 manifest 派生的值。当前无 wrapper 使用——新插件一律用 `dsh.bundle.patch` 自挂载，避免与 bundle 层双挂载 |
 | `build` | 默认 `true`。设为 `false` 表示“包声明了 build，但本仓库应使用其预构建产物” |
 
-显式 `mount` 的典型用法是 [`plugins/review/install.mjs`](../../../plugins/review/install.mjs)：
-wrapper 目录里的 `cordis.patch.yml` 是唯一 mount 配方，安装脚本用
-`parseInsertRows` 读出来传入，避免两处手抄漂移。
+> 新插件不要用显式 `mount` / wrapper 级 `cordis.patch.yml`：在包 manifest 里声明
+> `dsh.bundle.patch` 指向包内 `cordis.patch.yml`，让包作为 bundle 层自己挂载
+> （`dsh plugin add` 自动 reconcile 进 `dsh.profile.bundles`）。wrapper 级
+> `cordis.patch.yml` 手工 insert 会与 bundle 层撞出 `duplicate loader entry id`。
 
 ### 2.2 共享安装流水线做什么
 
@@ -271,6 +274,7 @@ wrapper 约定误当成 harness 插件模型。
 
 - 每个插件工程同步维护 `plugins/<id>/<package>/docs/`（多包仓库在对应包内）。
 - wrapper 的 `install.mjs` 顶部注释应说明：包来源（内嵌/submodule）、是否预构建、
-  mount 来源（bundle patch / 显式 mount / manifest 派生）、`DSH_HOME` 约束。
+  mount 来源（bundle patch 自挂载 / manifest 派生；显式 `mount` 选项已无 wrapper
+  使用，新插件一律走 bundle）、`DSH_HOME` 约束。
 - 提交遵循 Conventional Commits；submodule 指针和 wrapper 变更一起提交，
   不提交 `.dsh/`、`.toolchain/`、`.pnpm-store/` 等运行期/缓存目录。

@@ -13,7 +13,7 @@
 - scripts: 启动脚本目录
 
 - `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范；不要编辑其中的任何文件，不要从该目录向插件源码复制代码。
-- 新增插件在 `src/<plugin-name>/<plugin-submodule>` 下创建：`package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`。
+- 新增插件在 `plugins/<id>/<package>` 下创建（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）：wrapper `install.mjs` + 包（内嵌或 git submodule），包内 `package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`。
 
 ## 环境检查
 
@@ -34,7 +34,7 @@ console.log({ platform: process.platform, arch: process.arch })
 ## 项目 Skills
 
 - **`dsh-plugin-install`**：安装/卸载 DSH 插件到 profile 的标准流程。涉及插件安装、卸载、更新、源码编译安装时，先加载该 skill。其内容基于 `dsh plugin --profile <profile> add --help`（受管安装器转发的 pnpm add）的权威安装方式列表：npm 包 / tag / 版本 / 版本范围 / git 简写 / git URL / 本地 tgz / tarball URL / 目录。
-- Skill 存放于 `.dsh/skills/<skill-name>/SKILL.md`（frontmatter 含 `name`、`description`、`whenToUse`），由 DSH 的 `skill-filesystem` provider 自动发现。
+- Skill 存放于 `.agents/skills/<skill-name>/SKILL.md`（frontmatter 含 `name`、`description`、`whenToUse`）。
 
 ## 工具与终端
 
@@ -127,7 +127,7 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
 ## Git 提交规范
 
 - 采用 Conventional Commits：`feat:` / `fix:` / `chore:` / `docs:` / `build:` / `refactor:`，正文按需使用。
-- 外层仓库与 `src/<plugin>/` 子模块各自独立提交；改动跨越两者时分别编写 commit message。
+- 外层仓库与 `plugins/<id>/` 子模块各自独立提交；改动跨越两者时分别编写 commit message。
 - **不主动执行 `git commit`**：dsh 沙箱限制下由 dsh 生成的提交无法引用用户 GPG 签名，直接提交会绕过用户的签名配置。
 - 完成代码改动后，将变更添加到暂存区（`git add`），编写 commit message，并在回复中提醒用户手动执行 `git commit`（以便 GPG 签名与提交钩子生效）。
 - 提交前检查 `git status` 确认暂存范围正确；不要提交 `node_modules/`、`lib/` 等构建产物（已由 `.gitignore` 排除）。
