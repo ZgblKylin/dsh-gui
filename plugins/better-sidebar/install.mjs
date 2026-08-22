@@ -3,9 +3,9 @@
  * install.mjs — install the `better-sidebar` plugin group into the web profile.
  *
  * ⚠️ TEMP (fork-source): DSH-better-sidebar 暂时改为【源码安装】——z-index 图层
- * 修复（宿主层 40→25，防底部面板遮挡 ui-cordis 动态插件面板）尚未发版到 npm，
- * 子模块 origin 已切换为 fork `ZgblKylin/DSH-better-sidebar`（upstream 保留
- * `omdsh-dev/DSH-better-sidebar` 供同步），fix 分支随后合入 upstream 并发版。
+ * 修复（宿主层 40→25，防底部面板遮挡 ui-cordis 动态插件面板）尚未发版到 npm。
+ * 子模块 remote 命名：`origin` = 官方 `omdsh-dev/DSH-better-sidebar`，
+ * `fork` = `ZgblKylin/DSH-better-sidebar`（本地 fix 分支推 fork，合入官方后发版）。
  * 上游发版后还原：把下方第一个 installPlugin 块整体换回
  *   installNpmPlugin({ id: 'better-sidebar', packageSpec: 'dsh-better-sidebar@latest' })
  * 并删除本 TEMP 注释块（含下方 `TEMP(fork-source)` 标记）。

@@ -81,7 +81,7 @@ would double-mount it and fail the plugin tree with
 
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包
-- [DSH-better-sidebar](https://github.com/ZgblKylin/DSH-better-sidebar) 源码安装（TEMP fork-source：z-index 图层修复未发版，子模块 origin 切至 fork，见 `better-sidebar/install.mjs` 的 `TEMP(fork-source)` 标记；上游合入后恢复 npm），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
+- [DSH-better-sidebar](https://github.com/ZgblKylin/DSH-better-sidebar) 源码安装（TEMP fork-source：z-index 图层修复未发版，源码来自 fork `ZgblKylin/DSH-better-sidebar`——子模块 `origin` 为官方、`fork` 为个人 fork；见 `better-sidebar/install.mjs` 的 `TEMP(fork-source)` 标记；上游合入后恢复 npm），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包
 - [dsh-deep-whale/maid-atelier](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装
@@ -118,10 +118,11 @@ would double-mount it and fail the plugin tree with
   (`Iwctwbh/dsh-flowglass`) and `better-sidebar/dsh-sidebar-qa`
   (`ChenRuoT/dsh-sidebar-qa`); its `install.mjs` installs the three packages
   in order — `dsh-better-sidebar` FIRST (⚠️ **TEMP fork-source**: currently
-  built + linked from its submodule checkout, whose `origin` is switched to
-  the `ZgblKylin/DSH-better-sidebar` fork — see the `TEMP(fork-source)`
-  markers in `install.mjs`; revert to `installNpmPlugin` once the upstream
-  release lands), then `dsh-flowglass@latest`, then `dsh-sidebar-qa@latest`
+  built + linked from its submodule checkout — submodule remotes are
+  `origin` = `omdsh-dev` official, `fork` = `ZgblKylin` fork (the fix
+  branch pushes there) — see the `TEMP(fork-source)` markers in
+  `install.mjs`; revert to `installNpmPlugin` once the upstream release
+  lands), then `dsh-flowglass@latest`, then `dsh-sidebar-qa@latest`
   (both companions declare better-sidebar as a peer dependency, so it must
   land first; the same order ends up in `dsh.profile.bundles`).
   - `DSH-better-sidebar` — service-first sidebar workbench (right sidebar +
