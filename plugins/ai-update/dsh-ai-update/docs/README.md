@@ -88,3 +88,25 @@ Every failure is carried back to the shell as an "ok: false" result message
 (no workspace, service unavailable); the shell keeps the update dialog open
 and toasts the message. A missing reply (plugin not installed, wrong backend)
 times out in the shell after 10s.
+
+## Changelog summary route (host half)
+
+The update dialog's 「更新日志」 button asks, for a commit target (or a tag
+whose GitHub release notes are unavailable), a summary of the commit range.
+The shell (`src-tauri/src/changelog.rs`) builds the prompt from the collected
+commit list and POSTs it to this plugin's host route:
+
+    POST /dsh-gui-api/changelog  { prompt }  →  { ok: true, text } | { ok: false, error }
+
+The host half runs `ctx.llm.stream` with the web profile's default model
+(`ctx.agentDefaultModel.currentSelection()`). No Agent and no Session is
+created, so the run never enters the DSH session list — the same approach the
+sidebar conversation feature (dsh-sidebar-qa) uses. The route reuses the
+browser-trust fence (loopback Host-header or the connection row's
+`trustedHosts`); the shell's loopback client carries no cross-site markers, so
+it passes like the /remote-api calls do. When the route is unavailable
+(plugin not rebuilt/installed, older harness), the shell falls back to the
+one-shot headless run (`dsh --profile headless`), which does persist a session
+and is the degraded path. The route is only registered when the web runtime
+services are present: `ctx.inject(['webServer', 'llm', 'agentDefaultModel',
+'loader'], …)` keeps the plugin inert in base-only/headless deployments.

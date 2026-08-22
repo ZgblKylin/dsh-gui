@@ -115,7 +115,7 @@ fn license_name(dir: &Path) -> String {
 }
 
 /// The package.json `name` of `dir`, when present.
-fn package_name(dir: &Path) -> Option<String> {
+pub(crate) fn package_name(dir: &Path) -> Option<String> {
     let manifest = std::fs::read_to_string(dir.join("package.json")).ok()?;
     let value = serde_json::from_str::<serde_json::Value>(&manifest).ok()?;
     value

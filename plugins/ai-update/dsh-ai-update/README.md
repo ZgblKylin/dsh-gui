@@ -37,6 +37,28 @@ Requests from any source other than window.parent are ignored; a response is
 posted to window.parent with a wildcard target origin because the shell's
 origin is a Tauri custom protocol.
 
+## Changelog summary route (host half)
+
+The update dialog's 「更新日志」 button asks, for a commit target (or a tag
+whose GitHub release notes are unavailable), a summary of the commit range.
+The shell (`src-tauri/src/changelog.rs`) builds the prompt from the collected
+commit list and POSTs it to this plugin's host route:
+
+    POST /dsh-gui-api/changelog  { prompt }  →  { ok: true, text } | { ok: false, error }
+
+The host half runs `ctx.llm.stream` with the web profile's default model
+(`ctx.agentDefaultModel.currentSelection()`). No Agent and no Session is
+created, so the run never appears in the DSH session list — the same approach
+dsh-sidebar-qa's summarize route uses for its side conversations. The route
+sits behind the same browser-trust fence as the /api gateway (loopback
+Host-header or the connection row's `trustedHosts`); the shell's loopback
+client carries no cross-site markers, so it passes like the /remote-api calls
+do. The route is only registered when the web runtime services are present
+(`ctx.inject(['webServer', 'llm', 'agentDefaultModel', 'loader'], …)`), so the
+plugin stays inert in base-only/headless deployments. When the route is
+unavailable, the shell falls back to the harness's one-shot headless run —
+that degraded path DOES persist a session under `$DSH_HOME/sessions`.
+
 ## Install
 
 Installed by the dsh-gui shared plugin pipeline (plugins/ai-update/install.mjs):

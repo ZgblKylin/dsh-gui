@@ -19,6 +19,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod about;
+mod changelog;
 #[cfg(windows)]
 mod native_window;
 mod update;
@@ -606,6 +607,44 @@ async fn update_root(
     .map_err(|e| format!("更新任务失败：{e}"))?
 }
 
+/// Update-log content for one row of the update dialog: for a tag target the
+/// official GitHub Release notes when the remote is a GitHub repository and a
+/// release exists, otherwise a dsh-AI summary of the commit range from the
+/// local HEAD to the resolved target.
+///
+/// The summary first asks the running harness's raw-LLM route (dsh-ai-update
+/// plugin, /dsh-gui-api/changelog): no Agent/Session is created, so the run
+/// never appears in the DSH session list. When that route is unavailable the
+/// command falls back to the harness's one-shot headless mode (`dsh --profile
+/// headless`), which is a degraded path that does persist a session.
+///
+/// The repository/network part runs under the update lock (git reads must not
+/// race an in-dialog root update), then the lock is released for the AI run —
+/// the commit data was already collected, so the multi-minute model call never
+/// blocks an update check.
+#[tauri::command]
+async fn update_changelog(
+    state: State<'_, ShellState>,
+    id: String,
+    mode: Option<String>,
+) -> Result<changelog::UpdateChangelog, String> {
+    let root = state.root.clone();
+    let harness_cli = root.join(HARNESS_BIN);
+    let port = state.port;
+    let lock = Arc::clone(&state.update_lock);
+    tauri::async_runtime::spawn_blocking(move || {
+        let prepared = {
+            let _guard = lock
+                .lock()
+                .map_err(|_| "另一个更新操作正在进行".to_string())?;
+            changelog::prepare(&root, &id, mode.as_deref().unwrap_or("commit"))?
+        };
+        changelog::finish(prepared, &root, &harness_cli, port)
+    })
+    .await
+    .map_err(|e| format!("更新日志任务失败：{e}"))?
+}
+
 /// Operation names the shell may forward to the harness `/remote-api` route.
 /// Whitelist only: the dsh-remote plugin host implements exactly these, and the
 /// shell must never reach outside them (path-injection guard on `op`).
@@ -628,25 +667,30 @@ const REMOTE_OPS: &[&str] = &[
 
 /// Minimal JSON HTTP/1.1 POST to the harness loopback server. The wrapper
 /// document is served from a `tauri://` origin, so a browser `fetch` to
-/// `http://127.0.0.1:<port>` would be cross-origin — and the `/remote-api`
-/// route deliberately refuses cross-origin requests. An ad-hoc TcpStream
-/// request carries no `Origin`/`Sec-Fetch-Site` headers, which the route
-/// accepts as same-host. The response body comes back de-chunked if needed.
-fn http_post_json(port: u16, op: &str, body: &str) -> Result<String, String> {
+/// `http://127.0.0.1:<port>` would be cross-origin — and the harness's
+/// browser-trust fence deliberately refuses cross-origin requests. An ad-hoc
+/// TcpStream request carries no `Origin`/`Sec-Fetch-Site` headers, which the
+/// fence accepts as same-host. Returns the numeric status, the raw status
+/// line, and the (de-chunked) response body; non-2xx statuses are returned to
+/// the caller for its own policy.
+pub(crate) fn http_post_json_raw(
+    port: u16,
+    path: &str,
+    body: &str,
+) -> Result<(u16, String, String), String> {
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .map_err(|e| format!("cannot reach the harness on 127.0.0.1:{port}: {e}"))?;
     // A deploy can take minutes (git clone + build on the remote); the caller
     // runs inside spawn_blocking so the main thread stays responsive.
     let _ = stream.set_read_timeout(Some(Duration::from_secs(600)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
-    let path = format!("/remote-api/{op}");
     let request = format!(
         "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream
         .write_all(request.as_bytes())
-        .map_err(|e| format!("failed to send /remote-api/{op}: {e}"))?;
+        .map_err(|e| format!("failed to send POST {path}: {e}"))?;
     let mut response = Vec::new();
     let mut buf = [0u8; 16384];
     loop {
@@ -659,21 +703,20 @@ fn http_post_json(port: u16, op: &str, body: &str) -> Result<String, String> {
             {
                 break
             }
-            Err(e) => return Err(format!("failed reading /remote-api/{op} response: {e}")),
+            Err(e) => return Err(format!("failed reading POST {path} response: {e}")),
         }
     }
     let text = String::from_utf8_lossy(&response).into_owned();
     let (head, body) = match text.find("\r\n\r\n") {
         Some(i) => (&text[..i], &text[i + 4..]),
-        None => return Err(format!("malformed response from /remote-api/{op}")),
+        None => return Err(format!("malformed response from POST {path}")),
     };
-    let status = head.lines().next().unwrap_or("");
-    if !status.starts_with("HTTP/1.1 2") && !status.starts_with("HTTP/1.0 2") {
-        return Err(format!(
-            "{op} failed ({status}): {}",
-            body.chars().take(500).collect::<String>()
-        ));
-    }
+    let status_line = head.lines().next().unwrap_or("");
+    let status_code = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or(0);
     let body = if head
         .to_ascii_lowercase()
         .contains("transfer-encoding: chunked")
@@ -682,7 +725,20 @@ fn http_post_json(port: u16, op: &str, body: &str) -> Result<String, String> {
     } else {
         body.to_string()
     };
-    Ok(body)
+    Ok((status_code, status_line.to_string(), body))
+}
+
+/// Erroring wrapper for the remote-ops whitelist: any non-2xx status becomes
+/// an Err carrying the status line and the response body.
+fn http_post_json(port: u16, op: &str, body: &str) -> Result<String, String> {
+    let (code, status, response) = http_post_json_raw(port, &format!("/remote-api/{op}"), body)?;
+    if !(200..300).contains(&code) {
+        return Err(format!(
+            "{op} failed ({status}): {}",
+            response.chars().take(500).collect::<String>()
+        ));
+    }
+    Ok(response)
 }
 
 /// Strip HTTP chunked-transfer framing out of a response body.
@@ -860,6 +916,7 @@ fn main() {
             check_updates,
             start_update,
             update_root,
+            update_changelog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");

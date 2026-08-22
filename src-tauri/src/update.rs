@@ -172,7 +172,7 @@ fn run_git_captured(dir: &Path, args: &[&str]) -> Option<GitCapture> {
 }
 
 /// Run `git <args>` in `dir`, returning trimmed stdout on success.
-fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
+pub(crate) fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
     let capture = run_git_captured(dir, args)?;
     if !capture.success {
         return None;
@@ -226,7 +226,7 @@ fn is_git_repo(dir: &Path) -> bool {
 
 /// Parse the top-level submodules from `.gitmodules`. Paths are checked for
 /// traversal before they are joined to the repository root.
-fn submodule_entries(root: &Path) -> Vec<(String, PathBuf)> {
+pub(crate) fn submodule_entries(root: &Path) -> Vec<(String, PathBuf)> {
     let text = fs::read_to_string(root.join(".gitmodules")).unwrap_or_default();
     let mut entries = Vec::new();
     let mut name: Option<String> = None;
@@ -302,7 +302,7 @@ fn tag_is_stale(dir: &Path, tag: &str) -> bool {
 /// local `refs/remotes/origin/HEAD` symbolic ref can never point the updater at
 /// an old branch; fall back to that local ref when the extra network roundtrip
 /// fails.
-fn remote_default_branch(dir: &Path) -> Option<String> {
+pub(crate) fn remote_default_branch(dir: &Path) -> Option<String> {
     if let Some(symrefs) = git_output(dir, &["ls-remote", "--symref", "origin", "HEAD"]) {
         for line in symrefs.lines() {
             if let Some(rest) = line.strip_prefix("ref: refs/heads/") {

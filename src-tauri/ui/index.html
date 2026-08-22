@@ -167,6 +167,24 @@
       </div>
     </div>
 
+    <!-- Update-log dialog: the changes a pending update will bring — GitHub
+         Release notes when the target is a tag and one exists, otherwise a
+         dsh-AI summary of the commit range. Markdown is rendered by the shell
+         (app.js renderMarkdown); long content scrolls and stays selectable,
+         and the copy button copies the raw markdown source. -->
+    <div id="changelog-overlay" class="overlay hidden">
+      <div class="changelog-dialog" role="dialog" aria-modal="true" aria-labelledby="changelog-title">
+        <h2 id="changelog-title">更新日志</h2>
+        <div id="changelog-sub" class="changelog-sub"></div>
+        <div id="changelog-loading" class="changelog-loading">正在获取更新日志…</div>
+        <div id="changelog-body" class="changelog-body hidden"></div>
+        <div class="changelog-actions">
+          <button id="changelog-copy" class="secondary hidden">复制</button>
+          <button id="changelog-close" class="secondary">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <!-- About dialog: version/license/repository for the shell, the harness,
          the app-icon submodule (whale-icon), and every plugin under plugins/. -->
     <div id="about-overlay" class="overlay hidden">

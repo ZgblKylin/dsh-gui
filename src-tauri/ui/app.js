@@ -34,6 +34,13 @@ const updateApply = $("update-apply");
 const updateClose = $("update-close");
 const updateNote = $("update-note");
 const updateProgress = $("update-progress");
+const changelogOverlay = $("changelog-overlay");
+const changelogTitle = $("changelog-title");
+const changelogSub = $("changelog-sub");
+const changelogLoading = $("changelog-loading");
+const changelogBody = $("changelog-body");
+const changelogCopy = $("changelog-copy");
+const changelogClose = $("changelog-close");
 const aboutOverlay = $("about-overlay");
 const aboutList = $("about-list");
 const aboutClose = $("about-close");
@@ -704,7 +711,7 @@ function setRootUpdateControls(disabled) {
   updateApply.disabled = disabled;
   updateClose.disabled = disabled;
   for (const select of updateBody.querySelectorAll(".update-mode")) select.disabled = disabled;
-  for (const button of updateBody.querySelectorAll(".update-run, .update-ai")) {
+  for (const button of updateBody.querySelectorAll(".update-run, .update-ai, .update-log")) {
     button.disabled = disabled || button.classList.contains("pending");
   }
 }
@@ -841,10 +848,17 @@ function updateRow(project) {
     button.className = "secondary update-run";
     button.dataset.updateId = project.id;
     button.textContent = "更新";
+    const changelog = document.createElement("button");
+    changelog.type = "button";
+    changelog.className = "secondary update-log";
+    changelog.dataset.updateId = project.id;
+    changelog.textContent = "更新日志";
+    changelog.title =
+      "查看本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明；否则由 dsh AI 汇总当前提交到目标提交之间的变更（可能需要几分钟）";
     if (isRoot) {
       button.title =
         "在弹窗内直接更新顶层工程（快进到更新目标并把子模块递归同步到顶层修订记录的提交）；完成后按提示手动执行 npm run build 做全量构建";
-      action.append(mode, button);
+      action.append(mode, changelog, button);
     } else {
       const ai = document.createElement("button");
       ai.type = "button";
@@ -852,7 +866,7 @@ function updateRow(project) {
       ai.dataset.updateId = project.id;
       ai.textContent = "AI 更新";
       ai.title = "回到项目首页选中 dsh-gui 目录并预填提示词，预设由你自选";
-      action.append(mode, button, ai);
+      action.append(mode, changelog, button, ai);
     }
   } else {
     const ok = document.createElement("span");
@@ -891,7 +905,7 @@ function renderUpdateDialog(status) {
     checking > 0
       ? `${projects.length} 个工程，正在检测更新…`
       : behind.length > 0
-        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，agent 预设由你自选），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」包含顶层工程时等价于点击顶层的「更新」并忽略其他更新。`
+        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，agent 预设由你自选），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」包含顶层工程时等价于点击顶层的「更新」并忽略其他更新。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
         : "所有工程均为最新版本。";
   updateBody.appendChild(summary);
   for (const project of projects) updateBody.appendChild(updateRow(project));
@@ -1025,7 +1039,7 @@ async function startUpdates(ids) {
   updateAiAll.disabled = true;
   updateApply.disabled = true;
   updateClose.disabled = true;
-  for (const button of updateBody.querySelectorAll(".update-run")) button.disabled = true;
+  for (const button of updateBody.querySelectorAll(".update-run, .update-log")) button.disabled = true;
   for (const select of updateBody.querySelectorAll(".update-mode")) select.disabled = true;
   try {
     await invoke("start_update", { ids: usable, modes });
@@ -1036,7 +1050,7 @@ async function startUpdates(ids) {
     updateApply.disabled = false;
     updateClose.disabled = false;
     for (const select of updateBody.querySelectorAll(".update-mode")) select.disabled = false;
-    for (const button of updateBody.querySelectorAll(".update-run")) {
+    for (const button of updateBody.querySelectorAll(".update-run, .update-log")) {
       if (updateSelection.has(button.dataset.updateId)) continue;
       button.disabled = false;
     }
@@ -1046,6 +1060,303 @@ async function startUpdates(ids) {
 function updateModeOf(projectId) {
   const select = updateBody.querySelector('.update-mode[data-update-id="' + projectId + '"]');
   return select && select.value === "tag" ? "tag" : "commit";
+}
+
+/* ── Changelog markdown渲染（安全子集，供更新日志弹窗使用） ── */
+// A small renderer for the changelog bodies (GitHub release notes and the dsh
+// AI summary are both Markdown). Every fragment is HTML-escaped first and only
+// the fixed set of tags below is ever emitted; link/image URLs are restricted
+// to http(s)/mailto, so untrusted remote text can never inject markup or
+// scripts. Unsupported constructs degrade to their text form.
+const CHANGELOG_INLINE_RE =
+  /(`+)([^`]+?)\1|\*\*([^*]+?)\*\*|__([^_]+?)__|\*([^*\s][^*\n]*?(?<!\s))\*|_([^_\s][^_\n]*?(?<!\s))_|~~([^~]+?)~~|!\[([^\]]*)\]\((\S+?)\)|\[([^\]]+)\]\((\S+?)\)|<(https?:\/\/[^>\s]+)>/g;
+
+function changelogEscape(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function changelogSafeUrl(url, text) {
+  const value = String(url || "").trim();
+  if (/^(https?:\/\/|mailto:)/i.test(value)) return value;
+  // Invalid scheme: keep the markdown as plain text, never as a link.
+  return "";
+}
+
+function changelogInline(text) {
+  // A fresh regex per call: `changelogInline` recurses for emphasis content,
+  // and a shared mutable lastIndex would make the outer scan loop forever.
+  const inlineRe = new RegExp(CHANGELOG_INLINE_RE.source, "g");
+  let out = "";
+  let last = 0;
+  let match;
+  while ((match = inlineRe.exec(text))) {
+    out += changelogEscape(text.slice(last, match.index));
+    const [, backticks, code, bold1, bold2, em1, em2, strike, imgAlt, imgUrl, linkText, linkUrl, autoUrl] =
+      match;
+    if (backticks !== undefined) {
+      out += "<code>" + changelogEscape(code) + "</code>";
+    } else if (bold1 !== undefined || bold2 !== undefined) {
+      out += "<strong>" + changelogInline(bold1 ?? bold2) + "</strong>";
+    } else if (em1 !== undefined || em2 !== undefined) {
+      out += "<em>" + changelogInline(em1 ?? em2) + "</em>";
+    } else if (strike !== undefined) {
+      out += "<del>" + changelogInline(strike) + "</del>";
+    } else if (imgUrl !== undefined) {
+      const safe = changelogSafeUrl(imgUrl, imgAlt);
+      out += safe
+        ? '<img src="' + changelogEscape(safe) + '" alt="' + changelogEscape(imgAlt) + '" loading="lazy" />'
+        : changelogEscape(match[0]);
+    } else if (linkUrl !== undefined) {
+      const safe = changelogSafeUrl(linkUrl, linkText);
+      out += safe
+        ? '<a href="' + changelogEscape(safe) + '" target="_blank" rel="noopener noreferrer">' +
+          changelogInline(linkText) + "</a>"
+        : changelogEscape(match[0]);
+    } else if (autoUrl !== undefined) {
+      const safe = changelogSafeUrl(autoUrl, autoUrl);
+      out += safe
+        ? '<a href="' + changelogEscape(safe) + '" target="_blank" rel="noopener noreferrer">' +
+          changelogEscape(autoUrl) + "</a>"
+        : changelogEscape(match[0]);
+    } else {
+      out += changelogEscape(match[0]);
+    }
+    last = match.index + match[0].length;
+  }
+  out += changelogEscape(text.slice(last));
+  return out;
+}
+
+function changelogIsTableStart(lines, index) {
+  return (
+    lines[index].includes("|") &&
+    index + 1 < lines.length &&
+    /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[index + 1])
+  );
+}
+
+function changelogTableRow(line) {
+  let row = line.trim();
+  if (row.startsWith("|")) row = row.slice(1);
+  if (row.endsWith("|")) row = row.slice(0, -1);
+  return row.split("|").map((cell) => cell.trim());
+}
+
+function changelogTableAligns(line) {
+  return changelogTableRow(line).map((cell) => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    return left ? "left" : "";
+  });
+}
+
+// Render a safe HTML subset of GitHub-flavoured Markdown. Block structure:
+// headings, fenced code, blockquotes, tables, unordered/ordered lists
+// (checkboxes kept), hr, and paragraphs (single newlines become <br>, like the
+// GitHub release view). Nested lists and raw inline HTML are not supported and
+// stay as text.
+function renderChangelogMarkdown(src) {
+  const lines = String(src ?? "").split(/\r?\n/);
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+    const fence = line.match(/^\s*```[ \t]*(\S*)\s*$/);
+    if (fence) {
+      const code = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) {
+        code.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++;
+      out.push(
+        '<pre class="changelog-code"><code' +
+          (fence[1] ? ' data-lang="' + changelogEscape(fence[1]) + '"' : "") +
+          ">" +
+          changelogEscape(code.join("\n")) +
+          "</code></pre>"
+      );
+      continue;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      const level = heading[1].length;
+      out.push("<h" + level + ">" + changelogInline(heading[2]) + "</h" + level + ">");
+      i++;
+      continue;
+    }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      out.push("<hr>");
+      i++;
+      continue;
+    }
+    if (/^\s*>\s?/.test(line)) {
+      const quote = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        quote.push(lines[i].replace(/^\s*>\s?/, ""));
+        i++;
+      }
+      out.push("<blockquote>" + changelogInline(quote.join(" ")) + "</blockquote>");
+      continue;
+    }
+    if (changelogIsTableStart(lines, i)) {
+      const header = changelogTableRow(line);
+      const aligns = changelogTableAligns(lines[i + 1]);
+      const alignStyle = (value) =>
+        value ? ' style="text-align:' + value + '"' : "";
+      let table =
+        "<table><thead><tr>" +
+        header
+          .map(
+            (cell, index) =>
+              "<th" + alignStyle(aligns[index]) + ">" + (changelogInline(cell) || "&nbsp;") + "</th>"
+          )
+          .join("");
+      table += "</tr></thead><tbody>";
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && !changelogIsTableStart(lines, i)) {
+        table +=
+          "<tr>" +
+          changelogTableRow(lines[i])
+            .map(
+              (cell, index) =>
+                "<td" + alignStyle(aligns[index]) + ">" + (changelogInline(cell) || "&nbsp;") + "</td>"
+            )
+            .join("") +
+          "</tr>";
+        i++;
+      }
+      table += "</tbody></table>";
+      out.push(table);
+      continue;
+    }
+    const listMatch = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+    if (listMatch) {
+      const ordered = /\d+\./.test(listMatch[2]);
+      const items = [];
+      while (i < lines.length) {
+        const item = lines[i].match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+        if (!item || /\d+\./.test(item[2]) !== ordered) break;
+        items.push(item[3]);
+        i++;
+      }
+      out.push(
+        "<" + (ordered ? "ol" : "ul") + ">" +
+          items
+            .map((item) => {
+              const task = item.match(/^\[( |x|X)\]\s+(.*)$/);
+              if (task) {
+                return (
+                  '<li class="changelog-task">' +
+                  (task[1].toLowerCase() === "x" ? "☑ " : "☐ ") +
+                  changelogInline(task[2]) +
+                  "</li>"
+                );
+              }
+              return "<li>" + changelogInline(item) + "</li>";
+            })
+            .join("") +
+          "</" + (ordered ? "ol" : "ul") + ">"
+      );
+      continue;
+    }
+    const paragraph = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !/^(#{1,6})\s+|^\s*>\s?|^\s*```|^\s*(\s*)([-*+]|\d+\.)\s+/.test(lines[i]) &&
+      !/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(lines[i]) &&
+      !changelogIsTableStart(lines, i)
+    ) {
+      paragraph.push(lines[i]);
+      i++;
+    }
+    if (paragraph.length > 0) {
+      out.push("<p>" + paragraph.map(changelogInline).join("<br>") + "</p>");
+    } else {
+      // Defensive: never spin on a line no block accepted.
+      i++;
+    }
+  }
+  return out.join("\n");
+}
+
+/* ── Update-log dialog (更新日志：Release 说明或 dsh AI 汇总) ── */
+// A row's 「更新日志」 button fetches what the pending update will bring: for a
+// tag target the Rust side first tries the official GitHub Release notes and
+// falls back to a dsh-AI summary of the commit range. The AI run can take a
+// few minutes, so the loading line switches to an explicit note after a while;
+// the markdown renders into a scrollable, selectable body, and the copy button
+// copies the raw source text.
+let changelogBusy = false;
+let changelogStallTimer = null;
+let changelogRawText = "";
+
+function closeChangelog() {
+  changelogOverlay.classList.add("hidden");
+  clearTimeout(changelogStallTimer);
+  changelogStallTimer = null;
+}
+
+async function openChangelog(projectId) {
+  if (changelogBusy) return;
+  const project = (updateStatus?.projects ?? []).find((p) => p.id === projectId);
+  if (!project) {
+    toast("找不到该工程的信息，请重新检查更新");
+    return;
+  }
+  changelogBusy = true;
+  changelogTitle.textContent = (project.name || project.id || "工程") + " · 更新日志";
+  changelogSub.textContent = "";
+  changelogBody.classList.add("hidden");
+  changelogBody.innerHTML = "";
+  changelogRawText = "";
+  changelogCopy.classList.add("hidden");
+  changelogLoading.textContent =
+    "正在获取更新日志…（tag 目标优先读取 GitHub Release 说明；否则由 dsh AI 汇总提交变更）";
+  changelogLoading.classList.remove("hidden", "error");
+  changelogOverlay.classList.remove("hidden");
+  clearTimeout(changelogStallTimer);
+  changelogStallTimer = setTimeout(() => {
+    changelogLoading.textContent = "正在调用 dsh AI 汇总提交变更，可能需要几分钟…";
+  }, 15000);
+  try {
+    const result = await invoke("update_changelog", {
+      id: projectId,
+      mode: updateModeOf(projectId),
+    });
+    clearTimeout(changelogStallTimer);
+    changelogLoading.classList.add("hidden");
+    changelogSub.textContent = result.subtitle || "";
+    changelogRawText = result.text || "";
+    try {
+      changelogBody.innerHTML = renderChangelogMarkdown(changelogRawText);
+    } catch (renderError) {
+      // Never lose the content to a renderer edge: fall back to plain text.
+      changelogBody.innerHTML =
+        '<pre class="changelog-plain">' + changelogEscape(changelogRawText) + "</pre>";
+    }
+    changelogBody.classList.remove("hidden");
+    changelogCopy.classList.remove("hidden");
+  } catch (error) {
+    clearTimeout(changelogStallTimer);
+    changelogLoading.textContent =
+      "无法获取更新日志：" + String((error && error.message) || error);
+    changelogLoading.classList.add("error");
+  } finally {
+    changelogBusy = false;
+  }
 }
 
 /* ── AI update (项目首页选中 dsh-gui + 预填充提示词) ─────── */
@@ -1367,6 +1678,11 @@ updateBody.addEventListener("click", (e) => {
     void startAiUpdate(project ? [project] : []);
     return;
   }
+  const log = e.target.closest(".update-log");
+  if (log && log.dataset.updateId && !log.disabled) {
+    void openChangelog(log.dataset.updateId);
+    return;
+  }
   const button = e.target.closest(".update-run");
   if (!button || !button.dataset.updateId || button.disabled) return;
   const project = (updateStatus?.projects ?? []).find((p) => p.id === button.dataset.updateId);
@@ -1375,6 +1691,13 @@ updateBody.addEventListener("click", (e) => {
     return;
   }
   markProjectUpdate(button.dataset.updateId);
+});
+changelogClose.addEventListener("click", closeChangelog);
+changelogCopy.addEventListener("click", () => {
+  if (changelogRawText) copyText(changelogRawText);
+});
+changelogOverlay.addEventListener("click", (e) => {
+  if (e.target === changelogOverlay) closeChangelog();
 });
 
 /* ── New-connection dialog wiring ──────────────────────────── */
@@ -1534,6 +1857,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (!$("conn-overlay").classList.contains("hidden")) $("conn-overlay").classList.add("hidden");
     else if (!updateOverlay.classList.contains("hidden")) closeUpdateDialog();
+    else if (!changelogOverlay.classList.contains("hidden")) closeChangelog();
     else if (!aboutOverlay.classList.contains("hidden")) closeAbout();
     else closeMenu();
   }

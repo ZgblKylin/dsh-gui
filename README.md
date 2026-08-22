@@ -70,7 +70,17 @@ browser.
   directory there, and prefills a prompt that asks the agent to sync the
   submodule(s) to the chosen target and run the install scripts (the bottom
   button lists every updatable module with its combo choice). The agent preset
-  is left for you to pick.
+  is left for you to pick. Each behind row also has an **更新日志** button:
+  for a tag target it shows the official GitHub Release notes when the remote
+  is a GitHub repository and a release exists, otherwise it asks the dsh AI to
+  summarize the commits between the current checkout and the update target —
+  through the running harness's raw-LLM route (the dsh-ai-update plugin,
+  default model from the Models page), which creates no session, so the run
+  never appears in the DSH session list; when that route is unavailable the
+  shell falls back to the one-shot headless mode (`dsh --profile headless`,
+  the degraded path that does persist a session). The markdown result renders
+  in a scrollable, selectable dialog whose copy button copies the raw source
+  text.
 
 ### Plugins
 
