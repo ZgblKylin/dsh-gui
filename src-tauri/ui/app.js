@@ -891,16 +891,13 @@ function renderUpdateDialog(status) {
     checking > 0
       ? `${projects.length} 个工程，正在检测更新…`
       : behind.length > 0
-        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，agent 预设由你自选），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。`
+        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，agent 预设由你自选），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」包含顶层工程时等价于点击顶层的「更新」并忽略其他更新。`
         : "所有工程均为最新版本。";
   updateBody.appendChild(summary);
   for (const project of projects) updateBody.appendChild(updateRow(project));
-  // The bottom batch actions cover submodule rows only: the top-level row has
-  // its own live in-dialog update and never enters these flows.
-  const submoduleBehind = behind.filter((project) => project.id !== ROOT_PROJECT_ID).length;
-  updateMarkAll.classList.toggle("hidden", submoduleBehind === 0);
-  updateAiAll.classList.toggle("hidden", submoduleBehind === 0);
-  updateApply.classList.toggle("hidden", submoduleBehind === 0);
+  updateMarkAll.classList.toggle("hidden", behind.length === 0);
+  updateAiAll.classList.toggle("hidden", behind.length === 0);
+  updateApply.classList.toggle("hidden", behind.length === 0);
 }
 
 function openUpdateDialog() {
@@ -1124,6 +1121,46 @@ function buildHarnessUpdatePrompt(project) {
   return lines;
 }
 
+// Merged prompt for a batch that includes deepseek-harness plus plugin
+// modules: update the harness base first (impact check before the rebuild),
+// then the plugins, then the install-script compatibility audit, then the
+// report — never merge the harness into the generic plugin install pipeline.
+function buildHarnessMergedPrompt(harness, others) {
+  const lines = [];
+  lines.push("请更新当前 dsh-gui 仓库：先更新工程基座 deepseek-harness，再更新以下插件模块：");
+  lines.push("");
+  for (const project of [harness, ...others]) {
+    const path = project.path ? "路径 " + project.path + "，" : "";
+    const target = updateModeOf(project.id) === "tag"
+      ? "更新到最新 tag" + (project.latestTag ? "「" + project.latestTag + "」" : "")
+      : "更新到最新提交（最新 " + (project.latest || "?") + "）";
+    lines.push("- " + project.name + "（" + path + "当前 " + (project.current || "unknown") + "，" + target + "）");
+  }
+  lines.push("");
+  lines.push("第一部分：更新 deepseek-harness（工程基座——DSH 框架本体，位于仓库根目录 deepseek-harness/，不在 plugins/ 下；不是插件，没有 install.mjs，文档在 deepseek-harness/docs/ 与 AGENTS.md（docs/official/ 为官方文档汇总）；按仓库约定它是 pinned 上游子模块，只用于查证规范——不要编辑其中任何文件，也不要向插件源码复制代码）：");
+  if (updateModeOf(harness.id) === "tag") {
+    lines.push("1. 先 fetch origin（git -C deepseek-harness fetch --prune origin），再用 git -C deepseek-harness describe --tags --abbrev=0 origin/<默认分支> 找到远端默认分支可达的最新 tag，然后 checkout/reset 到该 tag；");
+  } else {
+    lines.push("1. 将该模块快进到远端默认分支的最新提交（submodule 用 git submodule update --remote deepseek-harness，或在 deepseek-harness/ 目录里 fetch origin 后检出 origin/<默认分支>）；");
+  }
+  lines.push("2. 先检查本次更新对当前 dsh-gui 项目所使用功能的影响（新增、变更或移除的功能/配置/依赖，以及插件需要跟进适配的点——组合方式、插件 API、bundle 契约等），结合 AGENTS.md 与 docs/official/ 汇报；需要修改本仓库对应插件或安装脚本时，先征询用户确认；");
+  lines.push("3. 确认影响后再重建 harness（必须）：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
+  lines.push("");
+  lines.push("第二部分：更新其余插件模块（每个按其标注的更新目标处理）：");
+  lines.push("4. 最新提交：快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>）；最新 tag：先 fetch origin，再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag；");
+  lines.push("5. 更新后、运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；");
+  lines.push("6. 确认无误后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
+  lines.push("");
+  lines.push("第三部分：兼容性速查：");
+  lines.push(buildHarnessAuditStep("7"));
+  lines.push("");
+  lines.push("第四部分：汇报：");
+  lines.push("8. 汇报：改动了哪些文件、执行了哪些安装/构建命令及结果；给出速查结论（哪些插件安装脚本与官方规范一致、哪些需要调整）；并逐模块汇报本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+  lines.push("");
+  lines.push("注意：以上路径均相对于 dsh-gui 仓库根目录；请确认会话工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。");
+  return lines.join("\n");
+}
+
 function buildAiUpdatePrompt(projects) {
   const list = updatableProjects(projects);
   const lines = [];
@@ -1239,15 +1276,31 @@ function postAiUpdateRequest(prompt) {
 }
 
 async function startAiUpdate(projects) {
-  // The top-level project never goes through the AI update flow.
-  const list = updatableProjects(projects).filter((project) => project.id !== ROOT_PROJECT_ID);
+  const list = updatableProjects(projects);
+  // 批量 AI 更新包含顶层 dsh-gui：忽略其他更新，等价于点击 dsh-gui 行的「更新」。
+  // The top-level project itself never goes through the AI prompt flow.
+  const root = list.find((project) => project.id === ROOT_PROJECT_ID);
+  if (root) {
+    void runRootUpdate(root);
+    return;
+  }
   if (list.length === 0) {
     toast("没有可用的更新工程");
     return;
   }
+  // 只含 deepseek-harness → 该模块专用提示词；含 deepseek-harness + 插件 →
+  // 融合提示词（先基座 → 插件 → 兼容性速查 → 汇报）。
+  const harness = list.find((project) => project.id === HARNESS_PROJECT_ID);
+  const prompt =
+    harness && list.length > 1
+      ? buildHarnessMergedPrompt(
+          harness,
+          list.filter((project) => project.id !== HARNESS_PROJECT_ID)
+        )
+      : buildAiUpdatePrompt(list);
   updateNote.textContent = "正在启动 AI 更新会话…";
   updateNote.classList.remove("hidden");
-  const ok = await postAiUpdateRequest(buildAiUpdatePrompt(list));
+  const ok = await postAiUpdateRequest(prompt);
   if (ok) {
     updateNote.textContent = "";
     updateNote.classList.add("hidden");
@@ -1297,7 +1350,7 @@ updateOverlay.addEventListener("click", (e) => {
 });
 updateMarkAll.addEventListener("click", () => {
   const ids = (updateStatus?.projects ?? [])
-    .filter((project) => project.behind && !project.error && project.id !== ROOT_PROJECT_ID)
+    .filter((project) => project.behind && !project.error)
     .map((project) => project.id);
   for (const id of ids) markProjectUpdate(id);
 });

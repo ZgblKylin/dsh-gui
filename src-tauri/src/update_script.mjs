@@ -265,12 +265,12 @@ async function main() {
         log(`[${project.id}] resetting to origin/${branch}`);
         run('git', ['-C', dir, 'reset', '--hard', `origin/${branch}`]);
       }
-      if (project.path === '') {
-        // The root checkout moved: bring every submodule to the commit the new
-        // root revision records (later loop iterations then move submodules that
-        // are individually behind to their own remote default branches).
-        run('git', ['-C', ROOT, 'submodule', 'update', '--init', '--recursive']);
-      }
+      // Bring every nested submodule to the commits the new revision records
+      // (recursively — a subproject may itself carry secondary submodules).
+      // For the root this syncs the whole tree first; later loop iterations
+      // then move submodules that are individually behind to their own remote
+      // default branches, and each of those syncs its own nested submodules.
+      run('git', ['-C', dir, 'submodule', 'update', '--init', '--recursive']);
       project.behind = false;
       project.error = null;
       persistPlan();

@@ -57,6 +57,16 @@ official spec the updated harness just pinned (repository-root AGENTS.md,
 `docs/official/`, and the dsh-plugin-install skill). Batch prompts include
 this audit only when `deepseek-harness` is among the updated modules.
 
+Batch AI update (`AI 更新全部`) special-cases the base modules:
+
+- dsh-gui in the batch: the other updates are ignored and the flow is
+  equivalent to clicking the top-level row's 「更新」 (in-dialog root
+  update, no prompt is posted);
+- deepseek-harness only: the dedicated harness prompt above;
+- deepseek-harness plus plugins: a merged prompt — harness update
+  (impact check before the rebuild) first, then the plugin modules, then
+  the compatibility audit (`buildHarnessAuditStep`), then the report.
+
 ## Top-level project update (no AI)
 
 The top-level dsh-gui row deliberately has no AI update button: clicking its
@@ -66,6 +76,11 @@ submodule to the commits the new root revision records — while the dialog
 streams progress via `update-root-log` events. The shell keeps running and
 nothing is rebuilt: on completion the dialog reminds the user to re-run
 `npm run build` for the full rebuild and then restart dsh-gui.
+
+The detached update launcher (`src-tauri/src/update_script.mjs`) recursively
+syncs nested submodules after EVERY project it moves (root first, then the
+individually-behind submodules), so a subproject carrying secondary
+submodules is brought in sync too.
 
 ## Failure handling
 
