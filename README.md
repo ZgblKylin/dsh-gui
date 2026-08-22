@@ -77,6 +77,11 @@ browser.
 - **`dsh-remote`** — multi-backend remote mode: the connection tabs,
   new-connection dialog, local backend start, and VSCode Remote SSH-style
   deploy/tunnel described above (see `plugins/remote/dsh-remote/docs/`).
+- **`dsh-flowglass`** — turn the current session into a live flowgraph
+  (three lanes, subagent branches, parallel groups, drill-down) plus a
+  hot-reloadable session toolbox drawer (see
+  `plugins/better-sidebar/dsh-flowglass/README.md`; installed by the
+  better-sidebar wrapper, after dsh-better-sidebar).
 - **`dsh-sidebar-qa`** — select conversation text → right-panel follow-up
   question in a dedicated same-workspace session (`❓追问·<主题>`), without
   interrupting the main conversation; thin consumer of `dsh-better-sidebar`
