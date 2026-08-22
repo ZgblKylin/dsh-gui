@@ -1,6 +1,7 @@
 # 开发约定
 
-本仓库是deepseek-harness的tauri wrapper，以及个人自用的 DSH 插件集合。所有插件使用现有 DSH/Cordis 接口编写，目标是能在官方原版 DSH（中无额外依赖直接加载。
+本仓库是deepseek-harness的tauri wrapper，以及个人自用的 DSH 插件集合。所有插件使用现有 DSH/Cordis 接口编写，目标是能在官方原版 DSH中无额外依赖直接加载。
+若用于修改/编辑已有插件时，检查插件子工程内的AGENTS.md、CLAUDE.md、README.md、docs/等文档，同时需要遵循目标子工程的贡献约定（如有）。
 
 ## 目录结构
 
