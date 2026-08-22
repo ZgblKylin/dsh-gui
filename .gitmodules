@@ -18,7 +18,7 @@
 	url = ../dsh-review
 [submodule "plugins/deep-whale/dsh-deep-whale"]
 	path = plugins/deep-whale/dsh-deep-whale
-	url = https://github.com/ZgblKylin/dsh-deep-whale
+	url = https://github.com/Small-tailqwq/dsh-deep-whale
 [submodule "plugins/dsh-web-ui/dsh-web-ui"]
 	path = plugins/dsh-web-ui/dsh-web-ui
 	url = https://github.com/zhu1090093659/dsh-web-ui.git
