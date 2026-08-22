@@ -57,7 +57,8 @@ do. The route is only registered when the web runtime services are present
 (`ctx.inject(['webServer', 'llm', 'agentDefaultModel', 'loader'], …)`), so the
 plugin stays inert in base-only/headless deployments. When the route is
 unavailable, the shell falls back to the harness's one-shot headless run —
-that degraded path DOES persist a session under `$DSH_HOME/sessions`.
+that degraded path redirects its session store to a temp directory, so it
+also never leaves a session in the DSH session list.
 
 ## Install
 

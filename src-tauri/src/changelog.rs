@@ -14,8 +14,10 @@
 //! run never appears in the DSH session list — the same approach the sidebar
 //! conversation feature uses. When that route is unavailable (plugin not
 //! installed, older harness, non-web deployment), the one-shot headless mode
-//! (`dsh --profile headless`, same DSH_HOME) is the fallback; it DOES persist
-//! a session and is only a degraded path.
+//! (`dsh --profile headless`, same DSH_HOME) is the fallback; that run is
+//! also display-only now — its session store is redirected to a temp directory
+//! via a `--patch` overlay and removed afterwards, so no persistent session
+//! is ever created either.
 //!
 //! [`prepare`] resolves the repository, the target, and (for a tag target) the
 //! release notes; it runs while the caller holds the update lock so git
@@ -75,6 +77,10 @@ process.exit(0);
 /// Wait ceiling for a dsh AI summary (one-shot agent run: profile boot, model
 /// call, final text). The UI tells the user the run may take minutes.
 const HEADLESS_TIMEOUT: Duration = Duration::from_secs(420);
+/// Delay before the session-less route gets its retry. Right after a shell
+/// restart the harness can accept TCP while the plugin routes are still
+/// mounting, which would needlessly degrade to the one-shot run.
+const HEADLESS_RETRY_DELAY: Duration = Duration::from_secs(3);
 /// Wait ceiling for the release-note fetch (network only, has its own 15s
 /// fetch timeout inside the script; this bounds process startup too).
 const RELEASE_FETCH_TIMEOUT: Duration = Duration::from_secs(45);
@@ -216,10 +222,11 @@ pub fn prepare(root: &Path, id: &str, mode: &str) -> Result<Prepared, String> {
 /// summarize the collected commit data with the dsh AI. The preferred path is
 /// the running harness's raw-LLM route ([`web_summary`]) — no Agent and no
 /// Session is created, so the run never appears in the DSH session list (the
-/// same approach dsh-sidebar-qa uses for its side conversations). The one-shot
-/// headless run ([`run_headless_summary`]) is the fallback when that route is
-/// unavailable and is the only path that persists a session. Runs without the
-/// update lock.
+/// same approach dsh-sidebar-qa uses for its side conversations). When that
+/// route is unavailable it gets one retry (the harness can still be booting):
+/// only then does the one-shot headless run ([`run_headless_summary`]) take
+/// over, whose session store is redirected to a temp directory so it never
+/// persists a session either. Runs without the update lock.
 pub fn finish(
     prepared: Prepared,
     root: &Path,
@@ -233,8 +240,16 @@ pub fn finish(
 
     let prompt = build_prompt(&request);
     let subtitle = summary_subtitle(&request);
-    if let Some(text) = web_summary(port, &prompt)? {
-        return Ok(UpdateChangelog { subtitle, text });
+    for attempt in 0..2 {
+        if let Some(text) = web_summary(port, &prompt)? {
+            return Ok(UpdateChangelog { subtitle, text });
+        }
+        if attempt == 0 {
+            // The harness may accept TCP while the plugin routes are still
+            // mounting right after a restart; the session-less route is worth
+            // one more chance before degrading to the one-shot run.
+            std::thread::sleep(HEADLESS_RETRY_DELAY);
+        }
     }
     run_headless_summary(root, harness_cli, &prompt, subtitle)
 }
@@ -251,20 +266,34 @@ fn summary_subtitle(request: &SummaryRequest) -> String {
     subtitle
 }
 
-/// Degraded path: the one-shot headless mode of the harness CLI. It creates a
-/// persistent session under `$DSH_HOME/sessions`, so it is only used when the
-/// raw-LLM web route is unavailable.
+/// Degraded path: the one-shot headless mode of the harness CLI. The headless
+/// driver flushes its session to the configured session store; this summary is
+/// a display-only answer, so the run's session store root is redirected to a
+/// temp directory (a `--patch` overlay overriding the persistent backend's
+/// `root`) which is removed afterwards — `$DSH_HOME/sessions` is never
+/// touched.
 fn run_headless_summary(
     root: &Path,
     harness_cli: &Path,
     prompt: &str,
     subtitle: String,
 ) -> Result<UpdateChangelog, String> {
-    let mut args: Vec<std::ffi::OsString> = Vec::new();
-    args.push(harness_cli.as_os_str().to_os_string());
-    args.push("--profile".into());
-    args.push("headless".into());
-    args.push(prompt.into());
+    let (session_root, patch) = temp_session_redirect()?;
+    let result = run_headless_summary_inner(root, harness_cli, prompt, subtitle, &patch);
+    let _ = fs::remove_dir_all(&session_root);
+    let _ = fs::remove_file(&patch);
+    result
+}
+
+/// The one-shot run with an already-redirected session store.
+fn run_headless_summary_inner(
+    root: &Path,
+    harness_cli: &Path,
+    prompt: &str,
+    subtitle: String,
+    patch: &Path,
+) -> Result<UpdateChangelog, String> {
+    let args = headless_args(harness_cli, patch, prompt);
     let output = run_node_captured(
         Path::new("node"),
         &args,
@@ -277,7 +306,7 @@ fn run_headless_summary(
         let text = output.stdout.trim();
         if !text.is_empty() {
             let mut subtitle = subtitle;
-            subtitle.push_str(" · headless 回退（web 摘要路由不可用，本次运行会创建会话）");
+            subtitle.push_str(" · headless 回退（web 摘要路由不可用，结果不回存会话）");
             return Ok(UpdateChangelog {
                 subtitle,
                 text: text.to_string(),
@@ -299,6 +328,50 @@ fn run_headless_summary(
             detail.chars().take(300).collect::<String>()
         )
     })
+}
+
+/// The one-shot run's argv: launcher flags first (`--profile`, then the
+/// `--patch` overlay), with the task as the pass-through prompt afterwards.
+fn headless_args(harness_cli: &Path, patch: &Path, prompt: &str) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+    args.push(harness_cli.as_os_str().to_os_string());
+    args.push("--profile".into());
+    args.push("headless".into());
+    args.push("--patch".into());
+    args.push(patch.as_os_str().to_os_string());
+    args.push(prompt.into());
+    args
+}
+
+/// Create the temp session root and the `--patch` overlay that redirects the
+/// `session-persistence-jsonl` backend's root into it.
+fn temp_session_redirect() -> Result<(PathBuf, PathBuf), String> {
+    let id = CAPTURE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let session_root = std::env::temp_dir().join(format!(
+        "dsh-gui-headless-sessions-{}-{id}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&session_root)
+        .map_err(|e| format!("无法创建临时会话目录 {}：{e}", session_root.display()))?;
+    let patch = std::env::temp_dir().join(format!(
+        "dsh-gui-headless-{}-{id}.yml",
+        std::process::id()
+    ));
+    // Forward slashes (accepted by Windows paths, unescaped YAML) and
+    // doubled single quotes keep the scalar literal on any temp path.
+    let root = session_root
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('\'', "''");
+    let contents = format!(
+        "- id: session-persistence-jsonl\n  config:\n    root: '{}'\n",
+        root
+    );
+    if let Err(e) = fs::write(&patch, contents) {
+        let _ = fs::remove_dir_all(&session_root);
+        return Err(format!("无法写入临时覆盖层 {}：{e}", patch.display()));
+    }
+    Ok((session_root, patch))
 }
 
 /// Ask the running harness's raw-LLM changelog route (the dsh-ai-update
@@ -691,6 +764,34 @@ mod tests {
         let error = web_summary(port, "prompt").unwrap_err();
         assert!(error.contains("模型失败"), "unexpected error: {error}");
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn temp_session_redirect_overrides_the_persistence_root() {
+        // The overlay must target the durable backend's `root` only and quote
+        // the temp path as a literal YAML scalar (forward slashes, doubled
+        // single quotes), so the one-shot run can never touch the real store.
+        let (session_root, patch) = temp_session_redirect().expect("redirect must work");
+        let contents = fs::read_to_string(&patch).expect("patch must be readable");
+        assert!(contents.starts_with("- id: session-persistence-jsonl\n  config:\n    root: '"));
+        assert!(contents.contains(&session_root.to_string_lossy().replace('\\', "/")));
+        assert!(contents.ends_with("'\n"));
+        assert!(session_root.is_dir());
+        let _ = fs::remove_dir_all(&session_root);
+        let _ = fs::remove_file(&patch);
+    }
+
+    #[test]
+    fn headless_args_carry_the_patch_and_then_the_prompt() {
+        // The launcher flags must come before the pass-through prompt, with
+        // the patch overlay between `headless` and the task text.
+        let args = headless_args(Path::new("bin.js"), Path::new("overlay.yml"), "task");
+        let text = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(text, "bin.js --profile headless --patch overlay.yml task");
     }
 
     #[test]

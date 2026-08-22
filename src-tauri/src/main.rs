@@ -615,8 +615,9 @@ async fn update_root(
 /// The summary first asks the running harness's raw-LLM route (dsh-ai-update
 /// plugin, /dsh-gui-api/changelog): no Agent/Session is created, so the run
 /// never appears in the DSH session list. When that route is unavailable the
-/// command falls back to the harness's one-shot headless mode (`dsh --profile
-/// headless`), which is a degraded path that does persist a session.
+/// command retries it once and only then falls back to the harness's one-shot
+/// headless mode (`dsh --profile headless`), whose session store is redirected
+/// to a temp directory — neither path persists a session.
 ///
 /// The repository/network part runs under the update lock (git reads must not
 /// race an in-dialog root update), then the lock is released for the AI run —

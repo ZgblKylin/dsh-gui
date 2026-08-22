@@ -16,7 +16,8 @@
  *
  * The shell keeps the one-shot headless run as its fallback when this route is
  * unavailable (plugin not installed, older harness, non-web profile); that
- * fallback DOES persist a session and is only used as a degraded path.
+ * fallback redirects its session store to a temp directory, so it never
+ * persists a session either — both paths are runtime-only.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'

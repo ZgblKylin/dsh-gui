@@ -106,7 +106,8 @@ browser-trust fence (loopback Host-header or the connection row's
 `trustedHosts`); the shell's loopback client carries no cross-site markers, so
 it passes like the /remote-api calls do. When the route is unavailable
 (plugin not rebuilt/installed, older harness), the shell falls back to the
-one-shot headless run (`dsh --profile headless`), which does persist a session
-and is the degraded path. The route is only registered when the web runtime
+one-shot headless run (`dsh --profile headless`) with its session store
+redirected to a temp directory — that degraded path never persists a session
+either. The route is only registered when the web runtime
 services are present: `ctx.inject(['webServer', 'llm', 'agentDefaultModel',
 'loader'], …)` keeps the plugin inert in base-only/headless deployments.

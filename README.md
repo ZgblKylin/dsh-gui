@@ -77,8 +77,9 @@ browser.
   through the running harness's raw-LLM route (the dsh-ai-update plugin,
   default model from the Models page), which creates no session, so the run
   never appears in the DSH session list; when that route is unavailable the
-  shell falls back to the one-shot headless mode (`dsh --profile headless`,
-  the degraded path that does persist a session). The markdown result renders
+  shell retries it once and then falls back to the one-shot headless mode
+  (`dsh --profile headless`), whose session store is redirected to a temp
+  directory — neither path persists a session. The markdown result renders
   in a scrollable, selectable dialog whose copy button copies the raw source
   text.
 
