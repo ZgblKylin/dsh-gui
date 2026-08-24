@@ -9,8 +9,8 @@ component submodule（injector / preset），本 wrapper 按套装 README 的安
 
 | 组件 | 上游 | 装配方式 |
 | --- | --- | --- |
-| `injector`（dsh-super-injector，v0.3.3） | [yjh051108/dsh-super-injector](https://github.com/yjh051108/dsh-super-injector) | 复制到 `$DSH_HOME/plugins/routing-suite/dsh-super-injector` 后用 harness checkout 构建（junction 链接 + tsc + tsdown 自包含打包），再 `link:` 进 web profile；声明 `dsh.bundle.patch`，由 bundle 层自挂载（entry id `dsh-super-injector`） |
-| `preset`（dsh-router-standard，v0.2.0） | [yjh051108/dsh-router-standard](https://github.com/yjh051108/dsh-router-standard) | `router-standard` 与 `router-spec` 两个 preset 整目录平铺复制到 `$DSH_HOME/.agent-presets/<id>/`（对应套装 README 的手动安装步骤） |
+| `injector`（dsh-super-injector，v0.3.3） | [yjh051108/dsh-super-injector](https://github.com/yjh051108/dsh-super-injector) | 直接用套装官方装配链：缺 `lib/` 时由包自身的 `prepare` 钩子（`scripts/prepare.mjs`，tsdown 自包含打包）构建到 submodule checkout（`node_modules/`、`lib/` 已在上游 gitignore），再走共享 `installPlugin`（`build: false`，内部即 `dsh plugin add link:<injector>`）：记录 `link:` 依赖 + 声明 `dsh.bundle.patch` 由 CLI reconcile 进 `dsh.profile.bundles`，bundle 层自挂载，entry id `dsh-super-injector`） |
+| `preset`（dsh-router-standard，v0.3.0） | [yjh051108/dsh-router-standard](https://github.com/yjh051108/dsh-router-standard) | `router-standard` 与 `router-spec` 两个 preset 整目录平铺复制到 `$DSH_HOME/.agent-presets/<id>/`（对应套装 README 的手动安装步骤，组合经 `./router-bootstrap.mjs` 相对路径加载） |
 
 > 版本号以套装 submodule 指针为准（`git -C plugins/routing-suite/dsh-routing-suite
 > submodule status`）；两个组件独立演进，更新套装指针后需重新初始化嵌套
@@ -20,10 +20,10 @@ component submodule（injector / preset），本 wrapper 按套装 README 的安
 
 ```text
 plugins/routing-suite/
-├─ install.mjs                     # 构建 + 安装 + 挂载注入器，复制两个 preset
+├─ install.mjs                     # 装配注入器 + 复制两个 preset
 ├─ README.md                       # 本说明
 └─ dsh-routing-suite/              # 套装仓库（git submodule，含两个嵌套 submodule）
-   ├─ injector/                    # dsh-super-injector（源码，lib/ 由 install.mjs 构建）
+   ├─ injector/                    # dsh-super-injector（lib/ 由上游 prepare 钩子就地构建，已 gitignore）
    └─ preset/
       └─ preset/
          ├─ router-standard/       # Router Standard (experimental) preset 源
@@ -36,15 +36,15 @@ plugins/routing-suite/
 # 1. 初始化套装 checkout 及其两个嵌套 submodule（必须带 --recursive）
 git submodule update --init --recursive plugins/routing-suite/dsh-routing-suite
 
-# 2. 安装（构建注入器 → link 注入器 → 复制两个 preset）
+# 2. 安装（缺 lib 时先跑 upstream prepare 钩子 → add 注入器 → 复制两个 preset）
 node plugins/routing-suite/install.mjs
 # 或随全套插件一起：
 npm run install:plugins
 ```
 
 `install.mjs` 会被 `npm run build` / `npm run setup` / `npm run
-install:plugins` 自动发现执行；重复执行幂等（注入器构建副本整体替换、插件挂载按
-entry id 去重、preset 目录覆盖复制）。
+install:plugins` 自动发现执行；重复执行幂等（`prepare` 已产出 lib 则跳过构建、
+插件挂载按 entry id 去重、preset 目录覆盖复制）。
 
 ## 为什么这样装
 
@@ -52,26 +52,33 @@ entry id 去重、preset 目录覆盖复制）。
   submodule；其内部两个组件是套装自己的 submodule，普通
   `git submodule update --init` 不会拉取它们。缺 checkout 时 install.mjs 会
   报错并给出上面的 `--recursive` 命令。
-- **注入器复制到 `.dsh` 再构建**：构建会在包目录里生成
-  `node_modules/`、`lib/` 与 pnpm lockfile，复制构建保证上游 checkout
-  保持 pristine（本仓库“UPSTREAM IS NEVER MODIFIED”约定）。构建镜像上游
-  `scripts/build.sh`（把 harness checkout 里的 cordis/cosmokit/schemastery/
-  dsh-tools/dsh-system-prompt/cordis-plugin-loader 用 junction 链接进
-  node_modules，再用 harness 的 tsc 编译），随后跑上游 `build:client`
-  （tsdown），产出自包含的 `lib/index.js` + `lib/client.js`（官方
-  `link:` 装配不安装 peer 依赖，未打包的产物会解析不到
-  `@deepseek-ai/dsh-tools` 等）。
-- **挂载来源不同**：注入器自带 `dsh.bundle.patch`（bundle 层自挂载，共享
-  安装器不写 cordis.patch.yml，避免双挂载）。
-- **preset 整目录平铺复制**：组合通过 `./router-bootstrap-v1.mjs` 相对路径加载
+- **注入器只保留最小构建**：`dsh plugin add <目录>` 只会记录 `link:` 依赖、
+  不会触发目标的 `prepare`（pnpm 语义，实测验证），而全新 submodule checkout
+  没有 `lib/`（构建产物不入库）。注入器 import 的 `cordis`、
+  `@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-llm` 等均未发布到 npm，本仓库里
+  唯一能解析到它们的地方是 harness checkout——上游 `build.sh` 也是这个契约
+  （要 `DSH_CHECKOUT`，把这些包 junction 链接进来）。所以 install.mjs 只在缺
+  lib 时：先用 pinned pnpm 装 devDeps（`--ignore-scripts`，让构建完全走下面的
+  prepare；`--auto-install-peers=false`，避免去 npm 拉私有 peer），再把上述
+  直接 import 的包 junction 到 checkout 的（已 gitignore）node_modules（真实
+  路径仍在 `deepseek-harness` 内，传递依赖全从 harness 树解析），最后跑**上游
+  自己的 `prepare` 钩子**（`node scripts/prepare.mjs` → tsdown，宿主半把
+  cordis/`@deepseek-ai/dsh-tools` 等全部打进 bundle，产物零外部依赖）。
+  之后才走共享 `installPlugin`（`build: false`，等价 `dsh plugin add
+  link:<injector>`）完成 link + store pin + bundle 自挂载。相比旧 wrapper
+  删掉了：`.dsh` 下的构建副本、harness 的 tsc 编译、手动 tsdown、
+  standard-schema 侧链接；`node_modules/`、`lib/` 已在 upstream gitignore，
+  submodule 保持干净。
+- **挂载来源**：注入器自带 `dsh.bundle.patch`（bundle 层自挂载，安装脚本不写
+  `cordis.patch.yml`，避免双挂载）。
+- **preset 整目录平铺复制**：组合通过 `./router-bootstrap.mjs` 相对路径加载
   本地插件，逐文件复制会丢文件；复制目标是 `router-standard` 与
   `router-spec` 各自的目录名（即 roster 里的 preset id）。不要复制
   `preset` 整目录（会多套一层，DSH 扫描不到预设），与套装 README 的
   手动步骤一致。
-- **preset.yml 落地补丁**：上游 preset.yml 的 description 里带未加引号的
-  `: `（如 `RL-interface restoration: one-sentence...`），js-yaml / yaml@2
-  都会解析失败，roster 会退化成裸 preset id。install.mjs 只对安装副本重写
-  为带单引号的 YAML 标量（内容不变、幂等），不修改上游。
+- **preset.yml 无需补丁**：上游 v0.3.0 已修复 description 里未加引号 `:`
+  导致的 YAML 解析失败问题（suite #53）；旧版安装脚本的落地重新加引号补丁已
+  删除，install.mjs 现在原样复制 upstream 文件。
 
 ## 生效与验证
 

@@ -56,10 +56,12 @@ function buildPackage(packageDir) {
  * pnpm-workspace.yaml, and the unset default store resolves from the invoking
  * environment's home variables, which differ between a plain terminal and the
  * desktop shell. Without the pin, an install made from one context fails the
- * other with ERR_PNPM_UNEXPECTED_STORE.
+ * other with ERR_PNPM_UNEXPECTED_STORE. Exported so wrappers that add a package
+ * through a direct `dsh plugin add` call (instead of installPlugin) keep the
+ * same store/nodeLinker/allowBuilds guarantees.
  * @param {string} profileDir - absolute path to the web profile directory.
  */
-function pinProfileStore(profileDir) {
+export function pinProfileStore(profileDir) {
   mkdirSync(profileDir, { recursive: true })
   const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
   if (!existsSync(workspacePath)) {
