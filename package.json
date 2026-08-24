@@ -12,6 +12,7 @@
     "build:exe": "node scripts/dsh-gui.mjs build --skip-harness",
     "install:plugins": "node scripts/dsh-gui.mjs install",
     "plugins": "node scripts/dsh-gui.mjs install",
+    "harness": "node scripts/harness.mjs",
     "start": "node scripts/dsh-gui.mjs run",
     "shortcut": "node scripts/dsh-gui.mjs shortcut"
   }
