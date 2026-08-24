@@ -1,6 +1,6 @@
 # dsh-remote
 
-多后端远程连接插件：在 **dsh-gui（Tauri 桌面壳）的原生标题栏**上提供连接标签页（VSCode 风格）、新建连接对话框与汉堡菜单，支持本机端口后端与（VSCode Remote SSH 模式）远端 SSH 部署。非侵入：不修改 dsh 框架本体，仅作为 `plugins/remote/dsh-remote/` 插件包挂载到 web profile。
+多后端远程连接插件：在 **dsh-gui（Tauri 桌面壳）的原生标题栏**上提供连接标签页（VSCode 风格）、新建连接对话框与汉堡菜单，支持本机端口后端与（VSCode Remote SSH 模式）远端 SSH 启动 + 端口转发。非侵入：不修改 dsh 框架本体，仅作为 `plugins/remote/dsh-remote/` 插件包挂载到 web profile。**不做任何远端部署**——远端 dsh 由用户配置的启动命令自行启动。
 
 ## 特性
 
@@ -9,16 +9,19 @@
 - **汉堡菜单**：复用标题栏既有的 `☰` 菜单，内含标签页切换列表、新建连接、关闭当前连接（另保留 关于 / 退出）。
 - **全部关闭自动新建**：关闭所有标签页后自动弹出新建连接对话框。
 - **本地连接**：可配置端口（默认 3080 自动填入）。连接时先探测端口是否可加载：可加载则直接加载前端；否则启动内置 dsh（`dsh web --port <端口>`）再加载前端。连接名与端口保存在软件本地存储。
-- **远程连接**：可配置地址（不含 `http://` 头）与端口。连接时先探测端口是否可加载：可加载则直接加载；否则尝试 SSH 部署。连接名、地址、端口保存在软件本地存储。
-- **SSH 部署（VSCode Remote 风格，安全隧道）**：
+- **远程连接**：可配置地址（不含 `http://` 头）与端口。连接时先探测端口是否可加载：可加载则直接加载；否则通过 **SSH 启动远端 dsh 并转发端口**。连接名、地址、端口保存在软件本地存储。
+- **SSH 连接（启动 + 安全隧道转发，VSCode Remote 风格）**：
   - 与 dsh 地址**分离**的 SSH 主机字段（可用 `~/.ssh/config` 的 Host 别名，如 `ASUS`），复用现有 ssh config。
   - 密码 / 密钥文件二选一（密钥文件通过文件选择上传），可勾选"保存认证"。
   - 密码与密钥都留空时，若 ssh config 中存在对应 Host，则直接使用该别名尝试免密连接。
   - 连接过程中出现认证需求（`Permission denied` / publickey / password 等）时判定连接失败，回退到连接配置让用户补齐认证。
-  - **远端后端以 `--host 127.0.0.1` 只绑定回环地址**，绝不暴露到 LAN；前端通过 **SSH 本地端口转发**
+  - **远端启动命令可配置**：新建连接对话框提供「远端启动 dsh 的命令」输入框，默认 `npx '@deepseek-ai/dsh' web`
+    （留空即用默认）。该命令在远端 `$HOME` 下、名为 `dsh-gui` 的 tmux 会话中运行（会话保证进程在 ssh 命令返回后继续存活）；
+    若命令本身未含 `--host` / `--port`，插件会追加 `--host 127.0.0.1 --port <端口>`。
+  - **远端后端只绑定回环地址**（追加了 `--host 127.0.0.1`），绝不暴露到 LAN；前端通过 **SSH 本地端口转发**
     （`ssh -N -L 127.0.0.1:<本机端口>:127.0.0.1:<远端服务端口>`）经加密会话访问，标签页只看到 `http://127.0.0.1:<本机端口>/`。
-  - 连接建立后：对端检测 `dsh-gui` 命名的 tmux 会话并且会话内 dsh **存活**；缺失/失效才重新部署与启动
-    （检查 `~/.dsh-gui`，缺失则按固定 ref 克隆 deepseek-harness 并编译）。随后**读取会话实际监听的服务端口**，做 SSH 端口转发加载前端。
+  - 连接建立后：对端检测 `dsh-gui` 命名的 tmux 会话并且会话内 dsh **存活**；缺失/失效则以配置的启动命令重建会话。
+    随后**读取会话实际监听的服务端口**（`--port` 参数；缺省用连接对话框的端口），做 SSH 端口转发加载前端。
 
 > **关于"不生成本机监听端口"**：SSH `-L` 本地转发需要一个本机回环监听端点，标签页才能经 `http://127.0.0.1:<port>/` 访问隧道；该端点只绑定 `127.0.0.1`（不带 `-g`/GatewayPorts），不对外网及局域网开放，即标准的安全隧道形态。若需要"完全不监听本机端口"，则需在 dsh-gui 内部再包一层代理——当前设计采用前者。
 
@@ -43,7 +46,7 @@ Rust（src-tauri/src/main.rs, remote_call）
 ```
 
 - **插件 client 半端已置为 inert**：它随 web 应用加载但 `apply` 不注册任何槽位/样式，因此内嵌页面始终干净、不再有"太高了"的重复标题栏。
-- **所有重活仍在插件 Host 半端**：探测、本机后端启动、SSH 部署、凭据（Windows DPAPI / Linux gpg）、隧道复用与清理。Tauri 壳只做薄代理（Rust 命令白名单 + 回环 POST），不重复实现。
+- **所有重活仍在插件 Host 半端**：探测、本机后端启动、SSH 启动与隧道、凭据（Windows DPAPI / Linux gpg）、隧道复用与清理。Tauri 壳只做薄代理（Rust 命令白名单 + 回环 POST），不重复实现。
 - 之所以走 Rust 命令而非页面 `fetch('/remote-api')`：壳页面源是 `tauri://`，对 `http://127.0.0.1:<port>` 是跨源，而 `/remote-api` 刻意拒绝跨源请求；Rust 侧裸 TCP 请求不带 `Origin` 头，被视作同源放行。
 
 ## 配置归属
@@ -52,8 +55,7 @@ Rust（src-tauri/src/main.rs, remote_call）
   连接名与地址端口等保存在壳页面（Tauri webview 源）的 localStorage（key `dsh.remote.*`）；凭证在系统密钥库
   （Windows DPAPI / Linux gpg，路径/文件名含 `ZgblKylin+dsh-gui+<连接名>`），密钥文件存于
   `<DSH_HOME>/gui/keys/`。
-- **远端管理**：远端后端自身的 dsh 配置与插件配置，位于远端 `~/.dsh-gui`（DSH_HOME 指向 `~/.dsh-gui/.dsh`），
-  与本机完全隔离。
+- **远端管理**：远端后端自身的 dsh 配置与插件配置位于远端默认 DSH_HOME（`~/.dsh`），或由用户配置的启动命令自行设置（如命令内 `DSH_HOME=... npx dsh web`），与本机完全隔离。插件不向远端部署任何代码。
 
 ## 结构
 
@@ -61,9 +63,9 @@ Rust（src-tauri/src/main.rs, remote_call）
 plugins/remote/            插件 wrapper（install.mjs 归本仓库）
   install.mjs              构建 + 安装 + 挂载本插件（委托 scripts/plugin-install.mjs）
   dsh-remote/              插件包（Host 引擎 + 空 client）
-    src/index.ts           Host 半端（Node ESM）：/remote-api 路由 + 本地启动/SSH 部署/凭据
+    src/index.ts           Host 半端（Node ESM）：/remote-api 路由 + 本地启动/SSH 启动与隧道/凭据
     src/client/index.ts    浏览器半端：inert（不再渲染连接 chrome，见"架构"节）
-    build.mjs              esbuild 构建：lib/index.js（Host）+ lib/client.js（Browser module）
+    tsdown.config.ts       tsdown 构建：lib/index.js（Host）+ lib/client.js（Browser module）
     docs/                  本目录（插件文档）
 
 src-tauri/ui/            dsh-gui 桌面壳 UI（标签页 / 新建连接对话框 / 汉堡菜单 / 关于）
@@ -105,7 +107,13 @@ npm start                          # 启动桌面壳
 - 本地后端日志：`<DSH_HOME>/gui/remote-<端口>.log`
 - 关闭标签页不强制断隧道（隧道按 `host:remotePort` 复用，重连即用）；dsh-gui 退出或插件 teardown 时所有隧道一并关闭。
 - 密码方式 SSH 需要本机有 `plink` 或 `sshpass`；否则请使用密钥文件或依赖 ssh config。
-- 远端部署默认克隆 `deepseek-harness` 上游 `main`；可用环境变量 `DSH_REMOTE_REPO_URL` / `DSH_REMOTE_REPO_REF` 固定仓库与 ref 以复现部署。远端 dsh 配置与插件配置位于 `~/.dsh-gui/.dsh`，与本机完全隔离。
+- 远端启动命令默认 `npx '@deepseek-ai/dsh' web`；可在对话框「远端启动 dsh 的命令」输入框覆盖单个连接的启动命令，
+  也可用环境变量 `DSH_REMOTE_START_COMMAND` 为所有连接改默认值。远端 dsh 配置与插件配置位于远端默认 `~/.dsh`
+  （或启动命令设置的 DSH_HOME），与本机完全隔离。启动所需远端工具：`node` / `npm`（含 `npx`）/ `tmux`。
+- 连接时若远端 `dsh-gui` tmux 会话已存活则**复用不重启**（幂等）；变更启动命令后需先清理旧会话再连接，
+  在远端执行 `tmux kill-session -t dsh-gui` 即可。
+- 远端若尚未安装 `@deepseek-ai/dsh`，`npx` 首次拉取会弹安装确认，在 detached tmux 面板里可能等待输入：
+  此时把启动命令写成 `npx -y '@deepseek-ai/dsh' web`（或在远端先全局安装 dsh）。
 - 安全边界：`/remote-api` 为未认证的本机 RPC，插件会拒绝在非回环绑定（`webServer.host !== 127.0.0.1`）下启动；Tauri 壳的 `remote_call` 只放行白名单 op，并仅向 `127.0.0.1:<port>` 发送请求。
 - Linux gpg 凭据使用内置口令（`dsh-remote-app-pin`）作**混淆级**保护，明文与密钥强度取决于部署环境；如需更强保护请改用系统钥匙环或加密文件系统。
 

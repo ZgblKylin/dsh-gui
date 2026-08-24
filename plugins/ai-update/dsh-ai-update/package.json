@@ -28,12 +28,8 @@
     }
   },
   "scripts": {
-    "build": "node build.mjs"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
+    "build": "tsdown",
+    "watch": "tsdown --watch"
   },
   "license": "Unlicense",
   "peerDependencies": {
@@ -41,7 +37,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "esbuild": "^0.24.0",
+    "tsdown": "^0.22.14",
     "typescript": "^5.6.0"
   }
 }
