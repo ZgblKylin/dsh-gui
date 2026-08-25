@@ -116,10 +116,12 @@ function ensureInjectorLib() {
   console.log(`\n==> build dsh-super-injector lib (upstream prepare hook, ${INJECTOR})`)
   bootstrapPnpm()
   // --ignore-scripts keeps the package's own prepare from running before the
-  // junctions exist; --lockfile=false keeps pnpm from writing an untracked
-  // pnpm-lock.yaml into the submodule; auto-install-peers=false stops pnpm from
-  // trying to fetch the unpublished @deepseek-ai peers from npm.
-  pnpm(['install', '--ignore-scripts', '--lockfile=false', '--config.auto-install-peers=false', '--store-dir', STORE], {
+  // junctions exist; --ignore-workspace prevents a parent pnpm-workspace.yaml
+  // from redirecting the install to the dsh-gui root instead of this package;
+  // --no-lockfile keeps pnpm from writing an untracked pnpm-lock.yaml into the
+  // submodule; auto-install-peers=false stops pnpm from trying to fetch the
+  // unpublished @deepseek-ai peers from npm.
+  pnpm(['install', '--ignore-scripts', '--ignore-workspace', '--no-lockfile', '--config.auto-install-peers=false', '--store-dir', STORE], {
     cwd: INJECTOR,
     env: { CI: 'true' },
   })
