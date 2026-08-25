@@ -8,7 +8,7 @@
  * nothing.
  *
  * All the real machinery stays in the host half: `/remote-api/*` (probe, local
- * backend spawn, SSH deploy, credentials, tunnels) is reached by the Tauri
+ * backend spawn, SSH start + tunnel, credentials, tunnels) is reached by the Tauri
  * shell through the `remote_call` Rust command. This keeps every capability in
  * one place while leaving the embedded UI untouched.
  */

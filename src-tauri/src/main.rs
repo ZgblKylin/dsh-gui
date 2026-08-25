@@ -681,8 +681,9 @@ pub(crate) fn http_post_json_raw(
 ) -> Result<(u16, String, String), String> {
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .map_err(|e| format!("cannot reach the harness on 127.0.0.1:{port}: {e}"))?;
-    // A deploy can take minutes (git clone + build on the remote); the caller
-    // runs inside spawn_blocking so the main thread stays responsive.
+    // A remote start can take a while (first-run npx fetch + backend boot on
+    // the remote); the caller runs inside spawn_blocking so the main thread
+    // stays responsive.
     let _ = stream.set_read_timeout(Some(Duration::from_secs(600)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
     let request = format!(
@@ -778,7 +779,7 @@ fn dechunk(body: &str) -> String {
 }
 
 /// Forward one operation to the harness plugin's `/remote-api` route. Runs off
-/// the main thread (via spawn_blocking) so a long deploy never blocks the UI.
+/// the main thread (via spawn_blocking) so a long remote run never blocks the UI.
 #[tauri::command]
 async fn remote_call(
     state: State<'_, ShellState>,

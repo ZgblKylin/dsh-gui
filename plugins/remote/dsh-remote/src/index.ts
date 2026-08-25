@@ -5,20 +5,22 @@
  *
  *  - `local.start` — spawn an additional self-hosted `dsh web` backend on a
  *    free port (checked by `probe` first; started only when the port is dead),
- *  - `ssh.connect` — secure remote mode: the remote backend always binds
- *    loopback (`127.0.0.1`), so the frontend is reached over an SSH local
- *    port forward (`ssh -N -L`). The pipeline establishes the session, checks
- *    the remote toolchain, deploys the harness to `~/.dsh-gui` when missing,
- *    keeps it running inside a `dsh-gui` tmux session, discovers the session's
- *    serving port, forwards it to a free local loopback port, and only then
- *    reports the local URL as loadable,
+ *  - `ssh.connect` — secure remote mode: the remote backend is started with a
+ *    configurable command (default `npx '@deepseek-ai/dsh' web`) and kept
+ *    running inside a `dsh-gui` tmux session. No code is deployed to the
+ *    remote — the startup command owns how dsh is run there. The frontend is
+ *    reached over an SSH local port forward (`ssh -N -L`): the pipeline
+ *    establishes the session, checks the remote toolchain, starts/restarts the
+ *    tmux session, discovers the session's serving port, forwards it to a free
+ *    local loopback port, and only then reports the local URL as loadable,
  *  - `creds.*` / `keyfile.write` — the credential store (Windows DPAPI,
  *    Linux gpg; keys and filenames carry `ZgblKylin+dsh-gui+<连接名>`), plus the
  *    uploaded SSH private-key files.
  *
  * Connection records (name/address/port/ssh fields) are kept by the browser
- * half in localStorage — dsh-gui manages the connection config, the remote
- * owns its own DSH_HOME (~/.dsh-gui/.dsh) and plugin configuration.
+ * half in localStorage — dsh-gui manages the connection config; the remote
+ * owns its own DSH_HOME (default `~/.dsh`, or whatever the configured startup
+ * command sets) and plugin configuration.
  *
  * Security posture: `/remote-api` is an unauthenticated local RPC, so this
  * half refuses to serve when the web server is bound to anything but the
@@ -54,9 +56,9 @@ const GPG_PIN = 'dsh-remote-app-pin'
 const MAX_JSON_BODY = 1 * 1024 * 1024
 const MAX_KEY_B64 = 8 * 1024 * 1024
 
-/** Remote harness repo + pinned ref; override for reproducibility via env. */
-export const envRepoUrl = (): string => process.env.DSH_REMOTE_REPO_URL || 'https://github.com/deepseek-ai/deepseek-harness.git'
-const envRepoRef = (): string => process.env.DSH_REMOTE_REPO_REF || 'main'
+/** Default remote command that starts the DSH backend; override via env. */
+export const defaultStartCommand = (): string =>
+  process.env.DSH_REMOTE_START_COMMAND || `npx '@deepseek-ai/dsh' web`
 
 interface Discovery {
   home: string
@@ -366,7 +368,10 @@ async function sshPortOpen(ctx: Context, auth: Record<string, unknown>, port: nu
 /** Remote toolchain presence check; reports each missing tool. */
 async function checkRemoteToolchain(ctx: Context, auth: Record<string, unknown>): Promise<{ ok: boolean; detail: string }> {
   const res = await sshRun(ctx, auth, [
-    'for c in git node pnpm tmux; do',
+    // node/npm (npx ships with npm) run the dsh CLI; tmux hosts the session so
+    // the backend survives the ssh command returning. git/pnpm are no longer
+    // required since no code is deployed to the remote.
+    'for c in node npm tmux; do',
     '  if command -v "$c" >/dev/null 2>&1; then echo "OK $c"; else echo "MISSING $c"; fi',
     'done',
   ].join('\n'), 30000)
@@ -380,7 +385,7 @@ async function checkRemoteToolchain(ctx: Context, auth: Record<string, unknown>)
 /** Discover the port the live `dsh-gui` tmux session is serving on. */
 async function discoverSessionPort(ctx: Context, auth: Record<string, unknown>, fallback: number): Promise<number> {
   const res = await sshRun(ctx, auth, 'tmux list-panes -t dsh-gui -F \'#{pane_start_command}\' 2>/dev/null | head -1', 20000)
-  const m = /--port\s+(\d+)/.exec(res.stdout)
+  const m = /--port(?:\s+|=)(\d+)/.exec(res.stdout)
   const port = m ? Number(m[1]) : fallback
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : fallback
 }
@@ -652,7 +657,7 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
           return { ok: false, authRequired: true, log: logLines }
         }
       }
-      return deployRemote(ctx, auth, avail, conn as { address: string; port: number }, logLines)
+      return connectRemote(ctx, auth, avail, conn as { address: string; port: number; startCommand?: string }, logLines)
     }
     case 'diag': {
       const probeMe = await probe(`http://127.0.0.1:${ctx.webServer.port}/`)
@@ -675,81 +680,57 @@ async function probeSshAuth(ctx: Context, auth: Record<string, unknown>): Promis
   return { ok: res.exitCode === 0 && res.stdout.includes('DSH_REMOTE_AUTH_OK') }
 }
 
-/** Common auth-failure markers in ssh stderr. */
-const AUTH_MARKERS = ['Permission denied', 'publickey', 'password', 'No supported authentication methods', 'Authentication failed', 'password authentication']
-
 /** Shared ssh base flags for the non-interactive route. */
 const SSH_BASE_FLAGS = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15']
 
 /**
- * Secure remote pipeline:
- *   1. precheck the remote toolchain (git/node/pnpm/tmux),
- *   2. ensure ~/.dsh-gui exists (git deploy + build when missing; pinned ref),
- *   3. ensure the `dsh-gui` tmux session is ALIVE (start/restart it bound to
- *      127.0.0.1 when missing or stale),
- *   4. discover the port the session's backend is serving on,
- *   5. open an SSH local port forward and wait until the local loopback URL is
- *      loadable (2xx) — never a direct address probe.
+ * Append the loopback bind + target port to a start command unless it already
+ * specifies them, so the backend only ever listens on the remote loopback and
+ * is reached exclusively through the SSH tunnel. (`--hostname` is a different
+ * flag and must not trip the `--host` check.)
  */
-async function deployRemote(
+function appendServeFlags(command: string, port: number): string {
+  const hasFlag = (name: string) => new RegExp(`(?:^|\\s)${name}(?:=|\\s|$)`).test(command)
+  const flags: string[] = []
+  if (!hasFlag('--host')) flags.push('--host 127.0.0.1')
+  if (!hasFlag('--port')) flags.push(`--port ${port}`)
+  const base = command.trim()
+  return flags.length > 0 ? `${base} ${flags.join(' ')}` : base
+}
+
+/**
+ * Secure remote pipeline (no deployment — start + forward only):
+ *   1. precheck the remote toolchain (node/npm/tmux),
+ *   2. ensure the `dsh-gui` tmux session is ALIVE; start/restart it bound to
+ *      127.0.0.1 when missing or stale, using the configured start command
+ *      (default `npx '@deepseek-ai/dsh' web`,
+ *      env override `DSH_REMOTE_START_COMMAND`),
+ *   3. discover the port the session's backend is serving on,
+ *   4. open an SSH local port forward and wait until the local loopback URL is
+ *      loadable (2xx) — never a direct address probe.
+ *
+ * Nothing is deployed to the remote: the startup command owns how dsh is run
+ * there (its DSH_HOME/plugins stay on the remote side), and the dsh-gui tmux
+ * session only keeps that process alive so the tunnel has something to reach.
+ */
+async function connectRemote(
   ctx: Context,
   auth: Record<string, unknown>,
   avail: { ssh: string | null; plink: string | null; sshpass: string | null },
-  conn: { address: string; port: number },
+  conn: { address: string; port: number; startCommand?: string },
   log: Array<{ step: string; ok: boolean; detail?: string }>,
 ): Promise<{ ok: boolean; authRequired?: boolean; log: Array<{ step: string; ok: boolean; detail?: string }>; url?: string; tunnelKey?: string }> {
   const tmuxName = 'dsh-gui'
+  const startCommand = String(conn.startCommand ?? '').trim() || defaultStartCommand()
 
   // 1. toolchain precheck
   const tools = await checkRemoteToolchain(ctx, auth)
   log.push({ step: '远端工具预检', ok: tools.ok, detail: tools.ok ? tools.detail : tools.detail })
   if (!tools.ok) return { ok: false, log }
 
-  // 2. ensure ~/.dsh-gui
-  const have = await sshRun(ctx, auth, [
-    'set -e',
-    'if [ -d "$HOME/.dsh-gui/.git" ]; then echo DIR_OK; else echo DIR_MISSING; fi',
-  ].join('\n'), 30000)
-  const haveErr = (have.stdout + have.stderr)
-  log.push({ step: '检查 ~/.dsh-gui', ok: have.exitCode === 0, detail: haveErr.trim() })
-  if (have.exitCode !== 0) {
-    const authRequired = AUTH_MARKERS.some(m => haveErr.toLowerCase().includes(m.toLowerCase()))
-    return { ok: false, authRequired, log }
-  }
-
-  if (have.stdout.includes('DIR_MISSING')) {
-    const repo = envRepoUrl()
-    const ref = envRepoRef()
-    log.push({ step: 'git 部署到 ~/.dsh-gui', ok: false, detail: `克隆 ${repo} (ref ${ref})…` })
-    // Clone the configured repo (default upstream main); a non-default ref is
-    // fetched and checked out explicitly (works for branch/tag/commit SHA).
-    const cloneScript = [
-      'set -e',
-      `git clone --depth 1 ${JSON.stringify(repo)} "$HOME/.dsh-gui" || { rm -rf "$HOME/.dsh-gui"; exit 10; }`,
-    ]
-    if (ref !== 'main' && ref !== 'HEAD') {
-      cloneScript.push(`git -C "$HOME/.dsh-gui" fetch --depth 1 origin ${JSON.stringify(ref)}`)
-      cloneScript.push(`git -C "$HOME/.dsh-gui" checkout ${JSON.stringify(ref)}`)
-    }
-    const clone = await sshRun(ctx, auth, cloneScript.join('\n'), 600000)
-    log[log.length - 1] = { step: 'git clone', ok: clone.exitCode === 0, detail: (clone.stdout + clone.stderr).trim().slice(0, 2000) }
-    if (clone.exitCode !== 0) return { ok: false, log }
-
-    log.push({ step: '编译项目', ok: false, detail: 'pnpm install --frozen-lockfile + pnpm run build（可能较长）' })
-    const build = await sshRun(ctx, auth, [
-      'set -e',
-      'cd "$HOME/.dsh-gui"',
-      'corepack enable 2>/dev/null || true',
-      'pnpm install --frozen-lockfile',
-      'pnpm run build',
-    ].join('\n'), 1800000)
-    log[log.length - 1] = { step: 'build', ok: build.exitCode === 0, detail: (build.stdout + build.stderr).trim().slice(0, 4000) }
-    if (build.exitCode !== 0) return { ok: false, log }
-  } else {
-    log.push({ step: '~/.dsh-gui 已存在', ok: true, detail: '跳过部署' })
-  }
-
-  // 3. tmux session state
+  // 2. ensure the tmux session is ALIVE, starting it with the configured
+  //    command when missing or stale. The backend binds loopback ONLY — the
+  //    frontend is reached via the SSH tunnel.
   const state = await sessionState(ctx, auth)
   log.push({ step: `tmux 会话 ${tmuxName}`, ok: state === 'ALIVE', detail: `state=${state}` })
   if (state !== 'ALIVE') {
@@ -757,33 +738,35 @@ async function deployRemote(
       const killed = await sshRun(ctx, auth, `tmux kill-session -t ${tmuxName} 2>/dev/null || true`, 20000)
       log.push({ step: '清理失效会话', ok: killed.exitCode === 0, detail: (killed.stdout + killed.stderr).trim() || 'ok' })
     }
-    log.push({ step: '启动后端 (tmux, 127.0.0.1)', ok: false, detail: 'start' })
-    // Backend binds loopback ONLY — the frontend is reached via the SSH tunnel.
-    const inner = `cd "$HOME/.dsh-gui" && DSH_HOME="$HOME/.dsh-gui/.dsh" node apps/cli/lib/bin.js web --host 127.0.0.1 --port ${conn.port}`
+    const inner = `cd "$HOME" && ${appendServeFlags(startCommand, conn.port)}`
+    log.push({ step: '启动远端 dsh', ok: false, detail: inner })
     const start = await sshRun(ctx, auth, [
       'set -e',
       `tmux new-session -d -s ${tmuxName} ${JSON.stringify(inner)}`,
       'exit 0',
     ].join('\n'), 30000)
-    log[log.length - 1] = { step: 'tmux new-session', ok: start.exitCode === 0, detail: (start.stdout + start.stderr).trim().slice(0, 2000) }
+    // tmux new-session itself returns at once; the command inside the pane
+    // runs detached (first npx fetch may take a while), so the port wait below
+    // covers the actual boot.
+    log[log.length - 1] = { step: 'tmux 启动 dsh', ok: start.exitCode === 0, detail: (start.stdout + start.stderr).trim().slice(0, 2000) }
     if (start.exitCode !== 0) return { ok: false, log }
   }
 
-  // 4. discover serving port from the session and wait until it is open
+  // 3. discover serving port from the session and wait until it is open
   const remotePort = await discoverSessionPort(ctx, auth, conn.port)
   log.push({ step: `服务端口 ${remotePort}`, ok: true, detail: `会话内后端监听 127.0.0.1:${remotePort}` })
-  const openDeadline = Date.now() + 120000
+  const openDeadline = Date.now() + 300000
   let open = await sshPortOpen(ctx, auth, remotePort)
   while (!open && Date.now() < openDeadline) {
     await new Promise(r => setTimeout(r, 2000))
     open = await sshPortOpen(ctx, auth, remotePort)
   }
   if (!open) {
-    log.push({ step: '服务端口未就绪', ok: false, detail: `127.0.0.1:${remotePort} 未在 120s 内开放` })
+    log.push({ step: '服务端口未就绪', ok: false, detail: `127.0.0.1:${remotePort} 未在 300s 内开放` })
     return { ok: false, log }
   }
 
-  // 5. open the SSH local port forward and wait for the local URL to load
+  // 4. open the SSH local port forward and wait for the local URL to load
   const tunnel = await openTunnel(ctx, auth, avail, remotePort)
   if (!tunnel.ok || tunnel.localPort === undefined) {
     log.push({ step: 'ssh 端口转发', ok: false, detail: tunnel.error || '无法建立转发' })

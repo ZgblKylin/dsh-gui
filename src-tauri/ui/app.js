@@ -355,6 +355,7 @@ function setConnType(type) {
   const sshOn = remote && $("conn-ssh-on").checked;
   $("conn-ssh-auth").classList.toggle("hidden", !sshOn);
   $("conn-ssh-port-wrap").classList.toggle("hidden", !sshOn);
+  $("conn-ssh-startcmd-wrap").classList.toggle("hidden", !sshOn);
   $("conn-creds").classList.toggle("hidden", !sshOn);
   $("conn-save-wrap").classList.toggle("hidden", !sshOn);
 }
@@ -367,6 +368,7 @@ function resetConnForm() {
   $("conn-ssh-host").value = "";
   $("conn-ssh-user").value = "";
   $("conn-ssh-port").value = "";
+  $("conn-ssh-startcmd").value = "";
   $("conn-password").value = "";
   $("conn-keyfile").value = "";
   $("conn-key-path").textContent = "";
@@ -504,12 +506,12 @@ async function connectRemote() {
     return;
   }
   connLog(
-    "远端不可加载，尝试 ssh 部署",
+    "远端不可加载，尝试通过 SSH 启动并转发",
     undefined,
     probe.error ?? (probe.reachable ? `HTTP ${probe.status} 非 2xx` : "不可达")
   );
   if (!$("conn-ssh-on").checked) {
-    connLog("需要 ssh", false, "请开启 SSH 部署并配置认证");
+    connLog("需要 ssh", false, "请开启 SSH 启动并配置认证");
     return;
   }
 
@@ -519,6 +521,7 @@ async function connectRemote() {
     sshUser: $("conn-ssh-user").value.trim() || undefined,
     sshHost: $("conn-ssh-host").value.trim() || undefined,
     sshPort: Number($("conn-ssh-port").value) || undefined,
+    startCommand: $("conn-ssh-startcmd").value.trim() || undefined,
     password: $("conn-password").value || undefined,
     keyFile: serverKeyPath,
   };

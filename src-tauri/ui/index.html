@@ -85,7 +85,7 @@
     <div id="conn-overlay" class="overlay hidden">
       <div class="conn-dialog" role="dialog" aria-modal="true" aria-labelledby="conn-title">
         <h2 id="conn-title">新建连接</h2>
-        <div class="conn-sub">连接到另一个 DSH 后端：本机端口加载/启动，或通过 SSH 部署到远端。</div>
+        <div class="conn-sub">连接到另一个 DSH 后端：本机端口加载/启动，或通过 SSH 启动远端 dsh 并转发端口访问。</div>
         <div class="conn-type-grid">
           <div class="conn-type-card sel" data-type="local">
             <b>本地连接</b>
@@ -93,7 +93,7 @@
           </div>
           <div class="conn-type-card" data-type="remote">
             <b>远程连接</b>
-            <small>加载远端，必要时通过 SSH 部署</small>
+            <small>通过 SSH 启动远端 dsh 并转发端口访问</small>
           </div>
         </div>
         <div class="conn-field-row">
@@ -111,7 +111,7 @@
           <input id="conn-addr" class="conn-input" placeholder="192.168.1.10" />
         </div>
         <label class="conn-check" id="conn-ssh-toggle">
-          <input type="checkbox" id="conn-ssh-on" /> 需 SSH 部署（端口不可加载时使用）
+          <input type="checkbox" id="conn-ssh-on" /> 通过 SSH 启动并转发端口（端口不可加载时使用）
         </label>
         <div class="conn-field-row" id="conn-ssh-auth">
           <div class="conn-field">
@@ -126,6 +126,10 @@
         <div class="conn-field" id="conn-ssh-port-wrap">
           <label for="conn-ssh-port">SSH 端口（留空用 ssh config / 默认 22）</label>
           <input id="conn-ssh-port" class="conn-input" inputmode="numeric" placeholder="22" />
+        </div>
+        <div class="conn-field" id="conn-ssh-startcmd-wrap">
+          <label for="conn-ssh-startcmd">远端启动 dsh 的命令（留空用默认）</label>
+          <input id="conn-ssh-startcmd" class="conn-input" spellcheck="false" placeholder="npx '@deepseek-ai/dsh' web" />
         </div>
         <div class="conn-field" id="conn-creds">
           <label>密码 或 密钥文件（二选一）</label>
