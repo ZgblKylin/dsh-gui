@@ -10,8 +10,9 @@ title bar and border.
 
 On launch the entry exe:
 
-1. Spawns `node deepseek-harness/apps/cli/lib/bin.js web --port <port>`, with
-   `DSH_HOME` pinned to `./.dsh` inside this repository.
+1. Spawns `node deepseek-harness/apps/cli/lib/bin.js` with
+   `web --port <port> --no-open`, and pins `DSH_HOME` to `./.dsh` inside this
+   repository.
 2. Waits until the harness answers `GET /` with `200` on `127.0.0.1:<port>`.
 3. Opens one **frameless** webview window that renders a custom title bar and
    embeds the harness web UI in an iframe. On exit it tears the harness
@@ -259,10 +260,21 @@ npm start
 `npm start` launches the entry exe detached: the terminal returns immediately
 and closing it never kills dsh-gui (or its harness child).
 
-Override the port with `$env:DSH_GUI_PORT` (default `3080`). Harness output is
-logged to `.dsh\gui\harness.log`; dsh-gui's own status lines go to
-`.dsh\gui\gui.log`, and startup failures also pop a message box (a GUI app has
-no console to print to).
+To run only that same harness backend in the foreground, without starting the
+Tauri shell or opening a browser, use:
+
+```powershell
+npm run harness
+```
+
+It uses the same `web --port <port> --no-open` arguments, starts from the
+`deepseek-harness/` checkout, and pins `DSH_HOME` to this repository's `.dsh`.
+Its output stays in the terminal; press Ctrl+C to stop it.
+
+Both launch paths honor `$env:DSH_GUI_PORT` (default `3080`). Under `npm start`,
+harness output is logged to `.dsh\gui\harness.log`; dsh-gui's own status lines
+go to `.dsh\gui\gui.log`, and startup failures also pop a message box (a GUI app
+has no console to print to).
 
 ## System shortcut (Windows)
 
@@ -339,7 +351,10 @@ installPlugin({
 A plugin that declares `dsh.bundle.patch` (its own `cordis.patch.yml` bundle
 layer, e.g. `dsh-file-explorer`) mounts itself: `dsh plugin add` reconciles it
 into the profile's `dsh.profile.bundles` list and its patch inserts the entry
-as a bundle layer — no `cordis.patch.yml` insert is written for it.
+as a bundle layer — no `cordis.patch.yml` insert is written for it. When a
+previous version was mounted manually before gaining a bundle declaration, the
+shared installer removes its matching legacy insert during reinstall to avoid a
+duplicate Loader entry.
 
 `plugins/deep-whale` installs its `maid-atelier` skin as a 免编译源码安装: the
 submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped

@@ -14,9 +14,10 @@
  *  3. `dsh plugin --profile web add link:<package dir>` records the dependency
  *     (a `link:` spec, so edits to the package show up on the next boot),
  *  4. append an idempotent insert row to `.dsh/profiles/web/cordis.patch.yml`
- *     unless the package mounts itself through `dsh.bundle.patch`; the row is
- *     the wrapper's explicit `mount` entry when given, else derived from the
- *     package manifest.
+ *     unless the package mounts itself through `dsh.bundle.patch`; bundle
+ *     packages instead remove a matching legacy row written by older versions
+ *     of this installer. Plain-package rows use the wrapper's explicit `mount`
+ *     entry when given, else one derived from the package manifest.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -154,6 +155,58 @@ export function parseInsertRows(text) {
 }
 
 /**
+ * Remove legacy three-line insert blocks emitted by mountEntry when a package
+ * has since migrated to `dsh.bundle.patch`. Matching both id and package name
+ * keeps arbitrary user-authored patch entries untouched. The formatter and all
+ * unrelated content are preserved byte-for-byte apart from removed blocks.
+ *
+ * @param {string} text - patch-list file content.
+ * @param {{ id: string, name: string }} mount - the obsolete manual mount.
+ * @returns {{ text: string, removed: number }} rewritten text and match count.
+ */
+export function removeLegacyInsertBlocks(text, mount) {
+  const newline = text.includes('\r\n') ? '\r\n' : '\n'
+  const trailingNewline = /\r?\n$/.test(text)
+  const lines = text.split(/\r?\n/)
+  let removed = 0
+
+  for (let index = 0; index + 2 < lines.length;) {
+    const insert = /^\s*- insert:\s*$/.test(lines[index])
+    const id = /^\s*-\s*id:\s*(\S+)\s*$/.exec(lines[index + 1])?.[1]
+    const quotedName = /^\s*name:\s*'([^']*)'\s*$/.exec(lines[index + 2])?.[1]
+    const plainName = /^\s*name:\s*(\S+)\s*$/.exec(lines[index + 2])?.[1]
+    const name = (quotedName ?? plainName)?.replace(/''/g, "'")
+    if (insert && id === mount.id && name === mount.name) {
+      lines.splice(index, 3)
+      removed += 1
+      continue
+    }
+    index += 1
+  }
+
+  if (removed === 0) return { text, removed }
+
+  const payload = lines.filter((line) => !/^\s*(?:#.*)?$/.test(line))
+  if (payload.length === 0) {
+    while (lines.at(-1) === '') lines.pop()
+    lines.push('[]')
+    if (trailingNewline) lines.push('')
+  }
+  return { text: lines.join(newline), removed }
+}
+
+/** Remove an obsolete installer-owned manual mount from the profile patch. */
+function unmountLegacyEntry(profileDir, mount) {
+  const patchPath = join(profileDir, 'cordis.patch.yml')
+  if (!existsSync(patchPath)) return false
+  const result = removeLegacyInsertBlocks(readFileSync(patchPath, 'utf8'), mount)
+  if (result.removed === 0) return false
+  writeFileSync(patchPath, result.text)
+  console.log(`  removed ${result.removed} legacy manual mount for bundle entry '${mount.id}'`)
+  return true
+}
+
+/**
  * Mount a plugin entry into the web composition. The harness scans the
  * Loader's ENTRIES for `dsh.client` declarations, so a plugin stays inert
  * until a cordis.patch.yml insert turns it into an entry. Appends are
@@ -254,6 +307,9 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null,
     // A bundle patch plugin mounts itself: `dsh plugin add` reconciles it into
     // dsh.profile.bundles, and its own cordis.patch.yml insert row reaches the
     // composition as a bundle layer. A manual insert would double-mount it.
+    const mountId = String(mount?.id ?? manifest.dsh?.gui?.mountId ?? packageName.replace(/^dsh-/, ''))
+    const mountName = String(mount?.name ?? packageName)
+    unmountLegacyEntry(profileDir, { id: mountId, name: mountName })
     console.log(`  ${packageName} declares dsh.bundle.patch — it mounts through its bundle layer, no cordis.patch.yml insert added`)
     console.log(`installed plugin '${id}' into ${profileDir}`)
     return
@@ -319,6 +375,9 @@ export function installNpmPlugin({ id, packageSpec, mount = null }) {
   if (manifest.dsh?.bundle?.patch !== undefined) {
     // A bundle patch plugin mounts itself: `dsh plugin add` already
     // reconciled it into dsh.profile.bundles.
+    const mountId = String(mount?.id ?? manifest.dsh?.gui?.mountId ?? name.replace(/^dsh-/, ''))
+    const mountName = String(mount?.name ?? manifest.name ?? name)
+    unmountLegacyEntry(profileDir, { id: mountId, name: mountName })
     console.log(`  ${name} declares dsh.bundle.patch — it mounts through its bundle layer, no cordis.patch.yml insert added`)
     console.log(`installed plugin '${id}' into ${profileDir}`)
     return
