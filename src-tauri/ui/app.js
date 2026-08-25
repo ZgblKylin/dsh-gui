@@ -481,37 +481,60 @@ async function connectLocal() {
   }
 }
 
+// Repaint the whole new-connection log from a line array (used by the remote
+// path so live server progress can stream in without piling up duplicates).
+function paintConnLog(lines) {
+  const log = $("conn-log");
+  log.innerHTML = "";
+  for (const l of lines) {
+    const el = document.createElement("div");
+    el.className = l.ok === undefined ? "info" : l.ok ? "ok" : "err";
+    el.textContent =
+      (l.ok === undefined ? "· " : l.ok ? "✓ " : "✗ ") +
+      String(l.step ?? "步骤") +
+      (l.detail !== undefined ? " — " + l.detail : "");
+    log.appendChild(el);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
 async function connectRemote() {
   const name = $("conn-name").value.trim();
   const p = Number($("conn-port").value);
   const addr = $("conn-addr").value.trim().replace(/^https?:\/\//i, "");
+  const lines = [];
+  const show = () => paintConnLog(lines);
+  const push = (step, ok, detail) => {
+    lines.push({ step, ok, detail });
+    show();
+  };
   if (name === "") {
-    connLog("校验", false, "请填写连接名");
+    push("校验", false, "请填写连接名");
     return;
   }
   if (addr === "") {
-    connLog("校验", false, "请填写地址");
+    push("校验", false, "请填写地址");
     return;
   }
   if (!Number.isInteger(p) || p <= 0 || p > 65535) {
-    connLog("校验", false, "端口无效");
+    push("校验", false, "端口无效");
     return;
   }
   const url = `http://${addr}:${p}/`;
-  connLog("检查 " + url, undefined);
+  push("检查 " + url);
   const probe = await rpc("probe", { url });
   if (probe.reachable === true && probe.loadable === true) {
-    connLog("远端可加载", true, `HTTP ${probe.status}`);
+    push("远端可加载", true, `HTTP ${probe.status}`);
     addTab(name, url, { type: "remote", address: addr, port: p });
     return;
   }
-  connLog(
+  push(
     "远端不可加载，尝试通过 SSH 启动并转发",
     undefined,
     probe.error ?? (probe.reachable ? `HTTP ${probe.status} 非 2xx` : "不可达")
   );
   if (!$("conn-ssh-on").checked) {
-    connLog("需要 ssh", false, "请开启 SSH 启动并配置认证");
+    push("需要 ssh", false, "请开启 SSH 启动并配置认证");
     return;
   }
 
@@ -526,7 +549,7 @@ async function connectRemote() {
     keyFile: serverKeyPath,
   };
   if (!sshConn.password && !sshConn.keyFile) {
-    connLog("使用已保存认证", undefined, "读取凭据…");
+    push("使用已保存认证", undefined, "读取凭据…");
     const saved = await rpc("creds.read", { name });
     if (saved.exists === true && saved.payload) {
       const pl = saved.payload;
@@ -535,21 +558,45 @@ async function connectRemote() {
       sshConn.sshPort = sshConn.sshPort || pl.sshPort;
       sshConn.password = pl.password;
       sshConn.keyFile = pl.keyFile;
-      connLog("使用已保存认证", true, name);
+      push("使用已保存认证", true, name);
     } else {
-      connLog("无已保存认证", true, "将尝试 ~/.ssh/config");
+      push("无已保存认证", true, "将尝试 ~/.ssh/config");
     }
   }
   if (!sshConn.sshUser && !sshConn.password && !sshConn.keyFile && !sshConn.sshHost) {
-    connLog("缺少认证", false, "请填写 SSH 用户名（或 SSH 主机别名）与密码/密钥");
+    push("缺少认证", false, "请填写 SSH 用户名（或 SSH 主机别名）与密码/密钥");
     return;
   }
-  connLog("建立 SSH 会话", undefined, sshConn.sshHost || addr);
-  const res = await rpc("ssh.connect", { conn: sshConn });
-  for (const s of res.log ?? []) {
-    connLog(String(s.step ?? "步骤"), s.ok, s.detail);
+  push("建立 SSH 会话", undefined, sshConn.sshHost || addr);
+  const preamble = lines.slice();
+
+  // The host pipeline runs in ONE ssh.connect RPC; live-stream its progress
+  // via ssh.status instead of staring at a silent "建立 SSH 会话".
+  let lastServerJson = "";
+  const pollTimer = setInterval(async () => {
+    try {
+      const st = await rpc("ssh.status");
+      const steps = Array.isArray(st && st.steps) ? st.steps : [];
+      const json = JSON.stringify(steps);
+      if (json !== lastServerJson) {
+        lastServerJson = json;
+        paintConnLog([...preamble, ...steps]);
+      }
+      if (st && st.running === false) clearInterval(pollTimer);
+    } catch (_) {
+      /* transient poll errors are fine — the connect result is authoritative */
+    }
+  }, 800);
+
+  let res;
+  try {
+    res = await rpc("ssh.connect", { conn: sshConn });
+  } finally {
+    clearInterval(pollTimer);
   }
-  if (res.ok === true) {
+  const finalSteps = Array.isArray(res && res.log) ? res.log : [];
+  paintConnLog([...preamble, ...finalSteps]);
+  if (res && res.ok === true) {
     if (
       $("conn-save-auth").checked &&
       ($("conn-password").value !== "" || serverKeyPath !== null || $("conn-ssh-host").value.trim() !== "")
@@ -566,7 +613,7 @@ async function connectRemote() {
       });
     }
     addTab(name, res.url ?? url, { type: "remote", address: addr, port: p });
-  } else if (res.authRequired === true) {
+  } else if (res && res.authRequired === true) {
     connLog(
       "回退到连接配置",
       false,

@@ -27,7 +27,7 @@ mod update;
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -204,6 +204,94 @@ fn resolve_port() -> u16 {
         .unwrap_or(DEFAULT_PORT)
 }
 
+/// Refuse to launch while another process already owns the requested endpoint.
+/// Without this preflight, the HTTP readiness probe can mistake that foreign
+/// server for the child we just spawned while our child is still loading, open
+/// the GUI against the wrong DSH_HOME, and only later log the child's
+/// `EADDRINUSE` exit.
+fn ensure_loopback_port_available(port: u16) -> Result<(), String> {
+    let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AddrInUse {
+            format!(
+                "127.0.0.1:{port} is already in use; close the existing dsh-gui / dsh web process or choose another DSH_GUI_PORT"
+            )
+        } else {
+            format!("could not reserve 127.0.0.1:{port} for the harness: {error}")
+        }
+    })?;
+    drop(listener);
+    Ok(())
+}
+
+/// Return the process that owns the IPv4 listener for `port` on Windows.
+/// The preflight above handles the normal collision case; this post-spawn
+/// ownership check closes the much smaller bind race between releasing the
+/// preflight socket and Node claiming it.
+#[cfg(windows)]
+fn loopback_listener_pid(port: u16) -> Result<Option<u32>, String> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+    };
+    use windows_sys::Win32::Networking::WinSock::AF_INET;
+
+    let mut size = 0_u32;
+    unsafe {
+        // The first call reports the buffer size. Its status is normally
+        // ERROR_INSUFFICIENT_BUFFER, but `size` is the only result needed.
+        GetExtendedTcpTable(
+            std::ptr::null_mut(),
+            &mut size,
+            0,
+            AF_INET as u32,
+            TCP_TABLE_OWNER_PID_LISTENER,
+            0,
+        );
+    }
+    if size < std::mem::size_of::<u32>() as u32 {
+        return Err("Windows returned an empty TCP listener table".to_string());
+    }
+
+    // A u32 backing buffer gives the table header and every row their required
+    // alignment; a Vec<u8> cast would not provide that guarantee.
+    let mut words = vec![0_u32; (size as usize).div_ceil(std::mem::size_of::<u32>())];
+    let status = unsafe {
+        GetExtendedTcpTable(
+            words.as_mut_ptr().cast(),
+            &mut size,
+            0,
+            AF_INET as u32,
+            TCP_TABLE_OWNER_PID_LISTENER,
+            0,
+        )
+    };
+    if status != 0 {
+        return Err(format!(
+            "could not inspect the Windows TCP listener table: {}",
+            std::io::Error::from_raw_os_error(status as i32)
+        ));
+    }
+
+    let count = words[0] as usize;
+    let row_words = std::mem::size_of::<MIB_TCPROW_OWNER_PID>()
+        .div_ceil(std::mem::size_of::<u32>());
+    if 1 + count.saturating_mul(row_words) > words.len() {
+        return Err("Windows returned a truncated TCP listener table".to_string());
+    }
+    let rows = unsafe {
+        std::slice::from_raw_parts(
+            words.as_ptr().add(1).cast::<MIB_TCPROW_OWNER_PID>(),
+            count,
+        )
+    };
+    Ok(rows
+        .iter()
+        .find(|row| {
+            u32::from_be(row.dwLocalAddr) == u32::from_be_bytes([127, 0, 0, 1])
+                && u16::from_be(row.dwLocalPort as u16) == port
+        })
+        .map(|row| row.dwOwningPid))
+}
+
 /// Append a status line to `<root>/.dsh/gui/gui.log` (the only visible record
 /// once the console is gone) and mirror it to stderr for `cargo run`.
 fn log_status(root: &Path, msg: &str) {
@@ -298,6 +386,8 @@ fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Er
         .into());
     }
 
+    ensure_loopback_port_available(port)?;
+
     let home = root.join(".dsh");
     let log_dir = home.join("gui");
     fs::create_dir_all(&log_dir)?;
@@ -366,6 +456,21 @@ fn wait_ready(
             .into());
         }
         if http_get_ok(port) {
+            #[cfg(windows)]
+            match loopback_listener_pid(port)? {
+                Some(pid) if pid == child.id() => return Ok(()),
+                Some(pid) => {
+                    return Err(format!(
+                        "127.0.0.1:{port} answered from unexpected process {pid}, not the spawned harness process {}; refusing to open the wrong DSH_HOME",
+                        child.id()
+                    )
+                    .into())
+                }
+                // The HTTP connection may have closed just as the table was
+                // sampled; let the normal child/timeout checks decide.
+                None => {}
+            }
+            #[cfg(not(windows))]
             return Ok(());
         }
         if start.elapsed() >= timeout {
@@ -663,6 +768,7 @@ const REMOTE_OPS: &[&str] = &[
     "auth.available",
     "tunnel.close",
     "ssh.connect",
+    "ssh.status",
     "diag",
 ];
 
@@ -928,7 +1034,8 @@ fn main() {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::job::KillJob;
+    use super::{ensure_loopback_port_available, job::KillJob, loopback_listener_pid};
+    use std::net::TcpListener;
     use std::process::Command;
     use std::time::Duration;
 
@@ -951,6 +1058,22 @@ mod tests {
             std::thread::sleep(Duration::from_millis(100));
         }
         child.wait().expect("the job must kill the child")
+    }
+
+    #[test]
+    fn occupied_port_is_rejected_and_reports_its_owner() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+        let port = listener.local_addr().expect("test listener address").port();
+
+        let error = ensure_loopback_port_available(port).expect_err("occupied port must fail");
+        assert!(error.contains("already in use"), "unexpected error: {error}");
+        assert_eq!(
+            loopback_listener_pid(port).expect("query listener owner"),
+            Some(std::process::id())
+        );
+
+        drop(listener);
+        ensure_loopback_port_available(port).expect("released port must be available");
     }
 
     /// The clean-exit path: `ChildGuard::drop` terminates the job first, so

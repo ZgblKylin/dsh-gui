@@ -258,7 +258,11 @@ npm start
 ```
 
 `npm start` launches the entry exe detached: the terminal returns immediately
-and closing it never kills dsh-gui (or its harness child).
+and closing it never kills dsh-gui (or its harness child). The launcher and
+entry exe both pin `DSH_HOME` to this checkout's `.dsh`. Startup refuses an
+already occupied loopback port and, on Windows, also verifies that the listener
+belongs to the Node child it just spawned, so an unrelated `dsh web` process
+can never be mistaken for this checkout's backend.
 
 To run only that same harness backend in the foreground, without starting the
 Tauri shell or opening a browser, use:
@@ -398,6 +402,10 @@ and install just the harness + plugins.
 - **"failed to spawn harness (is `node` on PATH?)"** — install Node 22+.
 - **Blank window / connection refused** — read `.dsh\gui\harness.log`; the
   harness failed to start (e.g. port already in use — set `DSH_GUI_PORT`).
+- **"127.0.0.1:3080 is already in use"** — close the existing dsh-gui / `dsh
+  web` process, or set a different `$env:DSH_GUI_PORT`. The shell deliberately
+  refuses to attach to an existing server because it may use another
+  `DSH_HOME`, which would look like a first-time setup with missing sessions.
 - **Nothing happens on launch** — a message box reports startup errors;
   `.dsh\gui\gui.log` keeps the history, and a panic writes
   `dsh-gui-crash.log` next to the exe.

@@ -220,7 +220,13 @@ function runApp() {
   ]
   const exe = candidates.find(existsSync)
   if (!exe) throw new Error(`entry exe not found (looked at ${candidates.join(', ')}) — run "npm run setup" first`)
-  const child = spawn(exe, [], { cwd: ROOT, detached: true, stdio: 'ignore', windowsHide: true })
+  const child = spawn(exe, [], {
+    cwd: ROOT,
+    env: { ...process.env, DSH_HOME: WEB_HOME },
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  })
   child.unref()
   console.log(`launched ${exe}`)
 }

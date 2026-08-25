@@ -271,6 +271,46 @@ function log(ctx: Context, message: string): void {
   ctx.logger?.info(`[dsh-remote] ${message}`)
 }
 
+/** Live progress of the in-flight remote connect; polled by the shell via `ssh.status`. */
+const remoteProgress: {
+  running: boolean
+  startedAt: number
+  steps: Array<{ step: string; ok?: boolean; detail?: string }>
+} = {
+  running: false,
+  startedAt: 0,
+  steps: [],
+}
+
+/** Append a live-progress line; consecutive lines with the same step text are
+ *  collapsed so volatile counters (e.g. the port-wait countdown) do not flood
+ *  the shell's progress list. */
+function progress(step: string, ok?: boolean, detail?: string): void {
+  const last = remoteProgress.steps[remoteProgress.steps.length - 1]
+  if (last !== undefined && last.step === step) {
+    last.ok = ok
+    last.detail = detail
+    return
+  }
+  remoteProgress.steps.push({ step, ok, detail })
+  if (remoteProgress.steps.length > 400) remoteProgress.steps.splice(0, remoteProgress.steps.length - 400)
+}
+
+/** Record one connection-log line into the returned log AND the live store. */
+function pushLog(log: Array<{ step: string; ok: boolean; detail?: string }>, step: string, ok: boolean, detail?: string): void {
+  log.push({ step, ok, detail })
+  progress(step, ok, detail)
+}
+
+/** Replace a connection-log line (both log and live store). */
+function replaceLog(log: Array<{ step: string; ok: boolean; detail?: string }>, index: number, step: string, ok: boolean, detail?: string): void {
+  log[index] = { step, ok, detail }
+  progress(step, ok, detail)
+}
+
+/** Remote diagnostics log tail (redirect of the tmux pane) + a wait counter. */
+const REMOTE_LOG = '$HOME/.dsh-gui-remote.log'
+
 /** A live SSH local port forward (remote service reached via 127.0.0.1). */
 interface Tunnel {
   key: string
@@ -622,43 +662,57 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
       return { ok: closeTunnel(key), key }
     }
     case 'ssh.connect': {
-      const conn = (args.conn ?? {}) as Record<string, unknown>
-      const logLines: Array<{ step: string; ok: boolean; detail?: string }> = []
-      if (!conn.address || !conn.port) {
-        return { ok: false, log: [{ step: 'connect', ok: false, detail: 'address and port required' }] }
-      }
-      // SSH target is its own field (an ssh-config alias like `ASUS` or an
-      // explicit host), distinct from the DSH frontend address. When left
-      // empty it falls back to the DSH address.
-      const sshHost = String(conn.sshHost ?? conn.address)
-      const auth = {
-        user: conn.sshUser ? String(conn.sshUser) : '',
-        host: sshHost,
-        port: conn.sshPort ? Number(conn.sshPort) : undefined,
-        password: conn.password ? String(conn.password) : undefined,
-        keyFile: conn.keyFile ? String(conn.keyFile) : undefined,
-      }
-      const avail = sshAvailability()
-      logLines.push({ step: '建立 ssh 会话', ok: true, detail: `${auth.user !== '' ? auth.user + '@' : ''}${auth.host}` })
-      if (auth.password && !auth.keyFile && avail.plink === null && avail.sshpass === null) {
-        return { ok: false, log: [...logLines, { step: '认证', ok: false, detail: '密码登录需要 plink 或 sshpass；请使用密钥文件' }] }
-      }
-      // No explicit credential: reuse ~/.ssh/config via the alias. If the
-      // alias itself needs authentication, report authRequired so the client
-      // falls back to asking for user/password/key.
-      if (!auth.password && !auth.keyFile) {
-        const probeRes = await probeSshAuth(ctx, auth)
-        logLines.push({
-          step: 'ssh config 认证检查',
-          ok: probeRes.ok,
-          detail: probeRes.ok ? '通过（复用 ~/.ssh/config' + (auth.host !== String(conn.address) ? ` 别名 ${auth.host}` : '') + '）' : '该主机需要认证，请填写用户名/密码或密钥',
-        })
-        if (!probeRes.ok) {
-          return { ok: false, authRequired: true, log: logLines }
+      remoteProgress.running = true
+      remoteProgress.startedAt = Date.now()
+      remoteProgress.steps = []
+      try {
+        const conn = (args.conn ?? {}) as Record<string, unknown>
+        const logLines: Array<{ step: string; ok: boolean; detail?: string }> = []
+        if (!conn.address || !conn.port) {
+          return { ok: false, log: [{ step: 'connect', ok: false, detail: 'address and port required' }] }
         }
+        // SSH target is its own field (an ssh-config alias like `ASUS` or an
+        // explicit host), distinct from the DSH frontend address. When left
+        // empty it falls back to the DSH address.
+        const sshHost = String(conn.sshHost ?? conn.address)
+        const auth = {
+          user: conn.sshUser ? String(conn.sshUser) : '',
+          host: sshHost,
+          port: conn.sshPort ? Number(conn.sshPort) : undefined,
+          password: conn.password ? String(conn.password) : undefined,
+          keyFile: conn.keyFile ? String(conn.keyFile) : undefined,
+        }
+        const avail = sshAvailability()
+        pushLog(logLines, '建立 ssh 会话', true, `${auth.user !== '' ? auth.user + '@' : ''}${auth.host}`)
+        if (auth.password && !auth.keyFile && avail.plink === null && avail.sshpass === null) {
+          return { ok: false, log: [...logLines, { step: '认证', ok: false, detail: '密码登录需要 plink 或 sshpass；请使用密钥文件' }] }
+        }
+        // No explicit credential: reuse ~/.ssh/config via the alias. If the
+        // alias itself needs authentication, report authRequired so the client
+        // falls back to asking for user/password/key.
+        if (!auth.password && !auth.keyFile) {
+          const probeRes = await probeSshAuth(ctx, auth)
+          pushLog(
+            logLines,
+            'ssh config 认证检查',
+            probeRes.ok,
+            probeRes.ok ? '通过（复用 ~/.ssh/config' + (auth.host !== String(conn.address) ? ` 别名 ${auth.host}` : '') + '）' : '该主机需要认证，请填写用户名/密码或密钥',
+          )
+          if (!probeRes.ok) {
+            return { ok: false, authRequired: true, log: logLines }
+          }
+        }
+        return connectRemote(ctx, auth, avail, conn as { address: string; port: number; startCommand?: string }, logLines)
+      } finally {
+        remoteProgress.running = false
       }
-      return connectRemote(ctx, auth, avail, conn as { address: string; port: number; startCommand?: string }, logLines)
     }
+    case 'ssh.status':
+      return {
+        running: remoteProgress.running,
+        startedAt: remoteProgress.startedAt,
+        steps: remoteProgress.steps.map(step => ({ ...step })),
+      }
     case 'diag': {
       const probeMe = await probe(`http://127.0.0.1:${ctx.webServer.port}/`)
       const livePorts = Array.from(locals.keys())
@@ -725,21 +779,23 @@ async function connectRemote(
 
   // 1. toolchain precheck
   const tools = await checkRemoteToolchain(ctx, auth)
-  log.push({ step: '远端工具预检', ok: tools.ok, detail: tools.ok ? tools.detail : tools.detail })
+  pushLog(log, '远端工具预检', tools.ok, tools.ok ? tools.detail : tools.detail)
   if (!tools.ok) return { ok: false, log }
 
   // 2. ensure the tmux session is ALIVE, starting it with the configured
   //    command when missing or stale. The backend binds loopback ONLY — the
-  //    frontend is reached via the SSH tunnel.
+  //    frontend is reached via the SSH tunnel. The pane's output is redirected
+  //    to $HOME/.dsh-gui-remote.log so failures are diagnosable even after the
+  //    session exits (capture-pane would be empty then).
   const state = await sessionState(ctx, auth)
-  log.push({ step: `tmux 会话 ${tmuxName}`, ok: state === 'ALIVE', detail: `state=${state}` })
+  pushLog(log, `tmux 会话 ${tmuxName}`, state === 'ALIVE', `state=${state}`)
   if (state !== 'ALIVE') {
     if (state === 'STALE') {
       const killed = await sshRun(ctx, auth, `tmux kill-session -t ${tmuxName} 2>/dev/null || true`, 20000)
-      log.push({ step: '清理失效会话', ok: killed.exitCode === 0, detail: (killed.stdout + killed.stderr).trim() || 'ok' })
+      pushLog(log, '清理失效会话', killed.exitCode === 0, (killed.stdout + killed.stderr).trim() || 'ok')
     }
-    const inner = `cd "$HOME" && ${appendServeFlags(startCommand, conn.port)}`
-    log.push({ step: '启动远端 dsh', ok: false, detail: inner })
+    const inner = `cd "$HOME" && ${appendServeFlags(startCommand, conn.port)} > ${REMOTE_LOG} 2>&1`
+    pushLog(log, '启动远端 dsh', false, inner)
     const start = await sshRun(ctx, auth, [
       'set -e',
       `tmux new-session -d -s ${tmuxName} ${JSON.stringify(inner)}`,
@@ -748,33 +804,50 @@ async function connectRemote(
     // tmux new-session itself returns at once; the command inside the pane
     // runs detached (first npx fetch may take a while), so the port wait below
     // covers the actual boot.
-    log[log.length - 1] = { step: 'tmux 启动 dsh', ok: start.exitCode === 0, detail: (start.stdout + start.stderr).trim().slice(0, 2000) }
+    replaceLog(log, log.length - 1, 'tmux 启动 dsh', start.exitCode === 0, (start.stdout + start.stderr).trim().slice(0, 2000))
     if (start.exitCode !== 0) return { ok: false, log }
+  }
+
+  /** Tail the remote start log for diagnostics ($HOME/.dsh-gui-remote.log). */
+  async function remoteTail(lines = 12, chars = 1500): Promise<string> {
+    const r = await sshRun(ctx, auth, `tail -n ${lines} ${REMOTE_LOG} 2>/dev/null || true`, 15000)
+    return (r.stdout + r.stderr).trim().split('\n').slice(-lines).join('\n').slice(0, chars)
   }
 
   // 3. discover serving port from the session and wait until it is open
   const remotePort = await discoverSessionPort(ctx, auth, conn.port)
-  log.push({ step: `服务端口 ${remotePort}`, ok: true, detail: `会话内后端监听 127.0.0.1:${remotePort}` })
+  pushLog(log, `服务端口 ${remotePort}`, true, `会话内后端监听 127.0.0.1:${remotePort}`)
   const openDeadline = Date.now() + 300000
+  const openedAt = Date.now()
   let open = await sshPortOpen(ctx, auth, remotePort)
+  let waitIter = 0
   while (!open && Date.now() < openDeadline) {
     await new Promise(r => setTimeout(r, 2000))
     open = await sshPortOpen(ctx, auth, remotePort)
+    waitIter++
+    const waited = Math.round((Date.now() - openedAt) / 1000)
+    if (waitIter % 3 === 1) {
+      const tail = await remoteTail(6)
+      progress('等待服务端口开放', undefined, `127.0.0.1:${remotePort}（已等待 ${waited}s）${tail !== '' ? `\n远端日志:\n${tail}` : ''}`)
+    } else {
+      progress('等待服务端口开放', undefined, `127.0.0.1:${remotePort}（已等待 ${waited}s）`)
+    }
   }
   if (!open) {
-    log.push({ step: '服务端口未就绪', ok: false, detail: `127.0.0.1:${remotePort} 未在 300s 内开放` })
+    const tail = await remoteTail(60, 4000)
+    pushLog(log, '服务端口未就绪', false, `127.0.0.1:${remotePort} 未在 300s 内开放${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
     return { ok: false, log }
   }
 
   // 4. open the SSH local port forward and wait for the local URL to load
   const tunnel = await openTunnel(ctx, auth, avail, remotePort)
   if (!tunnel.ok || tunnel.localPort === undefined) {
-    log.push({ step: 'ssh 端口转发', ok: false, detail: tunnel.error || '无法建立转发' })
+    pushLog(log, 'ssh 端口转发', false, tunnel.error || '无法建立转发')
     return { ok: false, log }
   }
   const key = `${auth.host}:${remotePort}`
   const localUrl = `http://127.0.0.1:${tunnel.localPort}/`
-  log.push({ step: 'ssh 端口转发', ok: true, detail: `127.0.0.1:${tunnel.localPort} -> ${auth.host}:${remotePort}` })
+  pushLog(log, 'ssh 端口转发', true, `127.0.0.1:${tunnel.localPort} -> ${auth.host}:${remotePort}`)
 
   const deadline = Date.now() + 150000
   let ready = false
@@ -783,8 +856,14 @@ async function connectRemote(
     const p = await probe(localUrl)
     status = p.status
     if (p.loadable) { ready = true; break }
+    progress('等待前端就绪', undefined, `${localUrl}（已等待 ${Math.round(150000 - (deadline - Date.now())) / 1000}s）`)
     await new Promise(r => setTimeout(r, 2000))
   }
-  log.push({ step: `前端就绪 ${localUrl}`, ok: ready, detail: ready ? `HTTP ${status}` : '超时' })
+  if (!ready) {
+    const tail = await remoteTail(40, 3000)
+    pushLog(log, '前端就绪', false, `${localUrl} 超时${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
+    return { ok: false, log }
+  }
+  pushLog(log, `前端就绪 ${localUrl}`, true, `HTTP ${status}`)
   return { ok: ready, log, url: localUrl, tunnelKey: key }
 }
