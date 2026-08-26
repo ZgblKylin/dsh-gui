@@ -343,6 +343,11 @@ async function rpc(op, args) {
 /* ── New-connection dialog ─────────────────────────────────── */
 let connType = "local";
 let serverKeyPath = null;
+// Generation counter invalidates in-flight connect attempts when the user
+// cancels, so a late-resolving RPC never adds a tab or repaints a closed dialog.
+let connectGen = 0;
+// Live-progress poll timer, module-level so the cancel button can stop it.
+let statusPollTimer = null;
 
 function setConnType(type) {
   connType = type;
@@ -375,6 +380,8 @@ function resetConnForm() {
   $("conn-save-auth").checked = true;
   $("conn-log").innerHTML = "";
   serverKeyPath = null;
+  $("conn-connect").disabled = false;
+  $("conn-connect").textContent = "连接";
   setConnType("local");
 }
 
@@ -421,22 +428,25 @@ function onPickKey(file) {
 }
 
 async function doConnect() {
+  const gen = ++connectGen;
   const btn = $("conn-connect");
   btn.disabled = true;
   btn.textContent = "连接中…";
   $("conn-log").innerHTML = "";
   try {
-    if (connType === "local") await connectLocal();
-    else await connectRemote();
+    if (connType === "local") await connectLocal(gen);
+    else await connectRemote(gen);
   } catch (e) {
-    connLog("连接失败", false, String(e && e.message ? e.message : e));
+    if (gen === connectGen) connLog("连接失败", false, String(e && e.message ? e.message : e));
   } finally {
-    btn.disabled = false;
-    btn.textContent = "连接";
+    if (gen === connectGen) {
+      btn.disabled = false;
+      btn.textContent = "连接";
+    }
   }
 }
 
-async function connectLocal() {
+async function connectLocal(gen) {
   const name = $("conn-name").value.trim();
   const p = Number($("conn-port").value);
   if (name === "") {
@@ -450,6 +460,7 @@ async function connectLocal() {
   const url = `http://127.0.0.1:${p}/`;
   connLog("检查端口 " + p, undefined, url);
   const probe = await rpc("probe", { url });
+  if (gen !== connectGen) return;
   if (probe.reachable === true && probe.loadable === true) {
     connLog("端口可加载", true, `HTTP ${probe.status}`);
     addTab(name, url, { type: "local", port: p });
@@ -461,6 +472,10 @@ async function connectLocal() {
     probe.error ?? (probe.reachable ? `HTTP ${probe.status} 非 2xx` : "不可达")
   );
   const started = await rpc("local.start", { port: p });
+  if (gen !== connectGen) {
+    if (started.ok === true) void rpc("local.stop", { port: p });
+    return;
+  }
   if (started.ok !== true) {
     connLog("启动失败", false, started.error ?? "");
     return;
@@ -470,9 +485,18 @@ async function connectLocal() {
   let okProbe = null;
   while (Date.now() < deadline) {
     await sleep(1000);
+    if (gen !== connectGen) {
+      void rpc("local.stop", { port: p });
+      return;
+    }
     okProbe = await rpc("probe", { url });
+    if (gen !== connectGen) {
+      void rpc("local.stop", { port: p });
+      return;
+    }
     if (okProbe.reachable === true && okProbe.loadable === true) break;
   }
+  if (gen !== connectGen) return;
   if (okProbe !== null && okProbe.reachable === true && okProbe.loadable === true) {
     connLog("后端就绪", true, `HTTP ${okProbe.status}`);
     addTab(name, url, { type: "local", port: p });
@@ -498,7 +522,7 @@ function paintConnLog(lines) {
   log.scrollTop = log.scrollHeight;
 }
 
-async function connectRemote() {
+async function connectRemote(gen) {
   const name = $("conn-name").value.trim();
   const p = Number($("conn-port").value);
   const addr = $("conn-addr").value.trim().replace(/^https?:\/\//i, "");
@@ -523,6 +547,7 @@ async function connectRemote() {
   const url = `http://${addr}:${p}/`;
   push("检查 " + url);
   const probe = await rpc("probe", { url });
+  if (gen !== connectGen) return;
   if (probe.reachable === true && probe.loadable === true) {
     push("远端可加载", true, `HTTP ${probe.status}`);
     addTab(name, url, { type: "remote", address: addr, port: p });
@@ -551,6 +576,7 @@ async function connectRemote() {
   if (!sshConn.password && !sshConn.keyFile) {
     push("使用已保存认证", undefined, "读取凭据…");
     const saved = await rpc("creds.read", { name });
+    if (gen !== connectGen) return;
     if (saved.exists === true && saved.payload) {
       const pl = saved.payload;
       sshConn.sshUser = sshConn.sshUser || pl.sshUser;
@@ -573,16 +599,22 @@ async function connectRemote() {
   // The host pipeline runs in ONE ssh.connect RPC; live-stream its progress
   // via ssh.status instead of staring at a silent "建立 SSH 会话".
   let lastServerJson = "";
-  const pollTimer = setInterval(async () => {
+  statusPollTimer = setInterval(async () => {
     try {
+      if (gen !== connectGen) {
+        clearInterval(statusPollTimer);
+        statusPollTimer = null;
+        return;
+      }
       const st = await rpc("ssh.status");
+      if (gen !== connectGen) return;
       const steps = Array.isArray(st && st.steps) ? st.steps : [];
       const json = JSON.stringify(steps);
       if (json !== lastServerJson) {
         lastServerJson = json;
         paintConnLog([...preamble, ...steps]);
       }
-      if (st && st.running === false) clearInterval(pollTimer);
+      if (st && st.running === false) clearInterval(statusPollTimer);
     } catch (_) {
       /* transient poll errors are fine — the connect result is authoritative */
     }
@@ -592,8 +624,12 @@ async function connectRemote() {
   try {
     res = await rpc("ssh.connect", { conn: sshConn });
   } finally {
-    clearInterval(pollTimer);
+    if (statusPollTimer !== null && statusPollTimer !== undefined) {
+      clearInterval(statusPollTimer);
+      statusPollTimer = null;
+    }
   }
+  if (gen !== connectGen) return;
   const finalSteps = Array.isArray(res && res.log) ? res.log : [];
   paintConnLog([...preamble, ...finalSteps]);
   if (res && res.ok === true) {
@@ -1755,7 +1791,26 @@ for (const card of document.querySelectorAll(".conn-type-card")) {
   card.addEventListener("click", () => setConnType(card.dataset.type));
 }
 $("conn-ssh-on").addEventListener("change", () => setConnType(connType));
-$("conn-cancel").addEventListener("click", () => $("conn-overlay").classList.add("hidden"));
+$("conn-cancel").addEventListener("click", () => {
+  // Abort any in-flight connect: invalidate the client generation, stop the
+  // live-progress poll, and tell the host to cancel + clean up its remote
+  // tmux session/tunnel so reopening starts fresh.
+  connectGen += 1;
+  if (statusPollTimer !== null && statusPollTimer !== undefined) {
+    clearInterval(statusPollTimer);
+    statusPollTimer = null;
+  }
+  void rpc("ssh.cancel").catch(() => {});
+  if (connType === "local") {
+    // A cancelled local connect may have started a backend; stop it.
+    const p = Number($("conn-port").value);
+    if (Number.isInteger(p) && p > 0) void rpc("local.stop", { port: p });
+  }
+  const btn = $("conn-connect");
+  btn.disabled = false;
+  btn.textContent = "连接";
+  $("conn-overlay").classList.add("hidden");
+});
 $("conn-connect").addEventListener("click", () => void doConnect());
 $("conn-keyfile").addEventListener("change", (e) => onPickKey(e.target.files?.[0] ?? null));
 $("conn-log-copy").addEventListener("click", () => {

@@ -768,6 +768,7 @@ const REMOTE_OPS: &[&str] = &[
     "auth.available",
     "tunnel.close",
     "ssh.connect",
+    "ssh.cancel",
     "ssh.status",
     "diag",
 ];

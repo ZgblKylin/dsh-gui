@@ -282,6 +282,17 @@ const remoteProgress: {
   steps: [],
 }
 
+/** Cancellation handle for the single in-flight `ssh.connect` (one at a time).
+
+ *  `ssh.cancel` sets `cancelled`; a newer `ssh.connect` bumps `token`, which
+ *  also invalidates any older in-flight attempt. Checked at each await point. */
+const remoteConnectControl: { token: number; cancelled: boolean } = { token: 0, cancelled: false }
+
+/** True when the in-flight connect was cancelled or superseded by a newer one. */
+function connectCancelled(token: number): boolean {
+  return token !== remoteConnectControl.token || remoteConnectControl.cancelled
+}
+
 /** Append a live-progress line; consecutive lines with the same step text are
  *  collapsed so volatile counters (e.g. the port-wait countdown) do not flood
  *  the shell's progress list. */
@@ -665,6 +676,11 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
       remoteProgress.running = true
       remoteProgress.startedAt = Date.now()
       remoteProgress.steps = []
+      // Bump the token so this attempt owns the (single) in-flight pipeline, and
+      // clear any earlier cancel request.
+      remoteConnectControl.token += 1
+      const connectToken = remoteConnectControl.token
+      remoteConnectControl.cancelled = false
       try {
         const conn = (args.conn ?? {}) as Record<string, unknown>
         const logLines: Array<{ step: string; ok: boolean; detail?: string }> = []
@@ -702,11 +718,14 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
             return { ok: false, authRequired: true, log: logLines }
           }
         }
-        return connectRemote(ctx, auth, avail, conn as { address: string; port: number; startCommand?: string }, logLines)
+        return connectRemote(ctx, auth, avail, conn as { address: string; port: number; startCommand?: string }, logLines, connectToken)
       } finally {
         remoteProgress.running = false
       }
     }
+    case 'ssh.cancel':
+      remoteConnectControl.cancelled = true
+      return { ok: true }
     case 'ssh.status':
       return {
         running: remoteProgress.running,
@@ -773,13 +792,33 @@ async function connectRemote(
   avail: { ssh: string | null; plink: string | null; sshpass: string | null },
   conn: { address: string; port: number; startCommand?: string },
   log: Array<{ step: string; ok: boolean; detail?: string }>,
-): Promise<{ ok: boolean; authRequired?: boolean; log: Array<{ step: string; ok: boolean; detail?: string }>; url?: string; tunnelKey?: string }> {
+  token: number,
+): Promise<{ ok: boolean; authRequired?: boolean; cancelled?: boolean; log: Array<{ step: string; ok: boolean; detail?: string }>; url?: string; tunnelKey?: string }> {
   const tmuxName = 'dsh-gui'
   const startCommand = String(conn.startCommand ?? '').trim() || defaultStartCommand()
+  let startedSession = false
+  let tunnelKey: string | undefined
+
+  /** Best-effort teardown of resources THIS attempt created (so a cancelled /
+   *  failed connect leaves no remote tmux session or SSH tunnel behind). */
+  async function teardown(): Promise<void> {
+    if (startedSession) {
+      await sshRun(ctx, auth, `tmux kill-session -t ${tmuxName} 2>/dev/null || true`, 15000)
+    }
+    if (tunnelKey !== undefined) closeTunnel(tunnelKey)
+  }
+
+  /** Abort point: the shell cancelled (or a newer connect superseded us). */
+  async function bailCancelled(): Promise<{ ok: false; cancelled: true; log: Array<{ step: string; ok: boolean; detail?: string }> }> {
+    pushLog(log, '已取消', false, '连接被用户取消')
+    await teardown()
+    return { ok: false, cancelled: true, log }
+  }
 
   // 1. toolchain precheck
   const tools = await checkRemoteToolchain(ctx, auth)
   pushLog(log, '远端工具预检', tools.ok, tools.ok ? tools.detail : tools.detail)
+  if (connectCancelled(token)) return bailCancelled()
   if (!tools.ok) return { ok: false, log }
 
   // 2. ensure the tmux session is ALIVE, starting it with the configured
@@ -789,6 +828,7 @@ async function connectRemote(
   //    session exits (capture-pane would be empty then).
   const state = await sessionState(ctx, auth)
   pushLog(log, `tmux 会话 ${tmuxName}`, state === 'ALIVE', `state=${state}`)
+  if (connectCancelled(token)) return bailCancelled()
   if (state !== 'ALIVE') {
     if (state === 'STALE') {
       const killed = await sshRun(ctx, auth, `tmux kill-session -t ${tmuxName} 2>/dev/null || true`, 20000)
@@ -816,7 +856,9 @@ async function connectRemote(
     // runs detached (first npx fetch may take a while), so the port wait below
     // covers the actual boot.
     replaceLog(log, log.length - 1, 'tmux 启动 dsh', start.exitCode === 0, (start.stdout + start.stderr).trim().slice(0, 2000))
+    if (connectCancelled(token)) return bailCancelled()
     if (start.exitCode !== 0) return { ok: false, log }
+    startedSession = true
   }
 
   /** Tail the remote start log for diagnostics ($HOME/.dsh-gui-remote.log). */
@@ -828,12 +870,14 @@ async function connectRemote(
   // 3. discover serving port from the session and wait until it is open
   const remotePort = await discoverSessionPort(ctx, auth, conn.port)
   pushLog(log, `服务端口 ${remotePort}`, true, `会话内后端监听 127.0.0.1:${remotePort}`)
+  if (connectCancelled(token)) return bailCancelled()
   const openDeadline = Date.now() + 300000
   const openedAt = Date.now()
   let open = await sshPortOpen(ctx, auth, remotePort)
   let waitIter = 0
   while (!open && Date.now() < openDeadline) {
     await new Promise(r => setTimeout(r, 2000))
+    if (connectCancelled(token)) return bailCancelled()
     open = await sshPortOpen(ctx, auth, remotePort)
     waitIter++
     const waited = Math.round((Date.now() - openedAt) / 1000)
@@ -847,16 +891,20 @@ async function connectRemote(
   if (!open) {
     const tail = await remoteTail(60, 4000)
     pushLog(log, '服务端口未就绪', false, `127.0.0.1:${remotePort} 未在 300s 内开放${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
+    await teardown()
     return { ok: false, log }
   }
 
   // 4. open the SSH local port forward and wait for the local URL to load
   const tunnel = await openTunnel(ctx, auth, avail, remotePort)
+  if (connectCancelled(token)) return bailCancelled()
   if (!tunnel.ok || tunnel.localPort === undefined) {
     pushLog(log, 'ssh 端口转发', false, tunnel.error || '无法建立转发')
+    await teardown()
     return { ok: false, log }
   }
   const key = `${auth.host}:${remotePort}`
+  tunnelKey = key
   const localUrl = `http://127.0.0.1:${tunnel.localPort}/`
   pushLog(log, 'ssh 端口转发', true, `127.0.0.1:${tunnel.localPort} -> ${auth.host}:${remotePort}`)
 
@@ -869,10 +917,12 @@ async function connectRemote(
     if (p.loadable) { ready = true; break }
     progress('等待前端就绪', undefined, `${localUrl}（已等待 ${Math.round(150000 - (deadline - Date.now())) / 1000}s）`)
     await new Promise(r => setTimeout(r, 2000))
+    if (connectCancelled(token)) return bailCancelled()
   }
   if (!ready) {
     const tail = await remoteTail(40, 3000)
     pushLog(log, '前端就绪', false, `${localUrl} 超时${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
+    await teardown()
     return { ok: false, log }
   }
   pushLog(log, `前端就绪 ${localUrl}`, true, `HTTP ${status}`)
