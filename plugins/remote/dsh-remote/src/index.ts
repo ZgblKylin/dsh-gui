@@ -794,7 +794,18 @@ async function connectRemote(
       const killed = await sshRun(ctx, auth, `tmux kill-session -t ${tmuxName} 2>/dev/null || true`, 20000)
       pushLog(log, '清理失效会话', killed.exitCode === 0, (killed.stdout + killed.stderr).trim() || 'ok')
     }
-    const inner = `cd "$HOME" && ${appendServeFlags(startCommand, conn.port)} > ${REMOTE_LOG} 2>&1`
+    // The remote usually needs the user's FULL login+interactive environment:
+    // an nvm-managed Node (or other tools) only reaches PATH from ~/.bashrc,
+    // and a guarded `.bashrc` (`case $- in *i*) ;; *) return;; esac`) refuses
+    // to load in a non-interactive shell — so the plain `bash -s` (and even
+    // `bash -l -c`) pane stays on the bare system Node and the backend's
+    // plugin tree fails (`Cannot find package '@deepseek-ai/...'`). Run the
+    // detached pane as an INTERACTIVE login bash (`-l -i`) so the profile
+    // AND rc load exactly like the user's interactive ssh terminal. `node -v`
+    // is captured first so the log proves which runtime the start used.
+    const serveFlags = appendServeFlags(startCommand, conn.port)
+    const paneCommand = `{ node -v; cd "$HOME" && ${serveFlags}; } > ${REMOTE_LOG} 2>&1`
+    const inner = `bash -l -i -c ${JSON.stringify(paneCommand)}`
     pushLog(log, '启动远端 dsh', false, inner)
     const start = await sshRun(ctx, auth, [
       'set -e',

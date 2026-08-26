@@ -119,6 +119,13 @@ npm start                          # 启动桌面壳
   在远端执行 `tmux kill-session -t dsh-gui` 即可。
 - 远端若尚未安装 `@deepseek-ai/dsh`，`npx` 首次拉取会弹安装确认，在 detached tmux 面板里可能等待输入：
   此时把启动命令写成 `npx -y '@deepseek-ai/dsh' web`（或在远端先全局安装 dsh）。
+- **启动命令在「完整登录 + 交互」shell 中运行**：tmux 面板命令以 `bash -l -i -c`（登录 + 交互）执行，
+  强制 `~/.profile` 与 `~/.bashrc` 完整加载（即使用户的 `.bashrc` 带"非交互即 return"守卫也能过），
+  保证只在 rc 里出现的工具/环境变量（如 **nvm 托管的 Node**、自定义 PATH、DSH_HOME）对启动命令可见——
+  否则后端会以裸系统 Node 启动，插件树报 `Cannot find package '@deepseek-ai/...'`。面板日志首行会回显
+  `node -v`（如 `v24.20.0`），用于确认实际用到的运行时。
+- **旧 tmux 环境残留**：`dsh-gui` 的 tmux server/session 一旦创建就固定继承当时的进程环境；若早前以非登录环境起过，
+  先清理再重连：远端执行 `tmux kill-server`（或 `tmux kill-session -t dsh-gui`）。
 - 安全边界：`/remote-api` 为未认证的本机 RPC，插件会拒绝在非回环绑定（`webServer.host !== 127.0.0.1`）下启动；Tauri 壳的 `remote_call` 只放行白名单 op，并仅向 `127.0.0.1:<port>` 发送请求。
 - Linux gpg 凭据使用内置口令（`dsh-remote-app-pin`）作**混淆级**保护，明文与密钥强度取决于部署环境；如需更强保护请改用系统钥匙环或加密文件系统。
 
