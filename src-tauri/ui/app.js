@@ -1758,6 +1758,12 @@ $("conn-ssh-on").addEventListener("change", () => setConnType(connType));
 $("conn-cancel").addEventListener("click", () => $("conn-overlay").classList.add("hidden"));
 $("conn-connect").addEventListener("click", () => void doConnect());
 $("conn-keyfile").addEventListener("change", (e) => onPickKey(e.target.files?.[0] ?? null));
+$("conn-log-copy").addEventListener("click", () => {
+  const text = Array.from($("conn-log").children)
+    .map((el) => el.textContent)
+    .join("\n");
+  copyText(text);
+});
 $("conn-overlay").addEventListener("click", (e) => {
   if (e.target === $("conn-overlay")) $("conn-overlay").classList.add("hidden");
 });

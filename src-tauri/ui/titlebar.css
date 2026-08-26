@@ -846,7 +846,7 @@ body.no-tauri .titlebar-btn {
 
 /* ── New-connection dialog ─────────────────────────────────── */
 .conn-dialog {
-  width: min(560px, 92vw);
+  width: min(780px, 94vw);
   max-height: 84vh;
   overflow-y: auto;
   background: var(--titlebar-bg);
@@ -905,6 +905,54 @@ body.no-tauri .titlebar-btn {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+/* SSH 端口 + 密码/密钥 同行：端口固定窄列，其余给凭据 */
+.conn-field-row.conn-field-row--port-creds {
+  grid-template-columns: 132px 1fr;
+  align-items: start;
+}
+
+/* Two-column layout: config fields on the left, start command + log on the right. */
+.conn-grid {
+  display: grid;
+  grid-template-columns: 1fr 292px;
+  gap: 18px;
+}
+
+.conn-left {
+  min-width: 0;
+}
+
+.conn-right {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Connection log header (label + copy button). */
+.conn-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.conn-log-copy {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 5px;
+  padding: 2px 10px;
+  font-size: 11px;
+  cursor: default;
+}
+
+.conn-log-copy:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .conn-field {
@@ -999,8 +1047,10 @@ button.secondary:disabled {
 }
 
 .conn-log {
-  margin-top: 14px;
-  max-height: 160px;
+  margin-top: 0;
+  flex: 1;
+  min-height: 150px;
+  max-height: 300px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1011,6 +1061,13 @@ button.secondary:disabled {
   flex-direction: column;
   gap: 4px;
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  /* The shell body disables user-select globally; re-enable it so the log
+     text can be drag-selected and copied. */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .conn-log .ok {
