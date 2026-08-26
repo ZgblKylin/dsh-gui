@@ -48,6 +48,10 @@ const aboutClose = $("about-close");
 /* ── Tab state ─────────────────────────────────────────────── */
 const LS_TABS = "dsh.remote.tabs.v1";
 const LS_ACTIVE = "dsh.remote.active.v1";
+// Saved (recorded but not necessarily connected) connections, shown as the
+// management list in the new-connection dialog. Established connections live
+// in `tabs`; the two are independent.
+const LS_SAVED = "dsh.remote.saved.v1";
 
 function loadJSON(key, fallback) {
   try {
@@ -162,8 +166,9 @@ function applyPageTheme(colors) {
 function wirePageTheme() {
   window.addEventListener("message", (event) => {
     const tab = activeTab();
-    if (!tab || !harnessFrame.contentWindow) return;
-    if (event.source !== harnessFrame.contentWindow) return;
+    if (!tab) return;
+    const frame = tabFrame(tab);
+    if (!frame || !frame.contentWindow || event.source !== frame.contentWindow) return;
 
     const data = event.data;
     if (
@@ -208,6 +213,7 @@ function bufferToB64(buf) {
 
 let tabs = loadJSON(LS_TABS, []);
 let activeId = loadJSON(LS_ACTIVE, null);
+let savedConnections = loadJSON(LS_SAVED, []);
 let harnessUrl = "http://127.0.0.1:3080";
 let defaultPort = 3080;
 
@@ -230,22 +236,45 @@ async function setIframeSource() {
   }
 }
 
+/** The per-tab child iframe inside #harness-frame, if it exists. */
+function tabFrame(tab) {
+  if (!tab) return null;
+  return harnessFrame.querySelector(`.tab-frame[data-tab-id="${CSS.escape(tab.id)}"]`);
+}
+
+/** Create (lazily) the child iframe for one tab. Each tab keeps its own frame
+ *  so switching tabs never reloads a page — hidden frames stay loaded. */
+function ensureTabFrame(tab) {
+  let frame = tabFrame(tab);
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.className = "tab-frame";
+    frame.dataset.tabId = tab.id;
+    frame.title = tab.title || "DeepSeek Harness";
+    frame.setAttribute("allow", "clipboard-read; clipboard-write");
+    frame.src = tab.url;
+    harnessFrame.appendChild(frame);
+  }
+  return frame;
+}
+
 function syncIframe() {
   const tab = activeTab();
   const placeholder = $("no-tabs");
   if (!tab) {
     placeholder.classList.remove("hidden");
     harnessFrame.classList.add("hidden");
-    if (harnessFrame.src !== "") harnessFrame.src = "";
     applyPageTheme(DEFAULT_PAGE_THEME);
     return;
   }
   placeholder.classList.add("hidden");
   harnessFrame.classList.remove("hidden");
-  // Restore the last theme reported by this tab while the page reloads;
-  // ui/theme-bridge.js will send the fresh computed colors shortly after load.
+  ensureTabFrame(tab);
+  for (const frame of harnessFrame.querySelectorAll(".tab-frame")) {
+    frame.style.display = frame.dataset.tabId === tab.id ? "" : "none";
+  }
+  // Restore the last theme reported by this tab while its frame stays loaded.
   applyPageTheme(tab.theme ?? DEFAULT_PAGE_THEME);
-  if (normUrl(harnessFrame.src) !== normUrl(tab.url)) harnessFrame.src = tab.url;
 }
 
 function switchTab(id) {
@@ -258,6 +287,8 @@ function switchTab(id) {
 function closeTab(id) {
   const idx = tabs.findIndex((t) => t.id === id);
   if (idx < 0) return;
+  const closing = tabs[idx];
+  tabFrame(closing)?.remove();
   const next = tabs.filter((t) => t.id !== id);
   if (next.length === 0) {
     // Every tab closed: auto-open a fresh new-connection flow.
@@ -348,6 +379,12 @@ let serverKeyPath = null;
 let connectGen = 0;
 // Live-progress poll timer, module-level so the cancel button can stop it.
 let statusPollTimer = null;
+// Id of the saved connection currently being edited (null = building a new
+// one). On a successful connect this decides update-vs-insert into the list.
+let connectEditId = null;
+// "new" (blank form → insert on success) | "edit" (保存并连接 → update) |
+// "launch" (直接启动 → update, button stays 连接).
+let connectMode = "new";
 
 function setConnType(type) {
   connType = type;
@@ -386,9 +423,156 @@ function resetConnForm() {
 }
 
 function openConnection() {
-  resetConnForm();
+  newConnection();
   $("conn-overlay").classList.remove("hidden");
   $("conn-name").focus();
+}
+
+/* ── Saved-connections management list (dialog left sidebar) ── */
+
+function persistConnections() {
+  saveJSON(LS_SAVED, savedConnections);
+  renderSavedList();
+}
+
+function addStoredConnection(entry) {
+  savedConnections.push({ id: uid(), ...entry });
+  persistConnections();
+}
+
+function updateStoredConnection(id, entry) {
+  const i = savedConnections.findIndex((c) => c.id === id);
+  if (i >= 0) savedConnections[i] = { id, ...entry };
+  else savedConnections.push({ id, ...entry });
+  persistConnections();
+}
+
+/** Read the current form into a saveable connection record (no secrets — the
+ *  password/key live in the creds store keyed by `name`). */
+function readForm() {
+  const entry = {
+    name: $("conn-name").value.trim() || "未命名连接",
+    type: connType,
+    port: Number($("conn-port").value) || defaultPort,
+  };
+  if (connType === "remote") {
+    entry.addr = $("conn-addr").value.trim();
+    entry.sshOn = $("conn-ssh-on").checked;
+    if (entry.sshOn) {
+      entry.sshUser = $("conn-ssh-user").value.trim() || undefined;
+      entry.sshHost = $("conn-ssh-host").value.trim() || undefined;
+      entry.sshPort = Number($("conn-ssh-port").value) || undefined;
+      entry.startCommand = $("conn-ssh-startcmd").value.trim() || undefined;
+      entry.saveAuth = $("conn-save-auth").checked;
+    }
+  }
+  return entry;
+}
+
+/** Fill the form from a saved record and switch to its config page. */
+function fillFormFromSaved(entry) {
+  $("conn-name").value = entry.name || "";
+  $("conn-port").value = String(entry.port ?? defaultPort);
+  $("conn-addr").value = entry.addr || "";
+  $("conn-ssh-on").checked = !!entry.sshOn;
+  $("conn-ssh-host").value = entry.sshHost || "";
+  $("conn-ssh-user").value = entry.sshUser || "";
+  $("conn-ssh-port").value = entry.sshPort ? String(entry.sshPort) : "";
+  $("conn-ssh-startcmd").value = entry.startCommand || "";
+  $("conn-password").value = "";
+  $("conn-keyfile").value = "";
+  $("conn-key-path").textContent = "";
+  $("conn-save-auth").checked = entry.saveAuth !== false;
+  serverKeyPath = null;
+  setConnType(entry.type === "remote" ? "remote" : "local");
+}
+
+/** On a successful connect, record the connection into the list (update the
+ *  entry being edited/launched, or insert a new one). */
+function recordSuccessfulConnection() {
+  const entry = readForm();
+  if (connectMode === "new" || connectEditId === null) addStoredConnection(entry);
+  else updateStoredConnection(connectEditId, entry);
+}
+
+function mkItemBtn(glyph, title, onClick, danger) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "item-btn" + (danger ? " danger" : "");
+  btn.title = title;
+  btn.textContent = glyph;
+  btn.setAttribute("aria-label", title);
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return btn;
+}
+
+function renderSavedList() {
+  const list = $("conn-list");
+  if (!list) return;
+  list.innerHTML = "";
+  for (const c of savedConnections) {
+    const item = document.createElement("div");
+    item.className = "conn-list-item" + (c.id === connectEditId ? " active" : "");
+    const kind = c.type === "remote" ? (c.sshOn ? "远程 · SSH" : "远程") : "本地";
+    item.title = `${kind} · ${c.addr || "本机"}:${c.port ?? ""}`;
+    const name = document.createElement("span");
+    name.className = "item-name";
+    name.textContent = c.name || c.addr || "连接";
+    item.append(
+      name,
+      mkItemBtn("▶", "启动", () => launchSaved(c.id)),
+      mkItemBtn("✎", "编辑", () => editSaved(c.id)),
+      mkItemBtn("✕", "删除", () => deleteSaved(c.id), true)
+    );
+    list.appendChild(item);
+  }
+  const neu = document.createElement("button");
+  neu.type = "button";
+  neu.className = "conn-list-item is-new";
+  neu.textContent = "＋ 新建连接";
+  neu.addEventListener("click", () => newConnection());
+  list.appendChild(neu);
+}
+
+function newConnection() {
+  connectMode = "new";
+  connectEditId = null;
+  $("conn-connect").textContent = "连接";
+  resetConnForm();
+  renderSavedList();
+}
+
+function editSaved(id) {
+  const entry = savedConnections.find((c) => c.id === id);
+  if (!entry) return;
+  connectMode = "edit";
+  connectEditId = id;
+  fillFormFromSaved(entry);
+  $("conn-connect").textContent = "保存并连接";
+  renderSavedList();
+}
+
+function launchSaved(id) {
+  const entry = savedConnections.find((c) => c.id === id);
+  if (!entry) return;
+  connectMode = "launch";
+  connectEditId = id;
+  fillFormFromSaved(entry);
+  $("conn-connect").textContent = "连接";
+  renderSavedList();
+  void doConnect();
+}
+
+function deleteSaved(id) {
+  const entry = savedConnections.find((c) => c.id === id);
+  savedConnections = savedConnections.filter((c) => c.id !== id);
+  persistConnections();
+  if (entry) void rpc("creds.remove", { name: entry.name }).catch(() => {});
+  if (connectEditId === id) newConnection();
+  else renderSavedList();
 }
 
 function connLog(step, ok, detail) {
@@ -441,7 +625,7 @@ async function doConnect() {
   } finally {
     if (gen === connectGen) {
       btn.disabled = false;
-      btn.textContent = "连接";
+      btn.textContent = connectMode === "edit" ? "保存并连接" : "连接";
     }
   }
 }
@@ -463,6 +647,7 @@ async function connectLocal(gen) {
   if (gen !== connectGen) return;
   if (probe.reachable === true && probe.loadable === true) {
     connLog("端口可加载", true, `HTTP ${probe.status}`);
+    recordSuccessfulConnection();
     addTab(name, url, { type: "local", port: p });
     return;
   }
@@ -499,6 +684,7 @@ async function connectLocal(gen) {
   if (gen !== connectGen) return;
   if (okProbe !== null && okProbe.reachable === true && okProbe.loadable === true) {
     connLog("后端就绪", true, `HTTP ${okProbe.status}`);
+    recordSuccessfulConnection();
     addTab(name, url, { type: "local", port: p });
   } else {
     connLog("超时", false, "后端未在 60s 内启动");
@@ -550,6 +736,7 @@ async function connectRemote(gen) {
   if (gen !== connectGen) return;
   if (probe.reachable === true && probe.loadable === true) {
     push("远端可加载", true, `HTTP ${probe.status}`);
+    recordSuccessfulConnection();
     addTab(name, url, { type: "remote", address: addr, port: p });
     return;
   }
@@ -648,6 +835,7 @@ async function connectRemote(gen) {
         },
       });
     }
+    recordSuccessfulConnection();
     addTab(name, res.url ?? url, { type: "remote", address: addr, port: p });
   } else if (res && res.authRequired === true) {
     connLog(
@@ -1631,7 +1819,8 @@ function buildAiUpdatePrompt(projects) {
 function postAiUpdateRequest(prompt) {
   return new Promise((resolve) => {
     const tab = activeTab();
-    const win = harnessFrame.contentWindow;
+    const frame = tab ? tabFrame(tab) : null;
+    const win = frame ? frame.contentWindow : null;
     if (!tab || !win) {
       toast("当前没有打开的连接，无法启动 AI 更新");
       resolve(false);
@@ -1791,7 +1980,7 @@ for (const card of document.querySelectorAll(".conn-type-card")) {
   card.addEventListener("click", () => setConnType(card.dataset.type));
 }
 $("conn-ssh-on").addEventListener("change", () => setConnType(connType));
-$("conn-cancel").addEventListener("click", () => {
+function cancelConnection() {
   // Abort any in-flight connect: invalidate the client generation, stop the
   // live-progress poll, and tell the host to cancel + clean up its remote
   // tmux session/tunnel so reopening starts fresh.
@@ -1808,9 +1997,11 @@ $("conn-cancel").addEventListener("click", () => {
   }
   const btn = $("conn-connect");
   btn.disabled = false;
-  btn.textContent = "连接";
+  btn.textContent = connectMode === "edit" ? "保存并连接" : "连接";
   $("conn-overlay").classList.add("hidden");
-});
+}
+
+$("conn-cancel").addEventListener("click", cancelConnection);
 $("conn-connect").addEventListener("click", () => void doConnect());
 $("conn-keyfile").addEventListener("change", (e) => onPickKey(e.target.files?.[0] ?? null));
 $("conn-log-copy").addEventListener("click", () => {
@@ -1966,7 +2157,7 @@ aboutOverlay.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (!$("conn-overlay").classList.contains("hidden")) $("conn-overlay").classList.add("hidden");
+    if (!$("conn-overlay").classList.contains("hidden")) cancelConnection();
     else if (!updateOverlay.classList.contains("hidden")) closeUpdateDialog();
     else if (!changelogOverlay.classList.contains("hidden")) closeChangelog();
     else if (!aboutOverlay.classList.contains("hidden")) closeAbout();
@@ -1981,6 +2172,9 @@ async function boot() {
   // Sanitize persisted tabs; guarantee the local (本机) tab always exists.
   if (!Array.isArray(tabs)) tabs = [];
   tabs = tabs.filter((t) => t && typeof t === "object" && typeof t.url === "string");
+  if (!Array.isArray(savedConnections)) savedConnections = [];
+  savedConnections = savedConnections.filter((c) => c && typeof c === "object" && typeof c.name === "string");
+  renderSavedList();
   if (tabs.length === 0) {
     tabs = [{ id: "current", title: "本机", url: harnessUrl, type: "local", port: defaultPort }];
   }

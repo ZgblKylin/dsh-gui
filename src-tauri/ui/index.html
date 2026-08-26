@@ -65,12 +65,12 @@
     </header>
 
     <!-- The harness web UI, hosted by the self-hosted server, embedded here.
-         allow= grants the cross-origin iframe the async Clipboard API
-         (navigator.clipboard.writeText) that the copy controls rely on;
-         without it the Permissions Policy default (clipboard-write = self)
-         makes every code-block/message copy reject. -->
-    <iframe id="harness-frame" class="harness-frame" title="DeepSeek Harness"
-            allow="clipboard-read; clipboard-write"></iframe>
+         One child iframe is created per established tab so switching tabs keeps
+         every page alive (no reload). allow= grants each cross-origin iframe
+         the async Clipboard API (navigator.clipboard.writeText) that the copy
+         controls rely on; without it the Permissions Policy default
+         (clipboard-write = self) makes every code-block/message copy reject. -->
+    <div id="harness-frame" class="harness-frame"></div>
 
     <!-- Empty state: shown when every connection tab has been closed. -->
     <div id="no-tabs" class="no-tabs hidden">
@@ -84,20 +84,23 @@
          (load or SSH-deploy to another host), with the SSH credential step. -->
     <div id="conn-overlay" class="overlay hidden">
       <div class="conn-dialog" role="dialog" aria-modal="true" aria-labelledby="conn-title">
-        <h2 id="conn-title">新建连接</h2>
-        <div class="conn-sub">连接到另一个 DSH 后端：本机端口加载/启动，或通过 SSH 启动远端 dsh 并转发端口访问。</div>
-        <div class="conn-type-grid">
-          <div class="conn-type-card sel" data-type="local">
-            <b>本地连接</b>
-            <small>在本机端口加载或启动 DSH 前端</small>
-          </div>
-          <div class="conn-type-card" data-type="remote">
-            <b>远程连接</b>
-            <small>通过 SSH 启动远端 dsh 并转发端口访问</small>
-          </div>
+        <div class="conn-dialog-head">
+          <h2 id="conn-title">连接管理</h2>
+          <div class="conn-sub">已保存的连接可在此直接「启动 / 编辑 / 删除」；「新建连接」从头配置，成功后自动记入左侧列表。</div>
         </div>
-        <div class="conn-grid">
-          <div class="conn-left">
+        <div class="conn-dialog-main">
+          <div class="conn-list" id="conn-list" aria-label="已保存连接列表"></div>
+          <div class="conn-config">
+            <div class="conn-type-grid">
+              <div class="conn-type-card sel" data-type="local">
+                <b>本地连接</b>
+                <small>在本机端口加载或启动 DSH 前端</small>
+              </div>
+              <div class="conn-type-card" data-type="remote">
+                <b>远程连接</b>
+                <small>通过 SSH 启动远端 dsh 并转发端口访问</small>
+              </div>
+            </div>
             <div class="conn-field-row">
               <div class="conn-field">
                 <label for="conn-name">连接名</label>

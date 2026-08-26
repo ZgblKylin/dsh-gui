@@ -310,11 +310,20 @@ body {
   margin: 5px 8px;
 }
 
-/* ── Harness iframe ────────────────────────────────────────── */
+/* ── Harness iframe container (one child iframe per established tab) ── */
 .harness-frame {
   flex: 1 1 auto;
-  border: none;
+  position: relative;
+  min-height: 0;
   width: 100%;
+}
+
+.tab-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
 }
 
 /* ── Overlay / Update dialog ───────────────────────────────── */
@@ -846,7 +855,7 @@ body.no-tauri .titlebar-btn {
 
 /* ── New-connection dialog ─────────────────────────────────── */
 .conn-dialog {
-  width: min(780px, 94vw);
+  width: min(1000px, 96vw);
   max-height: 84vh;
   overflow-y: auto;
   background: var(--titlebar-bg);
@@ -913,14 +922,15 @@ body.no-tauri .titlebar-btn {
   align-items: start;
 }
 
-/* Two-column layout: config fields on the left, start command + log on the right. */
-.conn-grid {
+/* Three-column layout: saved-connection list | config form | start-cmd + log. */
+.conn-dialog-main {
   display: grid;
-  grid-template-columns: 1fr 292px;
-  gap: 18px;
+  grid-template-columns: 196px 1fr 292px;
+  gap: 16px;
+  align-items: start;
 }
 
-.conn-left {
+.conn-config {
   min-width: 0;
 }
 
@@ -929,6 +939,71 @@ body.no-tauri .titlebar-btn {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Saved-connection list (left sidebar of the dialog). */
+.conn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-height: calc(84vh - 150px);
+  overflow-y: auto;
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+}
+
+.conn-list-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: default;
+  background: var(--bg);
+}
+
+.conn-list-item.active {
+  border-color: var(--accent);
+  background: rgba(47, 129, 247, 0.08);
+}
+
+.conn-list-item .item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.conn-list-item.is-new {
+  justify-content: center;
+  border-style: dashed;
+  background: none;
+  color: var(--text);
+}
+
+.item-btn {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: default;
+}
+
+.item-btn:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.item-btn.danger:hover {
+  color: #f85149;
 }
 
 /* Connection log header (label + copy button). */
