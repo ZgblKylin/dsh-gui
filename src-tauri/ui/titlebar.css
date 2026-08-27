@@ -922,12 +922,12 @@ body.no-tauri .titlebar-btn {
   align-items: start;
 }
 
-/* Three-column layout: saved-connection list | config form | start-cmd + log. */
+/* Three-column layout: saved-connection list | config form | start-cmd + log.
+ * Columns stretch to the row height so the log fills the whole right column. */
 .conn-dialog-main {
   display: grid;
   grid-template-columns: 196px 1fr 292px;
   gap: 16px;
-  align-items: start;
 }
 
 .conn-config {
@@ -1126,7 +1126,6 @@ button.secondary:disabled {
   margin-top: 0;
   flex: 1;
   min-height: 150px;
-  max-height: 300px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
