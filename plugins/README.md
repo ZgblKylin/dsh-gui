@@ -171,14 +171,13 @@ would double-mount it and fail the plugin tree with
   bundle layer (no manual cordis insert). See
   `ai-update/dsh-ai-update/docs/`.
 - `routing-suite` — git submodule (`yjh051108/dsh-routing-suite`) at
-  `routing-suite/dsh-routing-suite`: aggregator suite with two pinned
-  component submodules — `injector` (`dsh-super-injector`, copied to
-  `.dsh/plugins/`, built against the harness checkout, then mounted through
-  its own `dsh.bundle.patch`) and
-  `preset` (`router-standard` + `router-spec` agent presets copied whole into
-  `.dsh/.agent-presets/`, matching the suite README's manual install step).
-  The nested component submodules need a recursive init:
-  `git submodule update --init --recursive
+  `routing-suite/dsh-routing-suite`: aggregator suite whose `injector`
+  (`dsh-super-injector`, built against the harness checkout, then mounted
+  through its own `dsh.bundle.patch`) and `preset` (`router-standard` +
+  `router-spec` agent presets copied whole into `.dsh/.agent-presets/`,
+  matching the suite README's manual install step) are plain tracked
+  directories since upstream `21a7260` (component submodules flattened).
+  Init without `--recursive`: `git submodule update --init
   plugins/routing-suite/dsh-routing-suite`. See `routing-suite/README.md`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current

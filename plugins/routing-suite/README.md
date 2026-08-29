@@ -1,20 +1,21 @@
 # plugins/routing-suite
 
 [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 的 git submodule
-wrapper。上游仓库是一个**聚合套装**：自身聚合两个分别 pin 到具体 commit 的
-component submodule（injector / preset），本 wrapper 按套装 README 的安装链
+wrapper。上游仓库是一个**聚合套装**：injector（注入器）与 preset（路由预设）两个
+组件随仓库统一演进；上游从 `21a7260`（flat-submodules 合并）起已把原本的两个
+component submodule 扁平化为仓库内普通目录。本 wrapper 按套装 README 的安装链
 把它们装进 dsh-gui 的仓库内 DSH home（`$DSH_HOME`，构建时固定为 `<repo>/.dsh`）。
 
 ## 安装范围
 
 | 组件 | 上游 | 装配方式 |
 | --- | --- | --- |
-| `injector`（dsh-super-injector，v0.3.3） | [yjh051108/dsh-super-injector](https://github.com/yjh051108/dsh-super-injector) | 直接用套装官方装配链：缺 `lib/` 时由包自身的 `prepare` 钩子（`scripts/prepare.mjs`，tsdown 自包含打包）构建到 submodule checkout（`node_modules/`、`lib/` 已在上游 gitignore），再走共享 `installPlugin`（`build: false`，内部即 `dsh plugin add link:<injector>`）：记录 `link:` 依赖 + 声明 `dsh.bundle.patch` 由 CLI reconcile 进 `dsh.profile.bundles`，bundle 层自挂载，entry id `dsh-super-injector`） |
-| `preset`（dsh-router-standard，v0.3.0） | [yjh051108/dsh-router-standard](https://github.com/yjh051108/dsh-router-standard) | `router-standard` 与 `router-spec` 两个 preset 整目录平铺复制到 `$DSH_HOME/.agent-presets/<id>/`（对应套装 README 的手动安装步骤，组合经 `./router-bootstrap.mjs` 相对路径加载） |
+| `injector`（dsh-super-injector，v0.3.3） | [yjh051108/dsh-super-injector](https://github.com/yjh051108/dsh-super-injector) | 直接用套装官方装配链：缺 `lib/` 时由包自身的 `prepare` 钩子（`scripts/prepare.mjs`，tsdown 自包含打包）构建到 suite checkout（`node_modules/`、`lib/` 已在上游 gitignore），再走共享 `installPlugin`（`build: false`，内部即 `dsh plugin add link:<injector>`）：记录 `link:` 依赖 + 声明 `dsh.bundle.patch` 由 CLI reconcile 进 `dsh.profile.bundles`，bundle 层自挂载，entry id `dsh-super-injector`） |
+| `preset`（dsh-router-standard 研发主线：`router-bootstrap` v34，CHANGELOG 顶 v1.27.0） | [yjh051108/dsh-router-standard](https://github.com/yjh051108/dsh-router-standard) | `router-standard` 与 `router-spec` 两个 preset 整目录平铺复制到 `$DSH_HOME/.agent-presets/<id>/`（对应套装 README 的手动安装步骤，组合经 `./router-bootstrap.mjs` 相对路径加载） |
 
-> 版本号以套装 submodule 指针为准（`git -C plugins/routing-suite/dsh-routing-suite
-> submodule status`）；两个组件独立演进，更新套装指针后需重新初始化嵌套
-> submodule 并重跑安装。
+> 版本号以套装仓库内容为准（`git -C plugins/routing-suite/dsh-routing-suite log -1`）；
+> 组件内容随套装仓库统一演进，更新子模块指针后重跑安装即可。21a7260 起没有嵌套
+> submodule，初始化不需要 `--recursive`。
 
 ## 目录
 
@@ -22,19 +23,19 @@ component submodule（injector / preset），本 wrapper 按套装 README 的安
 plugins/routing-suite/
 ├─ install.mjs                     # 装配注入器 + 复制两个 preset
 ├─ README.md                       # 本说明
-└─ dsh-routing-suite/              # 套装仓库（git submodule，含两个嵌套 submodule）
-   ├─ injector/                    # dsh-super-injector（lib/ 由上游 prepare 钩子就地构建，已 gitignore）
+└─ dsh-routing-suite/              # 套装仓库（git submodule，21a7260 起为扁平仓库）
+   ├─ injector/                    # dsh-super-injector（普通目录；lib/ 由上游 prepare 钩子就地构建，已 gitignore）
    └─ preset/
-      └─ preset/
-         ├─ router-standard/       # Router Standard (experimental) preset 源
-         └─ router-spec/           # Router Spec (experimental) preset 源
+      ├─ router-standard/          # Router Standard (experimental) preset 源（v34）
+      ├─ router-spec/              # Router Spec (experimental) preset 源
+      └─ router-react/             # 上游新增实验预设；本 wrapper 不安装（与套装 README 一致）
 ```
 
 ## 安装
 
 ```powershell
-# 1. 初始化套装 checkout 及其两个嵌套 submodule（必须带 --recursive）
-git submodule update --init --recursive plugins/routing-suite/dsh-routing-suite
+# 1. 初始化套装 checkout（21a7260 起为扁平仓库，无嵌套 submodule）
+git submodule update --init plugins/routing-suite/dsh-routing-suite
 
 # 2. 安装（缺 lib 时先跑 upstream prepare 钩子 → add 注入器 → 复制两个 preset）
 node plugins/routing-suite/install.mjs
@@ -48,10 +49,10 @@ install:plugins` 自动发现执行；重复执行幂等（`prepare` 已产出 l
 
 ## 为什么这样装
 
-- **嵌套 submodule 需要 `--recursive`**：套装只被记录为 dsh-gui 的一个
-  submodule；其内部两个组件是套装自己的 submodule，普通
-  `git submodule update --init` 不会拉取它们。缺 checkout 时 install.mjs 会
-  报错并给出上面的 `--recursive` 命令。
+- **上游已扁平化（21a7260）**：原套装内部两个 component submodule（injector /
+  preset）已改为仓库内普通目录；dsh-gui 只记录套装这一个 submodule，初始化
+  不再需要 `--recursive`。缺 checkout 时 install.mjs 会报错并给出
+  `git submodule update --init` 命令。
 - **注入器只保留最小构建**：`dsh plugin add <目录>` 只会记录 `link:` 依赖、
   不会触发目标的 `prepare`（pnpm 语义，实测验证），而全新 submodule checkout
   没有 `lib/`（构建产物不入库）。注入器 import 的 `cordis`、
@@ -72,10 +73,9 @@ install:plugins` 自动发现执行；重复执行幂等（`prepare` 已产出 l
 - **挂载来源**：注入器自带 `dsh.bundle.patch`（bundle 层自挂载，安装脚本不写
   `cordis.patch.yml`，避免双挂载）。
 - **preset 整目录平铺复制**：组合通过 `./router-bootstrap.mjs` 相对路径加载
-  本地插件，逐文件复制会丢文件；复制目标是 `router-standard` 与
-  `router-spec` 各自的目录名（即 roster 里的 preset id）。不要复制
-  `preset` 整目录（会多套一层，DSH 扫描不到预设），与套装 README 的
-  手动步骤一致。
+  本地插件，逐文件复制会丢文件；复制目标是 `preset/router-standard` 与
+  `preset/router-spec`（21a7260 起已平铺，不复制 `preset` 整目录，DSH 也只扫
+  `.agent-presets` 一级子目录），与套装 README 的手动步骤一致。
 - **preset.yml 无需补丁**：上游 v0.3.0 已修复 description 里未加引号 `:`
   导致的 YAML 解析失败问题（suite #53）；旧版安装脚本的落地重新加引号补丁已
   删除，install.mjs 现在原样复制 upstream 文件。
@@ -91,13 +91,13 @@ install:plugins` 自动发现执行；重复执行幂等（`prepare` 已产出 l
 
 ## 更新
 
-- 上游套装更新后先审阅，再移动指针并重初始化嵌套 submodule：
+- 上游套装更新后先审阅，再移动指针并初始化（21a7260 起无嵌套 submodule）：
 
   ```powershell
   git submodule update --remote plugins/routing-suite/dsh-routing-suite
-  git submodule update --init --recursive plugins/routing-suite/dsh-routing-suite
+  git submodule update --init plugins/routing-suite/dsh-routing-suite
   node plugins/routing-suite/install.mjs
   ```
 
-- dsh-gui 的检查更新对话框只列出顶层 submodule（套装自身）；套装内部两个
-  组件的新指针要随套装仓库提交，更新后按上面命令同步，然后重跑安装。
+- dsh-gui 的检查更新对话框列出该子模块（套装自身）；上游组件内容已随套装
+  仓库提交（扁平化），更新后按上面命令同步然后重跑安装即可。

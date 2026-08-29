@@ -5,8 +5,10 @@
  *
  * The upstream distribution repo (https://github.com/yjh051108/dsh-routing-suite)
  * lives in the `dsh-routing-suite` git submodule checkout beside this script.
- * Its canonical chain (suite README + install.ps1) is the basis, with one
- * dsh-gui adaptation:
+ * Since upstream 21a7260 (flat-submodules merge) the injector/ and preset/
+ * trees are plain directories in the suite repo — no nested submodules, no
+ * --recursive needed. The canonical chain (suite README + install.ps1) is the
+ * basis, with one dsh-gui adaptation:
  *
  *  1. injector/  dsh-super-injector (@dsh-external/dsh-super-injector):
  *     the self-contained `lib/` (host + client, tsdown) is built with the
@@ -16,9 +18,10 @@
  *     makes the CLI reconcile it into `dsh.profile.bundles` (bundle layer
  *     self-mounts; no manual cordis.patch.yml insert).
  *  2. preset/   dsh-router-standard — the router-standard / router-spec agent
- *     presets are copied flat, whole-directory, into `.dsh/.agent-presets/<id>/`
- *     (the compositions load ./router-bootstrap.mjs by relative path). Upstream
- *     v0.3.0 fixed the preset.yml quoting, so the old re-quote patch is gone.
+ *     presets are copied flat, whole-directory, from `preset/<id>` into
+ *     `.dsh/.agent-presets/<id>/` (the compositions load
+ *     ./router-bootstrap.mjs by relative path). Upstream fixed the preset.yml
+ *     quoting, so the old re-quote patch is gone.
  *
  * Why the build is NOT the shared pipeline's default: installPlugin's default
  * build runs `pnpm install` with auto peers (fetches unpublished @deepseek-ai
@@ -47,17 +50,17 @@ import { installPlugin } from '../../scripts/plugin-install.mjs'
 
 /** This plugin's wrapper directory — owns the suite submodule checkout. */
 const HERE = dirname(fileURLToPath(import.meta.url))
-/** The pristine suite checkout (aggregator repo + two pinned submodules). */
+/** The pristine suite checkout (aggregator repo; since 21a7260 the component trees are plain dirs). */
 const SUITE = join(HERE, 'dsh-routing-suite')
 /** The injector package inside the suite checkout (its own prepare hook builds lib/). */
 const INJECTOR = join(SUITE, 'injector')
-/** The router preset sources inside the suite checkout (preset submodule). */
-const PRESETS_SOURCE = join(SUITE, 'preset', 'preset')
+/** The router preset sources inside the suite checkout (flat dirs since upstream 21a7260). */
+const PRESETS_SOURCE = join(SUITE, 'preset')
 /** Preset ids installed into .dsh/.agent-presets/ (directory names upstream). */
 const PRESET_IDS = ['router-standard', 'router-spec']
 
-/** One hint covering the suite checkout and its nested submodules. */
-const SOURCE_HINT = 'git submodule update --init --recursive plugins/routing-suite/dsh-routing-suite'
+/** One hint covering the suite checkout (flat since upstream 21a7260; no nested submodules anymore). */
+const SOURCE_HINT = 'git submodule update --init plugins/routing-suite/dsh-routing-suite'
 
 /** The upstream self-contained host + client bundles the loader needs. */
 const LIB_FILES = ['lib/index.js', 'lib/client.js']
@@ -79,8 +82,8 @@ const BUILD_LINKS = [
 ]
 
 /**
- * Fail with the recursive-submodule hint when a suite checkout (top level or
- * one of the two component checkouts) is missing or uninitialized.
+ * Fail with the submodule hint when the suite checkout is missing or
+ * uninitialized (upstream 21a7260 flat: no nested component checkouts anymore).
  * @param {string} path - the missing path, used in the error message.
  */
 function missing(path) {
@@ -102,11 +105,11 @@ function linkPackageDir(target, link) {
 }
 
 /**
- * Build the injector's self-contained `lib/` in the submodule checkout when a
+ * Build the injector's self-contained `lib/` in the suite checkout when a
  * fresh checkout has no build output. The junctions go in AFTER `pnpm install`
  * so pnpm does not prune them (they are not declared dependencies); the compile
  * itself runs through the upstream prepare hook (tsdown). `node_modules/` and
- * `lib/` are gitignored upstream, so the submodule working tree stays clean.
+ * `lib/` are gitignored upstream, so the suite working tree stays clean.
  */
 function ensureInjectorLib() {
   if (LIB_FILES.every((file) => existsSync(join(INJECTOR, file)))) return
@@ -150,7 +153,7 @@ function installPresets(dshHome) {
   for (const id of PRESET_IDS) {
     const source = join(PRESETS_SOURCE, id)
     if (!existsSync(join(source, 'agent.cordis.yml'))) {
-      missing(`plugins/routing-suite/dsh-routing-suite/preset/preset/${id}`)
+      missing(`plugins/routing-suite/dsh-routing-suite/preset/${id}`)
     }
     const target = join(dshHome, '.agent-presets', id)
     rmSync(target, { recursive: true, force: true })
