@@ -88,6 +88,7 @@ would double-mount it and fail the plugin tree with
 - [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 源码安装
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-liangshen@latest](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-web-ui-settings@latest](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
   - [@linxin666/dsh-pet@latest](dsh-web-ui/packages/dsh-pet/README.zh.md) npm包
 
 ## Current plugins

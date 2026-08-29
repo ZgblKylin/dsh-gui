@@ -364,16 +364,18 @@ duplicate Loader entry.
 submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
 (`build: false`, no copy, no patch).
 
-`plugins/dsh-web-ui` is the partial exception: its install script first copies
-`dsh-web-ui/packages/dsh-liangshen/presets/liangshen` to
-`.dsh\.agent-presets\liangshen` and patches that copy on Windows (the
-phase-1 `bash` becomes the wrapper's custom-bash, since DSH's PTY backend is
-linux/darwin-only; see `plugins/dsh-web-ui/README.md`). It then builds
-`dsh-web-ui/packages/dsh-pet` and `dsh-web-ui/packages/dsh-web-ui-settings`
-and installs both through the shared plugin pipeline (settings bridge ordered
-before pet). The bridge is required because dsh-host-apiproxy's hard-coded
-settings allowlist does not expose third-party namespaces such as `pet`, so
-without it the pet's configuration form is read-only. Every other dsh-web-ui
+`plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
+three npm packages at `@latest` through `installNpmPlugin` —
+`@linxin666/dsh-liangshen`, `@linxin666/dsh-client-ui-web-ui-settings`
+(ordered before) and `@linxin666/dsh-pet`; all declare `dsh.bundle.patch`, so
+`dsh plugin add` reconciles each into `dsh.profile.bundles` (no manual
+cordis insert). The `dsh-liangshen` plugin syncs its own preset into
+`.dsh\.agent-presets\liangshen` on host startup (no copy from the submodule;
+it ships its own Windows custom-bash). The bridge is required because
+dsh-host-apiproxy's hard-coded settings allowlist does not expose third-party
+namespaces such as `pet`, so without it the pet's configuration form is
+read-only. `dsh-web-ui/` stays as the source reference only (v0.3.x layout:
+`packages/dsh-web-settings`, `packages/dsh-web-all`); every other dsh-web
 package stays uninstalled and unmounted.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect

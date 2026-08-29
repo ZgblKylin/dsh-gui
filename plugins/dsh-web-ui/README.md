@@ -18,11 +18,10 @@
 plugins/dsh-web-ui/
 ├─ install.mjs                     # npm 安装 dsh-liangshen / dsh-web-ui-settings / dsh-pet
 ├─ README.md                       # 本说明
-└─ dsh-web-ui/                     # dsh-web-ui 仓库（git submodule）
+└─ dsh-web-ui/                     # dsh-web-ui 仓库（git submodule；上游 v0.3.x 起更名 dsh-web）
    ├─ packages/dsh-liangshen/      # host 插件源（npm 发布形态；wrapper 从 npm 安装）
    ├─ packages/dsh-pet/            # 桌宠插件源（npm 发布形态；wrapper 从 npm 安装）
-   └─ packages/dsh-web-ui-settings/
-      └─ src/                      # 兼容设置桥源码（npm 发布形态；wrapper 从 npm 安装）
+   └─ packages/dsh-web-settings/   # 兼容设置桥源码（npm 包名不变；wrapper 从 npm 安装）
 ```
 
 ## 安装范围
@@ -34,7 +33,7 @@ plugins/dsh-web-ui/
 `dsh-pet` 的 `pet`）。`dsh-web-ui-settings` 在 host 侧提供 loopback-only 的
 设置桥路由，在浏览器侧把 `webUiSettings` 兼容 binder 注入给家族插件；没有
 它时，`dsh-pet` 的设置卡只能显示“命名空间未暴露”的提示。安装顺序为
-设置桥 → dsh-pet（与上游 `dsh-web-ui-all/aggregate.yml` 的顺序约定一致）。
+设置桥 → dsh-pet（与上游 `packages/dsh-web-all/aggregate.yml` 的顺序约定一致）。
 
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
@@ -60,7 +59,7 @@ dsh plugin --profile web add @linxin666/dsh-pet@latest
 
 - `dsh-liangshen` 的 agent preset（梁神模式）——preset 属于 `presets/` 流程；
 - `dsh-task-board`、`dsh-live-stats`、`dsh-remote-web-ui`、`dsh-skins`、
-  `dsh-web-ui-all` 等 dsh-web-ui 其他 package；
+  `dsh-web-all`（v0.3.x 起，旧名 `dsh-web-ui-all`）等 dsh-web 其他 package；
 - 对三个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
   bundle patch 挂载；
 - 对上游 submodule 的任何修改。

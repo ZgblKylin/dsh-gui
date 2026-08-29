@@ -4,7 +4,9 @@
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
  * Three plugin packages of the dsh-web-ui distribution repo are installed,
- * all from npm as `@latest`:
+ * all from npm as `@latest` (upstream renamed itself to dsh-web and the
+ * settings-bridge source directory to packages/dsh-web-settings in v0.3.x;
+ * the npm package names below are unchanged):
  *
  * 1. the `dsh-liangshen` host plugin (`@linxin666/dsh-liangshen@latest`);
  * 2. the `dsh-web-ui-settings` compatibility bundle
