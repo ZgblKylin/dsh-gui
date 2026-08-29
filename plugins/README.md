@@ -81,7 +81,7 @@ would double-mount it and fail the plugin tree with
 
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包
-- [DSH-better-sidebar](https://github.com/ZgblKylin/DSH-better-sidebar) 源码安装（TEMP fork-source：z-index 图层修复未发版，源码来自 fork `ZgblKylin/DSH-better-sidebar`——子模块 `origin` 为官方、`fork` 为个人 fork；见 `better-sidebar/install.mjs` 的 `TEMP(fork-source)` 标记；上游合入后恢复 npm），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
+- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包
 - [dsh-deep-whale/maid-atelier](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装
@@ -118,12 +118,9 @@ would double-mount it and fail the plugin tree with
   (`omdsh-dev/DSH-better-sidebar`), `better-sidebar/dsh-flowglass`
   (`Iwctwbh/dsh-flowglass`) and `better-sidebar/dsh-sidebar-qa`
   (`ChenRuoT/dsh-sidebar-qa`); its `install.mjs` installs the three packages
-  in order — `dsh-better-sidebar` FIRST (⚠️ **TEMP fork-source**: currently
-  built + linked from its submodule checkout — submodule remotes are
-  `origin` = `omdsh-dev` official, `fork` = `ZgblKylin` fork (the fix
-  branch pushes there) — see the `TEMP(fork-source)` markers in
-  `install.mjs`; revert to `installNpmPlugin` once the upstream release
-  lands), then `dsh-flowglass@latest`, then `dsh-sidebar-qa@latest`
+  in order — `dsh-better-sidebar@latest` FIRST (installed from npm since the
+  upstream release landed; the submodule checkout at the pinned tag is kept as
+  a source reference), then `dsh-flowglass@latest`, then `dsh-sidebar-qa@latest`
   (both companions declare better-sidebar as a peer dependency, so it must
   land first; the same order ends up in `dsh.profile.bundles`).
   - `DSH-better-sidebar` — service-first sidebar workbench (right sidebar +
