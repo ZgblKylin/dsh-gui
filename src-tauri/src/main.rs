@@ -23,14 +23,15 @@ mod changelog;
 #[cfg(windows)]
 mod native_window;
 mod update;
+mod wrapper;
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
@@ -171,6 +172,10 @@ const HARNESS_BIN: &str = "deepseek-harness/apps/cli/lib/bin.js";
 /// Default loopback port (matches the harness `web` profile default; override
 /// with the `DSH_GUI_PORT` environment variable).
 const DEFAULT_PORT: u16 = 3080;
+/// Loopback port serving the shell's wrapper page. The wrapper must share the
+/// harness's scheme and host so its harness iframe is same-site and the
+/// browser-auth cookie survives (see `wrapper.rs`).
+const WRAPPER_PORT: u16 = 3081;
 
 /// Walk up from the executable until the repository root (the directory that
 /// holds both `deepseek-harness/` and `src-tauri/`) is found. The exe sits
@@ -371,12 +376,40 @@ fn install_panic_log() {
     }));
 }
 
+/// A running harness process plus a reader of its stdout, which carries the
+/// launch line `dsh web: http://127.0.0.1:<port>/?token=...` emitted once the
+/// Web profile is ready (a harness ≥ dsh-v0.1.2-alpha.1 authenticates every
+/// request through that one-time token or its minted session cookie).
+struct HarnessProcess {
+    child: Child,
+    lines: mpsc::Receiver<String>,
+}
+
+impl HarnessProcess {
+    fn into_child(self) -> Child {
+        self.child
+    }
+}
+
+/// Post-launch harness URL and browser session state the shell needs once the
+/// Web profile answers HTTP.
+struct HarnessAuth {
+    /// URL the wrapper page should load; carries the launch-token query when
+    /// the harness minted one, and is the plain loopback URL otherwise.
+    web_url: String,
+    /// `name=value` session cookie minted from the launch token. The shell's
+    /// own HTTP calls (remote ops, changelog) attach it because an ad-hoc
+    /// TcpStream request has no cookie jar.
+    cookie: Option<String>,
+}
+
 /// Spawn `node <root>/deepseek-harness/apps/cli/lib/bin.js web --port <port> --no-open`
-/// with `DSH_HOME` pinned to `<root>/.dsh`, and redirect its output to a log
-/// file so a console-less launch is still debuggable. `--no-open` stops the
-/// harness web bundle from handing the page to the default browser: the shell
-/// opens its own window, and the harness runs embedded in it.
-fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Error>> {
+/// with `DSH_HOME` pinned to `<root>/.dsh`. The harness's stdout is captured
+/// (the launch URL line carries its one-time token) and mirrored to
+/// `.dsh\gui\harness.log`; stderr goes to the same log file. `--no-open` stops
+/// the harness web bundle from handing the page to the default browser: the
+/// shell opens its own window, and the harness runs embedded in it.
+fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::error::Error>> {
     let bin = root.join(HARNESS_BIN);
     if !bin.is_file() {
         return Err(format!(
@@ -391,7 +424,9 @@ fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Er
     let home = root.join(".dsh");
     let log_dir = home.join("gui");
     fs::create_dir_all(&log_dir)?;
-    let log = File::create(log_dir.join("harness.log"))?;
+    let log_path = log_dir.join("harness.log");
+    // Truncate the previous run, then let both reader threads append below.
+    File::create(&log_path)?;
 
     let mut command = Command::new("node");
     command
@@ -402,8 +437,8 @@ fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Er
         .arg("--no-open")
         .current_dir(root.join(HARNESS_DIR))
         .env("DSH_HOME", &home)
-        .stdout(Stdio::from(log.try_clone()?))
-        .stderr(Stdio::from(log));
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -414,73 +449,248 @@ fn spawn_harness(root: &Path, port: u16) -> Result<Child, Box<dyn std::error::Er
         // `.dsh\gui\harness.log`.
         command.creation_flags(0x0800_0000);
     }
-    let child = command
+    let mut child = command
         .spawn()
         .map_err(|e| format!("failed to spawn harness (is `node` on PATH?): {e}"))?;
-    Ok(child)
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("harness stdout is unavailable")?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or("harness stderr is unavailable")?;
+    let (tx, rx) = mpsc::channel();
+    // One writer thread per stream: each line is appended to the shared log
+    // file (append-mode handles) and, for stdout, replayed to the channel so
+    // `wait_ready` can parse the token from the launch URL line.
+    let tee_path = log_path.clone();
+    let tx_tee = tx.clone();
+    let tee = std::thread::spawn(move || {
+        let mut file = log_file(&tee_path);
+        let mut buf = BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match buf.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    let cooked = line.trim_end().to_string();
+                    if let Some(f) = file.as_mut() {
+                        let _ = f.write_all(cooked.as_bytes());
+                        let _ = f.write_all(b"\n");
+                    }
+                    if tx_tee.send(cooked).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    let tee_path = log_path.clone();
+    let tee2 = std::thread::spawn(move || {
+        let mut file = log_file(&tee_path);
+        let mut buf = BufReader::new(stderr);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match buf.read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {
+                    let cooked = line.trim_end().to_string();
+                    if let Some(f) = file.as_mut() {
+                        let _ = f.write_all(cooked.as_bytes());
+                        let _ = f.write_all(b"\n");
+                    }
+                }
+            }
+        }
+    });
+    let _ = (tee, tee2);
+    Ok(HarnessProcess { child, lines: rx })
 }
 
-/// Minimal HTTP readiness probe: returns true when the harness answers `GET /`
-/// with a 200 on the loopback port (so we never open the webview on a socket
-/// that is bound but not yet serving the frontend).
-fn http_get_ok(port: u16) -> bool {
-    let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
-        return false;
-    };
+/// Append-mode handle for the harness log, opened lazily per thread (Windows
+/// append handles make each `write_all` an atomic append, so two concurrent
+/// streams cannot overwrite each other).
+fn log_file(path: &Path) -> Option<File> {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok()
+}
+
+/// Extract the launch token from a `dsh web: ...?token=...` output line. The
+/// line may carry a second token query for the LAN URL; both are identical.
+fn parse_launch_token(line: &str) -> Option<String> {
+    const MARKER: &str = "?token=";
+    let pos = line.find(MARKER)?;
+    let token: String = line[pos + MARKER.len()..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    (!token.is_empty()).then_some(token)
+}
+
+/// Loopback URL carrying the harness launch token as its sole authentication.
+fn authenticated_url(port: u16, token: &str) -> String {
+    format!("http://127.0.0.1:{port}/?token={token}")
+}
+
+/// Minimal HTTP readiness probe: returns the status code the harness answers
+/// `GET /` with on the loopback port. The Web profile serves the browser-auth
+/// gate before any other HTTP: unauthenticated index requests answer 401. The
+/// probe never distinguishes the status, only whether the port answers.
+fn http_probe_status(port: u16) -> Option<u16> {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-    let request = format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
-    if stream.write_all(request.as_bytes()).is_err() {
-        return false;
-    }
+    let request = format!(
+        "GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).ok()?;
     let mut buf = [0u8; 1024];
-    let Ok(n) = stream.read(&mut buf) else {
-        return false;
-    };
+    let n = stream.read(&mut buf).ok()?;
     let head = String::from_utf8_lossy(&buf[..n]);
-    head.starts_with("HTTP/1.1 200") || head.starts_with("HTTP/1.0 200")
+    head.lines()
+        .next()?
+        .split_whitespace()
+        .nth(1)?
+        .parse::<u16>()
+        .ok()
 }
 
-/// Wait until the harness serves the frontend, or until it exits / times out.
+
+/// Wait until the harness serves the frontend (or answers the browser-auth
+/// gate), and recover its launch token before opening the webview. The Web
+/// profile ≥ dsh-v0.1.2-alpha.1 answers unauthenticated requests with HTTP 401
+/// and prints its launcher URL (with a one-time `?token=`) on stdout; older
+/// profiles answer 200 directly and print no token — both are supported here.
 fn wait_ready(
-    child: &mut Child,
+    process: &mut HarnessProcess,
     port: u16,
     timeout: Duration,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<HarnessAuth, Box<dyn std::error::Error>> {
     let start = Instant::now();
+    let mut token: Option<String> = None;
     loop {
-        if let Some(status) = child.try_wait()? {
+        while let Ok(line) = process.lines.try_recv() {
+            if token.is_none() {
+                token = parse_launch_token(&line);
+            }
+        }
+        if let Some(status) = process.child.try_wait()? {
             return Err(format!(
                 "harness exited before becoming ready (status {status}); see .dsh\\gui\\harness.log"
             )
             .into());
         }
-        if http_get_ok(port) {
-            #[cfg(windows)]
-            match loopback_listener_pid(port)? {
-                Some(pid) if pid == child.id() => return Ok(()),
-                Some(pid) => {
-                    return Err(format!(
-                        "127.0.0.1:{port} answered from unexpected process {pid}, not the spawned harness process {}; refusing to open the wrong DSH_HOME",
-                        child.id()
-                    )
-                    .into())
+        if let Some(code) = http_probe_status(port) {
+            if code == 200 || code == 401 {
+                #[cfg(windows)]
+                match loopback_listener_pid(port)? {
+                    Some(pid) if pid == process.child.id() => {
+                        // The HTTP connection may have closed just as the table
+                        // was sampled; let the normal child/timeout checks decide.
+                    }
+                    Some(pid) => {
+                        return Err(format!(
+                            "127.0.0.1:{port} answered from unexpected process {pid}, not the spawned harness process {}; refusing to open the wrong DSH_HOME",
+                            process.child.id()
+                        )
+                        .into())
+                    }
+                    None => {}
                 }
-                // The HTTP connection may have closed just as the table was
-                // sampled; let the normal child/timeout checks decide.
-                None => {}
+                // A 200 on a legacy (no-auth) profile is fully ready; a 401
+                // means the browser-auth gate is up and only the launch-token
+                // line is still pending — keep draining until it arrives.
+                if code == 200 || token.is_some() {
+                    break;
+                }
             }
-            #[cfg(not(windows))]
-            return Ok(());
         }
         if start.elapsed() >= timeout {
+            let hint = if token.is_none() {
+                "the harness answered the browser-auth gate but never printed its launch URL; check .dsh\\gui\\harness.log"
+            } else {
+                "check .dsh\\gui\\harness.log"
+            };
             return Err(format!(
-                "timed out after {timeout:?} waiting for the harness on 127.0.0.1:{port}; see .dsh\\gui\\harness.log"
+                "timed out after {timeout:?} waiting for the harness on 127.0.0.1:{port}; {hint}"
             )
             .into());
         }
         std::thread::sleep(Duration::from_millis(200));
     }
+    let web_url = match &token {
+        Some(t) => authenticated_url(port, t),
+        None => format!("http://127.0.0.1:{port}/"),
+    };
+    // Exchange the one-time token for the signed session cookie once, so the
+    // shell's own HTTP calls (remote ops, changelog) come through the gate.
+    let cookie = match &token {
+        Some(t) => fetch_session_cookie(port, t).ok().flatten(),
+        None => None,
+    };
+    Ok(HarnessAuth { web_url, cookie })
+}
+
+/// Exchange the launch token for the browser-auth session cookie with one
+/// `GET /?token=...` and return the first `name=value` pair of the minted
+/// `set-cookie` header. The response is a 303 redirect; the cookie payload is
+/// signed by the harness secret and bound to the request authority, so the
+/// shell must echo the exact same `Host` header it uses for later calls.
+fn fetch_session_cookie(port: u16, token: &str) -> Result<Option<String>, String> {
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .map_err(|e| format!("cannot reach the harness on 127.0.0.1:{port}: {e}"))?;
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+    let request = format!(
+        "GET /?token={token} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| format!("failed to send token exchange request: {e}"))?;
+    let mut buf = [0u8; 8192];
+    let mut head = String::new();
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                head.push_str(&String::from_utf8_lossy(&buf[..n]));
+                if head.contains("\r\n\r\n") {
+                    break;
+                }
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                break
+            }
+            Err(e) => return Err(format!("failed reading token exchange response: {e}")),
+        }
+    }
+    let Some((head, _)) = head.split_once("\r\n\r\n") else {
+        return Ok(None);
+    };
+    for line in head.lines().skip(1) {
+        if let Some(value) = line.to_ascii_lowercase().strip_prefix("set-cookie:") {
+            let first = value
+                .trim()
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if first.contains('=') {
+                return Ok(Some(first));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Owns the harness child process for the app's lifetime and guarantees it
@@ -548,6 +758,14 @@ impl Drop for ChildGuard {
 struct ShellState {
     root: PathBuf,
     port: u16,
+    /// URL the wrapper page embeds in its iframe. Carries the harness launch
+    /// token (Web profiles ≥ dsh-v0.1.2-alpha.1 mint a one-time token and
+    /// answer every unauthenticated request with 401).
+    web_url: String,
+    /// Browser session cookie minted from the token, used by the shell's own
+    /// HTTP calls (`remote_call`, changelog); ad-hoc TcpStream requests carry
+    /// no browser cookie jar.
+    cookie: Option<String>,
     /// PIDs the detached update launcher must wait for before touching the
     /// checkout: this shell and the harness child it owns.
     gui_pid: u32,
@@ -610,10 +828,11 @@ fn show_window_menu(
 }
 
 /// The self-hosted harness UI URL, so the wrapper page can point its iframe at
-/// the right port without the port being baked into the assets.
+/// the right port without the port being baked into the assets. Carries the
+/// one-time launch token when the Web profile minted one.
 #[tauri::command]
 fn harness_url(state: State<'_, ShellState>) -> String {
-    format!("http://127.0.0.1:{}", state.port)
+    state.web_url.clone()
 }
 
 /// Everything the About dialog needs: version/license/repository for the
@@ -737,6 +956,7 @@ async fn update_changelog(
     let root = state.root.clone();
     let harness_cli = root.join(HARNESS_BIN);
     let port = state.port;
+    let cookie = state.cookie.clone();
     let lock = Arc::clone(&state.update_lock);
     tauri::async_runtime::spawn_blocking(move || {
         let prepared = {
@@ -745,7 +965,7 @@ async fn update_changelog(
                 .map_err(|_| "另一个更新操作正在进行".to_string())?;
             changelog::prepare(&root, &id, mode.as_deref().unwrap_or("commit"))?
         };
-        changelog::finish(prepared, &root, &harness_cli, port)
+        changelog::finish(prepared, &root, &harness_cli, port, cookie)
     })
     .await
     .map_err(|e| format!("更新日志任务失败：{e}"))?
@@ -785,6 +1005,7 @@ pub(crate) fn http_post_json_raw(
     port: u16,
     path: &str,
     body: &str,
+    cookie: Option<&str>,
 ) -> Result<(u16, String, String), String> {
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .map_err(|e| format!("cannot reach the harness on 127.0.0.1:{port}: {e}"))?;
@@ -793,8 +1014,14 @@ pub(crate) fn http_post_json_raw(
     // stays responsive.
     let _ = stream.set_read_timeout(Some(Duration::from_secs(600)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
+    let mut header = format!(
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n"
+    );
+    if let Some(cookie) = cookie {
+        header.push_str(&format!("Cookie: {cookie}\r\n"));
+    }
     let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{header}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream
@@ -839,8 +1066,9 @@ pub(crate) fn http_post_json_raw(
 
 /// Erroring wrapper for the remote-ops whitelist: any non-2xx status becomes
 /// an Err carrying the status line and the response body.
-fn http_post_json(port: u16, op: &str, body: &str) -> Result<String, String> {
-    let (code, status, response) = http_post_json_raw(port, &format!("/remote-api/{op}"), body)?;
+fn http_post_json(port: u16, op: &str, body: &str, cookie: Option<&str>) -> Result<String, String> {
+    let (code, status, response) =
+        http_post_json_raw(port, &format!("/remote-api/{op}"), body, cookie)?;
     if !(200..300).contains(&code) {
         return Err(format!(
             "{op} failed ({status}): {}",
@@ -885,6 +1113,15 @@ fn dechunk(body: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Bridge for frontend diagnostics: appends one line to `.dsh\gui\gui.log`
+/// (the wrapper page has no console in release builds, so boot-time facts are
+/// otherwise invisible).
+#[tauri::command]
+fn shell_log(state: State<'_, ShellState>, msg: String) -> Result<(), String> {
+    log_status(&state.root, &format!("[ui] {msg}"));
+    Ok(())
+}
+
 /// Forward one operation to the harness plugin's `/remote-api` route. Runs off
 /// the main thread (via spawn_blocking) so a long remote run never blocks the UI.
 #[tauri::command]
@@ -897,7 +1134,8 @@ async fn remote_call(
         return Err(format!("unknown op: {op}"));
     }
     let port = state.port;
-    tauri::async_runtime::spawn_blocking(move || http_post_json(port, &op, &body))
+    let cookie = state.cookie.clone();
+    tauri::async_runtime::spawn_blocking(move || http_post_json(port, &op, &body, cookie.as_deref()))
         .await
         .map_err(|e| format!("remote_call task failed: {e}"))?
 }
@@ -912,18 +1150,36 @@ fn main() {
     let port = resolve_port();
 
     // Start the harness before the GUI so a startup failure reports clearly
-    // (log + message box) instead of silently behind a blank window.
-    let child = match spawn_harness(&root, port)
-        .and_then(|mut c| wait_ready(&mut c, port, Duration::from_secs(90)).map(|_| c))
-    {
-        Ok(c) => c,
+    // (log + message box) instead of silently behind a blank window. The
+    // ready wait also recovers the harness launch token (Web profiles ≥
+    // dsh-v0.1.2-alpha.1 authenticate via a one-time token) so the wrapper
+    // page and the shell's own HTTP calls can pass the browser-auth gate.
+    let mut harness = match spawn_harness(&root, port) {
+        Ok(h) => h,
+        Err(e) => fatal(Some(&root), &format!("failed to spawn the harness: {e}")),
+    };
+    let auth = match wait_ready(&mut harness, port, Duration::from_secs(90)) {
+        Ok(auth) => auth,
         Err(e) => fatal(Some(&root), &format!("failed to start the harness: {e}")),
     };
-    log_status(&root, &format!("harness ready at http://127.0.0.1:{port}"));
+    let child = harness.into_child();
+
+    // Serve the wrapper page from the loopback (same scheme+host as the
+    // harness) so the hardened page can talk to the browser-auth gate; the
+    // failure of the wrapper port is a startup error, not a degraded window.
+    if let Err(e) = ensure_loopback_port_available(WRAPPER_PORT) {
+        fatal(Some(&root), &format!("wrapper page port: {e}"));
+    }
+    if let Err(e) = wrapper::spawn(WRAPPER_PORT, root.join(".dsh").join("gui").join("wrapper.log")) {
+        fatal(Some(&root), &format!("wrapper page server: {e}"));
+    }
+    log_status(&root, &format!("harness ready at {}", auth.web_url));
 
     let harness_pid = child.id();
     let child = ChildGuard::new(child);
     let setup_root = root.clone();
+    let web_url = auth.web_url;
+    let cookie = auth.cookie;
 
     tauri::Builder::default()
         .plugin(
@@ -936,6 +1192,8 @@ fn main() {
             app.manage(ShellState {
                 root: setup_root,
                 port,
+                web_url,
+                cookie,
                 gui_pid: std::process::id(),
                 harness_pid,
                 update_lock: Arc::new(Mutex::new(())),
@@ -943,10 +1201,17 @@ fn main() {
             app.manage(child);
             // Frameless: the wrapper page (ui/index.html) draws its own title
             // bar and window controls, and embeds the harness UI in an iframe.
+            // The page is served from the loopback (not the tauri:// origin)
+            // so the harness iframe is same-site and browser-auth cookies
+            // survive; see wrapper.rs.
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::App("index.html".into()),
+                tauri::WebviewUrl::External(
+                    format!("http://127.0.0.1:{WRAPPER_PORT}/")
+                        .parse()
+                        .expect("wrapper URL must parse"),
+                ),
             )
             .title("DeepSeek Harness")
             .inner_size(1280.0, 800.0)
@@ -1026,6 +1291,7 @@ fn main() {
             start_update,
             update_root,
             update_changelog,
+            shell_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");
@@ -1035,10 +1301,20 @@ fn main() {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::{ensure_loopback_port_available, job::KillJob, loopback_listener_pid};
+    use super::{ensure_loopback_port_available, job::KillJob, loopback_listener_pid, parse_launch_token};
     use std::net::TcpListener;
     use std::process::Command;
     use std::time::Duration;
+
+    #[test]
+    fn launch_token_is_extracted_from_the_url_line() {
+        assert_eq!(
+            parse_launch_token("dsh web: http://127.0.0.1:4567/?token=test-token (LAN: http://192.168.1.5:4567/?token=test-token)"),
+            Some("test-token".to_string())
+        );
+        assert_eq!(parse_launch_token("dsh web: http://127.0.0.1:4567/"), None);
+        assert_eq!(parse_launch_token(""), None);
+    }
 
     /// Spawn a long-lived node helper to stand in for the harness.
     fn spawn_worker() -> std::process::Child {

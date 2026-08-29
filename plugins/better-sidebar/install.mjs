@@ -29,7 +29,9 @@ installNpmPlugin({
 
 // 然后 dsh-flowglass：live flowgraph（三车道、子代理分支、并行分组、下钻）
 // + 可热重载的会话工具箱抽屉，编译产物来自 npm。装好 better-sidebar 时
-// 注册为原生会话级 tab。
+// 注册为原生会话级 tab。默认跳过：0.4.x 对 dsh-v0.1.2-alpha.1 的 client
+// 运行时不兼容（见 docs/dsh-gui/harness-upgrade-build-failure.md；upstream
+// 适配后移除默认清单即可，或临时 DSH_PLUGIN_FORCE_INSTALL=1）。
 installNpmPlugin({
   id: 'flowglass',
   packageSpec: 'dsh-flowglass@latest',

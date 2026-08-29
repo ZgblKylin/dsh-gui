@@ -72,7 +72,13 @@ function uid() {
   return "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 function normUrl(u) {
-  return String(u || "").replace(/\/+$/, "");
+  try {
+    const x = new URL(String(u || ""));
+    x.search = "";
+    return x.href.replace(/\/+$/, "");
+  } catch {
+    return String(u || "").replace(/\/+$/, "");
+  }
 }
 
 /* ── Page-driven title bar theme ───────────────────────────────
@@ -2172,6 +2178,20 @@ async function boot() {
   // Sanitize persisted tabs; guarantee the local (本机) tab always exists.
   if (!Array.isArray(tabs)) tabs = [];
   tabs = tabs.filter((t) => t && typeof t === "object" && typeof t.url === "string");
+  // The harness launch token is minted once per harness process: any
+  // persisted local tab carries a stale token (or none), so refresh it from
+  // the current harnessUrl before the iframe loads.
+  tabs = tabs.map((t) =>
+    t.type === "local" || t.id === "current"
+      ? { ...t, url: harnessUrl, port: defaultPort }
+      : t
+  );
+  if (tauri) {
+    invoke("shell_log", {
+      msg: "boot harnessUrl=" + harnessUrl +
+        " tabs=" + JSON.stringify(tabs.map((t) => ({ id: t.id, type: t.type, url: t.url }))),
+    }).catch(() => {});
+  }
   if (!Array.isArray(savedConnections)) savedConnections = [];
   savedConnections = savedConnections.filter((c) => c && typeof c === "object" && typeof c.name === "string");
   renderSavedList();

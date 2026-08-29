@@ -4,8 +4,28 @@
   "windows": [
     "main"
   ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:3081"
+    ]
+  },
   "permissions": [
     "core:default",
-    "snap-layout:default"
+    "snap-layout:default",
+    "allow-minimize-window",
+    "allow-toggle-maximize-window",
+    "allow-is-window-maximized",
+    "allow-close-window",
+    "allow-start-window-drag",
+    "allow-show-window-menu",
+    "allow-harness-url",
+    "allow-about-info",
+    "allow-local-update-projects",
+    "allow-remote-call",
+    "allow-check-updates",
+    "allow-start-update",
+    "allow-update-root",
+    "allow-update-changelog",
+    "allow-shell-log"
   ]
 }

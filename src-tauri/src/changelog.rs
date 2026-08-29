@@ -232,6 +232,7 @@ pub fn finish(
     root: &Path,
     harness_cli: &Path,
     port: u16,
+    cookie: Option<String>,
 ) -> Result<UpdateChangelog, String> {
     let request = match prepared {
         Prepared::Done(changelog) => return Ok(changelog),
@@ -241,7 +242,7 @@ pub fn finish(
     let prompt = build_prompt(&request);
     let subtitle = summary_subtitle(&request);
     for attempt in 0..2 {
-        if let Some(text) = web_summary(port, &prompt)? {
+        if let Some(text) = web_summary(port, &prompt, cookie.as_deref())? {
             return Ok(UpdateChangelog { subtitle, text });
         }
         if attempt == 0 {
@@ -380,10 +381,10 @@ fn temp_session_redirect() -> Result<(PathBuf, PathBuf), String> {
 /// the transport failed, or the answer is a non-2xx status — and the caller
 /// falls back to the headless run; `Err` is a genuine model-side failure that
 /// the dialog should surface as-is.
-fn web_summary(port: u16, prompt: &str) -> Result<Option<String>, String> {
+fn web_summary(port: u16, prompt: &str, cookie: Option<&str>) -> Result<Option<String>, String> {
     let payload = serde_json::json!({ "prompt": prompt }).to_string();
     let (code, _status, body) =
-        match crate::http_post_json_raw(port, "/dsh-gui-api/changelog", &payload) {
+        match crate::http_post_json_raw(port, "/dsh-gui-api/changelog", &payload, cookie) {
             Ok(response) => response,
             Err(_) => return Ok(None),
         };
@@ -735,7 +736,7 @@ mod tests {
         let (port, handle) =
             canned_server("200 OK", r##"{"ok":true,"text":"# 摘要\n\n- 完成"}"##);
         assert_eq!(
-            web_summary(port, "prompt").unwrap(),
+            web_summary(port, "prompt", None).unwrap(),
             Some("# 摘要\n\n- 完成".to_string())
         );
         handle.join().unwrap();
@@ -746,13 +747,13 @@ mod tests {
         // Non-2xx (route not installed) and an unreachable port both degrade to
         // the headless fallback instead of an error.
         let (port, handle) = canned_server("404 Not Found", r#"{"ok":false,"error":{"code":"not-found","message":"x"}}"#);
-        assert_eq!(web_summary(port, "prompt").unwrap(), None);
+        assert_eq!(web_summary(port, "prompt", None).unwrap(), None);
         handle.join().unwrap();
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener); // nothing listens there now
-        assert_eq!(web_summary(port, "prompt").unwrap(), None);
+        assert_eq!(web_summary(port, "prompt", None).unwrap(), None);
     }
 
     #[test]
@@ -761,7 +762,7 @@ mod tests {
             "200 OK",
             r#"{"ok":false,"error":{"code":"llm-error","message":"模型失败"}}"#,
         );
-        let error = web_summary(port, "prompt").unwrap_err();
+        let error = web_summary(port, "prompt", None).unwrap_err();
         assert!(error.contains("模型失败"), "unexpected error: {error}");
         handle.join().unwrap();
     }

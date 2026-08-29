@@ -1,0 +1,2813 @@
+PS E:\Git\dsh-gui> npm run build && npm run start
+
+> build
+> node scripts/dsh-gui.mjs build
+
+
+==> Install harness dependencies (repo-local store)
+native/landlock-run/packages/linux-arm64 | [WARN] Unsupported platform: wanted: {"cpu":["arm64"],"os":["linux"],"libc":["any"]} (current: {"os":"win32","cpu":"x64","libc":"unknown"})
+native/landlock-run/packages/linux-x64   | [WARN] Unsupported platform: wanted: {"cpu":["x64"],"os":["linux"],"libc":["any"]} (current: {"os":"win32","cpu":"x64","libc":"unknown"})
+Scope: all 265 workspace projects
+[WARN] There are cyclic workspace dependencies: E:\Git\dsh-gui\deepseek-harness\packages\client\locale, E:\Git\dsh-gui\deepseek-harness\packages\test-support\client-runtime, E:\Git\dsh-gui\deepseek-harness\packages\client\ui-chat, E:\Git\dsh-gui\deepseek-harness\packages\client\ui-layout, E:\Git\dsh-gui\deepseek-harness\packages\client\ui-theme; E:\Git\dsh-gui\deepseek-harness\packages\client\ui-conversation, E:\Git\dsh-gui\deepseek-harness\packages\client\ui-workspace; E:\Git\dsh-gui\deepseek-harness\packages\e2b\e2b, E:\Git\dsh-gui\deepseek-harness\packages\e2b\fs-e2b; E:\Git\dsh-gui\deepseek-harness\packages\examples\agent-spine-demo, E:\Git\dsh-gui\deepseek-harness\packages\goal\goal; E:\Git\dsh-gui\deepseek-harness\packages\sandbox\sandbox-local, E:\Git\dsh-gui\deepseek-harness\packages\sandbox\sandbox-windows-acl; E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent-spawn-in-process, E:\Git\dsh-gui\deepseek-harness\packages\subagent\tool-subagent; E:\Git\dsh-gui\deepseek-harness\vendor\cordis, E:\Git\dsh-gui\deepseek-harness\vendor\include
+Recreating E:\Git\dsh-gui\deepseek-harness\node_modules
+✓ Lockfile passes supply-chain policies (verified 1m ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +1011
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 1011, reused 384, downloaded 0, added 0
+Progress: resolved 1011, reused 922, downloaded 69, added 29
+Progress: resolved 1011, reused 922, downloaded 80, added 60
+Progress: resolved 1011, reused 922, downloaded 80, added 111
+Progress: resolved 1011, reused 922, downloaded 80, added 185
+Progress: resolved 1011, reused 922, downloaded 81, added 302
+Progress: resolved 1011, reused 922, downloaded 82, added 361
+Progress: resolved 1011, reused 922, downloaded 82, added 430
+Progress: resolved 1011, reused 922, downloaded 82, added 571
+Progress: resolved 1011, reused 922, downloaded 82, added 722
+Progress: resolved 1011, reused 922, downloaded 82, added 906
+Progress: resolved 1011, reused 922, downloaded 82, added 1003
+Progress: resolved 1011, reused 922, downloaded 82, added 1006
+Progress: resolved 1011, reused 922, downloaded 82, added 1007
+Progress: resolved 1011, reused 922, downloaded 82, added 1009
+Progress: resolved 1011, reused 922, downloaded 83, added 1009
+Progress: resolved 1011, reused 922, downloaded 83, added 1010
+Progress: resolved 1011, reused 922, downloaded 84, added 1010
+Progress: resolved 1011, reused 922, downloaded 84, added 1011, done
+.../.pnpm/koffi@3.1.1/node_modules/koffi install$ node ./cnoke.cjs -P . -D src/koffi --prebuild --release
+.../node_modules/node-pty install$ node scripts/prebuild.js || node-gyp rebuild
+.../esbuild@0.25.12/node_modules/esbuild postinstall$ node install.js
+.../esbuild@0.28.1/node_modules/esbuild postinstall$ node install.js
+.../lefthook@2.1.9/node_modules/lefthook postinstall$ node postinstall.js
+.../node_modules/node-pty install: > Checking prebuilds...
+.../node_modules/node-pty install: Done
+.../node_modules/node-pty postinstall$ node scripts/post-install.js
+.../lefthook@2.1.9/node_modules/lefthook postinstall: Done
+.../esbuild@0.21.5/node_modules/esbuild postinstall$ node install.js
+.../.pnpm/koffi@3.1.1/node_modules/koffi install: Done
+.../node_modules/node-pty postinstall: > Cleaning release folder...
+.../node_modules/node-pty postinstall: > Moving conpty.dll...
+.../node_modules/node-pty postinstall:   Using os.arch(): x64
+.../node_modules/node-pty postinstall:   Found version 1.25.260303002
+.../node_modules/node-pty postinstall:   Copying E:\Git\dsh-gui\deepseek-harness\node_modules\.pnpm\node-pty@1.2.0-beta.15_patc_04ea68a78398ae52b35b6f6b1ec3bdf9\node_modules\node-pty\third_party\conpty\1.25.260303002\win10-x64\conpty.dll -> E:\Git\dsh-gui\deepseek-harness\node_modules\.pnpm\node-pty@1.2.0-beta.15_patc_04ea68a78398ae52b35b6f6b1ec3bdf9\node_modules\node-pty\build\Release\conpty\conpty.dll
+.../node_modules/node-pty postinstall:   Copying E:\Git\dsh-gui\deepseek-harness\node_modules\.pnpm\node-pty@1.2.0-beta.15_patc_04ea68a78398ae52b35b6f6b1ec3bdf9\node_modules\node-pty\third_party\conpty\1.25.260303002\win10-x64\OpenConsole.exe -> E:\Git\dsh-gui\deepseek-harness\node_modules\.pnpm\node-pty@1.2.0-beta.15_patc_04ea68a78398ae52b35b6f6b1ec3bdf9\node_modules\node-pty\build\Release\conpty\OpenConsole.exe
+.../node_modules/node-pty postinstall: Done
+.../esbuild@0.25.12/node_modules/esbuild postinstall: Done
+.../esbuild@0.28.1/node_modules/esbuild postinstall: Done
+.../esbuild@0.21.5/node_modules/esbuild postinstall: Done
+
+devDependencies:
++ @deepseek-ai/dsh-tool-session-query 0.1.2-alpha.1 <- packages\session-query\tool-session-query
++ @deepseek-ai/dsh-web-fetch-http 0.1.2-alpha.1 <- packages\web\web-fetch-http
++ @stylistic/eslint-plugin 5.10.0
++ @testing-library/dom 10.4.1
++ @testing-library/react 16.3.2
++ @types/js-yaml 4.0.9
++ @types/jsdom 28.0.3
++ @types/mdast 4.0.4
++ @types/node 22.20.0
++ @types/spdx-expression-parse 4.0.0
++ @vitest/coverage-v8 4.1.8
++ @yarnpkg/cli-dist 4.17.1
++ eslint-plugin-sonarjs 4.1.0
++ execa 10.0.0
++ fast-check 4.8.0
++ istanbul-lib-report 3.0.1
++ js-yaml 4.2.0
++ jscpd 5.0.12
++ jsdom 29.1.1
++ knip 6.16.1
++ lefthook 2.1.9
++ lightningcss 1.32.0
++ mdast-util-from-markdown 2.0.3
++ mdast-util-gfm 3.1.0
++ mermaid 11.16.0
++ micromark-extension-gfm 3.0.0
++ oxlint 1.76.0
++ oxlint-tsgolint 7.0.2001
++ publint 0.3.21
++ smol-toml 1.7.1
++ spdx-expression-parse 5.0.0
++ tsdown 0.22.2
++ tsx 4.22.4
++ typescript 6.0.3
++ vite-tsconfig-paths 6.1.1
++ vitest 4.1.8
+
+packages/subprocess/subprocess-local postinstall$ node scripts/ensure-spawn-helper.mjs
+packages/subprocess/subprocess-local postinstall: Done
+. postinstall$ node scripts/install-lefthook.mjs
+. postinstall: Done
+Done in 55.2s using pnpm v11.24.0
+
+==> Build harness (host lib + web dist)
+$ tsx scripts/build.ts
+$ npm run build:lib:host && npm run build:lib:client
+npm warn Unknown env config "manage-package-manager-versions". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> @deepseek-ai/dsh-root@0.1.2-alpha.1 build:lib:host
+> node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -b tsconfig.host.json && tsdown --env.DSH_BUILD_FACE host
+
+ℹ tsdown v0.22.2 powered by rolldown v1.1.1
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\apps\cli\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\loader\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\logger-console\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\schemastery\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\api\gateway\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\api\remotes\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\api\session-controller\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\api\workspace-controller\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\boot\app-boot\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\connection\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\hmr\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\locale\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\modules\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-agent-preset\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-approval\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-commands\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-attachment\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-brand-official\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\store\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-deliverables\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-directory-picker-browse\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-conversation\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-chat\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-directory-picker-native\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-goal\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-input-trigger\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-jobs\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-message-feedback\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-model-selection\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-layout\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-permission-presets\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-plan\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-primitives\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-reference\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-renderer\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-settings-general\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-settings\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-session\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-sidebar\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-settings-models\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-settings-plugins\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-settings-plugin-inventory\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-skill\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-slots\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-subagent\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-theme\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-tool\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-trajectory\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-workflow-run\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-workspace\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\ui-user-questions\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\client\web\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\code-runtime\code-runtime-python\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\code-runtime\code-runtime-worker-thread\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\compaction\compaction\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\context\time-context\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\core\agent\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\core\agent-default-model\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\core\scope\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\core\agent-loop\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\core\session\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\experimental\agent-team\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\experimental\client-ui-agent-team\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\experimental\inspector\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\experimental\webworker-packer\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\experimental\webworker-runtime\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\extensions\cordis-client-runner\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\extensions\ui-cordis\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\goal\goal-round-driver\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\goal\goal\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\host\directory-picker-native\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\host\directory-picker-browse\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\interaction\user-approval\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\llm\llm-retry\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\sandbox\sandbox-policy\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\sandbox\sandbox-windows-acl\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\schedule\schedule\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session-query\session-log-export\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\settings\settings\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\tool-subagent\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\test-support\client-runtime\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\test-support\llm-mock-server\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\typert\registry\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\workflow\workflow-worker-thread\tsdown.config.ts
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\cosmokit\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\cordis\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\hmr\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\acp\acp\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\group\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\timer\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\vendor\include\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\attachment\attachment\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\attachment\attachment-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\api\settings-controller\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\boot\cmdline\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\bundle\base\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\bundle\acp-app\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\bundle\headless\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\bundle\sdk-app\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\bundle\sdk-minimal\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\bundle\web-app\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\code-runtime\code-runtime\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\compaction\command-compact\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\compaction\compaction-basic\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\context\agent-instructions\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\compaction\compaction-tool-result-pruner\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\context\session-reference\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\context\file-reference\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\context\file-reference-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\core\agent-tool-presentation\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\context\tmux-context\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\core\tools\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\credentials\authorization\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\credentials\credentials\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\e2b\e2b\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\credentials\credentials-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\core\system-prompt\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\examples\agent-spine-demo\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\e2b\fs-e2b\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\e2b\subprocess-e2b\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\experimental\agent-team-profile\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\experimental\agent-team-web-profile\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\experimental\tool-agent-team\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\extensions\tool-cordis\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\extensions\cordis-host-runner\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\fs\fs\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\feedback\message-feedback\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\feedback\command-feedback\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\fs\fs-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\fs\fs-observation-policy\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\fs\tool-fs\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\fs\tool-fs-search\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\fs\tool-str-replace-editor\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\goal\tool-goal\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\guard\repeat-tool-reminder\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\goal\command-goal\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\guard\timeout-policy\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\host\directory-picker\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\host\directory-picker-auto\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\fs\fs-sandbox\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\host\webserver\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\host\plugin-inventory\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\host\frontend-static\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\hooks\hook-protocol\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\hooks\hooks-claude-code\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\hooks\hooks-codex\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\identity\anonymous-user-id\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\interaction\commands\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\interaction\permission-presets\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\interaction\user-questions\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\interaction\tool-ask-user\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\llm\deepseek-llm-api-extensions\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\llm\llm-deepseek\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\llm\llm-pi-ai\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\llm\plugin-package-inventory-deepseek\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\llm\llm\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\llm\token-meter\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\lsp\lsp\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\jobs\jobs\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\lsp\lsp-stdio\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\jobs\jobs-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\plan\plan-mode\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\lsp\tool-lsp\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\jobs\tool-jobs\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\preset\agent-presets\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\preset\persona\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\mcp\mcp-client\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\sandbox\sandbox-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\sandbox\sandbox\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\runtime-diagnostics\invariants\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\sdk\client\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\sdk\server\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\sdk\protocol\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-persistence\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-log-deepseek\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-checkpoint-policy\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-persistence-jsonl\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-persistence-sqlite\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-stats\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-projection\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-projection-cache\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-title-llm\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-telemetry\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-telemetry-otel\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-title-first-prompt-llm\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-title\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session-query\session-query-sqlite\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session\session-title-all-prompts-llm\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session-query\session-query\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\settings\settings-file\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\session-query\tool-session-query\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\pwsh-sandbox\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\bash-sandbox\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\pwsh-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\bash-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\shell\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\shell-env\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\tool-bash-persistent\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\tool-bash\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\tool-pwsh\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\skill\skill-filesystem\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\skill\skill\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\shell\tool-pwsh-persistent\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\skill\skill-badge\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\skill\tool-skill\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\spill\spill\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\spill\spill-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\storage\storage\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\spill\spill-policy\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\storage\storage-domain\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\storage\storage-json\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\storage\storage-sqlite\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent-acp\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent-claude-code\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent-codex\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent-dsh-sdk\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent-in-process-driver\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent-fork-in-process\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\tool-subagent-control\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\tool-subagent-report\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subagent\subagent-spawn-in-process\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subprocess\subprocess\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subprocess\win32-process\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\terminal\terminal\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\subprocess\subprocess-local\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\terminal\terminal-bash\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\test-support\agent-loop-testkit\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\terminal\tool-terminal\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\test-support\llm-replay\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\test-support\session-snapshot\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\test-support\loader-smoke\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\todo\tool-todo\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\atomic-write\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\crypto\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\home-paths\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\brand\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\launch-environment\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\native-command\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\output-retention\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\workspace-path\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\util\timeout\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\web\tool-web\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\web\web-fetch-http\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\web\web-search-exa\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\web\web\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\web\web-search-deepseek\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\typert\generator\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\webhook\webhook\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\web\web-search-perplexity\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\typert\loader\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\webhook\webhook-github\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\typert\protocol\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\workflow\tool-workflow\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\workflow\tool-ralph\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\workflow\workflow\package.json
+ℹ config file: E:\Git\dsh-gui\deepseek-harness\packages\workspace\workspace\package.json
+ℹ [@deepseek-ai/dsh] entry: lib/types/bin.js
+ℹ [@deepseek-ai/dsh] target: es2024
+ℹ [@deepseek-ai/dsh] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/cordis-plugin-loader] entry: lib/types/index.js
+ℹ [@deepseek-ai/cordis-plugin-loader] target: es2024
+ℹ [@deepseek-ai/cordis-plugin-loader] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/cordis-plugin-logger-console] entry: lib/types/index.js
+ℹ [@deepseek-ai/cordis-plugin-logger-console] target: es2024
+ℹ [@deepseek-ai/cordis-plugin-logger-console] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/schemastery] entry: lib/types/index.js
+ℹ [@deepseek-ai/schemastery] target: es2024
+ℹ [@deepseek-ai/schemastery] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/cordis-plugin-logger-console] entry: lib/types/browser.js
+ℹ [@deepseek-ai/cordis-plugin-logger-console] target: es2024
+ℹ [@deepseek-ai/cordis-plugin-logger-console] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-api-remotes] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-api-remotes] target: es2024
+ℹ [@deepseek-ai/dsh-api-remotes] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-api-session-controller] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-api-session-controller] target: es2024
+ℹ [@deepseek-ai/dsh-api-session-controller] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-app-boot] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-app-boot] target: es2024
+ℹ [@deepseek-ai/dsh-app-boot] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-api-workspace-controller] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-api-workspace-controller] target: es2024
+ℹ [@deepseek-ai/dsh-api-workspace-controller] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-code-runtime-python] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-code-runtime-python] target: es2024
+ℹ [@deepseek-ai/dsh-code-runtime-python] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] target: es2024
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-compaction] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-compaction] target: es2024
+ℹ [@deepseek-ai/dsh-compaction] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] entry: lib/types/worker.js
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] target: es2024
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-compaction] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-compaction] target: es2024
+ℹ [@deepseek-ai/dsh-compaction] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-time-context] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-time-context] target: es2024
+ℹ [@deepseek-ai/dsh-time-context] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-agent] target: es2024
+ℹ [@deepseek-ai/dsh-agent] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-time-context] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-time-context] target: es2024
+ℹ [@deepseek-ai/dsh-time-context] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-default-model] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-agent-default-model] target: es2024
+ℹ [@deepseek-ai/dsh-agent-default-model] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-agent] target: es2024
+ℹ [@deepseek-ai/dsh-agent] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-default-model] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-agent-default-model] target: es2024
+ℹ [@deepseek-ai/dsh-agent-default-model] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-scope] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-scope] target: es2024
+ℹ [@deepseek-ai/dsh-scope] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-loop] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-agent-loop] target: es2024
+ℹ [@deepseek-ai/dsh-agent-loop] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-loop] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-agent-loop] target: es2024
+ℹ [@deepseek-ai/dsh-agent-loop] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-scope] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-scope] target: es2024
+ℹ [@deepseek-ai/dsh-scope] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-session] target: es2024
+ℹ [@deepseek-ai/dsh-session] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-session] target: es2024
+ℹ [@deepseek-ai/dsh-session] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-agent-team] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-experimental-agent-team] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-agent-team] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-agent-team] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-experimental-agent-team] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-agent-team] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-inspector] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-experimental-inspector] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-inspector] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-inspector] entry: lib/types/worker/entry.js
+ℹ [@deepseek-ai/dsh-experimental-inspector] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-inspector] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] entry: lib/types/index.js, lib/types/bin.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] entry: src/index.ts
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] entry: src/client/index.ts
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] target: es2022
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-goal] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-goal] target: es2024
+ℹ [@deepseek-ai/dsh-goal] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-goal] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-goal] target: es2024
+ℹ [@deepseek-ai/dsh-goal] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-goal-round-driver] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-goal-round-driver] target: es2024
+ℹ [@deepseek-ai/dsh-goal-round-driver] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-goal-round-driver] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-goal-round-driver] target: es2024
+ℹ [@deepseek-ai/dsh-goal-round-driver] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-host-directory-picker-browse] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-host-directory-picker-browse] target: es2024
+ℹ [@deepseek-ai/dsh-host-directory-picker-browse] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] entry: lib/types/win32-dialog-worker.js
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] target: es2024
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] target: es2024
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-user-approval] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-user-approval] target: es2024
+ℹ [@deepseek-ai/dsh-user-approval] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-user-approval] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-user-approval] target: es2024
+ℹ [@deepseek-ai/dsh-user-approval] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-llm-retry] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-llm-retry] target: es2024
+ℹ [@deepseek-ai/dsh-llm-retry] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-llm-retry] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-llm-retry] target: es2024
+ℹ [@deepseek-ai/dsh-llm-retry] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sandbox-policy] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-sandbox-policy] target: es2024
+ℹ [@deepseek-ai/dsh-sandbox-policy] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sandbox-policy] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-sandbox-policy] target: es2024
+ℹ [@deepseek-ai/dsh-sandbox-policy] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sandbox-windows-acl] entry: lib/types/index.js, lib/types/invariant.js, lib/types/runner.js
+ℹ [@deepseek-ai/dsh-sandbox-windows-acl] target: es2024
+ℹ [@deepseek-ai/dsh-sandbox-windows-acl] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-schedule] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-schedule] target: es2024
+ℹ [@deepseek-ai/dsh-schedule] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-log-export] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-session-log-export] target: es2024
+ℹ [@deepseek-ai/dsh-session-log-export] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-schedule] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-schedule] target: es2024
+ℹ [@deepseek-ai/dsh-schedule] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-settings] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-settings] target: es2024
+ℹ [@deepseek-ai/dsh-settings] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-settings] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-settings] target: es2024
+ℹ [@deepseek-ai/dsh-settings] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-subagent] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-tool-subagent] target: es2024
+ℹ [@deepseek-ai/dsh-tool-subagent] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-subagent] entry: lib/types/model-selection-settings.js
+ℹ [@deepseek-ai/dsh-tool-subagent] target: es2024
+ℹ [@deepseek-ai/dsh-tool-subagent] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-subagent] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-tool-subagent] target: es2024
+ℹ [@deepseek-ai/dsh-tool-subagent] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-llm-mock-server] entry: lib/types/index.js
+ℹ [@deepseek-ai/dsh-llm-mock-server] target: es2024
+ℹ [@deepseek-ai/dsh-llm-mock-server] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-llm-mock-server] entry: lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-llm-mock-server] target: es2024
+ℹ [@deepseek-ai/dsh-llm-mock-server] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] entry: lib/types/index.js, lib/types/invariant.js
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] target: es2024
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] entry: lib/types/worker.js
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] target: es2024
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] entry: src/worker.ts
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] target: es2022
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] tsconfig: tsconfig.json
+
+ WARN  `noExternal` is deprecated. Use `deps.alwaysBundle` instead.
+
+ℹ [@deepseek-ai/cordis] entry: lib\types\index.js
+ℹ [@deepseek-ai/cordis] target: es2024
+ℹ [@deepseek-ai/cordis] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/cosmokit] entry: lib\types\index.js
+ℹ [@deepseek-ai/cosmokit] target: es2024
+ℹ [@deepseek-ai/cosmokit] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/cordis-plugin-group] entry: lib\types\index.js
+ℹ [@deepseek-ai/cordis-plugin-group] target: es2024
+ℹ [@deepseek-ai/cordis-plugin-group] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/cordis-plugin-hmr] entry: lib\types\index.js
+ℹ [@deepseek-ai/cordis-plugin-hmr] target: es2024
+ℹ [@deepseek-ai/cordis-plugin-hmr] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/cordis-plugin-include] entry: lib\types\index.js
+ℹ [@deepseek-ai/cordis-plugin-include] target: es2024
+ℹ [@deepseek-ai/cordis-plugin-include] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-acp] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-acp] target: es2024
+ℹ [@deepseek-ai/dsh-acp] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/cordis-plugin-timer] entry: lib\types\index.js
+ℹ [@deepseek-ai/cordis-plugin-timer] target: es2024
+ℹ [@deepseek-ai/cordis-plugin-timer] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-attachment] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-attachment] target: es2024
+ℹ [@deepseek-ai/dsh-attachment] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-attachment-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-attachment-local] target: es2024
+ℹ [@deepseek-ai/dsh-attachment-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-api-settings-controller] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-api-settings-controller] target: es2024
+ℹ [@deepseek-ai/dsh-api-settings-controller] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-cmdline] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-cmdline] target: es2024
+ℹ [@deepseek-ai/dsh-cmdline] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-acp-app] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-acp-app] target: es2024
+ℹ [@deepseek-ai/dsh-acp-app] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-headless] entry: lib\types\index.js, lib\types\invariant.js, lib\types\startup.js
+ℹ [@deepseek-ai/dsh-headless] target: es2024
+ℹ [@deepseek-ai/dsh-headless] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-base] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-base] target: es2024
+ℹ [@deepseek-ai/dsh-base] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sdk-app] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-sdk-app] target: es2024
+ℹ [@deepseek-ai/dsh-sdk-app] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sdk-minimal] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-sdk-minimal] target: es2024
+ℹ [@deepseek-ai/dsh-sdk-minimal] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-web-app] entry: lib\types\index.js, lib\types\invariant.js, lib\types\startup.js
+ℹ [@deepseek-ai/dsh-web-app] target: es2024
+ℹ [@deepseek-ai/dsh-web-app] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-code-runtime] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-code-runtime] target: es2024
+ℹ [@deepseek-ai/dsh-code-runtime] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-command-compact] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-command-compact] target: es2024
+ℹ [@deepseek-ai/dsh-command-compact] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-root] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-root] target: es2024
+ℹ [@deepseek-ai/dsh-root] tsconfig: ..\..\..\tsconfig.json
+ℹ [@deepseek-ai/dsh-root] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-root] target: es2024
+ℹ [@deepseek-ai/dsh-root] tsconfig: ..\..\..\tsconfig.json
+ℹ [@deepseek-ai/dsh-compaction-basic] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-compaction-basic] target: es2024
+ℹ [@deepseek-ai/dsh-compaction-basic] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-root] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-root] target: es2024
+ℹ [@deepseek-ai/dsh-root] tsconfig: ..\..\..\tsconfig.json
+ℹ [@deepseek-ai/dsh-compaction-tool-result-pruner] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-compaction-tool-result-pruner] target: es2024
+ℹ [@deepseek-ai/dsh-compaction-tool-result-pruner] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-instructions] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-agent-instructions] target: es2024
+ℹ [@deepseek-ai/dsh-agent-instructions] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-file-reference] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-file-reference] target: es2024
+ℹ [@deepseek-ai/dsh-file-reference] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-file-reference-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-file-reference-local] target: es2024
+ℹ [@deepseek-ai/dsh-file-reference-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-reference] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-reference] target: es2024
+ℹ [@deepseek-ai/dsh-session-reference] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tmux-context] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tmux-context] target: es2024
+ℹ [@deepseek-ai/dsh-tmux-context] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-tool-presentation] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-agent-tool-presentation] target: es2024
+ℹ [@deepseek-ai/dsh-agent-tool-presentation] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-system-prompt] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-system-prompt] target: es2024
+ℹ [@deepseek-ai/dsh-system-prompt] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tools] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tools] target: es2024
+ℹ [@deepseek-ai/dsh-tools] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-authorization] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-authorization] target: es2024
+ℹ [@deepseek-ai/dsh-authorization] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-credentials] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-credentials] target: es2024
+ℹ [@deepseek-ai/dsh-credentials] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-credentials-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-credentials-local] target: es2024
+ℹ [@deepseek-ai/dsh-credentials-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-e2b] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-e2b] target: es2024
+ℹ [@deepseek-ai/dsh-e2b] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-fs-e2b] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-fs-e2b] target: es2024
+ℹ [@deepseek-ai/dsh-fs-e2b] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subprocess-e2b] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subprocess-e2b] target: es2024
+ℹ [@deepseek-ai/dsh-subprocess-e2b] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-spine-demo] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-agent-spine-demo] target: es2024
+ℹ [@deepseek-ai/dsh-agent-spine-demo] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-root] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-root] target: es2024
+ℹ [@deepseek-ai/dsh-root] tsconfig: ..\..\..\tsconfig.json
+ℹ [@deepseek-ai/dsh-root] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-root] target: es2024
+ℹ [@deepseek-ai/dsh-root] tsconfig: ..\..\..\tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-agent-team-profile] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-experimental-agent-team-profile] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-agent-team-profile] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-agent-team-web-profile] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-experimental-agent-team-web-profile] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-agent-team-web-profile] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-experimental-tool-agent-team] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-experimental-tool-agent-team] target: es2024
+ℹ [@deepseek-ai/dsh-experimental-tool-agent-team] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-cordis-host-runner] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-cordis-host-runner] target: es2024
+ℹ [@deepseek-ai/dsh-cordis-host-runner] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-cordis] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-cordis] target: es2024
+ℹ [@deepseek-ai/dsh-tool-cordis] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-command-feedback] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-command-feedback] target: es2024
+ℹ [@deepseek-ai/dsh-command-feedback] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-message-feedback] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-message-feedback] target: es2024
+ℹ [@deepseek-ai/dsh-message-feedback] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-fs] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-fs] target: es2024
+ℹ [@deepseek-ai/dsh-fs] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-fs-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-fs-local] target: es2024
+ℹ [@deepseek-ai/dsh-fs-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-fs-sandbox] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-fs-sandbox] target: es2024
+ℹ [@deepseek-ai/dsh-fs-sandbox] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-fs-observation-policy] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-fs-observation-policy] target: es2024
+ℹ [@deepseek-ai/dsh-fs-observation-policy] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-fs] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-fs] target: es2024
+ℹ [@deepseek-ai/dsh-tool-fs] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-str-replace-editor] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-str-replace-editor] target: es2024
+ℹ [@deepseek-ai/dsh-tool-str-replace-editor] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-fs-search] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-fs-search] target: es2024
+ℹ [@deepseek-ai/dsh-tool-fs-search] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-command-goal] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-command-goal] target: es2024
+ℹ [@deepseek-ai/dsh-command-goal] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-goal] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-goal] target: es2024
+ℹ [@deepseek-ai/dsh-tool-goal] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-call-timeout-policy] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-call-timeout-policy] target: es2024
+ℹ [@deepseek-ai/dsh-tool-call-timeout-policy] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-repeat-tool-reminder] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-repeat-tool-reminder] target: es2024
+ℹ [@deepseek-ai/dsh-repeat-tool-reminder] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-host-directory-picker] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-host-directory-picker] target: es2024
+ℹ [@deepseek-ai/dsh-host-directory-picker] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-host-directory-picker-auto] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-host-directory-picker-auto] target: es2024
+ℹ [@deepseek-ai/dsh-host-directory-picker-auto] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-root] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-root] target: es2024
+ℹ [@deepseek-ai/dsh-root] tsconfig: ..\..\..\tsconfig.json
+ℹ [@deepseek-ai/dsh-host-frontend-static] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-host-frontend-static] target: es2024
+ℹ [@deepseek-ai/dsh-host-frontend-static] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-host-plugin-inventory] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-host-plugin-inventory] target: es2024
+ℹ [@deepseek-ai/dsh-host-plugin-inventory] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-host-webserver] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-host-webserver] target: es2024
+ℹ [@deepseek-ai/dsh-host-webserver] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-hook-protocol] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-hook-protocol] target: es2024
+ℹ [@deepseek-ai/dsh-hook-protocol] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-hooks-claude-code] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-hooks-claude-code] target: es2024
+ℹ [@deepseek-ai/dsh-hooks-claude-code] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-hooks-codex] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-hooks-codex] target: es2024
+ℹ [@deepseek-ai/dsh-hooks-codex] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-commands] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-commands] target: es2024
+ℹ [@deepseek-ai/dsh-commands] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-anonymous-user-id] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-anonymous-user-id] target: es2024
+ℹ [@deepseek-ai/dsh-anonymous-user-id] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-permission-presets] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-permission-presets] target: es2024
+ℹ [@deepseek-ai/dsh-permission-presets] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-ask-user] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-ask-user] target: es2024
+ℹ [@deepseek-ai/dsh-tool-ask-user] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-user-questions] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-user-questions] target: es2024
+ℹ [@deepseek-ai/dsh-user-questions] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-deepseek-llm-api-extensions] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-deepseek-llm-api-extensions] target: es2024
+ℹ [@deepseek-ai/dsh-deepseek-llm-api-extensions] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-llm-deepseek] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-llm-deepseek] target: es2024
+ℹ [@deepseek-ai/dsh-llm-deepseek] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-llm] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-llm] target: es2024
+ℹ [@deepseek-ai/dsh-llm] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-llm-pi-ai] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-llm-pi-ai] target: es2024
+ℹ [@deepseek-ai/dsh-llm-pi-ai] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-plugin-package-inventory-deepseek] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-plugin-package-inventory-deepseek] target: es2024
+ℹ [@deepseek-ai/dsh-plugin-package-inventory-deepseek] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-token-meter] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-token-meter] target: es2024
+ℹ [@deepseek-ai/dsh-token-meter] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-lsp] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-lsp] target: es2024
+ℹ [@deepseek-ai/dsh-lsp] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-lsp-stdio] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-lsp-stdio] target: es2024
+ℹ [@deepseek-ai/dsh-lsp-stdio] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-lsp] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-lsp] target: es2024
+ℹ [@deepseek-ai/dsh-tool-lsp] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-jobs] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-jobs] target: es2024
+ℹ [@deepseek-ai/dsh-jobs] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-jobs-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-jobs-local] target: es2024
+ℹ [@deepseek-ai/dsh-jobs-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-jobs] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-jobs] target: es2024
+ℹ [@deepseek-ai/dsh-tool-jobs] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-mcp-client] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-mcp-client] target: es2024
+ℹ [@deepseek-ai/dsh-mcp-client] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-plan-mode] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-plan-mode] target: es2024
+ℹ [@deepseek-ai/dsh-plan-mode] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-presets] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-agent-presets] target: es2024
+ℹ [@deepseek-ai/dsh-agent-presets] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-persona] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-persona] target: es2024
+ℹ [@deepseek-ai/dsh-persona] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-invariants] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-invariants] target: es2024
+ℹ [@deepseek-ai/dsh-invariants] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sandbox] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-sandbox] target: es2024
+ℹ [@deepseek-ai/dsh-sandbox] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sandbox-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-sandbox-local] target: es2024
+ℹ [@deepseek-ai/dsh-sandbox-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sdk-client] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-sdk-client] target: es2024
+ℹ [@deepseek-ai/dsh-sdk-client] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sdk-protocol] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-sdk-protocol] target: es2024
+ℹ [@deepseek-ai/dsh-sdk-protocol] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-sdk-jsonrpc-server] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-sdk-jsonrpc-server] target: es2024
+ℹ [@deepseek-ai/dsh-sdk-jsonrpc-server] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-log-deepseek] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-log-deepseek] target: es2024
+ℹ [@deepseek-ai/dsh-session-log-deepseek] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-checkpoint-policy] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-checkpoint-policy] target: es2024
+ℹ [@deepseek-ai/dsh-session-checkpoint-policy] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-persistence] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-persistence] target: es2024
+ℹ [@deepseek-ai/dsh-session-persistence] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-persistence-jsonl] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-persistence-jsonl] target: es2024
+ℹ [@deepseek-ai/dsh-session-persistence-jsonl] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-persistence-sqlite] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-persistence-sqlite] target: es2024
+ℹ [@deepseek-ai/dsh-session-persistence-sqlite] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-projection] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-projection] target: es2024
+ℹ [@deepseek-ai/dsh-session-projection] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-projection-cache] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-projection-cache] target: es2024
+ℹ [@deepseek-ai/dsh-session-projection-cache] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-telemetry] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-telemetry] target: es2024
+ℹ [@deepseek-ai/dsh-session-telemetry] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-stats] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-stats] target: es2024
+ℹ [@deepseek-ai/dsh-session-stats] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-telemetry-otel] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-telemetry-otel] target: es2024
+ℹ [@deepseek-ai/dsh-session-telemetry-otel] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-title-all-prompts-llm] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-title-all-prompts-llm] target: es2024
+ℹ [@deepseek-ai/dsh-session-title-all-prompts-llm] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-title] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-title] target: es2024
+ℹ [@deepseek-ai/dsh-session-title] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-title-first-prompt-llm] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-title-first-prompt-llm] target: es2024
+ℹ [@deepseek-ai/dsh-session-title-first-prompt-llm] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-title-llm] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-title-llm] target: es2024
+ℹ [@deepseek-ai/dsh-session-title-llm] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-query] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-query] target: es2024
+ℹ [@deepseek-ai/dsh-session-query] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-query-sqlite] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-query-sqlite] target: es2024
+ℹ [@deepseek-ai/dsh-session-query-sqlite] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-session-query] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-session-query] target: es2024
+ℹ [@deepseek-ai/dsh-tool-session-query] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-settings-file] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-settings-file] target: es2024
+ℹ [@deepseek-ai/dsh-settings-file] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-bash-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-bash-local] target: es2024
+ℹ [@deepseek-ai/dsh-bash-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-bash-sandbox] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-bash-sandbox] target: es2024
+ℹ [@deepseek-ai/dsh-bash-sandbox] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-pwsh-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-pwsh-local] target: es2024
+ℹ [@deepseek-ai/dsh-pwsh-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-shell] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-shell] target: es2024
+ℹ [@deepseek-ai/dsh-shell] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-pwsh-sandbox] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-pwsh-sandbox] target: es2024
+ℹ [@deepseek-ai/dsh-pwsh-sandbox] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-shell-env] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-shell-env] target: es2024
+ℹ [@deepseek-ai/dsh-shell-env] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-bash] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-bash] target: es2024
+ℹ [@deepseek-ai/dsh-tool-bash] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-bash-persistent] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-bash-persistent] target: es2024
+ℹ [@deepseek-ai/dsh-tool-bash-persistent] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-pwsh-persistent] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-pwsh-persistent] target: es2024
+ℹ [@deepseek-ai/dsh-tool-pwsh-persistent] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-pwsh] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-pwsh] target: es2024
+ℹ [@deepseek-ai/dsh-tool-pwsh] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-skill] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-skill] target: es2024
+ℹ [@deepseek-ai/dsh-skill] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-skill-badge] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-skill-badge] target: es2024
+ℹ [@deepseek-ai/dsh-skill-badge] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-skill] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-skill] target: es2024
+ℹ [@deepseek-ai/dsh-tool-skill] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-skill-filesystem] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-skill-filesystem] target: es2024
+ℹ [@deepseek-ai/dsh-skill-filesystem] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-spill] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-spill] target: es2024
+ℹ [@deepseek-ai/dsh-spill] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-spill-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-spill-local] target: es2024
+ℹ [@deepseek-ai/dsh-spill-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-spill-policy] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-spill-policy] target: es2024
+ℹ [@deepseek-ai/dsh-spill-policy] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-storage-json] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-storage-json] target: es2024
+ℹ [@deepseek-ai/dsh-storage-json] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-storage] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-storage] target: es2024
+ℹ [@deepseek-ai/dsh-storage] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-storage-domain] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-storage-domain] target: es2024
+ℹ [@deepseek-ai/dsh-storage-domain] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-storage-sqlite] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-storage-sqlite] target: es2024
+ℹ [@deepseek-ai/dsh-storage-sqlite] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subagent] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subagent] target: es2024
+ℹ [@deepseek-ai/dsh-subagent] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subagent-acp] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subagent-acp] target: es2024
+ℹ [@deepseek-ai/dsh-subagent-acp] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subagent-claude-code] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subagent-claude-code] target: es2024
+ℹ [@deepseek-ai/dsh-subagent-claude-code] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subagent-codex] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subagent-codex] target: es2024
+ℹ [@deepseek-ai/dsh-subagent-codex] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subagent-dsh-sdk] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subagent-dsh-sdk] target: es2024
+ℹ [@deepseek-ai/dsh-subagent-dsh-sdk] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subagent-fork-in-process] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subagent-fork-in-process] target: es2024
+ℹ [@deepseek-ai/dsh-subagent-fork-in-process] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subagent-in-process-driver] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subagent-in-process-driver] target: es2024
+ℹ [@deepseek-ai/dsh-subagent-in-process-driver] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subagent-spawn-in-process] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subagent-spawn-in-process] target: es2024
+ℹ [@deepseek-ai/dsh-subagent-spawn-in-process] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-subagent-control] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-subagent-control] target: es2024
+ℹ [@deepseek-ai/dsh-tool-subagent-control] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subprocess] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subprocess] target: es2024
+ℹ [@deepseek-ai/dsh-subprocess] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-subprocess-local] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-subprocess-local] target: es2024
+ℹ [@deepseek-ai/dsh-subprocess-local] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-subagent-report] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-subagent-report] target: es2024
+ℹ [@deepseek-ai/dsh-tool-subagent-report] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-win32-process] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-win32-process] target: es2024
+ℹ [@deepseek-ai/dsh-win32-process] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-terminal] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-terminal] target: es2024
+ℹ [@deepseek-ai/dsh-terminal] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-terminal-bash] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-terminal-bash] target: es2024
+ℹ [@deepseek-ai/dsh-terminal-bash] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-terminal] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-terminal] target: es2024
+ℹ [@deepseek-ai/dsh-tool-terminal] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-agent-loop-testkit] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-agent-loop-testkit] target: es2024
+ℹ [@deepseek-ai/dsh-agent-loop-testkit] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-root] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-root] target: es2024
+ℹ [@deepseek-ai/dsh-root] tsconfig: ..\..\..\tsconfig.json
+ℹ [@deepseek-ai/dsh-llm-replay] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-llm-replay] target: es2024
+ℹ [@deepseek-ai/dsh-llm-replay] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-loader-smoke] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-loader-smoke] target: es2024
+ℹ [@deepseek-ai/dsh-loader-smoke] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-session-snapshot] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-session-snapshot] target: es2024
+ℹ [@deepseek-ai/dsh-session-snapshot] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-todo] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-todo] target: es2024
+ℹ [@deepseek-ai/dsh-tool-todo] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-atomic-write] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-atomic-write] target: es2024
+ℹ [@deepseek-ai/dsh-atomic-write] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-brand] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-brand] target: es2024
+ℹ [@deepseek-ai/dsh-brand] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-util-crypto] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-util-crypto] target: es2024
+ℹ [@deepseek-ai/dsh-util-crypto] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-home-paths] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-home-paths] target: es2024
+ℹ [@deepseek-ai/dsh-home-paths] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-native-command] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-native-command] target: es2024
+ℹ [@deepseek-ai/dsh-native-command] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-launch-environment] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-launch-environment] target: es2024
+ℹ [@deepseek-ai/dsh-launch-environment] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-output-retention] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-output-retention] target: es2024
+ℹ [@deepseek-ai/dsh-output-retention] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-timeout] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-timeout] target: es2024
+ℹ [@deepseek-ai/dsh-timeout] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-util-workspace-path] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-util-workspace-path] target: es2024
+ℹ [@deepseek-ai/dsh-util-workspace-path] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-web] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-web] target: es2024
+ℹ [@deepseek-ai/dsh-tool-web] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-web] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-web] target: es2024
+ℹ [@deepseek-ai/dsh-web] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-web-fetch-http] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-web-fetch-http] target: es2024
+ℹ [@deepseek-ai/dsh-web-fetch-http] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-web-search-exa] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-web-search-exa] target: es2024
+ℹ [@deepseek-ai/dsh-web-search-exa] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-web-search-perplexity] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-web-search-perplexity] target: es2024
+ℹ [@deepseek-ai/dsh-web-search-perplexity] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-webhook] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-webhook] target: es2024
+ℹ [@deepseek-ai/dsh-webhook] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-web-search-deepseek] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-web-search-deepseek] target: es2024
+ℹ [@deepseek-ai/dsh-web-search-deepseek] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-webhook-github] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-webhook-github] target: es2024
+ℹ [@deepseek-ai/dsh-webhook-github] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-typert-generator] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-typert-generator] target: es2024
+ℹ [@deepseek-ai/dsh-typert-generator] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-typert-loader] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-typert-loader] target: es2024
+ℹ [@deepseek-ai/dsh-typert-loader] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-typert-protocol] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-typert-protocol] target: es2024
+ℹ [@deepseek-ai/dsh-typert-protocol] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-workflow] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-workflow] target: es2024
+ℹ [@deepseek-ai/dsh-tool-workflow] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-workflow] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-workflow] target: es2024
+ℹ [@deepseek-ai/dsh-workflow] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-tool-ralph] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-tool-ralph] target: es2024
+ℹ [@deepseek-ai/dsh-tool-ralph] tsconfig: tsconfig.json
+ℹ [@deepseek-ai/dsh-workspace] entry: lib\types\index.js, lib\types\invariant.js
+ℹ [@deepseek-ai/dsh-workspace] target: es2024
+ℹ [@deepseek-ai/dsh-workspace] tsconfig: tsconfig.json
+ℹ Build start
+[warn] `inlineDynamicImports` option is deprecated, please use `codeSplitting: false` instead.
+[warn] `inlineDynamicImports` option is deprecated, please use `codeSplitting: false` instead.
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] lib\invariant.js  1.07 kB │ gzip: 0.55 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] 1 files, total: 1.07 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] lib\client.js  30.14 kB │ gzip: 9.60 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] 1 files, total: 30.14 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:report (76%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+ℹ [@deepseek-ai/cordis-plugin-timer] lib\index.js  3.96 kB │ gzip: 1.17 kB
+ℹ [@deepseek-ai/cordis-plugin-timer] 1 files, total: 3.96 kB
+ℹ [@deepseek-ai/cordis-plugin-group] lib\index.js  0.17 kB │ gzip: 0.14 kB
+ℹ [@deepseek-ai/cordis-plugin-group] 1 files, total: 0.17 kB
+ℹ [@deepseek-ai/cordis-plugin-include] lib\index.js  9.95 kB │ gzip: 3.75 kB
+ℹ [@deepseek-ai/cordis-plugin-include] 1 files, total: 9.95 kB
+ℹ [@deepseek-ai/schemastery] [ESM] lib\index.mjs  21.07 kB │ gzip: 5.30 kB
+ℹ [@deepseek-ai/schemastery] [ESM] 1 files, total: 21.07 kB
+✔ [@deepseek-ai/dsh-experimental-webworker-runtime] Build complete in 14361ms
+ℹ [@deepseek-ai/dsh-agent-default-model] lib\index.js  2.68 kB │ gzip: 1.03 kB
+ℹ [@deepseek-ai/dsh-agent-default-model] 1 files, total: 2.68 kB
+ℹ [@deepseek-ai/schemastery] [CJS] lib\index.cjs  21.84 kB │ gzip: 5.33 kB
+ℹ [@deepseek-ai/schemastery] [CJS] 1 files, total: 21.84 kB
+ℹ [@deepseek-ai/dsh-agent-loop] lib\invariant.js  2.60 kB │ gzip: 1.01 kB
+ℹ [@deepseek-ai/dsh-agent-loop] 1 files, total: 2.60 kB
+ℹ [@deepseek-ai/cosmokit] lib\index.js  13.34 kB │ gzip: 4.13 kB
+ℹ [@deepseek-ai/cosmokit] 1 files, total: 13.34 kB
+ℹ [@deepseek-ai/dsh-scope] lib\invariant.js  3.47 kB │ gzip: 1.24 kB
+ℹ [@deepseek-ai/dsh-scope] 1 files, total: 3.47 kB
+ℹ [@deepseek-ai/dsh-agent-default-model] lib\invariant.js  1.10 kB │ gzip: 0.57 kB
+ℹ [@deepseek-ai/dsh-agent-default-model] 1 files, total: 1.10 kB
+ℹ [@deepseek-ai/dsh-agent] lib\invariant.js  1.01 kB │ gzip: 0.55 kB
+ℹ [@deepseek-ai/dsh-agent] 1 files, total: 1.01 kB
+ℹ [@deepseek-ai/dsh-sandbox-policy] lib\invariant.js  2.69 kB │ gzip: 1.35 kB
+ℹ [@deepseek-ai/dsh-sandbox-policy] 1 files, total: 2.69 kB
+ℹ [@deepseek-ai/dsh-schedule] lib\invariant.js  12.72 kB │ gzip: 3.73 kB
+ℹ [@deepseek-ai/dsh-schedule] 1 files, total: 12.72 kB
+ℹ [@deepseek-ai/dsh-llm-mock-server] lib\invariant.js  0.95 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-llm-mock-server] 1 files, total: 0.95 kB
+ℹ [@deepseek-ai/dsh-llm-mock-server] lib\index.js  17.97 kB │ gzip: 5.17 kB
+ℹ [@deepseek-ai/dsh-llm-mock-server] 1 files, total: 17.97 kB
+ℹ [@deepseek-ai/cordis-plugin-logger-console] lib\browser.js  2.58 kB │ gzip: 1.06 kB
+ℹ [@deepseek-ai/cordis-plugin-logger-console] 1 files, total: 2.58 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] Granting execute permission to lib\bin.js
+✔ [@deepseek-ai/dsh-experimental-webworker-runtime] Build complete in 14397ms
+ℹ [@deepseek-ai/dsh-base] lib\invariant.js  0.70 kB │ gzip: 0.39 kB
+ℹ [@deepseek-ai/dsh-base] lib\index.js      0.01 kB │ gzip: 0.03 kB
+ℹ [@deepseek-ai/dsh-base] 2 files, total: 0.71 kB
+ℹ [@deepseek-ai/dsh-compaction] lib\index.js  7.71 kB │ gzip: 2.76 kB
+ℹ [@deepseek-ai/dsh-compaction] 1 files, total: 7.71 kB
+ℹ [@deepseek-ai/dsh-compaction] lib\invariant.js  10.98 kB │ gzip: 3.02 kB
+ℹ [@deepseek-ai/dsh-compaction] 1 files, total: 10.98 kB
+ℹ [@deepseek-ai/dsh-time-context] lib\invariant.js  10.94 kB │ gzip: 3.77 kB
+ℹ [@deepseek-ai/dsh-time-context] 1 files, total: 10.94 kB
+ℹ [@deepseek-ai/dsh-scope] lib\index.js  12.15 kB │ gzip: 3.99 kB
+ℹ [@deepseek-ai/dsh-scope] 1 files, total: 12.15 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] [CJS] lib\worker.cjs  9.49 kB │ gzip: 3.72 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] [CJS] 1 files, total: 9.49 kB
+ℹ [@deepseek-ai/dsh-goal-round-driver] lib\invariant.js  3.93 kB │ gzip: 1.71 kB
+ℹ [@deepseek-ai/dsh-goal-round-driver] 1 files, total: 3.93 kB
+ℹ [@deepseek-ai/dsh-goal-round-driver] lib\index.js  13.63 kB │ gzip: 3.74 kB
+ℹ [@deepseek-ai/dsh-goal-round-driver] 1 files, total: 13.63 kB
+ℹ [@deepseek-ai/dsh-user-approval] lib\index.js  8.94 kB │ gzip: 3.43 kB
+ℹ [@deepseek-ai/dsh-user-approval] 1 files, total: 8.94 kB
+ℹ [@deepseek-ai/dsh-llm-retry] lib\index.js  5.82 kB │ gzip: 2.08 kB
+ℹ [@deepseek-ai/dsh-llm-retry] 1 files, total: 5.82 kB
+ℹ [@deepseek-ai/dsh-llm-retry] lib\invariant.js  8.01 kB │ gzip: 2.40 kB
+ℹ [@deepseek-ai/dsh-llm-retry] 1 files, total: 8.01 kB
+ℹ [@deepseek-ai/dsh-sandbox-policy] lib\index.js  7.42 kB │ gzip: 2.98 kB
+ℹ [@deepseek-ai/dsh-sandbox-policy] 1 files, total: 7.42 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:report (71%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:report (71%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:report (60%)
+  - tsdown:deps (22%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:report (71%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+ℹ [@deepseek-ai/dsh-sdk-minimal] lib\invariant.js  0.73 kB │ gzip: 0.40 kB
+ℹ [@deepseek-ai/dsh-sdk-minimal] lib\index.js      0.01 kB │ gzip: 0.03 kB
+ℹ [@deepseek-ai/dsh-sdk-minimal] 2 files, total: 0.74 kB
+ℹ [@deepseek-ai/dsh-cmdline] lib\index.js      6.97 kB │ gzip: 2.76 kB
+ℹ [@deepseek-ai/dsh-cmdline] lib\invariant.js  0.98 kB │ gzip: 0.53 kB
+ℹ [@deepseek-ai/dsh-cmdline] 2 files, total: 7.95 kB
+ℹ [@deepseek-ai/dsh-root] lib\invariant.js  1.53 kB │ gzip: 0.78 kB
+ℹ [@deepseek-ai/dsh-root] lib\index.js      0.25 kB │ gzip: 0.20 kB
+ℹ [@deepseek-ai/dsh-root] 2 files, total: 1.77 kB
+ℹ [@deepseek-ai/dsh-sdk-app] lib\index.js      1.92 kB │ gzip: 0.96 kB
+ℹ [@deepseek-ai/dsh-sdk-app] lib\invariant.js  0.87 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-sdk-app] 2 files, total: 2.79 kB
+ℹ [@deepseek-ai/dsh-acp-app] lib\index.js      1.53 kB │ gzip: 0.80 kB
+ℹ [@deepseek-ai/dsh-acp-app] lib\invariant.js  0.87 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-acp-app] 2 files, total: 2.40 kB
+ℹ [@deepseek-ai/dsh-e2b] lib\index.js      4.29 kB │ gzip: 1.77 kB
+ℹ [@deepseek-ai/dsh-e2b] lib\invariant.js  0.86 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-e2b] 2 files, total: 5.15 kB
+ℹ [@deepseek-ai/dsh-root] lib\invariant.js  0.92 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-root] lib\index.js      0.01 kB │ gzip: 0.03 kB
+ℹ [@deepseek-ai/dsh-root] 2 files, total: 0.93 kB
+ℹ [@deepseek-ai/dsh-code-runtime] lib\index.js      4.79 kB │ gzip: 2.19 kB
+ℹ [@deepseek-ai/dsh-code-runtime] lib\invariant.js  0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-code-runtime] 2 files, total: 5.69 kB
+ℹ [@deepseek-ai/dsh-credentials] lib\index.js      7.06 kB │ gzip: 2.70 kB
+ℹ [@deepseek-ai/dsh-credentials] lib\invariant.js  1.37 kB │ gzip: 0.71 kB
+ℹ [@deepseek-ai/dsh-credentials] 2 files, total: 8.43 kB
+ℹ [@deepseek-ai/dsh-code-runtime-python] lib\index.js      16.41 kB │ gzip: 5.88 kB
+ℹ [@deepseek-ai/dsh-code-runtime-python] lib\invariant.js   1.02 kB │ gzip: 0.53 kB
+ℹ [@deepseek-ai/dsh-code-runtime-python] 2 files, total: 17.44 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team-web-profile] lib\invariant.js  0.71 kB │ gzip: 0.41 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team-web-profile] lib\index.js      0.01 kB │ gzip: 0.03 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team-web-profile] 2 files, total: 0.72 kB
+ℹ [@deepseek-ai/dsh-system-prompt] lib\index.js      16.51 kB │ gzip: 5.40 kB
+ℹ [@deepseek-ai/dsh-system-prompt] lib\invariant.js   2.49 kB │ gzip: 0.95 kB
+ℹ [@deepseek-ai/dsh-system-prompt] 2 files, total: 19.01 kB
+ℹ [@deepseek-ai/dsh-command-compact] lib\index.js      3.42 kB │ gzip: 1.40 kB
+ℹ [@deepseek-ai/dsh-command-compact] lib\invariant.js  0.97 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-command-compact] 2 files, total: 4.39 kB
+ℹ [@deepseek-ai/dsh-experimental-tool-agent-team] lib\index.js      18.02 kB │ gzip: 5.14 kB
+ℹ [@deepseek-ai/dsh-experimental-tool-agent-team] lib\invariant.js   0.61 kB │ gzip: 0.37 kB
+ℹ [@deepseek-ai/dsh-experimental-tool-agent-team] 2 files, total: 18.63 kB
+ℹ [@deepseek-ai/dsh-agent-tool-presentation] lib\index.js      2.02 kB │ gzip: 1.01 kB
+ℹ [@deepseek-ai/dsh-agent-tool-presentation] lib\invariant.js  1.07 kB │ gzip: 0.56 kB
+ℹ [@deepseek-ai/dsh-agent-tool-presentation] 2 files, total: 3.09 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team-profile] lib\invariant.js  0.79 kB │ gzip: 0.41 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team-profile] lib\index.js      0.01 kB │ gzip: 0.03 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team-profile] 2 files, total: 0.80 kB
+ℹ [@deepseek-ai/dsh-authorization] lib\index.js      10.02 kB │ gzip: 3.70 kB
+ℹ [@deepseek-ai/dsh-authorization] lib\invariant.js   1.60 kB │ gzip: 0.82 kB
+ℹ [@deepseek-ai/dsh-authorization] 2 files, total: 11.62 kB
+ℹ [@deepseek-ai/dsh-fs-e2b] lib\index.js      18.96 kB │ gzip: 4.80 kB
+ℹ [@deepseek-ai/dsh-fs-e2b] lib\invariant.js   0.86 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-fs-e2b] 2 files, total: 19.82 kB
+ℹ [@deepseek-ai/dsh-credentials-local] lib\index.js      33.01 kB │ gzip: 10.03 kB
+ℹ [@deepseek-ai/dsh-credentials-local] lib\invariant.js   1.01 kB │ gzip:  0.53 kB
+ℹ [@deepseek-ai/dsh-credentials-local] 2 files, total: 34.02 kB
+ℹ [@deepseek-ai/dsh-fs-observation-policy] lib\index.js      3.98 kB │ gzip: 1.66 kB
+ℹ [@deepseek-ai/dsh-fs-observation-policy] lib\invariant.js  0.94 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-fs-observation-policy] 2 files, total: 4.92 kB
+ℹ [@deepseek-ai/dsh-host-plugin-inventory] lib\index.js      4.44 kB │ gzip: 1.82 kB
+ℹ [@deepseek-ai/dsh-host-plugin-inventory] lib\invariant.js  0.69 kB │ gzip: 0.38 kB
+ℹ [@deepseek-ai/dsh-host-plugin-inventory] 2 files, total: 5.13 kB
+ℹ [@deepseek-ai/dsh-host-frontend-static] lib\index.js      3.90 kB │ gzip: 1.76 kB
+ℹ [@deepseek-ai/dsh-host-frontend-static] lib\invariant.js  1.32 kB │ gzip: 0.69 kB
+ℹ [@deepseek-ai/dsh-host-frontend-static] 2 files, total: 5.22 kB
+ℹ [@deepseek-ai/dsh-command-goal] lib\index.js      7.07 kB │ gzip: 2.41 kB
+ℹ [@deepseek-ai/dsh-command-goal] lib\invariant.js  0.95 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-command-goal] 2 files, total: 8.02 kB
+ℹ [@deepseek-ai/dsh-command-feedback] lib\index.js      3.73 kB │ gzip: 1.55 kB
+ℹ [@deepseek-ai/dsh-command-feedback] lib\invariant.js  0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-command-feedback] 2 files, total: 4.63 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker] lib\index.js      1.84 kB │ gzip: 0.94 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker] lib\invariant.js  0.93 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker] 2 files, total: 2.77 kB
+ℹ [@deepseek-ai/dsh-tool-call-timeout-policy] lib\index.js      4.97 kB │ gzip: 2.02 kB
+ℹ [@deepseek-ai/dsh-tool-call-timeout-policy] lib\invariant.js  0.94 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-tool-call-timeout-policy] 2 files, total: 5.91 kB
+ℹ [@deepseek-ai/dsh-anonymous-user-id] lib\index.js      3.14 kB │ gzip: 1.47 kB
+ℹ [@deepseek-ai/dsh-anonymous-user-id] lib\invariant.js  0.99 kB │ gzip: 0.52 kB
+ℹ [@deepseek-ai/dsh-anonymous-user-id] 2 files, total: 4.14 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-browse] lib\index.js      9.31 kB │ gzip: 3.58 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-browse] lib\invariant.js  0.95 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-browse] 2 files, total: 10.26 kB
+ℹ [@deepseek-ai/dsh-tool-str-replace-editor] lib\index.js      16.93 kB │ gzip: 5.03 kB
+ℹ [@deepseek-ai/dsh-tool-str-replace-editor] lib\invariant.js   0.95 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-tool-str-replace-editor] 2 files, total: 17.88 kB
+ℹ [@deepseek-ai/dsh-tool-ask-user] lib\index.js      3.42 kB │ gzip: 1.24 kB
+ℹ [@deepseek-ai/dsh-tool-ask-user] lib\invariant.js  0.91 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-tool-ask-user] 2 files, total: 4.33 kB
+ℹ [@deepseek-ai/dsh-user-questions] lib\index.js      4.37 kB │ gzip: 1.71 kB
+ℹ [@deepseek-ai/dsh-user-questions] lib\invariant.js  0.95 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-user-questions] 2 files, total: 5.32 kB
+ℹ [@deepseek-ai/dsh-invariants] lib\index.js      4.85 kB │ gzip: 1.72 kB
+ℹ [@deepseek-ai/dsh-invariants] lib\invariant.js  0.94 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-invariants] 2 files, total: 5.79 kB
+ℹ [@deepseek-ai/dsh-tool-jobs] lib\index.js      12.62 kB │ gzip: 4.13 kB
+ℹ [@deepseek-ai/dsh-tool-jobs] lib\invariant.js   0.89 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-tool-jobs] 2 files, total: 13.51 kB
+ℹ [@deepseek-ai/dsh-hook-protocol] lib\index.js      15.76 kB │ gzip: 5.61 kB
+ℹ [@deepseek-ai/dsh-hook-protocol] lib\invariant.js   4.18 kB │ gzip: 1.52 kB
+ℹ [@deepseek-ai/dsh-hook-protocol] 2 files, total: 19.94 kB
+ℹ [@deepseek-ai/dsh-deepseek-llm-api-extensions] lib\index.js      3.91 kB │ gzip: 1.60 kB
+ℹ [@deepseek-ai/dsh-deepseek-llm-api-extensions] lib\invariant.js  0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-deepseek-llm-api-extensions] 2 files, total: 4.81 kB
+ℹ [@deepseek-ai/dsh-plugin-package-inventory-deepseek] lib\index.js      6.62 kB │ gzip: 2.52 kB
+ℹ [@deepseek-ai/dsh-plugin-package-inventory-deepseek] lib\invariant.js  0.93 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-plugin-package-inventory-deepseek] 2 files, total: 7.55 kB
+ℹ [@deepseek-ai/dsh-persona] lib\index.js      1.81 kB │ gzip: 0.88 kB
+ℹ [@deepseek-ai/dsh-persona] lib\invariant.js  0.94 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-persona] 2 files, total: 2.76 kB
+ℹ [@deepseek-ai/dsh-permission-presets] lib\index.js      12.38 kB │ gzip: 4.08 kB
+ℹ [@deepseek-ai/dsh-permission-presets] lib\invariant.js   1.51 kB │ gzip: 0.73 kB
+ℹ [@deepseek-ai/dsh-permission-presets] 2 files, total: 13.89 kB
+ℹ [@deepseek-ai/dsh-session-checkpoint-policy] lib\index.js      2.67 kB │ gzip: 1.14 kB
+ℹ [@deepseek-ai/dsh-session-checkpoint-policy] lib\invariant.js  0.97 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-session-checkpoint-policy] 2 files, total: 3.64 kB
+ℹ [@deepseek-ai/dsh-session-title-first-prompt-llm] lib\index.js      1.36 kB │ gzip: 0.60 kB
+ℹ [@deepseek-ai/dsh-session-title-first-prompt-llm] lib\invariant.js  0.99 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-session-title-first-prompt-llm] 2 files, total: 2.35 kB
+ℹ [@deepseek-ai/dsh-jobs-local] lib\index.js      18.22 kB │ gzip: 5.89 kB
+ℹ [@deepseek-ai/dsh-jobs-local] lib\invariant.js   1.22 kB │ gzip: 0.64 kB
+ℹ [@deepseek-ai/dsh-jobs-local] 2 files, total: 19.43 kB
+ℹ [@deepseek-ai/dsh-skill-badge] lib\index.js      1.73 kB │ gzip: 0.86 kB
+ℹ [@deepseek-ai/dsh-skill-badge] lib\invariant.js  0.91 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-skill-badge] 2 files, total: 2.64 kB
+ℹ [@deepseek-ai/dsh-spill-policy] lib\index.js      7.34 kB │ gzip: 2.86 kB
+ℹ [@deepseek-ai/dsh-spill-policy] lib\invariant.js  0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-spill-policy] 2 files, total: 8.24 kB
+ℹ [@deepseek-ai/dsh-plan-mode] lib\index.js      15.72 kB │ gzip: 5.30 kB
+ℹ [@deepseek-ai/dsh-plan-mode] lib\invariant.js   1.80 kB │ gzip: 0.88 kB
+ℹ [@deepseek-ai/dsh-plan-mode] 2 files, total: 17.51 kB
+ℹ [@deepseek-ai/dsh-tool-pwsh-persistent] lib\index.js      17.34 kB │ gzip: 5.50 kB
+ℹ [@deepseek-ai/dsh-tool-pwsh-persistent] lib\invariant.js   0.98 kB │ gzip: 0.52 kB
+ℹ [@deepseek-ai/dsh-tool-pwsh-persistent] 2 files, total: 18.33 kB
+ℹ [@deepseek-ai/dsh-session-projection] lib\index.js      18.61 kB │ gzip: 5.69 kB
+ℹ [@deepseek-ai/dsh-session-projection] lib\invariant.js   1.51 kB │ gzip: 0.78 kB
+ℹ [@deepseek-ai/dsh-session-projection] 2 files, total: 20.12 kB
+ℹ [@deepseek-ai/dsh-session-title-llm] lib\index.js      10.84 kB │ gzip: 3.59 kB
+ℹ [@deepseek-ai/dsh-session-title-llm] lib\invariant.js   0.99 kB │ gzip: 0.53 kB
+ℹ [@deepseek-ai/dsh-session-title-llm] 2 files, total: 11.82 kB
+ℹ [@deepseek-ai/dsh-shell-env] lib\index.js      6.18 kB │ gzip: 2.16 kB
+ℹ [@deepseek-ai/dsh-shell-env] lib\invariant.js  0.94 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-shell-env] 2 files, total: 7.12 kB
+ℹ [@deepseek-ai/dsh-session-log-deepseek] lib\index.js      3.01 kB │ gzip: 1.27 kB
+ℹ [@deepseek-ai/dsh-session-log-deepseek] lib\invariant.js  2.38 kB │ gzip: 0.96 kB
+ℹ [@deepseek-ai/dsh-session-log-deepseek] 2 files, total: 5.39 kB
+ℹ [@deepseek-ai/dsh-session-telemetry-otel] lib\index.js      9.50 kB │ gzip: 3.51 kB
+ℹ [@deepseek-ai/dsh-session-telemetry-otel] lib\invariant.js  1.03 kB │ gzip: 0.53 kB
+ℹ [@deepseek-ai/dsh-session-telemetry-otel] 2 files, total: 10.53 kB
+ℹ [@deepseek-ai/dsh-tool-bash-persistent] lib\index.js      15.72 kB │ gzip: 4.88 kB
+ℹ [@deepseek-ai/dsh-tool-bash-persistent] lib\invariant.js   0.98 kB │ gzip: 0.52 kB
+ℹ [@deepseek-ai/dsh-tool-bash-persistent] 2 files, total: 16.71 kB
+ℹ [@deepseek-ai/dsh-subagent-spawn-in-process] lib\index.js      1.57 kB │ gzip: 0.82 kB
+ℹ [@deepseek-ai/dsh-subagent-spawn-in-process] lib\invariant.js  0.95 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-subagent-spawn-in-process] 2 files, total: 2.53 kB
+ℹ [@deepseek-ai/dsh-skill] lib\index.js      23.66 kB │ gzip: 6.87 kB
+ℹ [@deepseek-ai/dsh-skill] lib\invariant.js   0.91 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-skill] 2 files, total: 24.57 kB
+ℹ [@deepseek-ai/dsh-tool-skill] lib\index.js      13.40 kB │ gzip: 4.23 kB
+ℹ [@deepseek-ai/dsh-tool-skill] lib\invariant.js   0.90 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-tool-skill] 2 files, total: 14.30 kB
+ℹ [@deepseek-ai/dsh-session-title-all-prompts-llm] lib\index.js      1.21 kB │ gzip: 0.53 kB
+ℹ [@deepseek-ai/dsh-session-title-all-prompts-llm] lib\invariant.js  0.99 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-session-title-all-prompts-llm] 2 files, total: 2.20 kB
+ℹ [@deepseek-ai/dsh-subagent-fork-in-process] lib\index.js      2.41 kB │ gzip: 1.17 kB
+ℹ [@deepseek-ai/dsh-subagent-fork-in-process] lib\invariant.js  0.95 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-subagent-fork-in-process] 2 files, total: 3.35 kB
+ℹ [@deepseek-ai/dsh-bash-local] lib\index.js      12.82 kB │ gzip: 4.55 kB
+ℹ [@deepseek-ai/dsh-bash-local] lib\invariant.js   0.89 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-bash-local] 2 files, total: 13.71 kB
+ℹ [@deepseek-ai/dsh-tool-subagent-report] lib\index.js      4.26 kB │ gzip: 1.78 kB
+ℹ [@deepseek-ai/dsh-tool-subagent-report] lib\invariant.js  0.92 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-tool-subagent-report] 2 files, total: 5.18 kB
+ℹ [@deepseek-ai/dsh-agent-loop-testkit] lib\index.js      1.50 kB │ gzip: 0.67 kB
+ℹ [@deepseek-ai/dsh-agent-loop-testkit] lib\invariant.js  0.92 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-agent-loop-testkit] 2 files, total: 2.42 kB
+ℹ [@deepseek-ai/dsh-brand] lib\invariant.js  0.86 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-brand] lib\index.js      0.01 kB │ gzip: 0.03 kB
+ℹ [@deepseek-ai/dsh-brand] 2 files, total: 0.87 kB
+ℹ [@deepseek-ai/dsh-settings-file] lib\index.js      10.21 kB │ gzip: 3.79 kB
+ℹ [@deepseek-ai/dsh-settings-file] lib\invariant.js   0.99 kB │ gzip: 0.53 kB
+ℹ [@deepseek-ai/dsh-settings-file] 2 files, total: 11.20 kB
+ℹ [@deepseek-ai/dsh-tool-todo] lib\index.js      7.21 kB │ gzip: 2.81 kB
+ℹ [@deepseek-ai/dsh-tool-todo] lib\invariant.js  3.61 kB │ gzip: 1.51 kB
+ℹ [@deepseek-ai/dsh-tool-todo] 2 files, total: 10.82 kB
+ℹ [@deepseek-ai/dsh-atomic-write] lib\index.js      5.01 kB │ gzip: 2.21 kB
+ℹ [@deepseek-ai/dsh-atomic-write] lib\invariant.js  0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-atomic-write] 2 files, total: 5.92 kB
+ℹ [@deepseek-ai/dsh-home-paths] lib\index.js      4.39 kB │ gzip: 1.77 kB
+ℹ [@deepseek-ai/dsh-home-paths] lib\invariant.js  0.88 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-home-paths] 2 files, total: 5.27 kB
+ℹ [@deepseek-ai/dsh-util-crypto] lib\index.js      1.43 kB │ gzip: 0.81 kB
+ℹ [@deepseek-ai/dsh-util-crypto] lib\invariant.js  0.88 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-util-crypto] 2 files, total: 2.32 kB
+ℹ [@deepseek-ai/dsh-launch-environment] lib\index.js      2.48 kB │ gzip: 1.19 kB
+ℹ [@deepseek-ai/dsh-launch-environment] lib\invariant.js  0.97 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-launch-environment] 2 files, total: 3.45 kB
+ℹ [@deepseek-ai/dsh-output-retention] lib\index.js      11.19 kB │ gzip: 4.27 kB
+ℹ [@deepseek-ai/dsh-output-retention] lib\invariant.js   0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-output-retention] 2 files, total: 12.09 kB
+ℹ [@deepseek-ai/dsh-tool-subagent-control] lib\index.js      3.82 kB │ gzip: 1.47 kB
+ℹ [@deepseek-ai/dsh-tool-subagent-control] lib\invariant.js  0.96 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-tool-subagent-control] 2 files, total: 4.77 kB
+ℹ [@deepseek-ai/dsh-skill-filesystem] lib\index.js      29.59 kB │ gzip: 7.92 kB
+ℹ [@deepseek-ai/dsh-skill-filesystem] lib\invariant.js   0.92 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-skill-filesystem] 2 files, total: 30.51 kB
+ℹ [@deepseek-ai/dsh-timeout] lib\index.js      5.42 kB │ gzip: 2.08 kB
+ℹ [@deepseek-ai/dsh-timeout] lib\invariant.js  0.87 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-timeout] 2 files, total: 6.29 kB
+ℹ [@deepseek-ai/dsh-typert-protocol] lib\index.js      6.74 kB │ gzip: 2.33 kB
+ℹ [@deepseek-ai/dsh-typert-protocol] lib\invariant.js  0.92 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-typert-protocol] 2 files, total: 7.66 kB
+ℹ [@deepseek-ai/dsh-util-workspace-path] lib\index.js      2.07 kB │ gzip: 0.91 kB
+ℹ [@deepseek-ai/dsh-util-workspace-path] lib\invariant.js  0.85 kB │ gzip: 0.44 kB
+ℹ [@deepseek-ai/dsh-util-workspace-path] 2 files, total: 2.92 kB
+ℹ [@deepseek-ai/dsh-llm-replay] lib\index.js      28.92 kB │ gzip: 8.78 kB
+ℹ [@deepseek-ai/dsh-llm-replay] lib\invariant.js   0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-llm-replay] 2 files, total: 29.83 kB
+ℹ [@deepseek-ai/dsh-typert-loader] lib\index.js      17.19 kB │ gzip: 4.93 kB
+ℹ [@deepseek-ai/dsh-typert-loader] lib\invariant.js   0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-typert-loader] 2 files, total: 18.10 kB
+ℹ [@deepseek-ai/dsh-tool-workflow] lib\index.js      11.63 kB │ gzip: 4.38 kB
+ℹ [@deepseek-ai/dsh-tool-workflow] lib\invariant.js   6.05 kB │ gzip: 1.96 kB
+ℹ [@deepseek-ai/dsh-tool-workflow] 2 files, total: 17.68 kB
+ℹ [@deepseek-ai/dsh-tool-ralph] lib\index.js      17.40 kB │ gzip: 5.16 kB
+ℹ [@deepseek-ai/dsh-tool-ralph] lib\invariant.js   0.92 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-tool-ralph] 2 files, total: 18.32 kB
+ℹ [@deepseek-ai/dsh-settings] lib\index.js  26.67 kB │ gzip: 8.36 kB
+ℹ [@deepseek-ai/dsh-settings] 1 files, total: 26.67 kB
+ℹ [@deepseek-ai/dsh-goal] lib\invariant.js  14.85 kB │ gzip: 4.12 kB
+ℹ [@deepseek-ai/dsh-goal] 1 files, total: 14.85 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team] lib\invariant.js  13.03 kB │ gzip: 3.83 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team] 1 files, total: 13.03 kB
+ℹ [@deepseek-ai/dsh-user-approval] lib\invariant.js  12.63 kB │ gzip: 4.40 kB
+ℹ [@deepseek-ai/dsh-user-approval] 1 files, total: 12.63 kB
+ℹ [@deepseek-ai/dsh-settings] lib\invariant.js  6.91 kB │ gzip: 2.55 kB
+ℹ [@deepseek-ai/dsh-settings] 1 files, total: 6.91 kB
+ℹ [@deepseek-ai/dsh-tool-subagent] lib\invariant.js  3.95 kB │ gzip: 1.54 kB
+ℹ [@deepseek-ai/dsh-tool-subagent] 1 files, total: 3.95 kB
+ℹ [@deepseek-ai/dsh-schedule] lib\index.js  53.17 kB │ gzip: 13.44 kB
+ℹ [@deepseek-ai/dsh-schedule] 1 files, total: 53.17 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (72%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (71%)
+  - dsh-typert-generator (20%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (65%)
+  - dsh-typert-generator (29%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (74%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (74%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (74%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (69%)
+  - dsh-typert-generator (22%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:report (66%)
+  - dsh-typert-generator (31%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+ℹ [@deepseek-ai/dsh-file-reference] lib\index.js      2.71 kB │ gzip: 1.24 kB
+ℹ [@deepseek-ai/dsh-file-reference] lib\invariant.js  0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-file-reference] 2 files, total: 3.62 kB
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] [ESM] lib\index.js      36.82 kB │ gzip: 10.36 kB
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] [ESM] lib\invariant.js   0.96 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] [ESM] 2 files, total: 37.78 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-auto] lib\index.js      6.47 kB │ gzip: 2.63 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-auto] lib\invariant.js  0.94 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-auto] 2 files, total: 7.42 kB
+ℹ [@deepseek-ai/dsh-session-stats] lib\index.js      7.17 kB │ gzip: 2.56 kB
+ℹ [@deepseek-ai/dsh-session-stats] lib\invariant.js  1.23 kB │ gzip: 0.64 kB
+ℹ [@deepseek-ai/dsh-session-stats] 2 files, total: 8.40 kB
+ℹ [@deepseek-ai/dsh-sdk-protocol] lib\index.js      7.34 kB │ gzip: 2.54 kB
+ℹ [@deepseek-ai/dsh-sdk-protocol] lib\invariant.js  0.94 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-sdk-protocol] 2 files, total: 8.28 kB
+ℹ [@deepseek-ai/dsh-host-webserver] lib\index.js      13.18 kB │ gzip: 4.66 kB
+ℹ [@deepseek-ai/dsh-host-webserver] lib\invariant.js   1.89 kB │ gzip: 0.89 kB
+ℹ [@deepseek-ai/dsh-host-webserver] 2 files, total: 15.07 kB
+ℹ [@deepseek-ai/dsh-commands] lib\index.js      17.54 kB │ gzip: 5.68 kB
+ℹ [@deepseek-ai/dsh-commands] lib\invariant.js   2.31 kB │ gzip: 0.97 kB
+ℹ [@deepseek-ai/dsh-commands] 2 files, total: 19.84 kB
+ℹ [@deepseek-ai/dsh-lsp] lib\index.js      5.25 kB │ gzip: 2.21 kB
+ℹ [@deepseek-ai/dsh-lsp] lib\invariant.js  0.91 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-lsp] 2 files, total: 6.16 kB
+ℹ [@deepseek-ai/dsh-native-command] lib\index.js      7.23 kB │ gzip: 2.70 kB
+ℹ [@deepseek-ai/dsh-native-command] lib\invariant.js  0.93 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-native-command] 2 files, total: 8.16 kB
+ℹ [@deepseek-ai/dsh-win32-process] lib\index.js      18.23 kB │ gzip: 4.98 kB
+ℹ [@deepseek-ai/dsh-win32-process] lib\invariant.js   0.47 kB │ gzip: 0.29 kB
+ℹ [@deepseek-ai/dsh-win32-process] 2 files, total: 18.70 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] lib\index.js  121.61 kB │ gzip: 35.16 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-runtime] 1 files, total: 121.61 kB
+ℹ [@deepseek-ai/cordis] lib\index.js  60.38 kB │ gzip: 16.74 kB
+ℹ [@deepseek-ai/cordis] 1 files, total: 60.38 kB
+ℹ [@deepseek-ai/dsh] Granting execute permission to lib\bin.js
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - dsh-typert-generator (60%)
+  - tsdown:deps (33%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - dsh-typert-generator (60%)
+  - tsdown:deps (32%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/cordis-plugin-timer] Build complete in 14503ms
+✔ [@deepseek-ai/cordis-plugin-group] Build complete in 14504ms
+✔ [@deepseek-ai/cordis-plugin-include] Build complete in 14504ms
+✔ [@deepseek-ai/schemastery] Build complete in 14504ms
+ℹ [@deepseek-ai/dsh-web-app] lib\index.js      10.66 kB │ gzip: 4.32 kB
+ℹ [@deepseek-ai/dsh-web-app] lib\startup.js     2.77 kB │ gzip: 1.30 kB
+ℹ [@deepseek-ai/dsh-web-app] lib\invariant.js   1.00 kB │ gzip: 0.53 kB
+ℹ [@deepseek-ai/dsh-web-app] 3 files, total: 14.43 kB
+ℹ [@deepseek-ai/dsh-headless] lib\index.js      5.75 kB │ gzip: 2.23 kB
+ℹ [@deepseek-ai/dsh-headless] lib\startup.js    1.95 kB │ gzip: 0.95 kB
+ℹ [@deepseek-ai/dsh-headless] lib\invariant.js  0.99 kB │ gzip: 0.53 kB
+ℹ [@deepseek-ai/dsh-headless] 3 files, total: 8.69 kB
+ℹ [@deepseek-ai/dsh-spill] lib\index.js      2.45 kB │ gzip: 1.17 kB
+ℹ [@deepseek-ai/dsh-spill] lib\invariant.js  0.87 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-spill] 2 files, total: 3.32 kB
+ℹ [@deepseek-ai/dsh-session-telemetry] lib\index.js      11.94 kB │ gzip: 4.51 kB
+ℹ [@deepseek-ai/dsh-session-telemetry] lib\invariant.js   1.05 kB │ gzip: 0.56 kB
+ℹ [@deepseek-ai/dsh-session-telemetry] 2 files, total: 12.99 kB
+ℹ [@deepseek-ai/dsh-subprocess] lib\index.js      4.44 kB │ gzip: 2.14 kB
+ℹ [@deepseek-ai/dsh-subprocess] lib\invariant.js  0.86 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-subprocess] 2 files, total: 5.30 kB
+ℹ [@deepseek-ai/dsh-storage] lib\index.js      5.03 kB │ gzip: 1.90 kB
+ℹ [@deepseek-ai/dsh-storage] lib\invariant.js  1.01 kB │ gzip: 0.56 kB
+ℹ [@deepseek-ai/dsh-storage] 2 files, total: 6.04 kB
+ℹ [@deepseek-ai/dsh-terminal] lib\index.js      13.61 kB │ gzip: 3.96 kB
+ℹ [@deepseek-ai/dsh-terminal] lib\invariant.js   0.92 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-terminal] 2 files, total: 14.54 kB
+ℹ [@deepseek-ai/dsh-workflow] lib\invariant.js  5.03 kB │ gzip: 1.62 kB
+ℹ [@deepseek-ai/dsh-workflow] lib\index.js      3.55 kB │ gzip: 1.54 kB
+ℹ [@deepseek-ai/dsh-workflow] 2 files, total: 8.57 kB
+ℹ [@deepseek-ai/dsh-session-title] lib\index.js      24.74 kB │ gzip: 7.05 kB
+ℹ [@deepseek-ai/dsh-session-title] lib\invariant.js   1.76 kB │ gzip: 0.88 kB
+ℹ [@deepseek-ai/dsh-session-title] 2 files, total: 26.50 kB
+ℹ [@deepseek-ai/dsh-jobs] lib\index.js      3.12 kB │ gzip: 1.48 kB
+ℹ [@deepseek-ai/dsh-jobs] lib\invariant.js  2.35 kB │ gzip: 1.01 kB
+ℹ [@deepseek-ai/dsh-jobs] 2 files, total: 5.47 kB
+ℹ [@deepseek-ai/cordis-plugin-logger-console] lib\index.js  2.78 kB │ gzip: 1.16 kB
+ℹ [@deepseek-ai/cordis-plugin-logger-console] 1 files, total: 2.78 kB
+ℹ [@deepseek-ai/cordis-plugin-hmr] lib\index.js  15.53 kB │ gzip: 4.84 kB
+ℹ [@deepseek-ai/cordis-plugin-hmr] 1 files, total: 15.53 kB
+ℹ [@deepseek-ai/cordis-plugin-loader] lib\index.js  25.10 kB │ gzip: 7.11 kB
+ℹ [@deepseek-ai/cordis-plugin-loader] 1 files, total: 25.10 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (65%)
+  - dsh-typert-generator (30%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (61%)
+  - dsh-typert-generator (29%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (65%)
+  - dsh-typert-generator (30%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (64%)
+  - dsh-typert-generator (31%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (62%)
+  - dsh-typert-generator (30%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (62%)
+  - dsh-typert-generator (25%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (68%)
+  - dsh-typert-generator (27%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (64%)
+  - dsh-typert-generator (29%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (66%)
+  - dsh-typert-generator (27%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (68%)
+  - dsh-typert-generator (26%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (65%)
+  - dsh-typert-generator (30%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (64%)
+  - dsh-typert-generator (26%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (64%)
+  - dsh-typert-generator (29%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (66%)
+  - dsh-typert-generator (28%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (64%)
+  - dsh-typert-generator (26%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (68%)
+  - dsh-typert-generator (27%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (65%)
+  - dsh-typert-generator (27%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (62%)
+  - dsh-typert-generator (25%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (57%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (69%)
+  - dsh-typert-generator (26%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (70%)
+  - dsh-typert-generator (24%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (68%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (68%)
+  - dsh-typert-generator (25%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (68%)
+  - dsh-typert-generator (26%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (70%)
+  - dsh-typert-generator (24%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (70%)
+  - dsh-typert-generator (24%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (68%)
+  - dsh-typert-generator (22%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (66%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (65%)
+  - dsh-typert-generator (24%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (70%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (69%)
+  - dsh-typert-generator (22%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (72%)
+  - dsh-typert-generator (20%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (69%)
+  - dsh-typert-generator (26%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (71%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (66%)
+  - dsh-typert-generator (20%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (72%)
+  - dsh-typert-generator (20%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (66%)
+  - dsh-typert-generator (22%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (69%)
+  - dsh-typert-generator (20%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:shebang`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (77%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-agent-default-model] Build complete in 14548ms
+✔ [@deepseek-ai/schemastery] Build complete in 14549ms
+✔ [@deepseek-ai/dsh-agent-loop] Build complete in 14549ms
+✔ [@deepseek-ai/cosmokit] Build complete in 14549ms
+✔ [@deepseek-ai/dsh-scope] Build complete in 14549ms
+✔ [@deepseek-ai/dsh-agent-default-model] Build complete in 14549ms
+✔ [@deepseek-ai/dsh-agent] Build complete in 14549ms
+✔ [@deepseek-ai/dsh-sandbox-policy] Build complete in 14549ms
+✔ [@deepseek-ai/dsh-schedule] Build complete in 14549ms
+✔ [@deepseek-ai/dsh-llm-mock-server] Build complete in 14549ms
+✔ [@deepseek-ai/dsh-llm-mock-server] Build complete in 14549ms
+✔ [@deepseek-ai/cordis-plugin-logger-console] Build complete in 14550ms
+✔ [@deepseek-ai/dsh-base] Build complete in 14571ms
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - dsh-typert-generator (64%)
+  - tsdown:deps (31%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - dsh-typert-generator (68%)
+  - tsdown:deps (25%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - dsh-typert-generator (71%)
+  - tsdown:deps (22%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (68%)
+  - dsh-typert-generator (30%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `dsh-typert-generator`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-compaction] Build complete in 14582ms
+✔ [@deepseek-ai/dsh-compaction] Build complete in 14582ms
+✔ [@deepseek-ai/dsh-time-context] Build complete in 14582ms
+✔ [@deepseek-ai/dsh-scope] Build complete in 14583ms
+✔ [@deepseek-ai/dsh-host-directory-picker-native] Build complete in 14583ms
+✔ [@deepseek-ai/dsh-goal-round-driver] Build complete in 14583ms
+✔ [@deepseek-ai/dsh-goal-round-driver] Build complete in 14583ms
+✔ [@deepseek-ai/dsh-user-approval] Build complete in 14583ms
+✔ [@deepseek-ai/dsh-llm-retry] Build complete in 14583ms
+✔ [@deepseek-ai/dsh-llm-retry] Build complete in 14583ms
+✔ [@deepseek-ai/dsh-sandbox-policy] Build complete in 14583ms
+ℹ [@deepseek-ai/dsh-typert-generator] lib\index.js      195.87 kB │ gzip: 44.78 kB
+ℹ [@deepseek-ai/dsh-typert-generator] lib\invariant.js    0.98 kB │ gzip:  0.52 kB
+ℹ [@deepseek-ai/dsh-typert-generator] 2 files, total: 196.85 kB
+ℹ [@deepseek-ai/dsh-session-log-export] lib\index.js      18.64 kB │ gzip: 6.32 kB
+ℹ [@deepseek-ai/dsh-session-log-export] lib\invariant.js   0.72 kB │ gzip: 0.41 kB
+ℹ [@deepseek-ai/dsh-session-log-export] 2 files, total: 19.37 kB
+ℹ [@deepseek-ai/dsh-attachment] lib\index.js      8.24 kB │ gzip: 3.06 kB
+ℹ [@deepseek-ai/dsh-attachment] lib\invariant.js  0.80 kB │ gzip: 0.44 kB
+ℹ [@deepseek-ai/dsh-attachment] 2 files, total: 9.04 kB
+ℹ [@deepseek-ai/dsh-goal] lib\index.js  34.12 kB │ gzip: 8.68 kB
+ℹ [@deepseek-ai/dsh-goal] 1 files, total: 34.12 kB
+ℹ [@deepseek-ai/dsh-session] lib\invariant.js  6.62 kB │ gzip: 2.13 kB
+ℹ [@deepseek-ai/dsh-session] 1 files, total: 6.62 kB
+ℹ [@deepseek-ai/dsh-time-context] lib\index.js  10.09 kB │ gzip: 3.49 kB
+ℹ [@deepseek-ai/dsh-time-context] 1 files, total: 10.09 kB
+ℹ [@deepseek-ai/dsh-agent] lib\index.js  31.61 kB │ gzip: 9.77 kB
+ℹ [@deepseek-ai/dsh-agent] 1 files, total: 31.61 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (49%)
+  - dsh-typert-generator (30%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:shebang (53%)
+  - dsh-typert-generator (33%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (75%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-root] Build complete in 14631ms
+✔ [@deepseek-ai/dsh-sdk-app] Build complete in 14631ms
+✔ [@deepseek-ai/dsh-sdk-minimal] Build complete in 14631ms
+✔ [@deepseek-ai/dsh-cmdline] Build complete in 14631ms
+✔ [@deepseek-ai/dsh-acp-app] Build complete in 14632ms
+✔ [@deepseek-ai/dsh-e2b] Build complete in 14632ms
+✔ [@deepseek-ai/dsh-root] Build complete in 14632ms
+✔ [@deepseek-ai/dsh-code-runtime] Build complete in 14632ms
+✔ [@deepseek-ai/dsh-credentials] Build complete in 14633ms
+✔ [@deepseek-ai/dsh-experimental-agent-team-web-profile] Build complete in 14633ms
+✔ [@deepseek-ai/dsh-code-runtime-python] Build complete in 14633ms
+✔ [@deepseek-ai/dsh-system-prompt] Build complete in 14633ms
+✔ [@deepseek-ai/dsh-command-compact] Build complete in 14633ms
+✔ [@deepseek-ai/dsh-agent-tool-presentation] Build complete in 14633ms
+✔ [@deepseek-ai/dsh-experimental-tool-agent-team] Build complete in 14633ms
+✔ [@deepseek-ai/dsh-experimental-agent-team-profile] Build complete in 14633ms
+✔ [@deepseek-ai/dsh-authorization] Build complete in 14634ms
+✔ [@deepseek-ai/dsh-fs-e2b] Build complete in 14634ms
+✔ [@deepseek-ai/dsh-credentials-local] Build complete in 14634ms
+✔ [@deepseek-ai/dsh-fs-observation-policy] Build complete in 14634ms
+✔ [@deepseek-ai/dsh-host-plugin-inventory] Build complete in 14634ms
+✔ [@deepseek-ai/dsh-host-frontend-static] Build complete in 14636ms
+✔ [@deepseek-ai/dsh-command-goal] Build complete in 14640ms
+✔ [@deepseek-ai/dsh-command-feedback] Build complete in 14640ms
+✔ [@deepseek-ai/dsh-host-directory-picker] Build complete in 14640ms
+✔ [@deepseek-ai/dsh-tool-call-timeout-policy] Build complete in 14640ms
+✔ [@deepseek-ai/dsh-anonymous-user-id] Build complete in 14640ms
+✔ [@deepseek-ai/dsh-host-directory-picker-browse] Build complete in 14640ms
+✔ [@deepseek-ai/dsh-tool-str-replace-editor] Build complete in 14640ms
+✔ [@deepseek-ai/dsh-tool-ask-user] Build complete in 14640ms
+✔ [@deepseek-ai/dsh-user-questions] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-invariants] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-tool-jobs] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-hook-protocol] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-deepseek-llm-api-extensions] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-plugin-package-inventory-deepseek] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-persona] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-permission-presets] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-session-checkpoint-policy] Build complete in 14641ms
+✔ [@deepseek-ai/dsh-session-title-first-prompt-llm] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-jobs-local] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-skill-badge] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-spill-policy] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-plan-mode] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-tool-pwsh-persistent] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-session-projection] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-session-title-llm] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-shell-env] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-session-log-deepseek] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-session-telemetry-otel] Build complete in 14642ms
+✔ [@deepseek-ai/dsh-tool-bash-persistent] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-subagent-spawn-in-process] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-skill] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-tool-skill] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-session-title-all-prompts-llm] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-subagent-fork-in-process] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-bash-local] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-tool-subagent-report] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-agent-loop-testkit] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-brand] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-settings-file] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-tool-todo] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-atomic-write] Build complete in 14643ms
+✔ [@deepseek-ai/dsh-home-paths] Build complete in 14644ms
+✔ [@deepseek-ai/dsh-util-crypto] Build complete in 14644ms
+✔ [@deepseek-ai/dsh-launch-environment] Build complete in 14644ms
+✔ [@deepseek-ai/dsh-output-retention] Build complete in 14644ms
+✔ [@deepseek-ai/dsh-tool-subagent-control] Build complete in 14644ms
+✔ [@deepseek-ai/dsh-skill-filesystem] Build complete in 14644ms
+✔ [@deepseek-ai/dsh-timeout] Build complete in 14644ms
+✔ [@deepseek-ai/dsh-typert-protocol] Build complete in 14644ms
+✔ [@deepseek-ai/dsh-util-workspace-path] Build complete in 14645ms
+✔ [@deepseek-ai/dsh-llm-replay] Build complete in 14645ms
+✔ [@deepseek-ai/dsh-typert-loader] Build complete in 14645ms
+✔ [@deepseek-ai/dsh-tool-workflow] Build complete in 14645ms
+✔ [@deepseek-ai/dsh-tool-ralph] Build complete in 14645ms
+✔ [@deepseek-ai/dsh-settings] Build complete in 14645ms
+✔ [@deepseek-ai/dsh-goal] Build complete in 14645ms
+✔ [@deepseek-ai/dsh-experimental-agent-team] Build complete in 14646ms
+✔ [@deepseek-ai/dsh-user-approval] Build complete in 14646ms
+✔ [@deepseek-ai/dsh-settings] Build complete in 14646ms
+✔ [@deepseek-ai/dsh-tool-subagent] Build complete in 14646ms
+✔ [@deepseek-ai/dsh-schedule] Build complete in 14646ms
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] [CJS] lib\worker.cjs  34.94 kB │ gzip: 9.41 kB
+ℹ [@deepseek-ai/dsh-code-runtime-worker-thread] [CJS] 1 files, total: 34.94 kB
+ℹ [@deepseek-ai/dsh-tool-subagent] lib\model-selection-settings.js  3.90 kB │ gzip: 1.43 kB
+ℹ [@deepseek-ai/dsh-tool-subagent] 1 files, total: 3.90 kB
+ℹ [@deepseek-ai/dsh-tool-subagent] lib\index.js  34.31 kB │ gzip: 9.21 kB
+ℹ [@deepseek-ai/dsh-tool-subagent] 1 files, total: 34.31 kB
+✔ [@deepseek-ai/dsh-file-reference] Build complete in 14667ms
+✔ [@deepseek-ai/dsh-code-runtime-worker-thread] Build complete in 14668ms
+✔ [@deepseek-ai/dsh-sdk-protocol] Build complete in 14668ms
+✔ [@deepseek-ai/dsh-session-stats] Build complete in 14668ms
+✔ [@deepseek-ai/dsh-host-webserver] Build complete in 14668ms
+✔ [@deepseek-ai/dsh-commands] Build complete in 14668ms
+✔ [@deepseek-ai/dsh-host-directory-picker-auto] Build complete in 14669ms
+✔ [@deepseek-ai/dsh-lsp] Build complete in 14669ms
+✔ [@deepseek-ai/dsh-win32-process] Build complete in 14669ms
+✔ [@deepseek-ai/dsh-experimental-webworker-runtime] Build complete in 14669ms
+✔ [@deepseek-ai/cordis] Build complete in 14669ms
+✔ [@deepseek-ai/dsh-native-command] Build complete in 14669ms
+ℹ [@deepseek-ai/dsh-api-settings-controller] lib\index.js      26.11 kB │ gzip: 6.15 kB
+ℹ [@deepseek-ai/dsh-api-settings-controller] lib\invariant.js   0.76 kB │ gzip: 0.41 kB
+ℹ [@deepseek-ai/dsh-api-settings-controller] 2 files, total: 26.87 kB
+ℹ [@deepseek-ai/dsh-compaction-tool-result-pruner] lib\index.js      7.57 kB │ gzip: 2.69 kB
+ℹ [@deepseek-ai/dsh-compaction-tool-result-pruner] lib\invariant.js  0.92 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-compaction-tool-result-pruner] 2 files, total: 8.48 kB
+ℹ [@deepseek-ai/dsh-fs-sandbox] lib\index.js      8.05 kB │ gzip: 3.05 kB
+ℹ [@deepseek-ai/dsh-fs-sandbox] lib\invariant.js  0.84 kB │ gzip: 0.45 kB
+ℹ [@deepseek-ai/dsh-fs-sandbox] 2 files, total: 8.89 kB
+ℹ [@deepseek-ai/dsh-tool-goal] lib\index.js      16.77 kB │ gzip: 5.00 kB
+ℹ [@deepseek-ai/dsh-tool-goal] lib\invariant.js   0.93 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-tool-goal] 2 files, total: 17.70 kB
+ℹ [@deepseek-ai/dsh-fs] lib\index.js      3.59 kB │ gzip: 1.57 kB
+ℹ [@deepseek-ai/dsh-fs] lib\invariant.js  1.63 kB │ gzip: 0.76 kB
+ℹ [@deepseek-ai/dsh-fs] 2 files, total: 5.22 kB
+ℹ [@deepseek-ai/dsh-hooks-codex] lib\index.js      12.44 kB │ gzip: 4.28 kB
+ℹ [@deepseek-ai/dsh-hooks-codex] lib\invariant.js   0.89 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-hooks-codex] 2 files, total: 13.33 kB
+ℹ [@deepseek-ai/dsh-hooks-claude-code] lib\index.js      15.68 kB │ gzip: 5.26 kB
+ℹ [@deepseek-ai/dsh-hooks-claude-code] lib\invariant.js   0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-hooks-claude-code] 2 files, total: 16.59 kB
+ℹ [@deepseek-ai/dsh-sandbox-local] lib\index.js      21.55 kB │ gzip: 7.27 kB
+ℹ [@deepseek-ai/dsh-sandbox-local] lib\invariant.js   0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-sandbox-local] 2 files, total: 22.46 kB
+ℹ [@deepseek-ai/dsh-tool-lsp] lib\index.js      15.46 kB │ gzip: 5.02 kB
+ℹ [@deepseek-ai/dsh-tool-lsp] lib\invariant.js   0.92 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-tool-lsp] 2 files, total: 16.39 kB
+ℹ [@deepseek-ai/dsh-lsp-stdio] lib\index.js      47.64 kB │ gzip: 14.08 kB
+ℹ [@deepseek-ai/dsh-lsp-stdio] lib\invariant.js   0.93 kB │ gzip:  0.51 kB
+ℹ [@deepseek-ai/dsh-lsp-stdio] 2 files, total: 48.57 kB
+ℹ [@deepseek-ai/dsh-sandbox] lib\index.js      10.71 kB │ gzip: 4.17 kB
+ℹ [@deepseek-ai/dsh-sandbox] lib\invariant.js   0.88 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-sandbox] 2 files, total: 11.59 kB
+ℹ [@deepseek-ai/dsh-acp] lib\index.js      55.94 kB │ gzip: 15.01 kB
+ℹ [@deepseek-ai/dsh-acp] lib\invariant.js   0.85 kB │ gzip:  0.47 kB
+ℹ [@deepseek-ai/dsh-acp] 2 files, total: 56.79 kB
+ℹ [@deepseek-ai/dsh-session-reference] lib\index.js      26.01 kB │ gzip: 8.31 kB
+ℹ [@deepseek-ai/dsh-session-reference] lib\invariant.js   0.96 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-session-reference] 2 files, total: 26.97 kB
+ℹ [@deepseek-ai/dsh-compaction-basic] lib\index.js      44.94 kB │ gzip: 12.42 kB
+ℹ [@deepseek-ai/dsh-compaction-basic] lib\invariant.js   0.92 kB │ gzip:  0.48 kB
+ℹ [@deepseek-ai/dsh-compaction-basic] 2 files, total: 45.85 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team] lib\index.js  73.57 kB │ gzip: 18.40 kB
+ℹ [@deepseek-ai/dsh-experimental-agent-team] 1 files, total: 73.57 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (71%)
+  - dsh-typert-generator (28%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (78%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (78%)
+  - dsh-typert-generator (21%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (79%)
+  - dsh-typert-generator (20%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-web-app] Build complete in 14681ms
+✔ [@deepseek-ai/dsh-headless] Build complete in 14681ms
+✔ [@deepseek-ai/dsh-spill] Build complete in 14681ms
+✔ [@deepseek-ai/dsh-session-telemetry] Build complete in 14681ms
+✔ [@deepseek-ai/dsh-subprocess] Build complete in 14681ms
+✔ [@deepseek-ai/dsh-storage] Build complete in 14682ms
+✔ [@deepseek-ai/dsh-terminal] Build complete in 14682ms
+✔ [@deepseek-ai/dsh-workflow] Build complete in 14682ms
+✔ [@deepseek-ai/dsh-session-title] Build complete in 14682ms
+✔ [@deepseek-ai/dsh-jobs] Build complete in 14682ms
+✔ [@deepseek-ai/cordis-plugin-logger-console] Build complete in 14683ms
+✔ [@deepseek-ai/cordis-plugin-hmr] Build complete in 14683ms
+✔ [@deepseek-ai/cordis-plugin-loader] Build complete in 14683ms
+ℹ [@deepseek-ai/dsh-cordis-host-runner] lib\index.js      104.81 kB │ gzip: 25.57 kB
+ℹ [@deepseek-ai/dsh-cordis-host-runner] lib\invariant.js    1.08 kB │ gzip:  0.56 kB
+ℹ [@deepseek-ai/dsh-cordis-host-runner] 2 files, total: 105.89 kB
+ℹ [@deepseek-ai/dsh-llm] lib\index.js      79.72 kB │ gzip: 23.08 kB
+ℹ [@deepseek-ai/dsh-llm] lib\invariant.js   3.40 kB │ gzip:  1.34 kB
+ℹ [@deepseek-ai/dsh-llm] 2 files, total: 83.11 kB
+ℹ [@deepseek-ai/dsh-app-boot] lib\index.js      67.78 kB │ gzip: 20.31 kB
+ℹ [@deepseek-ai/dsh-app-boot] lib\invariant.js   0.89 kB │ gzip:  0.48 kB
+ℹ [@deepseek-ai/dsh-app-boot] 2 files, total: 68.66 kB
+ℹ [@deepseek-ai/dsh-shell] lib\index.js      4.36 kB │ gzip: 1.99 kB
+ℹ [@deepseek-ai/dsh-shell] lib\invariant.js  0.83 kB │ gzip: 0.46 kB
+ℹ [@deepseek-ai/dsh-shell] 2 files, total: 5.19 kB
+ℹ [@deepseek-ai/dsh-api-workspace-controller] lib\index.js      26.75 kB │ gzip: 6.29 kB
+ℹ [@deepseek-ai/dsh-api-workspace-controller] lib\invariant.js   0.72 kB │ gzip: 0.39 kB
+ℹ [@deepseek-ai/dsh-api-workspace-controller] 2 files, total: 27.47 kB
+ℹ [@deepseek-ai/dsh-pwsh-local] lib\index.js      16.04 kB │ gzip: 5.76 kB
+ℹ [@deepseek-ai/dsh-pwsh-local] lib\invariant.js   0.89 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-pwsh-local] 2 files, total: 16.93 kB
+ℹ [@deepseek-ai/dsh-bash-sandbox] lib\index.js      9.35 kB │ gzip: 3.24 kB
+ℹ [@deepseek-ai/dsh-bash-sandbox] lib\invariant.js  0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-bash-sandbox] 2 files, total: 10.25 kB
+ℹ [@deepseek-ai/dsh-pwsh-sandbox] lib\index.js      9.81 kB │ gzip: 3.40 kB
+ℹ [@deepseek-ai/dsh-pwsh-sandbox] lib\invariant.js  0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-pwsh-sandbox] 2 files, total: 10.71 kB
+ℹ [@deepseek-ai/dsh-tool-bash] lib\index.js      18.80 kB │ gzip: 6.28 kB
+ℹ [@deepseek-ai/dsh-tool-bash] lib\invariant.js   0.93 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-tool-bash] 2 files, total: 19.72 kB
+ℹ [@deepseek-ai/dsh-sdk-jsonrpc-server] lib\index.js      11.42 kB │ gzip: 3.83 kB
+ℹ [@deepseek-ai/dsh-sdk-jsonrpc-server] lib\invariant.js   0.93 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-sdk-jsonrpc-server] 2 files, total: 12.35 kB
+ℹ [@deepseek-ai/dsh-storage-sqlite] lib\index.js      11.76 kB │ gzip: 4.20 kB
+ℹ [@deepseek-ai/dsh-storage-sqlite] lib\invariant.js   1.04 kB │ gzip: 0.55 kB
+ℹ [@deepseek-ai/dsh-storage-sqlite] 2 files, total: 12.80 kB
+ℹ [@deepseek-ai/dsh-session-projection-cache] lib\index.js      13.07 kB │ gzip: 4.69 kB
+ℹ [@deepseek-ai/dsh-session-projection-cache] lib\invariant.js   1.28 kB │ gzip: 0.67 kB
+ℹ [@deepseek-ai/dsh-session-projection-cache] 2 files, total: 14.35 kB
+ℹ [@deepseek-ai/dsh-session-query] lib\index.js      42.63 kB │ gzip: 10.33 kB
+ℹ [@deepseek-ai/dsh-session-query] lib\invariant.js   0.95 kB │ gzip:  0.50 kB
+ℹ [@deepseek-ai/dsh-session-query] 2 files, total: 43.58 kB
+ℹ [@deepseek-ai/dsh-spill-local] lib\index.js      23.08 kB │ gzip: 7.66 kB
+ℹ [@deepseek-ai/dsh-spill-local] lib\invariant.js   0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-spill-local] 2 files, total: 23.97 kB
+ℹ [@deepseek-ai/dsh-loader-smoke] lib\index.js      8.56 kB │ gzip: 3.47 kB
+ℹ [@deepseek-ai/dsh-loader-smoke] lib\invariant.js  0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-loader-smoke] 2 files, total: 9.46 kB
+ℹ [@deepseek-ai/dsh-storage-domain] lib\index.js      16.08 kB │ gzip: 5.54 kB
+ℹ [@deepseek-ai/dsh-storage-domain] lib\invariant.js   2.21 kB │ gzip: 0.99 kB
+ℹ [@deepseek-ai/dsh-storage-domain] 2 files, total: 18.29 kB
+ℹ [@deepseek-ai/dsh-tool-fs-search] lib\index.js      56.06 kB │ gzip: 16.38 kB
+ℹ [@deepseek-ai/dsh-tool-fs-search] lib\invariant.js   0.91 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-tool-fs-search] 2 files, total: 56.98 kB
+ℹ [@deepseek-ai/dsh-web-search-deepseek] lib\index.js      13.70 kB │ gzip: 4.80 kB
+ℹ [@deepseek-ai/dsh-web-search-deepseek] lib\invariant.js   0.98 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-web-search-deepseek] 2 files, total: 14.68 kB
+ℹ [@deepseek-ai/dsh-subagent-in-process-driver] lib\index.js      10.38 kB │ gzip: 3.87 kB
+ℹ [@deepseek-ai/dsh-subagent-in-process-driver] lib\invariant.js   0.96 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-subagent-in-process-driver] 2 files, total: 11.34 kB
+ℹ [@deepseek-ai/dsh-web] lib\index.js      6.76 kB │ gzip: 2.31 kB
+ℹ [@deepseek-ai/dsh-web] lib\invariant.js  0.90 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-web] 2 files, total: 7.66 kB
+ℹ [@deepseek-ai/dsh-session-query-sqlite] lib\index.js      45.65 kB │ gzip: 11.75 kB
+ℹ [@deepseek-ai/dsh-session-query-sqlite] lib\invariant.js   0.92 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-session-query-sqlite] 2 files, total: 46.58 kB
+ℹ [@deepseek-ai/dsh-webhook] lib\index.js      12.26 kB │ gzip: 3.75 kB
+ℹ [@deepseek-ai/dsh-webhook] lib\invariant.js   1.66 kB │ gzip: 0.80 kB
+ℹ [@deepseek-ai/dsh-webhook] 2 files, total: 13.92 kB
+ℹ [@deepseek-ai/dsh-web-search-perplexity] lib\index.js      6.15 kB │ gzip: 2.31 kB
+ℹ [@deepseek-ai/dsh-web-search-perplexity] lib\invariant.js  0.94 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-web-search-perplexity] 2 files, total: 7.09 kB
+ℹ [@deepseek-ai/dsh-web-search-exa] lib\index.js      6.13 kB │ gzip: 2.35 kB
+ℹ [@deepseek-ai/dsh-web-search-exa] lib\invariant.js  0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-web-search-exa] 2 files, total: 7.03 kB
+ℹ [@deepseek-ai/dsh-subagent-acp] lib\index.js      20.93 kB │ gzip: 7.03 kB
+ℹ [@deepseek-ai/dsh-subagent-acp] lib\invariant.js   0.90 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-subagent-acp] 2 files, total: 21.83 kB
+ℹ [@deepseek-ai/dsh-tool-terminal] lib\index.js      18.71 kB │ gzip: 5.15 kB
+ℹ [@deepseek-ai/dsh-tool-terminal] lib\invariant.js   0.94 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-tool-terminal] 2 files, total: 19.65 kB
+ℹ [@deepseek-ai/dsh-subagent-dsh-sdk] lib\index.js      14.84 kB │ gzip: 4.95 kB
+ℹ [@deepseek-ai/dsh-subagent-dsh-sdk] lib\invariant.js   0.96 kB │ gzip: 0.50 kB
+ℹ [@deepseek-ai/dsh-subagent-dsh-sdk] 2 files, total: 15.81 kB
+ℹ [@deepseek-ai/dsh-terminal-bash] lib\index.js      34.25 kB │ gzip: 9.22 kB
+ℹ [@deepseek-ai/dsh-terminal-bash] lib\invariant.js   0.95 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-terminal-bash] 2 files, total: 35.20 kB
+ℹ [@deepseek-ai/dsh-tool-pwsh] lib\index.js      20.57 kB │ gzip: 6.89 kB
+ℹ [@deepseek-ai/dsh-tool-pwsh] lib\invariant.js   0.89 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-tool-pwsh] 2 files, total: 21.46 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (75%)
+  - dsh-typert-generator (24%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+ℹ [@deepseek-ai/dsh-agent-spine-demo] lib\index.js      8.28 kB │ gzip: 2.44 kB
+ℹ [@deepseek-ai/dsh-agent-spine-demo] lib\invariant.js  0.92 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-agent-spine-demo] 2 files, total: 9.20 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] lib\bin.js                   3.20 kB │ gzip:  1.44 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] lib\invariant.js             1.03 kB │ gzip:  0.53 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] lib\index.js                 0.46 kB │ gzip:  0.26 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] lib\repository-Cw6M0GyB.js  33.69 kB │ gzip: 11.25 kB
+ℹ [@deepseek-ai/dsh-experimental-webworker-packer] 4 files, total: 38.38 kB
+ℹ [@deepseek-ai/dsh-tools] lib\index.js      152.32 kB │ gzip: 44.71 kB
+ℹ [@deepseek-ai/dsh-tools] lib\invariant.js    4.75 kB │ gzip:  1.45 kB
+ℹ [@deepseek-ai/dsh-tools] 2 files, total: 157.07 kB
+ℹ [@deepseek-ai/dsh-api-remotes] lib\index.js      5.45 kB │ gzip: 2.09 kB
+ℹ [@deepseek-ai/dsh-api-remotes] lib\invariant.js  0.79 kB │ gzip: 0.44 kB
+ℹ [@deepseek-ai/dsh-api-remotes] 2 files, total: 6.24 kB
+ℹ [@deepseek-ai/dsh-webhook-github] lib\index.js      7.73 kB │ gzip: 2.78 kB
+ℹ [@deepseek-ai/dsh-webhook-github] lib\invariant.js  0.84 kB │ gzip: 0.47 kB
+ℹ [@deepseek-ai/dsh-webhook-github] 2 files, total: 8.57 kB
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] [ESM] lib\index.js      38.21 kB │ gzip: 11.97 kB
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] [ESM] lib\invariant.js   0.94 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] [ESM] 2 files, total: 39.16 kB
+ℹ [@deepseek-ai/dsh-tool-web] lib\index.js      34.74 kB │ gzip: 10.61 kB
+ℹ [@deepseek-ai/dsh-tool-web] lib\invariant.js   0.89 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-tool-web] 2 files, total: 35.63 kB
+ℹ [@deepseek-ai/dsh-session-persistence] lib\index.js      61.43 kB │ gzip: 15.75 kB
+ℹ [@deepseek-ai/dsh-session-persistence] lib\invariant.js   0.95 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-session-persistence] 2 files, total: 62.38 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (71%)
+  - dsh-typert-generator (27%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (74%)
+  - dsh-typert-generator (24%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (72%)
+  - dsh-typert-generator (26%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (75%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (75%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-typert-generator] Build complete in 14731ms
+✔ [@deepseek-ai/dsh-session-log-export] Build complete in 14732ms
+✔ [@deepseek-ai/dsh-attachment] Build complete in 14732ms
+✔ [@deepseek-ai/dsh-goal] Build complete in 14732ms
+✔ [@deepseek-ai/dsh-session] Build complete in 14732ms
+✔ [@deepseek-ai/dsh-time-context] Build complete in 14732ms
+✔ [@deepseek-ai/dsh-agent] Build complete in 14732ms
+ℹ [@deepseek-ai/dsh-subagent] lib\index.js      136.76 kB │ gzip: 38.76 kB
+ℹ [@deepseek-ai/dsh-subagent] lib\invariant.js    3.66 kB │ gzip:  1.20 kB
+ℹ [@deepseek-ai/dsh-subagent] 2 files, total: 140.42 kB
+ℹ [@deepseek-ai/dsh-session-snapshot] lib\index.js      126.78 kB │ gzip: 32.72 kB
+ℹ [@deepseek-ai/dsh-session-snapshot] lib\invariant.js    0.92 kB │ gzip:  0.48 kB
+ℹ [@deepseek-ai/dsh-session-snapshot] 2 files, total: 127.70 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-code-runtime-worker-thread] Build complete in 14763ms
+✔ [@deepseek-ai/dsh-tool-subagent] Build complete in 14763ms
+✔ [@deepseek-ai/dsh-tool-subagent] Build complete in 14763ms
+ℹ [@deepseek-ai/dsh-root] lib\index.js      34.42 kB │ gzip: 9.18 kB
+ℹ [@deepseek-ai/dsh-root] lib\invariant.js   1.03 kB │ gzip: 0.55 kB
+ℹ [@deepseek-ai/dsh-root] 2 files, total: 35.46 kB
+ℹ [@deepseek-ai/dsh-attachment-local] lib\index.js      35.36 kB │ gzip: 9.96 kB
+ℹ [@deepseek-ai/dsh-attachment-local] lib\invariant.js   0.84 kB │ gzip: 0.45 kB
+ℹ [@deepseek-ai/dsh-attachment-local] 2 files, total: 36.20 kB
+ℹ [@deepseek-ai/dsh-agent-loop] lib\index.js  48.75 kB │ gzip: 13.62 kB
+ℹ [@deepseek-ai/dsh-agent-loop] 1 files, total: 48.75 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (69%)
+  - dsh-typert-generator (28%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-api-settings-controller] Build complete in 14778ms
+✔ [@deepseek-ai/dsh-compaction-tool-result-pruner] Build complete in 14779ms
+✔ [@deepseek-ai/dsh-fs-sandbox] Build complete in 14779ms
+✔ [@deepseek-ai/dsh-tool-goal] Build complete in 14780ms
+✔ [@deepseek-ai/dsh-fs] Build complete in 14780ms
+✔ [@deepseek-ai/dsh-hooks-codex] Build complete in 14780ms
+✔ [@deepseek-ai/dsh-hooks-claude-code] Build complete in 14781ms
+✔ [@deepseek-ai/dsh-sandbox-local] Build complete in 14781ms
+✔ [@deepseek-ai/dsh-tool-lsp] Build complete in 14781ms
+✔ [@deepseek-ai/dsh-lsp-stdio] Build complete in 14781ms
+✔ [@deepseek-ai/dsh-sandbox] Build complete in 14782ms
+✔ [@deepseek-ai/dsh-acp] Build complete in 14782ms
+✔ [@deepseek-ai/dsh-session-reference] Build complete in 14782ms
+✔ [@deepseek-ai/dsh-compaction-basic] Build complete in 14782ms
+✔ [@deepseek-ai/dsh-experimental-agent-team] Build complete in 14782ms
+ℹ [@deepseek-ai/dsh-fs-local] lib\index.js      37.80 kB │ gzip: 10.67 kB
+ℹ [@deepseek-ai/dsh-fs-local] lib\invariant.js   0.89 kB │ gzip:  0.48 kB
+ℹ [@deepseek-ai/dsh-fs-local] 2 files, total: 38.68 kB
+ℹ [@deepseek-ai/dsh-token-meter] lib\index.js      31.07 kB │ gzip: 8.88 kB
+ℹ [@deepseek-ai/dsh-token-meter] lib\invariant.js   1.59 kB │ gzip: 0.84 kB
+ℹ [@deepseek-ai/dsh-token-meter] 2 files, total: 32.66 kB
+ℹ [@deepseek-ai/dsh-agent-instructions] lib\index.js      52.79 kB │ gzip: 13.14 kB
+ℹ [@deepseek-ai/dsh-agent-instructions] lib\invariant.js   0.95 kB │ gzip:  0.51 kB
+ℹ [@deepseek-ai/dsh-agent-instructions] 2 files, total: 53.74 kB
+ℹ [@deepseek-ai/dsh-sandbox-windows-acl] lib\runner.js           7.47 kB │ gzip:  2.88 kB
+ℹ [@deepseek-ai/dsh-sandbox-windows-acl] lib\invariant.js        0.96 kB │ gzip:  0.51 kB
+ℹ [@deepseek-ai/dsh-sandbox-windows-acl] lib\index.js            0.26 kB │ gzip:  0.16 kB
+ℹ [@deepseek-ai/dsh-sandbox-windows-acl] lib\types-DuU3lSVe.js  50.88 kB │ gzip: 14.87 kB
+ℹ [@deepseek-ai/dsh-sandbox-windows-acl] 4 files, total: 59.57 kB
+ℹ [@deepseek-ai/dsh-session] lib\index.js  81.70 kB │ gzip: 24.35 kB
+ℹ [@deepseek-ai/dsh-session] 1 files, total: 81.70 kB
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] [CJS] lib\worker.cjs  32.14 kB │ gzip: 9.88 kB
+ℹ [@deepseek-ai/dsh-workflow-worker-thread] [CJS] 1 files, total: 32.14 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-cordis-host-runner] Build complete in 14830ms
+✔ [@deepseek-ai/dsh-llm] Build complete in 14832ms
+✔ [@deepseek-ai/dsh-app-boot] Build complete in 14833ms
+✔ [@deepseek-ai/dsh-shell] Build complete in 14833ms
+✔ [@deepseek-ai/dsh-api-workspace-controller] Build complete in 14834ms
+✔ [@deepseek-ai/dsh-pwsh-local] Build complete in 14836ms
+✔ [@deepseek-ai/dsh-bash-sandbox] Build complete in 14842ms
+✔ [@deepseek-ai/dsh-pwsh-sandbox] Build complete in 14844ms
+✔ [@deepseek-ai/dsh-tool-bash] Build complete in 14845ms
+✔ [@deepseek-ai/dsh-sdk-jsonrpc-server] Build complete in 14847ms
+✔ [@deepseek-ai/dsh-storage-sqlite] Build complete in 14847ms
+✔ [@deepseek-ai/dsh-session-projection-cache] Build complete in 14848ms
+✔ [@deepseek-ai/dsh-session-query] Build complete in 14848ms
+✔ [@deepseek-ai/dsh-spill-local] Build complete in 14849ms
+✔ [@deepseek-ai/dsh-loader-smoke] Build complete in 14849ms
+✔ [@deepseek-ai/dsh-storage-domain] Build complete in 14849ms
+✔ [@deepseek-ai/dsh-tool-fs-search] Build complete in 14849ms
+✔ [@deepseek-ai/dsh-subagent-in-process-driver] Build complete in 14850ms
+✔ [@deepseek-ai/dsh-web] Build complete in 14850ms
+✔ [@deepseek-ai/dsh-session-query-sqlite] Build complete in 14850ms
+✔ [@deepseek-ai/dsh-web-search-deepseek] Build complete in 14850ms
+✔ [@deepseek-ai/dsh-webhook] Build complete in 14850ms
+✔ [@deepseek-ai/dsh-web-search-perplexity] Build complete in 14850ms
+✔ [@deepseek-ai/dsh-web-search-exa] Build complete in 14850ms
+✔ [@deepseek-ai/dsh-subagent-acp] Build complete in 14850ms
+✔ [@deepseek-ai/dsh-tool-terminal] Build complete in 14851ms
+✔ [@deepseek-ai/dsh-subagent-dsh-sdk] Build complete in 14851ms
+✔ [@deepseek-ai/dsh-terminal-bash] Build complete in 14851ms
+✔ [@deepseek-ai/dsh-tool-pwsh] Build complete in 14851ms
+ℹ [@deepseek-ai/dsh-tool-fs] lib\index.js      48.15 kB │ gzip: 13.95 kB
+ℹ [@deepseek-ai/dsh-tool-fs] lib\invariant.js   0.89 kB │ gzip:  0.48 kB
+ℹ [@deepseek-ai/dsh-tool-fs] 2 files, total: 49.04 kB
+ℹ [@deepseek-ai/dsh-subprocess-e2b] lib\index.js      55.44 kB │ gzip: 13.93 kB
+ℹ [@deepseek-ai/dsh-subprocess-e2b] lib\invariant.js   0.89 kB │ gzip:  0.48 kB
+ℹ [@deepseek-ai/dsh-subprocess-e2b] 2 files, total: 56.33 kB
+ℹ [@deepseek-ai/dsh-tool-cordis] lib\index.js      470.06 kB │ gzip: 104.42 kB
+ℹ [@deepseek-ai/dsh-tool-cordis] lib\invariant.js    0.90 kB │ gzip:   0.49 kB
+ℹ [@deepseek-ai/dsh-tool-cordis] 2 files, total: 470.96 kB
+ℹ [@deepseek-ai/dsh-storage-json] lib\index.js      21.94 kB │ gzip: 6.19 kB
+ℹ [@deepseek-ai/dsh-storage-json] lib\invariant.js   1.00 kB │ gzip: 0.54 kB
+ℹ [@deepseek-ai/dsh-storage-json] 2 files, total: 22.95 kB
+ℹ [@deepseek-ai/dsh-mcp-client] lib\index.js      33.22 kB │ gzip: 10.71 kB
+ℹ [@deepseek-ai/dsh-mcp-client] lib\invariant.js   0.92 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-mcp-client] 2 files, total: 34.13 kB
+ℹ [@deepseek-ai/dsh-tool-session-query] lib\index.js      38.76 kB │ gzip: 9.32 kB
+ℹ [@deepseek-ai/dsh-tool-session-query] lib\invariant.js   0.93 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-tool-session-query] 2 files, total: 39.69 kB
+ℹ [@deepseek-ai/dsh-sdk-client] lib\index.js      32.53 kB │ gzip: 9.65 kB
+ℹ [@deepseek-ai/dsh-sdk-client] lib\invariant.js   0.93 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-sdk-client] 2 files, total: 33.45 kB
+ℹ [@deepseek-ai/dsh-session-persistence-sqlite] lib\index.js      49.03 kB │ gzip: 13.09 kB
+ℹ [@deepseek-ai/dsh-session-persistence-sqlite] lib\invariant.js   0.95 kB │ gzip:  0.50 kB
+ℹ [@deepseek-ai/dsh-session-persistence-sqlite] 2 files, total: 49.98 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (67%)
+  - dsh-typert-generator (32%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-agent-spine-demo] Build complete in 14865ms
+✔ [@deepseek-ai/dsh-experimental-webworker-packer] Build complete in 14866ms
+✔ [@deepseek-ai/dsh-tools] Build complete in 14866ms
+✔ [@deepseek-ai/dsh-api-remotes] Build complete in 14866ms
+✔ [@deepseek-ai/dsh-webhook-github] Build complete in 14866ms
+✔ [@deepseek-ai/dsh-workflow-worker-thread] Build complete in 14866ms
+✔ [@deepseek-ai/dsh-tool-web] Build complete in 14866ms
+✔ [@deepseek-ai/dsh-session-persistence] Build complete in 14866ms
+ℹ [@deepseek-ai/dsh] lib\bin.js                     8.02 kB │ gzip: 2.87 kB
+ℹ [@deepseek-ai/dsh] lib\profile-boot-BTzzdrGY.js  11.47 kB │ gzip: 4.15 kB
+ℹ [@deepseek-ai/dsh] lib\plugin-F7ZVfRyo.js         5.96 kB │ gzip: 2.40 kB
+ℹ [@deepseek-ai/dsh] lib\dump-config-BNQ_bV66.js    1.99 kB │ gzip: 0.91 kB
+ℹ [@deepseek-ai/dsh] lib\profile-boot-x7_BzdeW.js   0.09 kB │ gzip: 0.09 kB
+ℹ [@deepseek-ai/dsh] 5 files, total: 27.53 kB
+ℹ [@deepseek-ai/dsh-api-session-controller] lib\index.js      107.65 kB │ gzip: 22.27 kB
+ℹ [@deepseek-ai/dsh-api-session-controller] lib\invariant.js    0.70 kB │ gzip:  0.38 kB
+ℹ [@deepseek-ai/dsh-api-session-controller] 2 files, total: 108.35 kB
+ℹ [@deepseek-ai/dsh-session-persistence-jsonl] lib\index.js      59.35 kB │ gzip: 16.60 kB
+ℹ [@deepseek-ai/dsh-session-persistence-jsonl] lib\invariant.js   0.97 kB │ gzip:  0.50 kB
+ℹ [@deepseek-ai/dsh-session-persistence-jsonl] 2 files, total: 60.32 kB
+ℹ [@deepseek-ai/dsh-tmux-context] lib\index.js      61.95 kB │ gzip: 17.95 kB
+ℹ [@deepseek-ai/dsh-tmux-context] lib\invariant.js   0.94 kB │ gzip:  0.51 kB
+ℹ [@deepseek-ai/dsh-tmux-context] 2 files, total: 62.89 kB
+ℹ [@deepseek-ai/dsh-subagent-claude-code] lib\index.js      20.52 kB │ gzip: 6.25 kB
+ℹ [@deepseek-ai/dsh-subagent-claude-code] lib\invariant.js   0.91 kB │ gzip: 0.46 kB
+ℹ [@deepseek-ai/dsh-subagent-claude-code] 2 files, total: 21.43 kB
+ℹ [@deepseek-ai/dsh-web-fetch-http] lib\index.js      25.00 kB │ gzip: 8.29 kB
+ℹ [@deepseek-ai/dsh-web-fetch-http] lib\invariant.js   0.91 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-web-fetch-http] 2 files, total: 25.91 kB
+ℹ [@deepseek-ai/dsh-subagent-codex] lib\index.js      31.34 kB │ gzip: 8.90 kB
+ℹ [@deepseek-ai/dsh-subagent-codex] lib\invariant.js   0.89 kB │ gzip: 0.46 kB
+ℹ [@deepseek-ai/dsh-subagent-codex] 2 files, total: 32.23 kB
+ℹ [@deepseek-ai/dsh-message-feedback] lib\index.js      17.39 kB │ gzip: 5.34 kB
+ℹ [@deepseek-ai/dsh-message-feedback] lib\invariant.js   0.94 kB │ gzip: 0.51 kB
+ℹ [@deepseek-ai/dsh-message-feedback] 2 files, total: 18.33 kB
+ℹ [@deepseek-ai/dsh-workspace] lib\index.js      29.46 kB │ gzip: 7.98 kB
+ℹ [@deepseek-ai/dsh-workspace] lib\invariant.js   4.38 kB │ gzip: 1.76 kB
+ℹ [@deepseek-ai/dsh-workspace] 2 files, total: 33.85 kB
+ℹ [@deepseek-ai/dsh-subprocess-local] lib\index.js      50.83 kB │ gzip: 15.29 kB
+ℹ [@deepseek-ai/dsh-subprocess-local] lib\invariant.js   0.92 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-subprocess-local] 2 files, total: 51.75 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-subagent] Build complete in 14880ms
+✔ [@deepseek-ai/dsh-session-snapshot] Build complete in 14880ms
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+ℹ [@deepseek-ai/dsh-repeat-tool-reminder] lib\index.js      60.91 kB │ gzip: 17.62 kB
+ℹ [@deepseek-ai/dsh-repeat-tool-reminder] lib\invariant.js   0.96 kB │ gzip:  0.49 kB
+ℹ [@deepseek-ai/dsh-repeat-tool-reminder] 2 files, total: 61.87 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (70%)
+  - dsh-typert-generator (28%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-root] Build complete in 14901ms
+✔ [@deepseek-ai/dsh-attachment-local] Build complete in 14906ms
+✔ [@deepseek-ai/dsh-agent-loop] Build complete in 14906ms
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (62%)
+  - dsh-typert-generator (37%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (76%)
+  - dsh-typert-generator (23%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-fs-local] Build complete in 14910ms
+✔ [@deepseek-ai/dsh-token-meter] Build complete in 14910ms
+✔ [@deepseek-ai/dsh-agent-instructions] Build complete in 14912ms
+✔ [@deepseek-ai/dsh-sandbox-windows-acl] Build complete in 14913ms
+✔ [@deepseek-ai/dsh-session] Build complete in 14913ms
+✔ [@deepseek-ai/dsh-workflow-worker-thread] Build complete in 14913ms
+✔ [@deepseek-ai/dsh-tool-fs] Build complete in 14915ms
+✔ [@deepseek-ai/dsh-subprocess-e2b] Build complete in 14915ms
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (70%)
+  - dsh-typert-generator (29%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-tool-cordis] Build complete in 14917ms
+✔ [@deepseek-ai/dsh-storage-json] Build complete in 14917ms
+✔ [@deepseek-ai/dsh-mcp-client] Build complete in 14917ms
+✔ [@deepseek-ai/dsh-tool-session-query] Build complete in 14917ms
+✔ [@deepseek-ai/dsh-sdk-client] Build complete in 14917ms
+✔ [@deepseek-ai/dsh-session-persistence-sqlite] Build complete in 14917ms
+✔ [@deepseek-ai/dsh] Build complete in 14922ms
+✔ [@deepseek-ai/dsh-api-session-controller] Build complete in 14922ms
+✔ [@deepseek-ai/dsh-session-persistence-jsonl] Build complete in 14922ms
+✔ [@deepseek-ai/dsh-tmux-context] Build complete in 14922ms
+✔ [@deepseek-ai/dsh-subagent-claude-code] Build complete in 14922ms
+✔ [@deepseek-ai/dsh-web-fetch-http] Build complete in 14922ms
+✔ [@deepseek-ai/dsh-subagent-codex] Build complete in 14923ms
+✔ [@deepseek-ai/dsh-message-feedback] Build complete in 14923ms
+✔ [@deepseek-ai/dsh-workspace] Build complete in 14923ms
+✔ [@deepseek-ai/dsh-subprocess-local] Build complete in 14923ms
+✔ [@deepseek-ai/dsh-repeat-tool-reminder] Build complete in 14926ms
+ℹ [@deepseek-ai/dsh-llm-pi-ai] lib\index.js      108.79 kB │ gzip: 32.21 kB
+ℹ [@deepseek-ai/dsh-llm-pi-ai] lib\invariant.js    0.89 kB │ gzip:  0.48 kB
+ℹ [@deepseek-ai/dsh-llm-pi-ai] 2 files, total: 109.68 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] [ESM] lib\index.js      10.79 kB │ gzip: 3.97 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] [ESM] lib\invariant.js   0.94 kB │ gzip: 0.48 kB
+ℹ [@deepseek-ai/dsh-host-directory-picker-native] [ESM] 2 files, total: 11.72 kB
+ℹ [@deepseek-ai/dsh-agent-presets] lib\invariant.js  75.86 kB │ gzip: 22.93 kB
+ℹ [@deepseek-ai/dsh-agent-presets] lib\index.js      75.43 kB │ gzip: 22.79 kB
+ℹ [@deepseek-ai/dsh-agent-presets] 2 files, total: 151.28 kB
+ℹ [@deepseek-ai/dsh-llm-deepseek] lib\index.js      90.75 kB │ gzip: 25.02 kB
+ℹ [@deepseek-ai/dsh-llm-deepseek] lib\invariant.js   0.90 kB │ gzip:  0.48 kB
+ℹ [@deepseek-ai/dsh-llm-deepseek] 2 files, total: 91.65 kB
+ℹ [@deepseek-ai/dsh-file-reference-local] lib\index.js      16.29 kB │ gzip: 5.19 kB
+ℹ [@deepseek-ai/dsh-file-reference-local] lib\invariant.js   0.93 kB │ gzip: 0.49 kB
+ℹ [@deepseek-ai/dsh-file-reference-local] 2 files, total: 17.22 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (75%)
+  - dsh-typert-generator (25%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+[PLUGIN_TIMINGS] Your build spent significant time in plugins. Here is a breakdown:
+  - tsdown:deps (74%)
+  - dsh-typert-generator (26%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-llm-pi-ai] Build complete in 14952ms
+✔ [@deepseek-ai/dsh-host-directory-picker-native] Build complete in 14952ms
+✔ [@deepseek-ai/dsh-agent-presets] Build complete in 14954ms
+✔ [@deepseek-ai/dsh-llm-deepseek] Build complete in 14955ms
+✔ [@deepseek-ai/dsh-file-reference-local] Build complete in 14955ms
+ℹ [@deepseek-ai/dsh-root] Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.
+See more at https://tsdown.dev/options/dependencies#deps-onlybundle
+Detected dependencies in bundle:
+- react
+- use-sync-external-store
+ℹ [@deepseek-ai/dsh-experimental-inspector] lib\index.js      86.38 kB │ gzip: 20.32 kB
+ℹ [@deepseek-ai/dsh-experimental-inspector] lib\invariant.js   0.73 kB │ gzip:  0.41 kB
+ℹ [@deepseek-ai/dsh-experimental-inspector] 2 files, total: 87.10 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-experimental-inspector] Build complete in 14990ms
+ℹ [@deepseek-ai/dsh-root] lib\index.js      146.95 kB │ gzip: 36.56 kB
+ℹ [@deepseek-ai/dsh-root] lib\invariant.js    1.03 kB │ gzip:  0.55 kB
+ℹ [@deepseek-ai/dsh-root] 2 files, total: 147.98 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-root] Build complete in 14997ms
+ℹ [@deepseek-ai/dsh-experimental-inspector] lib\worker.js  261.63 kB │ gzip: 55.24 kB
+ℹ [@deepseek-ai/dsh-experimental-inspector] 1 files, total: 261.63 kB
+[PLUGIN_TIMINGS] Your build spent significant time in plugin `tsdown:deps`. See https://rolldown.rs/options/checks#plugintimings for more details.
+
+✔ [@deepseek-ai/dsh-experimental-inspector] Build complete in 15003ms
+ℹ [@deepseek-ai/dsh-root] Hint: consider adding deps.onlyBundle option to avoid unintended bundling of dependencies, or set deps.onlyBundle: false to disable this hint.
+See more at https://tsdown.dev/options/dependencies#deps-onlybundle
+Detected dependencies in bundle:
+- tinyrainbow
+- @vitest/pretty-format
+- @vitest/utils
+- @vitest/runner
+- vitest
+- @vitest/spy
+- chai
+- @vitest/expect
+- @vitest/snapshot
+- @jridgewell/sourcemap-codec
+- magic-string
+
+ ERROR  Error: Build failed with 7 errors:
+
+[MISSING_EXPORT] "resolveSessionPreset" is not exported by "../../preset/agent-presets/src/index.ts".
+    ╭─[ lib/types/api-proxy.js:20:93 ]
+    │
+ 20 │ import { InvalidPresetIdError, PresetExistsError, PresetMountError, PresetNotWritableError, resolveSessionPreset, UnknownPresetError, } from '@deepseek-ai/dsh-agent-presets';
+    │                                                                                             ──────────┬─────────
+    │                                                                                                       ╰─────────── Missing export
+────╯
+
+[MISSING_EXPORT] "ApiRemoteSessionNotFound" is not exported by "../../api/remotes/src/index.ts".
+    ╭─[ lib/types/api-proxy.js:38:10 ]
+    │
+ 38 │ import { ApiRemoteSessionNotFound as SessionNotFound, ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership, API_REMOTE_FORWARDED_EVENTS, apiRemoteSubagentOwnershipError, createApiRemoteAgentResolver, hasApiRemoteSubagentOwner, inspectApiRemoteSession, } from '@deepseek-ai/dsh-api-remotes';
+    │          ────────────┬───────────
+    │                      ╰───────────── Missing export
+────╯
+
+[MISSING_EXPORT] "ApiRemoteSubagentSessionOwnership" is not exported by "../../api/remotes/src/index.ts".
+    ╭─[ lib/types/api-proxy.js:38:55 ]
+    │
+ 38 │ import { ApiRemoteSessionNotFound as SessionNotFound, ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership, API_REMOTE_FORWARDED_EVENTS, apiRemoteSubagentOwnershipError, createApiRemoteAgentResolver, hasApiRemoteSubagentOwner, inspectApiRemoteSession, } from '@deepseek-ai/dsh-api-remotes';
+    │                                                       ────────────────┬────────────────
+    │                                                                       ╰────────────────── Missing export
+────╯
+
+[MISSING_EXPORT] "apiRemoteSubagentOwnershipError" is not exported by "../../api/remotes/src/index.ts".
+    ╭─[ lib/types/api-proxy.js:38:147 ]
+    │
+ 38 │ import { ApiRemoteSessionNotFound as SessionNotFound, ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership, API_REMOTE_FORWARDED_EVENTS, apiRemoteSubagentOwnershipError, createApiRemoteAgentResolver, hasApiRemoteSubagentOwner, inspectApiRemoteSession, } from '@deepseek-ai/dsh-api-remotes';
+    │                                                                                                                                                   ───────────────┬───────────────
+    │                                                                                                                                                                  ╰───────────────── Missing export
+────╯
+
+[MISSING_EXPORT] "createApiRemoteAgentResolver" is not exported by "../../api/remotes/src/index.ts".
+    ╭─[ lib/types/api-proxy.js:38:180 ]
+    │
+ 38 │ import { ApiRemoteSessionNotFound as SessionNotFound, ApiRemoteSubagentSessionOwnership as SubagentSessionOwnership, API_REMOTE_FORWARDED_EVENTS, apiRemoteSubagentOwnershipError, createApiRemoteAgentResolver, hasApiRemoteSubagentOwner, inspectApiRemoteSession, } from '@deepseek-ai/dsh-api-remotes';
+    │                                                                                                                                                                                    ──────────────┬─────────────
+    │                                                                                                                                                                                                  ╰─────────────── Missing export
+────╯
+
+...
+    at aggregateBindingErrorsIntoJsError (file:///E:/Git/dsh-gui/deepseek-harness/node_modules/.pnpm/rolldown@1.1.1/node_modules/rolldown/dist/shared/error-C0TrL0_H.mjs:48:18)
+    at unwrapBindingResult (file:///E:/Git/dsh-gui/deepseek-harness/node_modules/.pnpm/rolldown@1.1.1/node_modules/rolldown/dist/shared/error-C0TrL0_H.mjs:18:128)
+    at #build (file:///E:/Git/dsh-gui/deepseek-harness/node_modules/.pnpm/rolldown@1.1.1/node_modules/rolldown/dist/shared/rolldown-build-abS241_6.mjs:3288:34)
+    at async build (file:///E:/Git/dsh-gui/deepseek-harness/node_modules/.pnpm/rolldown@1.1.1/node_modules/rolldown/dist/index.mjs:42:22)
+    at async Promise.all (index 0)
+    at async buildSingle (file:///E:/Git/dsh-gui/deepseek-harness/node_modules/.pnpm/tsdown@0.22.2_oxc-resolver@_f113eb69000457c8d5954142d0822f52/node_modules/tsdown/dist/build-BxT2lm9L.mjs:791:19)
+    at async Promise.all (index 99)
+    at async buildWithConfigs (file:///E:/Git/dsh-gui/deepseek-harness/node_modules/.pnpm/tsdown@0.22.2_oxc-resolver@_f113eb69000457c8d5954142d0822f52/node_modules/tsdown/dist/build-BxT2lm9L.mjs:747:18)
+    at async CAC.<anonymous> (file:///E:/Git/dsh-gui/deepseek-harness/node_modules/.pnpm/tsdown@0.22.2_oxc-resolver@_f113eb69000457c8d5954142d0822f52/node_modules/tsdown/dist/run.mjs:21:2)
+    at async runCLI (file:///E:/Git/dsh-gui/deepseek-harness/node_modules/.pnpm/tsdown@0.22.2_oxc-resolver@_f113eb69000457c8d5954142d0822f52/node_modules/tsdown/dist/run.mjs:45:3)
+
+[ELIFECYCLE] Command failed with exit code 1.
+E:\Git\dsh-gui\deepseek-harness\scripts\build.ts:27
+    throw new Error(`build: ${script} exited with ${String(result.status ?? result.signal)}`)
+          ^
+
+Error: build: build:lib exited with 1
+    at runScript (E:\Git\dsh-gui\deepseek-harness\scripts\build.ts:27:11)
+    at main (E:\Git\dsh-gui\deepseek-harness\scripts\build.ts:44:3)
+    at <anonymous> (E:\Git\dsh-gui\deepseek-harness\scripts\build.ts:52:23)
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.19.0
+[ELIFECYCLE] Command failed with exit code 1.
+
+[error] node E:\Git\dsh-gui\.toolchain\node_modules\pnpm\bin\pnpm.cjs run build exited with code 1
+PS E:\Git\dsh-gui>

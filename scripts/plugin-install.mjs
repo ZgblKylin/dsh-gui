@@ -350,6 +350,10 @@ function packageNameFromSpec(spec) {
  *   - mount: explicit mount entry for packages without a bundle patch.
  */
 export function installNpmPlugin({ id, packageSpec, mount = null }) {
+  if (skipInstall(id)) {
+    console.log(`  skipping '${id}' (${packageSpec}) — version-incompatible with the pinned harness; set DSH_PLUGIN_FORCE_INSTALL=1 to override`)
+    return
+  }
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
   const profileDir = join(dshHome, 'profiles', 'web')
   console.log(`\n==> install plugin '${id}' (${packageSpec} from npm)`)
@@ -388,3 +392,39 @@ export function installNpmPlugin({ id, packageSpec, mount = null }) {
   mountEntry(profileDir, { id: mountId, name: mountName })
   console.log(`installed plugin '${id}' into ${profileDir}`)
 }
+
+/**
+ * Plugins skipped by default because the currently published versions do not
+ * run on the pinned harness (dsh-v0.1.2-alpha.1): their client bundles still
+ * `require('@deepseek-ai/dsh-client-runtime')`, a package the harness removed,
+ * so the loader entry fails with "missed the module table". To re-enable an
+ * entry whose upstream has since shipped a compatible build, remove it from
+ * the list below, or run the build with `DSH_PLUGIN_FORCE_INSTALL=1` without
+ * editing code. See docs/dsh-gui/harness-upgrade-build-failure.md.
+ */
+const DEFAULT_SKIPPED_PLUGINS = new Set([
+  'flowglass',
+  'dsh-web-ui-settings',
+  'dsh-pet',
+])
+
+/**
+ * Temporary install skip switch: true when id is in the default skip list,
+ * or listed in the DSH_PLUGIN_SKIP environment variable (comma-separated
+ * plugin ids). `DSH_PLUGIN_FORCE_INSTALL=1` overrides both. Keeps a
+ * version-incompatible plugin out of the profile without editing the
+ * wrapper (see docs/dsh-gui/harness-upgrade-build-failure.md).
+ * @param {string} id - the plugin wrapper id ('flowglass', 'dsh-pet', ...).
+ * @returns {boolean} whether the install should be skipped.
+ */
+export function skipInstall(id) {
+  if (process.env.DSH_PLUGIN_FORCE_INSTALL === '1') return false
+  if (DEFAULT_SKIPPED_PLUGINS.has(id)) return true
+  const skipped = (process.env.DSH_PLUGIN_SKIP ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return skipped.includes(id)
+}
+
+

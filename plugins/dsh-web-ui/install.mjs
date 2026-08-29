@@ -36,6 +36,10 @@ installNpmPlugin({
   id: 'dsh-liangshen',
   packageSpec: '@linxin666/dsh-liangshen@latest',
 })
+// 下面两个包依赖旧版 `@deepseek-ai/dsh-client-runtime`（dsh-v0.1.2-alpha.1
+// 中已不存在），安装器默认跳过；upstream 适配后从默认清单移除即可，或临时
+// DSH_PLUGIN_FORCE_INSTALL=1（见
+// docs/dsh-gui/harness-upgrade-build-failure.md）。
 installNpmPlugin({
   id: 'dsh-web-ui-settings',
   packageSpec: '@linxin666/dsh-client-ui-web-ui-settings@latest',
