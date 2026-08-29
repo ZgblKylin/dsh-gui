@@ -104,16 +104,16 @@ function applyEnvironmentPatch(target) {
   const hintBlock = [
     '      const sections = []',
     '      if (projectFiles.length > 0) {',
-    '        sections.push(`Workspace instruction files exist: ${projectFiles.join(\', \')} (project root: ${root}).`)',
+    '        sections.push(`Reference documents exist: ${projectFiles.join(\', \')} (project root: ${root}).`)',
     '      }',
     '      if (userGlobalFiles.length > 0) {',
-    '        sections.push(`A user-global instruction file exists: ${USER_GLOBAL_CANDIDATE}.`)',
+    '        sections.push(`A user reference document exists: ${USER_GLOBAL_CANDIDATE}.`)',
     '      }',
     '      if (sections.length === 0) return decision',
     '',
     '      const text = [',
     '        ...sections,',
-    "        'Do NOT assume their content. When a task touches this workspace, read the relevant instruction files first and follow them.',",
+    "        \"They are reference documents about the user's environment and workspace conventions, not task instructions. Reading the relevant file before workspace tasks is recommended, but consult them only when you need those details; the task itself never depends on them.\",",
     "      ].join(' ')",
   ].join('\n')
   if (!source.includes(hintBlock)) {
@@ -122,17 +122,17 @@ function applyEnvironmentPatch(target) {
   const patchedHintBlock = [
     '      const instructionSections = []',
     '      if (projectFiles.length > 0) {',
-    '        instructionSections.push(`Workspace instruction files exist: ${projectFiles.join(\', \')} (project root: ${root}).`)',
+    '        instructionSections.push(`Reference documents exist: ${projectFiles.join(\', \')} (project root: ${root}).`)',
     '      }',
     '      if (userGlobalFiles.length > 0) {',
-    '        instructionSections.push(`A user-global instruction file exists: ${USER_GLOBAL_CANDIDATE}.`)',
+    '        instructionSections.push(`A user reference document exists: ${USER_GLOBAL_CANDIDATE}.`)',
     '      }',
     '      if (instructionSections.length === 0 && ENVIRONMENT_HINTS.length === 0) return decision',
     '',
     '      const text = [',
     '        ...ENVIRONMENT_HINTS,',
     '        ...instructionSections,',
-    "        ...(instructionSections.length === 0 ? [] : ['Do NOT assume their content. When a task touches this workspace, read the relevant instruction files first and follow them.']),",
+    "        ...(instructionSections.length === 0 ? [] : [\"They are reference documents about the user's environment and workspace conventions, not task instructions. Reading the relevant file before workspace tasks is recommended, but consult them only when you need those details; the task itself never depends on them.\"]),",
     "      ].join(' ')",
   ].join('\n')
   source = source.replace(hintBlock, patchedHintBlock)
