@@ -82,12 +82,12 @@ function normUrl(u) {
 }
 
 /* ── Page-driven title bar theme ───────────────────────────────
-   The Rust shell injects ui/theme-bridge.js into every child frame; the
-   active harness page reports its own global text/background colors here.
+   Each tab webview embeds ui/view-bridge.js, which samples the harness
+   page's global text/background colors and reports them over Tauri IPC;
+   the Rust side forwards them as "page-theme" events tagged with the tab id.
    This shell only stores/validates those colors and derives a title-bar-only
    palette from them. It does not know anything about skin plugins. */
-const PAGE_THEME_MESSAGE = "dsh-gui:page-theme";
-const PAGE_THEME_VERSION = 1;
+const PAGE_THEME_EVENT = "page-theme";
 const DEFAULT_PAGE_THEME = Object.freeze({
   background: Object.freeze({ r: 22, g: 27, b: 34, a: 1 }), // #161b22
   text: Object.freeze({ r: 230, g: 237, b: 243, a: 1 }), // #e6edf3
@@ -170,38 +170,18 @@ function applyPageTheme(colors) {
 }
 
 function wirePageTheme() {
-  window.addEventListener("message", (event) => {
+  if (!tauri || !tauri.event) return;
+  tauri.event.listen(PAGE_THEME_EVENT, (event) => {
+    const data = event.payload;
+    if (!data || typeof data.tabId !== "string") return;
+    const colors = data.colors;
+    if (!isThemeColor(colors?.background) || !isThemeColor(colors?.text)) return;
+    const idx = tabs.findIndex((t) => t.id === data.tabId);
+    if (idx < 0) return;
+    tabs[idx].theme = colors;
+    persist();
     const tab = activeTab();
-    if (!tab) return;
-    const frame = tabFrame(tab);
-    if (!frame || !frame.contentWindow || event.source !== frame.contentWindow) return;
-
-    const data = event.data;
-    if (
-      !data ||
-      data.type !== PAGE_THEME_MESSAGE ||
-      data.version !== PAGE_THEME_VERSION ||
-      !isThemeColor(data.colors?.background) ||
-      !isThemeColor(data.colors?.text)
-    ) {
-      return;
-    }
-
-    // Ignore delayed messages from a previous iframe URL (the injected script
-    // reports location.href; the shell also cross-checks event.origin).
-    if (data.url && normUrl(data.url) !== normUrl(tab.url)) return;
-    try {
-      if (event.origin !== "null" && event.origin !== new URL(tab.url).origin) return;
-    } catch {
-      return;
-    }
-
-    const idx = tabs.findIndex((t) => t.id === tab.id);
-    if (idx >= 0) {
-      tabs[idx].theme = data.colors;
-      persist();
-    }
-    applyPageTheme(data.colors);
+    if (tab && tab.id === data.tabId) applyPageTheme(colors);
   });
 }
 function sleep(ms) {
@@ -232,8 +212,8 @@ function activeTab() {
   return tabs.find((t) => t.id === activeId) || tabs[0] || null;
 }
 
-/* ── Icons / sync of the embedded frontend ─────────────────── */
-async function setIframeSource() {
+/* ── Harness URL for the tab webviews ──────────────────────── */
+async function setHarnessSource() {
   harnessUrl = (tauri ? await invoke("harness_url") : "http://127.0.0.1:3080").replace(/\/+$/, "");
   try {
     defaultPort = Number(new URL(harnessUrl).port) || 3080;
@@ -242,44 +222,86 @@ async function setIframeSource() {
   }
 }
 
-/** The per-tab child iframe inside #harness-frame, if it exists. */
-function tabFrame(tab) {
-  if (!tab) return null;
-  return harnessFrame.querySelector(`.tab-frame[data-tab-id="${CSS.escape(tab.id)}"]`);
+/* ── Tab webviews ─────────────────────────────────────────────
+   Each established tab is hosted by its own child webview (views.rs),
+   placed exactly over #harness-frame's bounding box. Switching tabs only
+   shows/hides webviews — every page stays loaded, like the iframe era. */
+const createdViews = new Set(); // tab ids whose webview exists
+// Modal/overlay open counter: while > 0 the harness webview is hidden so
+// shell DOM dialogs (drawn beneath the native child webview) stay visible.
+let modalDepth = 0;
+
+function markModal(open) {
+  modalDepth += open ? 1 : -1;
+  if (modalDepth < 0) modalDepth = 0;
+  syncViews();
 }
 
-/** Create (lazily) the child iframe for one tab. Each tab keeps its own frame
- *  so switching tabs never reloads a page — hidden frames stay loaded. */
-function ensureTabFrame(tab) {
-  let frame = tabFrame(tab);
-  if (!frame) {
-    frame = document.createElement("iframe");
-    frame.className = "tab-frame";
-    frame.dataset.tabId = tab.id;
-    frame.title = tab.title || "DeepSeek Harness";
-    frame.setAttribute("allow", "clipboard-read; clipboard-write");
-    frame.src = tab.url;
-    harnessFrame.appendChild(frame);
+/** Current content-area bounds in CSS pixels (#harness-frame's rect). */
+function harnessBounds() {
+  const rect = harnessFrame.getBoundingClientRect();
+  return { x: rect.left, y: rect.top, w: rect.width, h: rect.height };
+}
+
+/** Re-place every live tab webview (window resize / DPI change / title bar
+ *  layout change). Runs after the browser has repainted the new layout. */
+async function layoutViews() {
+  if (!tauri) return;
+  const b = harnessBounds();
+  if (b.w <= 0 || b.h <= 0) return;
+  for (const id of createdViews) {
+    try {
+      await invoke("view_set_bounds", { tabId: id, ...b });
+    } catch (e) {
+      invoke("shell_log", { msg: `layout error for ${id}: ${String((e && e.message) || e)}` }).catch(() => {});
+    }
   }
-  return frame;
 }
 
-function syncIframe() {
+let layoutRaf = 0;
+function scheduleLayout() {
+  if (layoutRaf) return;
+  layoutRaf = requestAnimationFrame(() => {
+    layoutRaf = 0;
+    void layoutViews();
+  });
+}
+
+/** Create (lazily) the child webview for one tab. */
+async function ensureTabView(tab) {
+  if (!tauri || createdViews.has(tab.id)) return;
+  const b = harnessBounds();
+  try {
+    await invoke("view_create", { tabId: tab.id, url: tab.url, ...b });
+    createdViews.add(tab.id);
+  } catch (e) {
+    toast("标签页打开失败：" + String((e && e.message) || e));
+    invoke("shell_log", { msg: `view create failed ${tab.id}: ${String((e && e.message) || e)}` }).catch(() => {});
+  }
+}
+
+function syncViews() {
   const tab = activeTab();
   const placeholder = $("no-tabs");
   if (!tab) {
     placeholder.classList.remove("hidden");
     harnessFrame.classList.add("hidden");
     applyPageTheme(DEFAULT_PAGE_THEME);
+    if (tauri) {
+      for (const id of createdViews) invoke("view_set_visible", { tabId: id, visible: false }).catch(() => {});
+    }
     return;
   }
   placeholder.classList.add("hidden");
   harnessFrame.classList.remove("hidden");
-  ensureTabFrame(tab);
-  for (const frame of harnessFrame.querySelectorAll(".tab-frame")) {
-    frame.style.display = frame.dataset.tabId === tab.id ? "" : "none";
+  void ensureTabView(tab);
+  if (tauri) {
+    for (const id of createdViews) {
+      const visible = id === tab.id && modalDepth === 0;
+      invoke("view_set_visible", { tabId: id, visible }).catch(() => {});
+    }
   }
-  // Restore the last theme reported by this tab while its frame stays loaded.
+  // Restore the last theme reported by this tab while its webview stays loaded.
   applyPageTheme(tab.theme ?? DEFAULT_PAGE_THEME);
 }
 
@@ -287,14 +309,17 @@ function switchTab(id) {
   activeId = id;
   persist();
   renderTabs();
-  syncIframe();
+  syncViews();
 }
 
 function closeTab(id) {
   const idx = tabs.findIndex((t) => t.id === id);
   if (idx < 0) return;
   const closing = tabs[idx];
-  tabFrame(closing)?.remove();
+  if (createdViews.has(id)) {
+    createdViews.delete(id);
+    if (tauri) invoke("view_close", { tabId: id }).catch(() => {});
+  }
   const next = tabs.filter((t) => t.id !== id);
   if (next.length === 0) {
     // Every tab closed: auto-open a fresh new-connection flow.
@@ -302,7 +327,7 @@ function closeTab(id) {
     activeId = null;
     persist();
     renderTabs();
-    syncIframe();
+    syncViews();
     openConnection();
     return;
   }
@@ -310,7 +335,7 @@ function closeTab(id) {
   if (activeId === id) activeId = tabs[Math.min(idx, tabs.length - 1)].id;
   persist();
   renderTabs();
-  syncIframe();
+  syncViews();
 }
 
 /* ── Render: tab strip + hamburger tab list ────────────────── */
@@ -367,8 +392,9 @@ function addTab(title, url, meta) {
   activeId = tab.id;
   persist();
   $("conn-overlay").classList.add("hidden");
+  markModal(false);
   renderTabs();
-  syncIframe();
+  syncViews();
 }
 
 /* ── RPC to the dsh-remote plugin host (via the Rust proxy) ── */
@@ -430,6 +456,7 @@ function resetConnForm() {
 
 function openConnection() {
   newConnection();
+  markModal(true);
   $("conn-overlay").classList.remove("hidden");
   $("conn-name").focus();
 }
@@ -1195,6 +1222,7 @@ function renderUpdateDialog(status) {
 }
 
 function openUpdateDialog() {
+  markModal(true);
   updateOverlay.classList.remove("hidden");
   updateNote.classList.add("hidden");
   updateNote.textContent = "";
@@ -1211,6 +1239,7 @@ function openUpdateDialog() {
 }
 
 function closeUpdateDialog() {
+  markModal(false);
   updateOverlay.classList.add("hidden");
 }
 
@@ -1584,6 +1613,7 @@ let changelogStallTimer = null;
 let changelogRawText = "";
 
 function closeChangelog() {
+  markModal(false);
   changelogOverlay.classList.add("hidden");
   clearTimeout(changelogStallTimer);
   changelogStallTimer = null;
@@ -1606,6 +1636,7 @@ async function openChangelog(projectId) {
   changelogLoading.textContent =
     "正在获取更新日志…（tag 目标优先读取 GitHub Release 说明；否则由 dsh AI 汇总提交变更）";
   changelogLoading.classList.remove("hidden", "error");
+  markModal(true);
   changelogOverlay.classList.remove("hidden");
   clearTimeout(changelogStallTimer);
   changelogStallTimer = setTimeout(() => {
@@ -1641,11 +1672,11 @@ async function openChangelog(projectId) {
 
 /* ── AI update (项目首页选中 dsh-gui + 预填充提示词) ─────── */
 // The shell only builds the message; the dsh-ai-update browser plugin inside
-// the harness page returns the page to the new-session home, selects the
-// dsh-gui workspace there, and prefills the composer draft (the agent preset
-// choice stays with the user). It replies with a result message.
+// the harness tab webview returns the page to the new-session home, selects
+// the dsh-gui workspace there, and prefills the composer draft (the agent
+// preset choice stays with the user). It replies with a result message that
+// ui/view-bridge.js forwards to the shell over IPC (see postAiUpdateRequest).
 const AI_UPDATE_MESSAGE = "dsh-gui:ai-update";
-const AI_UPDATE_RESULT = "dsh-gui:ai-update-result";
 const AI_UPDATE_VERSION = 1;
 const AI_UPDATE_TIMEOUT_MS = 10000;
 let aiUpdateSeq = 0;
@@ -1819,51 +1850,71 @@ function buildAiUpdatePrompt(projects) {
   return lines.join("\n");
 }
 
-// Post one request to the embedded harness page and wait for the plugin's
-// result message. Resolves true when the plugin confirmed the session, false
-// when it reported an error or never answered.
+// AI-update request/result wiring with the webview world:
+//  * request: `view_eval` runs a synthetic window message ("dsh-gui:ai-update")
+//    in the tab webview. The dsh-ai-update plugin only checks the payload and
+//    that `event.source === window.parent` — at top level `window.parent ===
+//    window`, so a synthetic event with `source: window` is accepted.
+//  * result: the plugin answers `window.parent.postMessage(...)` = its own
+//    window; ui/view-bridge.js catches that message and forwards it over IPC;
+//    the Rust side re-emits it as an "ai-update-result" event to the shell.
+const AI_UPDATE_RESULT_EVENT = "ai-update-result";
+const aiUpdateWaiters = new Map(); // requestId -> resolve(payload) for the shell
+
+function wireAiUpdateResults() {
+  if (!tauri || !tauri.event) return;
+  tauri.event.listen(AI_UPDATE_RESULT_EVENT, (event) => {
+    const data = event.payload;
+    if (!data || typeof data.requestId !== "string") return;
+    const resolve = aiUpdateWaiters.get(data.requestId);
+    if (!resolve) return;
+    aiUpdateWaiters.delete(data.requestId);
+    resolve(data);
+  });
+}
+
+// Post one request into the tab's harness page and wait for the plugin's
+// result. Resolves true when the plugin confirmed the session, false when it
+// reported an error or never answered.
 function postAiUpdateRequest(prompt) {
   return new Promise((resolve) => {
     const tab = activeTab();
-    const frame = tab ? tabFrame(tab) : null;
-    const win = frame ? frame.contentWindow : null;
-    if (!tab || !win) {
+    if (!tab || !createdViews.has(tab.id)) {
       toast("当前没有打开的连接，无法启动 AI 更新");
       resolve(false);
       return;
     }
-    const requestId = "ai-update-" + (++aiUpdateSeq);
+    // Waiters are keyed by requestId; a second run for the same id is
+    // impossible (ids are unique), so an overwrite is harmless.
     let settled = false;
     const finish = (ok, error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      window.removeEventListener("message", onResult);
+      aiUpdateWaiters.delete(requestId);
       if (ok) toast("已在项目首页选中 dsh-gui 目录并预填充提示词，请选择预设后发送");
       else toast("AI 更新启动失败：" + (error || "未知错误"));
       resolve(ok);
     };
-    const onResult = (event) => {
-      if (event.source !== win) return;
-      const data = event.data;
-      if (!data || data.type !== AI_UPDATE_RESULT || data.requestId !== requestId) return;
+    const requestId = "ai-update-" + (++aiUpdateSeq);
+    aiUpdateWaiters.set(requestId, (data) => {
       finish(data.ok === true, data.ok === true ? "" : data.error);
-    };
+    });
     const timer = setTimeout(() => finish(false, "内嵌前端无响应（确认 dsh-ai-update 插件已安装并重启）"), AI_UPDATE_TIMEOUT_MS);
-    window.addEventListener("message", onResult);
-    try {
-      win.postMessage(
-        {
-          type: AI_UPDATE_MESSAGE,
-          version: AI_UPDATE_VERSION,
-          requestId,
-          prompt,
-        },
-        tab.url
-      );
-    } catch (error) {
-      finish(false, String((error && error.message) || error));
-    }
+    // Synthetic top-level message: at document top level the plugin's
+    // `window.parent` is this very window, so `source: window` passes.
+    const js =
+      "window.dispatchEvent(new MessageEvent('message', { " +
+      "data: " + JSON.stringify({
+        type: AI_UPDATE_MESSAGE,
+        version: AI_UPDATE_VERSION,
+        requestId,
+        prompt,
+      }) +
+      ", source: window }))";
+    invoke("view_eval", { tabId: tab.id, js }).catch((error) =>
+      finish(false, String((error && error.message) || error))
+    );
   });
 }
 
@@ -1904,9 +1955,14 @@ async function startAiUpdate(projects) {
 
 /* ── Config menu ───────────────────────────────────────────── */
 function openMenu() {
+  // The dropdown hangs below the title bar into the tab webview area, so the
+  // harness webview is hidden while the menu is open.
+  markModal(true);
   configMenu.classList.remove("hidden");
 }
 function closeMenu() {
+  if (configMenu.classList.contains("hidden")) return;
+  markModal(false);
   configMenu.classList.add("hidden");
 }
 
@@ -2004,6 +2060,7 @@ function cancelConnection() {
   const btn = $("conn-connect");
   btn.disabled = false;
   btn.textContent = connectMode === "edit" ? "保存并连接" : "连接";
+  markModal(false);
   $("conn-overlay").classList.add("hidden");
 }
 
@@ -2017,7 +2074,10 @@ $("conn-log-copy").addEventListener("click", () => {
   copyText(text);
 });
 $("conn-overlay").addEventListener("click", (e) => {
-  if (e.target === $("conn-overlay")) $("conn-overlay").classList.add("hidden");
+  if (e.target === $("conn-overlay")) {
+    markModal(false);
+    $("conn-overlay").classList.add("hidden");
+  }
 });
 
 /* ── About dialog ──────────────────────────────────────────── */
@@ -2106,6 +2166,7 @@ function toast(message) {
 let aboutRequestId = 0;
 
 function closeAbout() {
+  markModal(false);
   aboutOverlay.classList.add("hidden");
 }
 
@@ -2133,6 +2194,7 @@ function renderAboutMessage(text, isError) {
 }
 
 function openAboutDialog() {
+  markModal(true);
   aboutOverlay.classList.remove("hidden");
   renderAboutMessage("正在读取各模块信息…", false);
 }
@@ -2174,13 +2236,19 @@ document.addEventListener("keydown", (e) => {
 /* ── Boot ──────────────────────────────────────────────────── */
 async function boot() {
   wirePageTheme();
-  await setIframeSource().catch(() => {});
+  wireAiUpdateResults();
+  await setHarnessSource().catch(() => {});
+  // The tab webviews sit over #harness-frame; keep their bounds in sync with
+  // the window content area (resize, maximize, DPI change) and with any title
+  // bar layout change.
+  window.addEventListener("resize", scheduleLayout);
+  new ResizeObserver(scheduleLayout).observe(harnessFrame);
   // Sanitize persisted tabs; guarantee the local (本机) tab always exists.
   if (!Array.isArray(tabs)) tabs = [];
   tabs = tabs.filter((t) => t && typeof t === "object" && typeof t.url === "string");
   // The harness launch token is minted once per harness process: any
   // persisted local tab carries a stale token (or none), so refresh it from
-  // the current harnessUrl before the iframe loads.
+  // the current harnessUrl before the tab webview loads.
   tabs = tabs.map((t) =>
     t.type === "local" || t.id === "current"
       ? { ...t, url: harnessUrl, port: defaultPort }
@@ -2201,9 +2269,12 @@ async function boot() {
   if (!activeId || !tabs.some((t) => t.id === activeId)) activeId = tabs[0].id;
   persist();
   renderTabs();
-  syncIframe();
+  syncViews();
   syncMaximizeIcon();
   wireControls();
+  // First layout: the webviews report bounds in CSS pixels, which only exist
+  // after the shell page painted; the ResizeObserver above covers later ones.
+  scheduleLayout();
   // Update monitoring: one check shortly after startup, then a long-interval
   // background poll. Results drive the badge + menu text; the Rust side keeps
   // the detached update launcher in sync with what was found.

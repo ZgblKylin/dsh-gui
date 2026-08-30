@@ -1,29 +1,53 @@
-// dsh-gui page-theme bridge.
+// dsh-gui view bridge.
 //
-// The Rust shell injects this script into every frame
-// (`initialization_script_for_all_frames`). In child frames (the harness web
-// UI is embedded as a cross-origin iframe) it samples the document's own
-// global CSS — the computed `color` and `background-color` of html/body/#root
-// (plus the common `#app`/`main` mounts as fallback) — and posts the resulting
-// rgba values to the top frame. The shell title bar listens for these
-// messages and derives its colors from them.
+// The Rust shell injects this script at document-start into every
+// connection-tab child webview (src-tauri/src/views.rs). Those webviews load
+// the harness page as the top-level document — not as an iframe — so:
 //
-// This is deliberately generic: it reads computed global styles, not any
-// specific skin/plugin class or CSS variable.
+//   * the page-theme sampler reports colors over Tauri IPC instead of
+//     window.postMessage (there is no parent frame to talk to);
+//   * the dsh-ai-update plugin's reply ("dsh-gui:ai-update-result" posted to
+//     window.parent) lands on this very window (at top level window.parent ===
+//     window) and is forwarded over IPC so the shell update dialog can
+//     resolve its promise.
+//
+// Runs in the main frame only. (On Windows wry injects main-frame scripts
+// into subframes as well, hence the explicit top-frame guard.)
+//
+// Deliberately generic: it reads computed global styles, not any specific
+// skin/plugin class or CSS variable.
 (() => {
   "use strict";
 
-  // Only frames below the shell need to report. The shell itself owns the
-  // title bar and is the message receiver.
-  if (window === window.top) return;
+  if (window !== window.top) return;
 
-  const TYPE = "dsh-gui:page-theme";
-  const VERSION = 1;
+  const internals = window.__TAURI_INTERNALS__;
+  if (!internals) return; // plain-browser preview: nothing to bridge
 
-  let lastSignature = "";
-  let debounceTimer = 0;
-  let pollTimer = 0;
+  const invoke = (cmd, args) => {
+    try {
+      internals.invoke(cmd, args);
+    } catch {
+      /* ignore */
+    }
+  };
 
+  /* ── AI-update result forwarding ─────────────────────────── */
+  // The dsh-ai-update browser plugin answers to `window.parent`, which for a
+  // top-level webview is this window itself; the message event's source is
+  // this window, and the shell gets notified through the Rust side.
+  window.addEventListener("message", (event) => {
+    const data = event.data;
+    if (!data || data.type !== "dsh-gui:ai-update-result") return;
+    if (event.source !== window) return;
+    invoke("ai_update_result", {
+      requestId: typeof data.requestId === "string" ? data.requestId : "",
+      ok: data.ok === true,
+      error: typeof data.error === "string" ? data.error : null,
+    });
+  });
+
+  /* ── Page theme sampling ─────────────────────────────────── */
   // Convert any computed CSS color into plain rgba components by painting a
   // 1x1 canvas pixel. This also handles `transparent`/`color(srgb ...)`
   // computed values without hand-parsing CSS color syntax.
@@ -102,9 +126,9 @@
     return { background, text };
   }
 
-  function signature(colors) {
-    return JSON.stringify(colors);
-  }
+  let lastSignature = "";
+  let debounceTimer = 0;
+  let pollTimer = 0;
 
   function emit() {
     let colors;
@@ -115,23 +139,11 @@
     }
     if (!colors) return;
 
-    const nextSignature = signature(colors);
-    if (nextSignature === lastSignature) return;
-    lastSignature = nextSignature;
+    const signature = JSON.stringify(colors);
+    if (signature === lastSignature) return;
+    lastSignature = signature;
 
-    try {
-      window.top.postMessage(
-        {
-          type: TYPE,
-          version: VERSION,
-          url: window.location.href,
-          colors,
-        },
-        "*"
-      );
-    } catch {
-      /* top frame gone or unavailable */
-    }
+    invoke("page_theme", { background: colors.background, text: colors.text });
   }
 
   function debouncedEmit() {
@@ -165,10 +177,14 @@
   }
 
   installObservers();
-  document.addEventListener("DOMContentLoaded", () => {
-    installObservers();
-    debouncedEmit();
-  }, { once: true });
+  document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      installObservers();
+      debouncedEmit();
+    },
+    { once: true }
+  );
   window.addEventListener("load", debouncedEmit, { once: true });
   scheduleDelayedSamples();
 

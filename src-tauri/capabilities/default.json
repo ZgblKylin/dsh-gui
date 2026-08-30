@@ -1,12 +1,12 @@
 {
   "identifier": "default",
-  "description": "Capability for the main webview window. Window controls and the About dialog use app-defined commands (no ACL plugin permissions required); the harness UI runs in an embedded iframe.",
+  "description": "Capability for the main webview window. Window controls and the About dialog use app-defined commands (no ACL plugin permissions required); every connection tab is hosted by a child webview that loads the harness page (or a remote dsh server) as a top-level document. The shell page runs on the app origin (Local context); tab webviews run on loopback harness ports, hence the remote URL pattern.",
   "windows": [
     "main"
   ],
   "remote": {
     "urls": [
-      "http://127.0.0.1:3081"
+      "http://127.0.0.1:*"
     ]
   },
   "permissions": [
@@ -26,6 +26,13 @@
     "allow-start-update",
     "allow-update-root",
     "allow-update-changelog",
-    "allow-shell-log"
+    "allow-shell-log",
+    "allow-view-create",
+    "allow-view-set-bounds",
+    "allow-view-set-visible",
+    "allow-view-close",
+    "allow-view-eval",
+    "allow-page-theme",
+    "allow-ai-update-result"
   ]
 }

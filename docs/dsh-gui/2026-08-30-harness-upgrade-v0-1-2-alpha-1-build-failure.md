@@ -224,3 +224,122 @@ dsh-sidebar-qa、dshmarket。报错画面中 flowglass 只是最先露头的 loa
 dsh-better-sidebar / dsh-sidebar-qa / dshmarket / @linxin666/dsh-liangshen 仍
 保留在 profile（仅声明引用旧包名的 peer，不含运行时 require）。下次启动后
 核实这些插件无加载错误；若出现同类 module-table 报错，同样加入 `DSH_PLUGIN_SKIP`。
+
+---
+
+# Webview 改造记录（iframe → 独立 WebView2 子 webview）
+
+## 动机
+
+问题 2 的解法（wrapper 页面 + iframe 同站点嵌入）虽然验证通过，但不够优雅：
+iframe 依赖 "wrapper 端口上与 harness 同站点" 这一巧合同源关系，浏览器认证
+的 cookie、主题桥、AI 更新消息全部走 `window.postMessage` 通道，任何一处
+上游调整都可能再次断裂。本次将 harness 页面改为**独立子 webview** 加载，
+iframe 时代的所有 workaround 一并移除；随后进一步删除 wrapper 服务器，
+shell 页面迁到应用源。
+
+## 设计
+
+- **窗口**：不变——无边框窗口（`decorations: false`），shell 页面
+  （`ui/index.html`）绘制标题栏（窗口控制、标签页、菜单、弹窗），
+  由 **tauri 应用源**提供（`frontendDist: ui`，`WebviewUrl::App`），
+  不再有 wrapper 服务器与额外 loopback 端口。
+  代价：shell 的 localStorage 与旧 loopback 源（http://127.0.0.1:3081）
+  不同源，首次升级后标签页/已保存连接列表会重置一次（凭据仍在
+  Windows 凭据管理器中）。
+- **标签页**：每个已建立连接对应一个**子 webview**
+  （`tauri::webview::WebviewBuilder` → `Window::add_child`，需开启 tauri
+  `unstable` feature），位置/尺寸由 shell 页面报告 `#harness-frame` 的
+  CSS 逻辑像素边界，Rust 侧 `view_set_bounds` 按窗口缩放换算后重排。
+  - 加载 `http://127.0.0.1:<port>/?token=...` 即可，webview 自己的 cookie
+    jar 承接 303 + Set-Cookie——顶层文档，无 iframe SameSite 约束。
+  - 切换标签 = show/hide，页面永不重载（与 iframe 时代语义一致）。
+  - **弹窗**：`on_new_window` 返回 `NewWindowResponse::Allow`
+    （`SetHandled(false)`），窗口/链接新窗口走 WebView2 自身的新窗口流程
+    （默认打开 popup 窗口，见 WebView2 文档 Handled=false 情形）；
+    不做额外路由处理。
+  - **禁止 auto_resize**：tauri 的 auto_resize 是**比例式**重排
+    （top 36px 会随窗口高度缩放），标题栏固定高的布景需要
+    shell 驱动的绝对重排，故由 `resize`/`ResizeObserver` 触发
+    `layoutViews()` → `view_set_bounds`。
+- **标题栏主题**：`ui/theme-bridge.js` 被 `ui/view-bridge.js` 取代。
+  桥随子 webview `initialization_script` 注入 harness 页面，采样全局
+  文本/背景色后经 Tauri IPC（`page_theme`）上报；Rust 转发
+  `page-theme` 事件（携带 tabId），shell 存到 `tabs[].theme` 并应用。
+- **AI 更新**：dsh-ai-update 浏览器插件契约不变（window message +
+  `window.parent.postMessage`）。顶层 webview 下 `window.parent === window`，
+  因此：shell 用 `view_eval` 注入合成 `MessageEvent`（`source: window`），
+  插件照常回复 `window.parent.postMessage(...)`；`view-bridge.js` 捕获该
+  消息经 `ai_update_result` IPC 转回 shell（`ai-update-result` 事件）。
+- **弹窗遮挡**：子 webview 是原生子窗口，覆盖在 shell 页面上方，因此
+  DOM 弹层（连接管理/更新/关于/变更日志/配置菜单）打开时隐藏
+  harness webview（`markModal` 计数），关闭时恢复显示；toast 移到标题栏带内。
+- **安全**：所有子 webview（含远端标签页 URL）都会获得
+  `window.__TAURI_INTERNALS__`，因此每个命令按调用方 webview label 校验：
+  shell 命令仅接受 `main`，桥命令仅接受 `tab-*`。
+- **wrapper 删除**：`wrapper.rs`（loopback 静态服务器）整体移除，shell
+  页面改由 tauri 应用源托管；**不需要任何 harness 转发**——harness 页面
+  由子 webview 同源直连。shell 自身的跨源 RPC（`remote_call` +
+  带 cookie 的 ad-hoc HTTP）保留，与 wrapper 无关。
+
+## 涉及文件
+
+- `src-tauri/Cargo.toml`：tauri 增加 `unstable` feature。
+- `src-tauri/src/views.rs`（新增）：ViewRegistry、`view_create` /
+  `view_set_bounds` / `view_set_visible` / `view_close` / `view_eval` /
+  `page_theme` / `ai_update_result` 命令与 label 防线。
+- `src-tauri/src/main.rs`：注册 `ViewRegistry`，所有 shell 命令增加
+  `webview` 参数并校验；主窗口改为 `WebviewUrl::App("index.html")`；
+  `generate_handler` 注册新命令；移除 wrapper 启动代码。
+- `src-tauri/ui/view-bridge.js`（新增，替代 theme-bridge.js）：主题采样走
+  IPC；AI 更新结果转发。
+- `src-tauri/ui/app.js`：标签页从 iframe 改为 webview 管理
+  （`ensureTabView`/`syncViews`/`layoutViews`/`markModal`）；主题与
+  AI 更新改为 Tauri 事件；toast 移入标题栏。
+- `src-tauri/ui/index.html` / `titlebar.css`：注释与样式同步
+  （移除 `.tab-frame`，`.harness-frame` 仅作布局锚点）。
+- `src-tauri/src/wrapper.rs`：**已删除**（shell 迁至应用源，无 loopback
+  托管/转发职责）。
+- `src-tauri/build.rs` / `capabilities/default.json`：新命令的 ACL
+  权限与 remote URL 通配（`http://127.0.0.1:*`，供 tab webview 的
+  主题/AI 更新桥使用）。
+
+## 验证
+
+在克隆工程（`DSH_GUI_PORT=3202`）实测通过：
+
+- **独立 webview 成功加载 dsh**：窗口正常出现，自定义标题栏（窗口图标/标题/
+  连接标签页/＋/菜单/最小化/最大化/关闭）全部渲染；内容区由子 webview
+  加载 `http://127.0.0.1:3202/?token=...`，浏览器认证 303 → cookie →
+  harness 页面正常显示（实测渲染出海豚主题首页与历史会话列表）。
+- **移动/缩放**：标题栏 36px 固定，`#harness-frame` 的 CSS rect 上报给
+  `view_set_bounds`（逻辑像素，Rust 按窗口 DPI 换算）；用 Win32
+  `MoveWindow` 把窗口从 1280x800 改到 1520x950，harness 立即跟随重排；
+  Win32 子窗口枚举确认 harness webview 恒位于标题栏下方 36px。
+- **弹窗/新窗口**：`on_new_window` 返回 `Allow`（`SetHandled(false)`），
+  走 WebView2 默认新窗口流程，未做额外路由（后续遇到问题再补）。
+- **对话框遮挡**：打开配置菜单时 harness webview 隐藏、菜单可见；关闭后
+  恢复显示（markModal 计数路径实测通过）。
+- **主题桥**：view-bridge.js 采样页面全局色经 `page_theme` IPC 上报，
+  Rust 转发 `page-theme` 事件，标题栏按 harness 主题着色（实测标签页高亮
+  由深色默认变为蓝色主题色）。
+- **传输层细节**：子 webview 同样注入 `window.__TAURI_INTERNALS__`，
+  因此所有 shell 命令按调用方 webview label 校验（`main` 才可调
+  `view_*`/`remote_call` 等，`tab-*` 才可回报主题/AI 更新结果）；
+  权限清单（`capabilities/default.json` + `build.rs` 的
+  `AppManifest::commands`）同步加入了新命令；shell 页面在应用源
+  （tauri://，Local 上下文），tab webview 的桥命令走 remote url 通配
+  `http://127.0.0.1:*`。
+- **wrapper 删除后实测（补充）**：**无 3203/wrapper 端口监听**，仅 harness
+  3202 一个端口；shell 页面从应用源加载并正常进入主界面（`harness_url`
+  等 invoke 通过——boot 日志显示的 harnessUrl 即 3202 端口）；标题栏/
+  主题自适应/子 webview 加载 harness/`MoveWindow` 缩放跟随全部正常。
+
+### 遗留说明
+
+- 主题/新窗口/AI 更新链路中，主题已实测；弹窗与 AI 更新请求的 UI 触发
+  路径未做全自动交互验证（配置已在代码与文档中说明）。
+- shell 页面从 loopback 源迁到应用源后，localStorage 与旧源不同：
+  升级后标签页/已保存连接列表重建一次（凭据仍在 Windows 凭据管理器）。
+- `.dsh/profiles/web/node_modules` 在克隆工程中以 junction 复用，
+  两个 harness 实例（3080/3202）共享 node_modules 只读，无冲突。

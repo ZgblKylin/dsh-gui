@@ -5,13 +5,16 @@
 //!      `deepseek-harness` submodule checkout, with `DSH_HOME` pinned inside
 //!      the repository;
 //!   2. wait until that server answers HTTP on the loopback port;
-//!   3. open a single frameless webview window that renders a custom title bar
-//!      and embeds the harness web UI in an iframe.
+//!   3. open a single frameless window: the shell page (served from the app
+//!      origin, `frontendDist: ui`) renders the custom title bar and dialogs,
+//!      and **each connection tab is hosted by its own child webview**
+//!      (`views`) that loads the harness page as a real top-level document —
+//!      no iframe, no wrapper server, no browser-auth workaround.
 //!
 //! The frontend lives in `src-tauri/ui/` (a plain HTML shell — no bundler). It
-//! has one small IPC surface: window controls and an About dialog whose data
-//! (version/license/repository for the shell, the harness, and every plugin)
-//! is assembled in [`about`].
+//! has one small IPC surface: window controls, connection tabs, and an About
+//! dialog whose data (version/license/repository for the shell, the harness,
+//! and every plugin) is assembled in [`about`].
 
 // A plain Win32 GUI app in every profile: no console window on double-click,
 // and the launching terminal (cmd or PowerShell) does not wait for it. All of
@@ -23,7 +26,7 @@ mod changelog;
 #[cfg(windows)]
 mod native_window;
 mod update;
-mod wrapper;
+mod views;
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -39,6 +42,13 @@ use std::os::windows::process::CommandExt;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::{Emitter, Manager, State};
+
+// Tab-view commands live in `views`; plain imports (not `views::fn` paths)
+// keep the `generate_handler!` / permission-autogen name extraction working.
+use views::{
+    ai_update_result, page_theme, view_close, view_create, view_eval, view_set_bounds,
+    view_set_visible,
+};
 
 #[cfg(windows)]
 mod job {
@@ -172,10 +182,6 @@ const HARNESS_BIN: &str = "deepseek-harness/apps/cli/lib/bin.js";
 /// Default loopback port (matches the harness `web` profile default; override
 /// with the `DSH_GUI_PORT` environment variable).
 const DEFAULT_PORT: u16 = 3080;
-/// Loopback port serving the shell's wrapper page. The wrapper must share the
-/// harness's scheme and host so its harness iframe is same-site and the
-/// browser-auth cookie survives (see `wrapper.rs`).
-const WRAPPER_PORT: u16 = 3081;
 
 /// Walk up from the executable until the repository root (the directory that
 /// holds both `deepseek-harness/` and `src-tauri/`) is found. The exe sits
@@ -394,8 +400,8 @@ impl HarnessProcess {
 /// Post-launch harness URL and browser session state the shell needs once the
 /// Web profile answers HTTP.
 struct HarnessAuth {
-    /// URL the wrapper page should load; carries the launch-token query when
-    /// the harness minted one, and is the plain loopback URL otherwise.
+    /// URL the shell hands to the tab webviews; carries the launch-token query
+    /// when the harness minted one, and is the plain loopback URL otherwise.
     web_url: String,
     /// `name=value` session cookie minted from the launch token. The shell's
     /// own HTTP calls (remote ops, changelog) attach it because an ad-hoc
@@ -758,7 +764,7 @@ impl Drop for ChildGuard {
 struct ShellState {
     root: PathBuf,
     port: u16,
-    /// URL the wrapper page embeds in its iframe. Carries the harness launch
+    /// URL the shell hands to tab webviews. Carries the harness launch
     /// token (Web profiles ≥ dsh-v0.1.2-alpha.1 mint a one-time token and
     /// answer every unauthenticated request with 401).
     web_url: String,
@@ -781,12 +787,18 @@ struct WindowMenuState {
 }
 
 #[tauri::command]
-fn minimize_window(window: tauri::Window) {
+fn minimize_window(window: tauri::Window, webview: tauri::Webview) {
+    if views::ensure_shell(&webview).is_err() {
+        return;
+    }
     let _ = window.minimize();
 }
 
 #[tauri::command]
-fn toggle_maximize_window(window: tauri::Window) {
+fn toggle_maximize_window(window: tauri::Window, webview: tauri::Webview) {
+    if views::ensure_shell(&webview).is_err() {
+        return;
+    }
     if window.is_maximized().unwrap_or(false) {
         let _ = window.unmaximize();
     } else {
@@ -795,17 +807,26 @@ fn toggle_maximize_window(window: tauri::Window) {
 }
 
 #[tauri::command]
-fn is_window_maximized(window: tauri::Window) -> bool {
+fn is_window_maximized(window: tauri::Window, webview: tauri::Webview) -> bool {
+    if views::ensure_shell(&webview).is_err() {
+        return false;
+    }
     window.is_maximized().unwrap_or(false)
 }
 
 #[tauri::command]
-fn close_window(window: tauri::Window) {
+fn close_window(window: tauri::Window, webview: tauri::Webview) {
+    if views::ensure_shell(&webview).is_err() {
+        return;
+    }
     let _ = window.close();
 }
 
 #[tauri::command]
-fn start_window_drag(window: tauri::Window) {
+fn start_window_drag(window: tauri::Window, webview: tauri::Webview) {
+    if views::ensure_shell(&webview).is_err() {
+        return;
+    }
     let _ = window.start_dragging();
 }
 
@@ -816,8 +837,10 @@ fn start_window_drag(window: tauri::Window) {
 #[tauri::command]
 fn show_window_menu(
     window: tauri::Window,
+    webview: tauri::Webview,
     state: State<'_, WindowMenuState>,
 ) -> Result<(), String> {
+    views::ensure_shell(&webview)?;
     // Logical window coordinates: just below the 32x36 title-bar icon.
     let position = tauri::Position::Logical(tauri::LogicalPosition::new(6.0, 36.0));
     let menu = state.menu.clone();
@@ -827,19 +850,24 @@ fn show_window_menu(
     Ok(())
 }
 
-/// The self-hosted harness UI URL, so the wrapper page can point its iframe at
-/// the right port without the port being baked into the assets. Carries the
+/// The self-hosted harness UI URL, so the shell can point tab webviews at the
+/// right port without the port being baked into the assets. Carries the
 /// one-time launch token when the Web profile minted one.
 #[tauri::command]
-fn harness_url(state: State<'_, ShellState>) -> String {
-    state.web_url.clone()
+fn harness_url(webview: tauri::Webview, state: State<'_, ShellState>) -> Result<String, String> {
+    views::ensure_shell(&webview)?;
+    Ok(state.web_url.clone())
 }
 
 /// Everything the About dialog needs: version/license/repository for the
 /// shell, the harness submodule, and every plugin under `plugins/`. Runs off
 /// the main thread: collecting it shells out to `git` for every module.
 #[tauri::command]
-async fn about_info(state: State<'_, ShellState>) -> Result<about::AboutInfo, String> {
+async fn about_info(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<about::AboutInfo, String> {
+    views::ensure_shell(&webview)?;
     let root = state.root.clone();
     tauri::async_runtime::spawn_blocking(move || about::collect(&root))
         .await
@@ -850,15 +878,23 @@ async fn about_info(state: State<'_, ShellState>) -> Result<about::AboutInfo, St
 /// only (no network). The frontend renders these rows immediately with
 /// placeholders, then `check_updates` fills in the real latest/status.
 #[tauri::command]
-fn local_update_projects(state: State<'_, ShellState>) -> Vec<update::ProjectUpdate> {
-    update::local_check(&state.root)
+fn local_update_projects(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<Vec<update::ProjectUpdate>, String> {
+    views::ensure_shell(&webview)?;
+    Ok(update::local_check(&state.root))
 }
 
 /// Check the dsh-gui repository and every submodule for updates. Runs off the
 /// main thread: `git fetch` per repository can take tens of seconds, and the
 /// manual dialog as well as the startup/interval background checks call here.
 #[tauri::command]
-async fn check_updates(state: State<'_, ShellState>) -> Result<update::UpdateStatus, String> {
+async fn check_updates(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<update::UpdateStatus, String> {
+    views::ensure_shell(&webview)?;
     let root = state.root.clone();
     let gui_pid = state.gui_pid;
     let harness_pid = state.harness_pid;
@@ -880,10 +916,12 @@ async fn check_updates(state: State<'_, ShellState>) -> Result<update::UpdateSta
 #[tauri::command]
 fn start_update(
     app: tauri::AppHandle,
+    webview: tauri::Webview,
     state: State<'_, ShellState>,
     ids: Vec<String>,
     modes: HashMap<String, String>,
 ) -> Result<(), String> {
+    views::ensure_shell(&webview)?;
     let _guard = state
         .update_lock
         .lock()
@@ -913,9 +951,11 @@ fn start_update(
 #[tauri::command]
 async fn update_root(
     app: tauri::AppHandle,
+    webview: tauri::Webview,
     state: State<'_, ShellState>,
     mode: Option<String>,
 ) -> Result<(), String> {
+    views::ensure_shell(&webview)?;
     let root = state.root.clone();
     let lock = Arc::clone(&state.update_lock);
     tauri::async_runtime::spawn_blocking(move || {
@@ -949,10 +989,12 @@ async fn update_root(
 /// blocks an update check.
 #[tauri::command]
 async fn update_changelog(
+    webview: tauri::Webview,
     state: State<'_, ShellState>,
     id: String,
     mode: Option<String>,
 ) -> Result<changelog::UpdateChangelog, String> {
+    views::ensure_shell(&webview)?;
     let root = state.root.clone();
     let harness_cli = root.join(HARNESS_BIN);
     let port = state.port;
@@ -993,14 +1035,14 @@ const REMOTE_OPS: &[&str] = &[
     "diag",
 ];
 
-/// Minimal JSON HTTP/1.1 POST to the harness loopback server. The wrapper
-/// document is served from a `tauri://` origin, so a browser `fetch` to
-/// `http://127.0.0.1:<port>` would be cross-origin — and the harness's
-/// browser-trust fence deliberately refuses cross-origin requests. An ad-hoc
-/// TcpStream request carries no `Origin`/`Sec-Fetch-Site` headers, which the
-/// fence accepts as same-host. Returns the numeric status, the raw status
-/// line, and the (de-chunked) response body; non-2xx statuses are returned to
-/// the caller for its own policy.
+/// Minimal JSON HTTP/1.1 POST to the harness loopback server. The shell page
+/// lives on the app origin, so a browser `fetch` to `http://127.0.0.1:<port>`
+/// would be cross-origin — and the harness's browser-trust fence deliberately
+/// refuses cross-origin requests. An ad-hoc TcpStream request carries no
+/// `Origin`/`Sec-Fetch-Site` headers, which the fence accepts as same-host.
+/// Returns the numeric status, the raw status line, and the (de-chunked)
+/// response body; non-2xx statuses are returned to the caller for its own
+/// policy.
 pub(crate) fn http_post_json_raw(
     port: u16,
     path: &str,
@@ -1114,10 +1156,15 @@ fn dechunk(body: &str) -> String {
 }
 
 /// Bridge for frontend diagnostics: appends one line to `.dsh\gui\gui.log`
-/// (the wrapper page has no console in release builds, so boot-time facts are
+/// (the shell page has no console in release builds, so boot-time facts are
 /// otherwise invisible).
 #[tauri::command]
-fn shell_log(state: State<'_, ShellState>, msg: String) -> Result<(), String> {
+fn shell_log(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+    msg: String,
+) -> Result<(), String> {
+    views::ensure_shell(&webview)?;
     log_status(&state.root, &format!("[ui] {msg}"));
     Ok(())
 }
@@ -1126,10 +1173,12 @@ fn shell_log(state: State<'_, ShellState>, msg: String) -> Result<(), String> {
 /// the main thread (via spawn_blocking) so a long remote run never blocks the UI.
 #[tauri::command]
 async fn remote_call(
+    webview: tauri::Webview,
     state: State<'_, ShellState>,
     op: String,
     body: String,
 ) -> Result<String, String> {
+    views::ensure_shell(&webview)?;
     if !REMOTE_OPS.contains(&op.as_str()) {
         return Err(format!("unknown op: {op}"));
     }
@@ -1152,8 +1201,8 @@ fn main() {
     // Start the harness before the GUI so a startup failure reports clearly
     // (log + message box) instead of silently behind a blank window. The
     // ready wait also recovers the harness launch token (Web profiles ≥
-    // dsh-v0.1.2-alpha.1 authenticate via a one-time token) so the wrapper
-    // page and the shell's own HTTP calls can pass the browser-auth gate.
+    // dsh-v0.1.2-alpha.1 authenticate via a one-time token) so the tab
+    // webviews and the shell's own HTTP calls can pass the browser-auth gate.
     let mut harness = match spawn_harness(&root, port) {
         Ok(h) => h,
         Err(e) => fatal(Some(&root), &format!("failed to spawn the harness: {e}")),
@@ -1163,16 +1212,6 @@ fn main() {
         Err(e) => fatal(Some(&root), &format!("failed to start the harness: {e}")),
     };
     let child = harness.into_child();
-
-    // Serve the wrapper page from the loopback (same scheme+host as the
-    // harness) so the hardened page can talk to the browser-auth gate; the
-    // failure of the wrapper port is a startup error, not a degraded window.
-    if let Err(e) = ensure_loopback_port_available(WRAPPER_PORT) {
-        fatal(Some(&root), &format!("wrapper page port: {e}"));
-    }
-    if let Err(e) = wrapper::spawn(WRAPPER_PORT, root.join(".dsh").join("gui").join("wrapper.log")) {
-        fatal(Some(&root), &format!("wrapper page server: {e}"));
-    }
     log_status(&root, &format!("harness ready at {}", auth.web_url));
 
     let harness_pid = child.id();
@@ -1199,32 +1238,26 @@ fn main() {
                 update_lock: Arc::new(Mutex::new(())),
             });
             app.manage(child);
-            // Frameless: the wrapper page (ui/index.html) draws its own title
-            // bar and window controls, and embeds the harness UI in an iframe.
-            // The page is served from the loopback (not the tauri:// origin)
-            // so the harness iframe is same-site and browser-auth cookies
-            // survive; see wrapper.rs.
+            // Connection-tab child webviews (created lazily by the shell page).
+            app.manage(views::ViewRegistry::default());
+            // Frameless: the shell page (ui/index.html, served from the app
+            // origin) draws its own title bar and window controls; every
+            // connection tab is hosted by a child webview (see views.rs) that
+            // loads the harness page as a real top-level document, so the
+            // browser-auth token flow works exactly like a browser tab.
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
-                tauri::WebviewUrl::External(
-                    format!("http://127.0.0.1:{WRAPPER_PORT}/")
-                        .parse()
-                        .expect("wrapper URL must parse"),
-                ),
+                tauri::WebviewUrl::App("index.html".into()),
             )
             .title("DeepSeek Harness")
             .inner_size(1280.0, 800.0)
             .min_inner_size(800.0, 600.0)
             .decorations(false)
-            // Sample every child frame's global text/background colors and
-            // report them to the shell so the custom title bar can adapt to
-            // the page theme. The script lives in ui/theme-bridge.js.
-            .initialization_script_for_all_frames(include_str!("../ui/theme-bridge.js"))
-            // Answer WebView2/WebKitGTK clipboard permission requests so
-            // the embedded harness page (a cross-origin iframe) may use
-            // the async Clipboard API; without this the code-block and
-            // message copy controls cannot write the system clipboard.
+            // Answer WebView2/WebKitGTK clipboard permission requests so the
+            // shell page (copy buttons in the dialogs) may use the async
+            // Clipboard API. The harness webviews get their own
+            // `.enable_clipboard_access()` in views.rs.
             .enable_clipboard_access()
             .build()?;
 
@@ -1292,6 +1325,14 @@ fn main() {
             update_root,
             update_changelog,
             shell_log,
+            // Connection-tab child webviews + page bridge.
+            view_create,
+            view_set_bounds,
+            view_set_visible,
+            view_close,
+            view_eval,
+            page_theme,
+            ai_update_result,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");

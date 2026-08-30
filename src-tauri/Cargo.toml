@@ -13,7 +13,9 @@ rust-version = "1.77"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# "unstable" unlocks the child-webview API (WebviewBuilder / Window::add_child)
+# used by `src/views.rs` to host each connection tab in its own WebView2.
+tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-snap-layout = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

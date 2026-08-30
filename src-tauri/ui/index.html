@@ -64,12 +64,12 @@
       </div>
     </header>
 
-    <!-- The harness web UI, hosted by the self-hosted server, embedded here.
-         One child iframe is created per established tab so switching tabs keeps
-         every page alive (no reload). allow= grants each cross-origin iframe
-         the async Clipboard API (navigator.clipboard.writeText) that the copy
-         controls rely on; without it the Permissions Policy default
-         (clipboard-write = self) makes every code-block/message copy reject. -->
+    <!-- Harness content slot: each tab's harness page is hosted by its own
+         child webview (src-tauri/src/views.rs) placed exactly over this div's
+         bounding box — a real top-level document with its own cookie jar, so
+         the browser-auth token flow works like a browser tab. The shell
+         (app.js) creates/repositions those webviews; this div only marks the
+         layout area and renders the empty state when no tab is open. -->
     <div id="harness-frame" class="harness-frame"></div>
 
     <!-- Empty state: shown when every connection tab has been closed. -->

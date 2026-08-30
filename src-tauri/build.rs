@@ -1,8 +1,8 @@
 fn main() {
     // Declare the app's custom commands so tauri-build autogenerates their
     // ACL permissions (`allow-<command>` in snake_case). Without them a
-    // remote-origin page (the loopback wrapper, see `wrapper.rs`) cannot
-    // invoke any custom command: the IPC layer rejects it as
+    // non-local page (a tab webview loading the harness or a remote dsh
+    // server) cannot invoke the bridge commands: the IPC layer rejects it as
     // "not allowed by ACL". Textual list: keep in sync with
     // `generate_handler!` in `src/main.rs`.
     let manifest = tauri_build::AppManifest::new().commands(&[
@@ -21,6 +21,14 @@ fn main() {
         "update_root",
         "update_changelog",
         "shell_log",
+        // Connection-tab child webviews + page bridge (see `src/views.rs`).
+        "view_create",
+        "view_set_bounds",
+        "view_set_visible",
+        "view_close",
+        "view_eval",
+        "page_theme",
+        "ai_update_result",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("tauri_build failed");
