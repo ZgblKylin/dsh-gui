@@ -410,6 +410,15 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* npm publish check for npm-installed wrappers: the newest source tag is
+   ahead of what npm actually published, so the row carries an explicit note
+   (does not block the git update; it only warns about the plugin install). */
+.update-item-npm-note {
+  color: #d29922;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .update-item-action {
   flex: 0 0 auto;
   display: flex;

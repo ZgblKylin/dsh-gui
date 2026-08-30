@@ -1105,6 +1105,23 @@ function updateRow(project) {
     latest
   );
   info.append(name, versions);
+  // npm-installed wrappers: when the newest tag has no matching npm publish
+  // yet, the source-only update is annotated right under the version row so
+  // the user knows the installed plugins will not upgrade with this update.
+  if (project.npm && (!project.npm.complete || project.npm.error)) {
+    const note = document.createElement("div");
+    note.className = "update-item-npm-note";
+    const missing = Array.isArray(project.npm.missing) ? project.npm.missing : [];
+    const latestMap =
+      project.npm.latest && typeof project.npm.latest === "object" ? project.npm.latest : {};
+    const latestText = [
+      ...new Set(Object.values(latestMap).map((v) => String(v)).filter(Boolean)),
+    ].join(" / ");
+    note.textContent = project.npm.error
+      ? `npm 版本核对失败：${project.npm.error}（不影响 git 更新检测）`
+      : `⚠ 上游 npm 尚未发布 ${project.latestTag || "新 tag"} 对应版本：${missing.join("、") || "部分包"}（${latestText ? `npm 最新 ${latestText}` : "npm 状态未知"}）。本行更新只移动源码 checkout，已安装插件需等 npm 发布后重新执行插件安装。`;
+    info.appendChild(note);
+  }
   if (project.error) {
     const error = document.createElement("div");
     error.className = "update-item-error";

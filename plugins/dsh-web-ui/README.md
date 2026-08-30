@@ -107,3 +107,8 @@ reconcile 保证幂等。
 ```powershell
 node plugins/dsh-web-ui/install.mjs
 ```
+
+> 更新对话框会核对上游新 tag 是否已有对应的 npm 发布（机制见
+> `docs/dsh-gui/update-check.md`）：npm 尚未发布时该行会额外标注，此时移动
+> submodule 源码 checkout 不会升级已安装的插件本体；待 npm 发布后重跑
+> 本安装脚本即可。

@@ -20,9 +20,39 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::changelog::{run_node_captured, write_temp_script};
+
 const UPDATE_SCRIPT: &str = "update.mjs";
 const UPDATE_PLAN: &str = "pending-updates.json";
 const UPDATE_CONSOLE_PS1: &str = "run-update.ps1";
+const NPM_INSTALLS_FILE: &str = "npm-installs.json";
+const NPM_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const NPM_FETCH_SCRIPT: &str = r#"
+const packages = JSON.parse(process.argv[2] || '[]');
+const target = process.argv[3] || '';
+const results = await Promise.all(packages.map(async (name) => {
+  try {
+    const url = 'https://registry.npmjs.org/' + encodeURIComponent(name);
+    const response = await fetch(url, {
+      headers: { accept: 'application/vnd.npm.install-v1+json', 'user-agent': 'dsh-gui-update-check' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.status < 200 || response.status >= 300) {
+      return { name, error: 'HTTP ' + response.status };
+    }
+    const json = await response.json();
+    const latest = json['dist-tags'] && typeof json['dist-tags'].latest === 'string'
+      ? json['dist-tags'].latest : '';
+    const versions = json.versions && typeof json.versions === 'object' ? json.versions : {};
+    const hasTarget = Object.prototype.hasOwnProperty.call(versions, target);
+    return { name, latest, hasTarget };
+  } catch (error) {
+    return { name, error: String((error && error.message) || error) };
+  }
+}));
+console.log(JSON.stringify(results));
+process.exit(0);
+"#;
 
 /// Distinguishes concurrent capture files within one process. The process id
 /// in the filename keeps two dsh-gui instances from colliding.
@@ -68,6 +98,28 @@ pub struct ProjectUpdate {
     /// and the real check result has not arrived yet.
     #[serde(default)]
     pub checking: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// npm publish state for npm-installed wrappers (install scripts record
+    /// their npm package names in `.dsh/gui/npm-installs.json`). Present only
+    /// when the row offers a newer tag and the wrapper installs from npm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npm: Option<NpmUpdateInfo>,
+}
+
+/// npm-side publish state for one update row.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NpmUpdateInfo {
+    /// npm packages this wrapper installs (from the install-time registry);
+    /// includes packages currently skipped by the default install guard.
+    pub packages: Vec<String>,
+    /// npm registry's currently published newest version per package.
+    pub latest: HashMap<String, String>,
+    /// Packages that do not yet have the tag's version published on npm.
+    pub missing: Vec<String>,
+    /// True when every package already has the tag version on npm.
+    pub complete: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -277,6 +329,178 @@ fn package_name(dir: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
+fn npm_installs_path(root: &Path) -> PathBuf {
+    gui_dir(root).join(NPM_INSTALLS_FILE)
+}
+
+/// Names recorded by the install pipeline for npm-installed wrappers
+/// (`.dsh/gui/npm-installs.json`; see scripts/plugin-install.mjs).
+fn npm_install_packages(root: &Path) -> std::collections::HashSet<String> {
+    let content = fs::read_to_string(npm_installs_path(root)).unwrap_or_default();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return std::collections::HashSet::new();
+    };
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn manifest_name_from_file(path: &Path) -> Option<String> {
+    let manifest = fs::read_to_string(path).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&manifest).ok()?;
+    value.get("name")?.as_str().map(str::to_string)
+}
+
+/// Recursively collect package.json `name`s under `dir`, skipping vendored
+/// and generated directories that live inside submodule checkouts.
+fn collect_manifest_names(dir: &Path, names: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if path.is_dir() {
+            if matches!(file_name, "node_modules" | ".git" | "target" | "dist")
+                || file_name.starts_with('.')
+            {
+                continue;
+            }
+            collect_manifest_names(&path, names);
+        } else if file_name == "package.json" {
+            if let Some(name) = manifest_name_from_file(&path) {
+                names.push(name);
+            }
+        }
+    }
+}
+
+/// Package names this submodule provides (root manifest plus `packages/**`).
+fn submodule_package_names(path: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(name) = package_name(path) {
+        names.push(name);
+    }
+    let packages = path.join("packages");
+    if packages.is_dir() {
+        collect_manifest_names(&packages, &mut names);
+    }
+    names
+}
+
+/// Names of npm-installed packages belonging to this submodule: the source
+/// manifests' names intersected with the install-time npm registry.
+fn npm_packages_for_project(root: &Path, path: &Path) -> Vec<String> {
+    let registry = npm_install_packages(root);
+    if registry.is_empty() {
+        return Vec::new();
+    }
+    submodule_package_names(path)
+        .into_iter()
+        .filter(|name| registry.contains(name))
+        .collect()
+}
+
+fn parse_npm_results(text: &str, packages: &[String]) -> NpmUpdateInfo {
+    let mut latest = HashMap::new();
+    let mut missing = Vec::new();
+    let mut error = None;
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text.trim()) else {
+        return NpmUpdateInfo {
+            packages: packages.to_vec(),
+            latest,
+            missing: packages.to_vec(),
+            complete: false,
+            error: Some("无法解析 npm registry 响应".to_string()),
+        };
+    };
+    let Some(items) = value.as_array() else {
+        return NpmUpdateInfo {
+            packages: packages.to_vec(),
+            latest,
+            missing: packages.to_vec(),
+            complete: false,
+            error: Some("npm registry 响应格式异常".to_string()),
+        };
+    };
+    for item in items {
+        let name = item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if let Some(detail) = item.get("error").and_then(|v| v.as_str()) {
+            error = Some(detail.to_string());
+            continue;
+        }
+        if name.is_empty() {
+            continue;
+        }
+        if let Some(latest_value) = item.get("latest").and_then(|v| v.as_str()) {
+            latest.insert(name.clone(), latest_value.to_string());
+        }
+        if item.get("hasTarget").and_then(|v| v.as_bool()) != Some(true) {
+            missing.push(name);
+        }
+    }
+    let complete = missing.is_empty() && error.is_none();
+    NpmUpdateInfo {
+        packages: packages.to_vec(),
+        latest,
+        missing,
+        complete,
+        error,
+    }
+}
+
+/// Query the npm registry for `packages` at `tag`'s version; one node fetch
+/// covers every package. Failure is reported inside `NpmUpdateInfo.error`
+/// instead of failing the row (git update state stays authoritative).
+fn npm_update_check(path: &Path, packages: Vec<String>, tag: &str) -> Option<NpmUpdateInfo> {
+    let version = tag.strip_prefix('v').unwrap_or(tag);
+    let script = write_temp_script(NPM_FETCH_SCRIPT).ok()?;
+    let packages_json = serde_json::to_string(&packages).ok()?;
+    let args = vec![
+        script.as_os_str().to_os_string(),
+        packages_json.into(),
+        version.to_owned().into(),
+    ];
+    let output = run_node_captured(Path::new("node"), &args, path, &[], NPM_FETCH_TIMEOUT);
+    let _ = fs::remove_file(&script);
+    match output {
+        Ok(output) if output.success => Some(parse_npm_results(&output.stdout, &packages)),
+        Ok(output) => {
+            let detail = output.stderr.trim().chars().take(200).collect::<String>();
+            Some(NpmUpdateInfo {
+                packages,
+                latest: HashMap::new(),
+                missing: Vec::new(),
+                complete: false,
+                error: Some(if detail.is_empty() {
+                    "npm 版本核对失败（未知原因）".to_string()
+                } else {
+                    detail
+                }),
+            })
+        }
+        Err(error) => Some(NpmUpdateInfo {
+            packages,
+            latest: HashMap::new(),
+            missing: Vec::new(),
+            complete: false,
+            error: Some(error),
+        }),
+    }
+}
+
 /// The exact tag of `commitish` when one exists, else its short commit hash.
 fn git_version(dir: &Path, commitish: &str) -> String {
     git_output(dir, &["describe", "--tags", "--exact-match", commitish])
@@ -344,6 +568,7 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
         behind: false,
         checking: false,
         error: None,
+        npm: None,
     };
 
     if !path.is_dir() {
@@ -408,6 +633,16 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
                 .as_deref()
                 .is_some_and(|tag| !tag_is_stale(path, tag));
             project.announce = !(on_exact_tag && !has_newer_tag);
+            // npm-installed wrappers: verify the newest tag already has a
+            // matching npm publish before the dialog offers it as an update.
+            // A missing npm publish is shown as an extra note in the
+            // current -> latest comparison, not a row failure.
+            if let Some(tag) = project.latest_tag.clone() {
+                let npm_packages = npm_packages_for_project(root, path);
+                if !npm_packages.is_empty() && !tag_is_stale(path, &tag) {
+                    project.npm = npm_update_check(path, npm_packages, &tag);
+                }
+            }
         }
     }
     project
@@ -436,6 +671,7 @@ fn local_preview_project(root: &Path, id: &str, fallback_name: &str, path: &Path
         behind: false,
         checking: true,
         error: None,
+        npm: None,
     };
     if path.is_dir() && is_git_repo(path) {
         if let Some(sha) = git_output(path, &["rev-parse", "HEAD"]) {
@@ -1163,5 +1399,76 @@ mod tests {
         assert!(executed_content.contains("const GUI_PID = 4242;"));
         let _ = fs::remove_file(&executed);
         let _ = fs::remove_dir_all(temp.join(".dsh"));
+    }
+
+    #[test]
+    fn npm_registry_parsing_marks_missing_and_complete() {
+        let packages = vec![
+            "@linxin666/dsh-liangshen".to_string(),
+            "@linxin666/dsh-pet".to_string(),
+        ];
+        let missing_json = r#"[
+            {"name":"@linxin666/dsh-liangshen","latest":"0.3.6","hasTarget":false},
+            {"name":"@linxin666/dsh-pet","latest":"0.3.6","hasTarget":false}
+        ]"#;
+        let info = parse_npm_results(missing_json, &packages);
+        assert!(!info.complete);
+        assert_eq!(info.missing, packages);
+        assert_eq!(
+            info.latest
+                .get("@linxin666/dsh-liangshen")
+                .map(String::as_str),
+            Some("0.3.6")
+        );
+        assert!(info.error.is_none());
+
+        let complete_json = r#"[
+            {"name":"@linxin666/dsh-liangshen","latest":"0.3.8","hasTarget":true},
+            {"name":"@linxin666/dsh-pet","latest":"0.3.8","hasTarget":true}
+        ]"#;
+        let info = parse_npm_results(complete_json, &packages);
+        assert!(info.complete);
+        assert!(info.missing.is_empty());
+        assert_eq!(
+            info.latest.get("@linxin666/dsh-pet").map(String::as_str),
+            Some("0.3.8")
+        );
+    }
+
+    #[test]
+    fn npm_packages_intersect_install_registry() {
+        let dir = std::env::temp_dir().join(format!("dsh-gui-npm-check-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("root");
+        let sub = root
+            .join("plugins")
+            .join("dsh-web-ui")
+            .join("dsh-web-ui");
+        fs::create_dir_all(sub.join("packages").join("dsh-pet")).unwrap();
+        fs::write(
+            sub.join("package.json"),
+            r#"{"name":"dsh-web","version":"0.1.1"}"#,
+        )
+        .unwrap();
+        fs::write(
+            sub.join("packages")
+                .join("dsh-pet")
+                .join("package.json"),
+            r#"{"name":"@linxin666/dsh-pet","version":"0.3.8"}"#,
+        )
+        .unwrap();
+        let registry_dir = root.join(".dsh").join("gui");
+        fs::create_dir_all(&registry_dir).unwrap();
+        fs::write(
+            registry_dir.join(NPM_INSTALLS_FILE),
+            r#"["@linxin666/dsh-pet","not-installed-here"]"#,
+        )
+        .unwrap();
+
+        let names = npm_packages_for_project(&root, &sub);
+        assert_eq!(names, vec!["@linxin666/dsh-pet"]);
+        assert!(submodule_package_names(&sub).contains(&"dsh-web".to_string()));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

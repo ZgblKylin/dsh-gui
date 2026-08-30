@@ -609,7 +609,7 @@ fn percent_encode(input: &str) -> String {
     out
 }
 
-fn write_temp_script(contents: &str) -> Result<PathBuf, String> {
+pub(crate) fn write_temp_script(contents: &str) -> Result<PathBuf, String> {
     let id = CAPTURE_SEQ.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("dsh-gui-release-{}-{id}.mjs", std::process::id()));
     fs::write(&path, contents)
@@ -623,18 +623,18 @@ fn read_capture_file(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-struct ProcessOutput {
-    success: bool,
-    code: Option<i32>,
-    stdout: String,
-    stderr: String,
+pub(crate) struct ProcessOutput {
+    pub success: bool,
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
 }
 
 /// Run `node <args…>` in `cwd` (the first argument is the script/entry to run)
 /// with stdout/stderr redirected to per-call files (dsh's Windows sandbox
 /// rejects piped child stdio) and an overall timeout; on timeout the child is
 /// terminated and an error returns.
-fn run_node_captured(
+pub(crate) fn run_node_captured(
     program: &Path,
     args: &[std::ffi::OsString],
     cwd: &Path,

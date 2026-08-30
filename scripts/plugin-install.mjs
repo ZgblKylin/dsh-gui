@@ -333,6 +333,39 @@ function packageNameFromSpec(spec) {
 }
 
 /**
+ * Registry of npm package names declared by the per-plugin install wrappers.
+ * Written to `<DSH_HOME>/gui/npm-installs.json` — the desktop-shell update
+ * checker (`src-tauri/src/update.rs`) reads it to tell npm-installed wrappers
+ * apart from source/link installs and to verify that a new upstream tag
+ * already has a matching npm publish before the dialog announces it.
+ */
+function npmInstallsPath(dshHome) {
+  return join(dshHome, 'gui', 'npm-installs.json')
+}
+
+/** Record one npm package name (best-effort; the registry is a runtime cache). */
+function recordNpmInstall(dshHome, packageName) {
+  try {
+    const path = npmInstallsPath(dshHome)
+    let packages = []
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8'))
+      if (Array.isArray(parsed)) packages = parsed
+    } catch {
+      // missing or unparsable -> start fresh
+    }
+    if (!packages.includes(packageName)) {
+      packages.push(packageName)
+      packages.sort()
+      mkdirSync(join(dshHome, 'gui'), { recursive: true })
+      writeFileSync(path, JSON.stringify(packages, null, 2) + '\n')
+    }
+  } catch (error) {
+    console.warn(`  could not record npm package '${packageName}' for the update checker: ${error.message}`)
+  }
+}
+
+/**
  * Install one plugin package from the npm registry into the repo-local web
  * profile (per plugins/README.md's 安装方式 section: plugins not marked as
  * source installs use `dsh plugin add <package>`).
@@ -350,11 +383,16 @@ function packageNameFromSpec(spec) {
  *   - mount: explicit mount entry for packages without a bundle patch.
  */
 export function installNpmPlugin({ id, packageSpec, mount = null }) {
+  const dshHome = process.env.DSH_HOME ?? WEB_HOME
+  const name = packageNameFromSpec(packageSpec)
+  // Record before the skip check: even a currently skipped package belongs to
+  // this wrapper's npm set, so the update checker can notice when the tag's
+  // npm publish finally lands (see DEFAULT_SKIPPED_PLUGINS below).
+  recordNpmInstall(dshHome, name)
   if (skipInstall(id)) {
     console.log(`  skipping '${id}' (${packageSpec}) — version-incompatible with the pinned harness; set DSH_PLUGIN_FORCE_INSTALL=1 to override`)
     return
   }
-  const dshHome = process.env.DSH_HOME ?? WEB_HOME
   const profileDir = join(dshHome, 'profiles', 'web')
   console.log(`\n==> install plugin '${id}' (${packageSpec} from npm)`)
   bootstrapPnpm()
@@ -369,7 +407,6 @@ export function installNpmPlugin({ id, packageSpec, mount = null }) {
     },
   })
 
-  const name = packageNameFromSpec(packageSpec)
   const manifestPath = join(profileDir, 'node_modules', ...name.split('/'), 'package.json')
   if (!existsSync(manifestPath)) {
     console.log(`installed plugin '${id}' into ${profileDir}`)
