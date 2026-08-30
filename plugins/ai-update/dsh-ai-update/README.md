@@ -7,7 +7,7 @@ session WITHOUT creating one itself and WITHOUT picking an agent preset:
 
 1. returns the page to the new-session home (the empty hero screen);
 2. selects the target workspace there (preferring the dsh-gui repository
-   workspace, then the current session's workspace, then the recent or first
+   workspace, then the current session's workspace, then the first
    workspace) — the standard workspace pick reuses the workspace's existing
    blank session, and only mints a fresh one when the workspace has none,
    exactly like clicking the workspace on the home screen;
@@ -18,8 +18,9 @@ session WITHOUT creating one itself and WITHOUT picking an agent preset:
    toast the outcome.
 
 The plugin imports nothing from dsh-gui and only uses public client services
-(sessions, workspaces, conversation), so it also works in a plain harness dsh
-web deployment: any embedding parent may post the same message shape.
+(sessions, workspaces, uiWorkspace, conversation), so it also works in a plain
+harness dsh web deployment: any embedding parent may post the same message
+shape.
 
 ## Wire shape
 

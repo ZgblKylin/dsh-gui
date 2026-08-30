@@ -343,3 +343,78 @@ shell 页面迁到应用源。
   升级后标签页/已保存连接列表重建一次（凭据仍在 Windows 凭据管理器）。
 - `.dsh/profiles/web/node_modules` 在克隆工程中以 junction 复用，
   两个 harness 实例（3080/3202）共享 node_modules 只读，无冲突。
+
+---
+
+# 附 2：AI 更新按钮失效（dsh-ai-update 客户端 API 漂移，2026-09-05 修复）
+
+## 症状
+
+webview 改造后的自动更新对话框里，AI 更新按钮点击后提示
+「AI 更新会话未启动，可检查内嵌页面或重试。」，按钮失效。
+
+## 定位
+
+端到端复现（Playwright headless Chromium 加载 `http://127.0.0.1:3080/?token=<t>`
+后注入与 shell `view_eval` 完全相同的合成消息，捕获插件回复）：
+
+```
+dispatch dsh-gui:ai-update → reply { ok: false, error: "workspaces.connectWorkspace is not a function" }
+```
+
+即插件浏览器半确实挂载、消息链路（合成 MessageEvent `source: window` → 顶层
+`window.parent === window`）无恙，断点在 `dsh-ai-update` 客户端调用的服务 API：
+
+- alpha.1 把"按工作区打开/新建空白会话"从 `workspaces` 服务移到
+  `uiWorkspace` 服务（`packages/client/ui-workspace/src/client/navigation.ts`，
+  `UiWorkspace.connectWorkspace`）；`IWorkspaces` 只剩 create/rename/delete/
+  archiveSession/insertSessionBefore/list。
+- `WorkspaceSnapshot` 同时删除了 `recentWorkspaceId`、`baselinesReady`
+  字段（`packages/api/workspace-controller/src/client/model.ts`）。
+- 插件 `sessions` / `conversation.input.for(actx).setDraft` 契约不变，无需改动。
+
+## 修复
+
+`plugins/ai-update/dsh-ai-update/src/client/index.ts`：
+
+1. `inject` 增加 `'uiWorkspace'`；`run()` 改用
+   `uiWorkspace.connectWorkspace(targetWorkspaceId)`。
+2. 工作区快照按新形状对齐：去掉 `recentWorkspaceId`/`baselinesReady`，
+   兜底用 `items[0]`（注册了 dsh-gui 仓库工作区时本就走首选分支）。
+3. README/docs 同步（服务清单、工作区兜底顺序）。
+
+重新构建（`node plugins/ai-update/install.mjs`，即共享流水线
+pnpm + tsdown）。**无需重启 harness**：`dsh-client-hmr` 轮询到
+`lib/client.js` 变化后重新哈希 bundle（boot rev
+`07f9319592144ae5-51` → `936f3081d4d4`），SSE 推送 rebuilt，
+活的页面 fiber 原地换新。
+
+## 复验
+
+同一探针脚本再次注入：
+
+```
+reply { ok: true }；composer 编辑器内容包含预填充的提示词
+```
+
+（`window.addEventListener('message')` 捕获回复 + 检查
+`[contenteditable]` 文本）。shell 侧回复转发链路（view-bridge.js →
+`ai_update_result` IPC → shell 事件）未改动。
+
+## 预防
+
+插件浏览器半升级 harness 后先核对客户端服务目录
+（`packages/extensions/cordis-client-runner/src/client/api-catalog.ts`
+列出 AI 插件可用的 `ctx.*` 服务与方法签名），再跑一次上述探针脚本
+（`.work/ai-update-probe-pw.mjs`）确认 `ok: true`。
+
+探针副作用：探针流程会执行 `sessions.clear()`，页面回到 home 后应用的标准
+导航策略自动补位连接最近工作区，可能留下一个空白会话（后续探针/真实点击会
+复用它，无害）；在意的话在主页会话行右键「归档」隐藏即可，不要手工删除
+`.dsh/sessions/...` 目录（宿主存储另有序/缓存索引）。
+
+## 涉及文件
+
+- `plugins/ai-update/dsh-ai-update/src/client/index.ts`
+- `plugins/ai-update/dsh-ai-update/README.md`、`docs/README.md`
+- `lib/client.js` 重建产物（gitignored，随安装流水线生成）

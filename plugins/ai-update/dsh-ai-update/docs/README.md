@@ -27,9 +27,8 @@ harness plugin usable without dsh-gui.
   then performs the standard workspace pick: the target workspace prefers a
   registered workspace whose path basename is "dsh-gui" (the update prompts
   use paths relative to that repository root), then the current session's
-  workspace, then the recent-workspace projection, then the first listed
-  workspace.
-- workspaces.connectWorkspace reuses the workspace's existing blank session;
+  workspace, then the first listed workspace.
+- uiWorkspace.connectWorkspace reuses the workspace's existing blank session;
   a fresh session is only minted when the workspace has none — the same
   behavior as clicking the workspace on the home screen. The plugin never
   calls session create directly.

@@ -3,22 +3,23 @@
  * shell.
  *
  * The shell's update dialog posts "dsh-gui:ai-update" messages into the
- * embedded page (window.postMessage from the parent frame). This plugin does
- * NOT create a session by itself and does NOT pick an agent preset. It:
+ * embedded page (a synthetic window message dispatched at document top level,
+ * where window.parent === window). This plugin does NOT create a session by
+ * itself and does NOT pick an agent preset. It:
  *
  *  1. validates the request (type + version + requestId + prompt),
  *  2. returns the page to the new-session home (sessions.clear),
  *  3. selects the dsh-gui project directory there — the standard workspace
- *     pick: connectWorkspace reuses the workspace's existing blank session
- *     (a fresh one is only minted when the workspace has none, exactly like
- *     clicking the workspace on the home screen) and opens it,
+ *     pick: uiWorkspace.connectWorkspace reuses the workspace's existing
+ *     blank session (a fresh one is only minted when the workspace has none,
+ *     exactly like clicking the workspace on the home screen) and opens it,
  *  4. prefills the composer draft with the prompt, leaving the agent preset
  *     chip untouched so the user picks the preset themselves,
  *  5. replies to window.parent with "dsh-gui:ai-update-result" so the shell
  *     can toast success/failure.
  *
  * Everything goes through public client services (sessions, workspaces,
- * conversation input resolver); no dsh-gui module is imported.
+ * uiWorkspace, conversation input resolver); no dsh-gui module is imported.
  */
 
 const REQUEST_TYPE = 'dsh-gui:ai-update'
@@ -63,8 +64,12 @@ interface WorkspaceViewLike {
 
 interface WorkspacesLike {
   list: {
-    getSnapshot(): { items: WorkspaceViewLike[]; recentWorkspaceId?: string; baselinesReady?: boolean }
+    getSnapshot(): { items: WorkspaceViewLike[] }
   }
+}
+
+/** Workspace navigation service (owns the standard new-session workspace pick). */
+interface UiWorkspaceLike {
   connectWorkspace(workspaceId: string): Promise<string>
 }
 
@@ -84,12 +89,13 @@ interface ClientCtxLike {
   get(name: 'conversation'): ConversationLike
   get(name: 'sessions'): SessionsLike
   get(name: 'workspaces'): WorkspacesLike
+  get(name: 'uiWorkspace'): UiWorkspaceLike
   get(name: string): unknown
   effect(cb: () => () => void): void
 }
 
 /** Required services (cordis fiber inject). */
-export const inject = ['sessions', 'workspaces', 'conversation']
+export const inject = ['sessions', 'workspaces', 'conversation', 'uiWorkspace']
 
 /** Stable cordis plugin name. */
 export const name = 'dsh-ai-update'
@@ -119,12 +125,12 @@ function reply(requestId: string, outcome: { ok: boolean; error?: string }): voi
   }
 }
 
-/** Wait briefly for the workspace baseline (it may still be loading on boot). */
+/** Wait briefly for the workspace list (it may still be loading on boot). */
 async function ensureWorkspacesReady(workspaces: WorkspacesLike): Promise<void> {
   const deadline = Date.now() + 8000
   for (;;) {
     const snapshot = workspaces.list.getSnapshot()
-    if (snapshot.items.length > 0 || snapshot.baselinesReady === true) return
+    if (snapshot.items.length > 0) return
     if (Date.now() >= deadline) throw new Error('工作区列表尚未就绪，请稍后重试')
     await new Promise(resolve => setTimeout(resolve, 150))
   }
@@ -140,7 +146,7 @@ function basenameOf(path: string): string {
 /**
  * Pick the workspace to select on the home screen. The dsh-gui repository
  * workspace wins when registered (the update prompts use its relative paths),
- * then the current session's workspace, then the recent and first workspace.
+ * then the current session's workspace, then the first workspace.
  */
 function resolveTargetWorkspace(sessions: SessionsLike, workspaces: WorkspacesLike): string | undefined {
   const ws = workspaces.list.getSnapshot()
@@ -150,7 +156,7 @@ function resolveTargetWorkspace(sessions: SessionsLike, workspaces: WorkspacesLi
   const currentWorkspaceId = current === undefined
     ? undefined
     : ws.items.find(item => item.sessionIds.includes(current))?.workspaceId
-  return currentWorkspaceId ?? ws.recentWorkspaceId ?? ws.items[0]?.workspaceId
+  return currentWorkspaceId ?? ws.items[0]?.workspaceId
 }
 
 /**
@@ -160,6 +166,7 @@ function resolveTargetWorkspace(sessions: SessionsLike, workspaces: WorkspacesLi
 async function run(ctx: ClientCtxLike, request: AiUpdateRequest): Promise<void> {
   const sessions = ctx.get('sessions')
   const workspaces = ctx.get('workspaces')
+  const uiWorkspace = ctx.get('uiWorkspace')
   const conversation = ctx.get('conversation')
 
   await ensureWorkspacesReady(workspaces)
@@ -173,7 +180,7 @@ async function run(ctx: ClientCtxLike, request: AiUpdateRequest): Promise<void> 
   // workspace has none — the same as clicking the workspace on the home
   // screen) and opens it. The preset chip is deliberately left untouched.
   sessions.clear()
-  const sessionId = await workspaces.connectWorkspace(targetWorkspaceId)
+  const sessionId = await uiWorkspace.connectWorkspace(targetWorkspaceId)
   sessions.open(sessionId)
 
   const actx = sessions.scope(sessionId)
