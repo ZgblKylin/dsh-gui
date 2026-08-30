@@ -2,8 +2,9 @@
 /**
  * install.mjs — install the `better-sidebar` plugin group into the web profile.
  *
- * DSH-better-sidebar 从 npm 安装（官方已发版 v0.16.1，含 z-index 图层修复
- * #330：宿主层 40→25，防底部面板遮挡 ui-cordis 动态插件面板）。
+ * DSH-better-sidebar 从 npm 安装（官方已发版 v0.17.1：DSH 0.1.2-alpha.1
+ * 适配、双版本兼容；v0.16.1 起已含 z-index 图层修复 #330：宿主层 40→25，
+ * 防底部面板遮挡 ui-cordis 动态插件面板，及市场受管安装兼容 #338）。
  * 子模块 remote 命名：`origin` = 官方 `omdsh-dev/DSH-better-sidebar`，
  * `fork` = `ZgblKylin/DSH-better-sidebar`（子模块 checkout 仅作源码参考）。
  *

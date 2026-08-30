@@ -81,7 +81,7 @@ would double-mount it and fail the plugin tree with
 
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包
-- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
+- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（v0.17.1 起含 DSH 0.1.2-alpha.1 适配（双版本兼容）；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包
 - [dsh-deep-whale/maid-atelier](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装
