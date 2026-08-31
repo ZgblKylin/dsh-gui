@@ -29,6 +29,13 @@
     （工具预检 / tmux 启动 / 端口等待倒计时 / 隧道 / 前端就绪）实时推回连接对话框，不再"卡在建立连接"看着空白。
   - **失败可诊断**：远端 `dsh-gui` tmux 面板的输出被重定向到 `$HOME/.dsh-gui-remote.log`；端口迟迟不开放或前端超时时，
     对话框会直接回显该日志尾部（即使会话已退出也能看到真实报错）。
+  - **浏览器认证适配（dsh v0.1.2-alpha.1+）**：升级到该版本后，Web profile 引入一次性 launch token
+    （`packages/client/connection/src/browser-auth.ts`，见 `docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md`）：
+    启动时打印 `dsh web: http://127.0.0.1:<port>/?token=<token>`，裸请求一律 **401**、带 token 首访 **303 + Set-Cookie**
+    （此后凭 cookie 得 200）。此前 remote 流程只认 2xx，导致隧道建立后仍永远"前端就绪"超时，进而 teardown 杀掉
+    本次启动的远端会话（日志尾部出现 `Killed`）。现已修正：连接时自动从远端 `$HOME/.dsh-gui-remote.log` 提取
+    launch token，用带 token 的隧道 URL 做就绪探测（**303 / 2xx 即就绪**）并作为标签页 URL 返回（与本地壳层
+    `spawn_harness` 的 token 适配一致）；旧版无 token 的 profile 仍按裸 URL 2xx 直连，自动兼容。
   - **启动命令必须是"起 web 服务"的命令**：`npm run harness`（本仓库 `scripts/harness.mjs`）是 **headless CLI 启动器，不监听端口**
     ——用它当启动命令会因端口永不开放而超时。要在远端用它起 GUI，请写成 `npm -C <repo> run harness -- web`（`web` 被透传给 CLI
     启动 web 服务后再叠加 `--host 127.0.0.1 --port <端口>`），或直接用默认 `npx '@deepseek-ai/dsh' web`。

@@ -418,3 +418,65 @@ reply { ok: true }；composer 编辑器内容包含预填充的提示词
 - `plugins/ai-update/dsh-ai-update/src/client/index.ts`
 - `plugins/ai-update/dsh-ai-update/README.md`、`docs/README.md`
 - `lib/client.js` 重建产物（gitignored，随安装流水线生成）
+
+---
+
+# 附 3：远端 SSH 连接在浏览器认证后失效（dsh-remote 未适配，2026-08-31 修复）
+
+## 症状
+
+「新建连接 → 远程 · SSH」报 `remote ssh 无法连接`，对话框日志在
+`ssh 端口转发 ✓` 之后不再前进；远端日志尾部出现 `Killed`，`dsh-gui` tmux
+会话与服务全部消失。
+
+```
+✗ tmux 会话 dsh-gui — state=MISSING
+✗ 启动远端 dsh — ... npm run harness ... > $HOME/.dsh-gui-remote.log 2>&1
+✓ tmux 启动 dsh —
+✓ 服务端口 3080 — 会话内后端监听 127.0.0.1:3080
+✓ ssh 端口转发 — 127.0.0.1:64519 -> 64:3080
+（此后原地等待 "前端就绪"，150s 超时 → teardown → tmux kill-session → 远端 Killed）
+```
+
+## 根因（问题 2 的 remote 侧漏适配）
+
+问题 2 修复只覆盖了本地壳层（`src-tauri/main.rs` 的 `spawn_harness`）：
+`dsh-v0.1.2-alpha.1` 起的浏览器认证使 **无 token 时 `GET /` 与 `/api*` 一律 401**。
+而 `plugins/remote/dsh-remote`（Host 端 `connectRemote`）仍是升级前协议：
+
+1. 「前端就绪」探测只认 **HTTP 2xx**（`probe().loadable`）——裸 URL 永远 401，永不就绪；
+2. 返回给标签页的 URL 是裸 `http://127.0.0.1:<本地端口>/`——即使放行也 401 白屏；
+3. 最致命：`teardown()` 会把**本次尝试创建的** tmux 会话 `kill-session` 掉——
+   于是每次失败都顺带杀掉刚启动的远端 dsh，日志尾部留一行 `Killed`。
+
+（注：本地 `GET /?token=...` → **303 + Set-Cookie**，携带 cookie 再访 `/` → 200；
+裸 URL → 401；错误 token → 401。这些与问题 2 里 `main.rs` 记录完全一致。）
+
+## 修复（`plugins/remote/dsh-remote/src/index.ts`，Hot Reload 生效，免重启）
+
+对齐 `main.rs` 的既有 token 适配约定：
+
+- 新增 `remoteLaunchToken()`：从远端 `$HOME/.dsh-gui-remote.log` 里
+  `dsh web: ...?token=<token>` 一行提取一次性 launch token；
+- 隧道建立后，就绪判定改为：
+  - 裸 URL 2xx（旧版无 token profile）→ 就绪，返回裸 URL；
+  - 或带 token 的 URL 返回 **303（token 被接受）/ 2xx** → 就绪，返回带 token 的 URL；
+  - 401 会在循环内反复重取 token（应对 token 行晚于端口开放落盘的情况）；
+- 返回 `res.url = http://127.0.0.1:<本地端口>/?token=...`，标签页 webview 自己完成
+  303 + cookie（与本地标签完全同一条链路）。
+
+## 验证（实测通过）
+
+```
+ssh.connect → ok:true
+前端就绪 http://127.0.0.1:64309/?token=ng6aj... — HTTP 303
+GET /?token=... → 303 + set-cookie；GET / + cookie → 200
+插件隧道 64309 监听存活；远端 tmux 会话 ALIVE（不再被 teardown 杀掉）
+```
+
+## 涉及文件
+
+- `plugins/remote/dsh-remote/src/index.ts`（修复）
+- `plugins/remote/dsh-remote/docs/README.md`、`README.md`（文档同步）
+- `lib/index.js` 重建产物（gitignored）
+- 本记录文件（§附 3）

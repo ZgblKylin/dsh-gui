@@ -455,6 +455,26 @@ async function sessionState(ctx: Context, auth: Record<string, unknown>): Promis
   return 'MISSING'
 }
 
+/**
+ * Harvest the one-time launch token from the remote start log line
+ * `dsh web: http://127.0.0.1:<port>/?token=<token>`. dsh v0.1.2-alpha.1+ Web
+ * profiles gate every auto-opened page behind this browser-auth token
+ * (`packages/client/connection/src/browser-auth.ts`); the shell's own
+ * `spawn_harness` (src-tauri) does exactly this on the harness log. Returns
+ * null when the profile prints no launch line (legacy dsh web serves 2xx
+ * directly and needs no token).
+ */
+async function remoteLaunchToken(ctx: Context, auth: Record<string, unknown>): Promise<string | null> {
+  const res = await sshRun(
+    ctx,
+    auth,
+    `tail -n 200 "$HOME/.dsh-gui-remote.log" 2>/dev/null | grep -a 'dsh web:' | tail -1 | grep -ao 'token=[^ )&]*' | tail -1`,
+    15000,
+  )
+  const m = /^token=([^\s]+)/.exec((res.stdout ?? '').trim())
+  return m !== null && m[1] !== '' ? m[1] : null
+}
+
 export function apply(ctx: Context): void {
   // /remote-api can start processes, run remote bash with stored credentials,
   // and write files: never serve it over a non-loopback bind.
@@ -905,26 +925,54 @@ async function connectRemote(
   }
   const key = `${auth.host}:${remotePort}`
   tunnelKey = key
-  const localUrl = `http://127.0.0.1:${tunnel.localPort}/`
+  const baseLocalUrl = `http://127.0.0.1:${tunnel.localPort}/`
   pushLog(log, 'ssh 端口转发', true, `127.0.0.1:${tunnel.localPort} -> ${auth.host}:${remotePort}`)
+
+  // dsh v0.1.2-alpha.1+ Web profiles gate every auto-opened page behind a
+  // one-time launch token (`dsh web: http://127.0.0.1:<port>/?token=...`):
+  // a bare GET answers 401 and a tokenized one 303 + Set-Cookie — neither is
+  // the 2xx the readiness probe alone expects. Mirror the shell's own
+  // `spawn_harness` (src-tauri): harvest the token from the remote start log
+  // and authenticate the tunneled URL with it. Legacy dsh web prints no
+  // token and serves 2xx directly — both are supported below.
+  let launchToken = await remoteLaunchToken(ctx, auth)
+  if (connectCancelled(token)) return bailCancelled()
+  let reportUrl = launchToken !== null ? `${baseLocalUrl}?token=${encodeURIComponent(launchToken)}` : baseLocalUrl
 
   const deadline = Date.now() + 150000
   let ready = false
   let status: number | undefined
   while (Date.now() < deadline) {
-    const p = await probe(localUrl)
-    status = p.status
-    if (p.loadable) { ready = true; break }
-    progress('等待前端就绪', undefined, `${localUrl}（已等待 ${Math.round(150000 - (deadline - Date.now())) / 1000}s）`)
+    // Legacy profile: bare URL answers 2xx directly.
+    const bare = await probe(baseLocalUrl)
+    if (bare.loadable) {
+      status = bare.status
+      reportUrl = baseLocalUrl
+      ready = true
+      break
+    }
+    // Token-gated profile: harvest (re-)the launch token and probe the
+    // authenticated URL; a 303 (token accepted, cookie mint pending) or a
+    // 2xx counts as ready. A persistent 401 means the harvested token is
+    // stale — the loop re-harvests next round.
+    launchToken = await remoteLaunchToken(ctx, auth)
+    if (launchToken !== null) reportUrl = `${baseLocalUrl}?token=${encodeURIComponent(launchToken)}`
+    const authed = await probe(reportUrl)
+    status = authed.status
+    if (authed.reachable && (authed.loadable || authed.status === 303)) {
+      ready = true
+      break
+    }
+    progress('等待前端就绪', undefined, `${reportUrl}（已等待 ${Math.round(150000 - (deadline - Date.now())) / 1000}s）`)
     await new Promise(r => setTimeout(r, 2000))
     if (connectCancelled(token)) return bailCancelled()
   }
   if (!ready) {
     const tail = await remoteTail(40, 3000)
-    pushLog(log, '前端就绪', false, `${localUrl} 超时${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
+    pushLog(log, '前端就绪', false, `${reportUrl} 超时${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
     await teardown()
     return { ok: false, log }
   }
-  pushLog(log, `前端就绪 ${localUrl}`, true, `HTTP ${status}`)
-  return { ok: ready, log, url: localUrl, tunnelKey: key }
+  pushLog(log, `前端就绪 ${reportUrl}`, true, `HTTP ${status}`)
+  return { ok: ready, log, url: reportUrl, tunnelKey: key }
 }
