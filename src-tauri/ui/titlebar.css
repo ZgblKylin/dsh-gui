@@ -1169,7 +1169,8 @@ button.secondary:disabled {
    parts are hidden and the overlay becomes the full window content. */
 body.dialog-mode {
   display: block;
-  background: var(--bg);
+  /* Same tone as the dialog panels so no dark "frame" shows around them. */
+  background: var(--titlebar-bg);
 }
 
 body.dialog-mode #titlebar,
@@ -1182,8 +1183,24 @@ body.dialog-mode .config-menu {
 body.dialog-mode .overlay {
   position: fixed;
   inset: 0;
-  background: var(--bg);
+  background: var(--titlebar-bg);
   z-index: 2000;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+/* The native window frame is the only "border": let the dialog body fill the
+   whole window instead of floating as a rounded panel inside it. */
+body.dialog-mode .conn-dialog,
+body.dialog-mode .update-dialog,
+body.dialog-mode .changelog-dialog,
+body.dialog-mode .about-dialog {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 body.dialog-mode .overlay.hidden {

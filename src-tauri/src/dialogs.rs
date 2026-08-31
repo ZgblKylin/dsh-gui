@@ -1,4 +1,4 @@
-//! Dedicated dialog card webviews.
+//! Dedicated native dialog windows.
 //!
 //! The connection/update/about dialogs used to be DOM overlays inside the
 //! shell page. After the webview conversion every connection tab is a native
@@ -6,118 +6,175 @@
 //! make those overlays visible was to hide the harness webview — leaving a
 //! black content area behind the dialogs.
 //!
-//! This module hosts each dialog in its own **child webview** (`Window::
-//! add_child`, same mechanism as the tab webviews) placed exactly over the
-//! dialog's card bounds. The harness tab webviews stay visible the whole time
-//! (the shell reports dialog bounds that fit inside the content area), and
-//! the dialog page runs in `dialog-mode` (see `ui/app.js`).
+//! These dialogs now open as **system-native windows** (`WebviewWindow`) with
+//! the standard OS title bar and border: they float above the main window and
+//! the harness tab webviews stay visible the whole time.
 //!
-//! Note: a *separate native window* (`WebviewWindowBuilder`) was tried first,
-//! but with the `unstable` feature (required for child webviews) Tauri has a
-//! known bug where additional WebviewWindows render white and hang the app
-//! ([tauri#10011]). Child webviews do not hit that bug.
+//! Important: creating a `WebviewWindow` *during a Tauri IPC command* while
+//! the `unstable` feature (required for the child tab webviews) is enabled
+//! hits a known tauri bug ([tauri#10011]) — the new window renders white and
+//! the app hangs. To sidestep it, the dialog windows are **pre-created
+//! hidden** in `setup` (before any child webview exists) and `open_dialog`
+//! only shows/focuses them. Closing hides them again, so they are reused.
 //!
-//! The dialog pages report results back to the main shell (`connection-added`,
-//! `ai-update-request` events); the shell answers via `dialog_event`.
+//! [tauri#10011]: https://github.com/tauri-apps/tauri/issues/10011
 
-use tauri::{Emitter, Manager, LogicalPosition, LogicalSize, WebviewBuilder, WebviewUrl};
+use tauri::{Emitter, Manager, WebviewUrl};
 
 use crate::views;
 
-/// Reserved `ViewRegistry` key for the dialog card webview.
-pub const DIALOG_KEY: &str = "__dialog__";
-
-/// Dialog kinds (webview labels are `<DIALOG_LABEL_PREFIX><kind>`).
-const KINDS: &[&str] = &["conn", "update", "changelog", "about"];
+/// Dialog kinds (window labels are `<DIALOG_LABEL_PREFIX><kind>`). The
+/// changelog stays an overlay *inside* the update window.
+const KINDS: &[&str] = &["conn", "update", "about"];
 
 pub fn label_for(kind: &str) -> String {
     format!("{}{}", views::DIALOG_LABEL_PREFIX, kind)
 }
 
-/// Open (or replace) the dialog card webview. Callable from the shell page;
-/// the shell reports the card's logical bounds (CSS pixels) so the card is
-/// laid out inside the harness content area and the harness stays visible
-/// around it.
+fn dialog_meta(kind: &str) -> Result<(&'static str, f64, f64, f64, f64), String> {
+    // (title, width, height, min_width, min_height)
+    // Regular native-dialog sizes: long content scrolls inside the panel
+    // instead of stretching the window (about/update) or leaving blank space
+    // (connection). `fit_dialog` only tunes later content changes.
+    match kind {
+        "conn" => Ok(("连接管理", 1040.0, 600.0, 900.0, 520.0)),
+        "update" => Ok(("检查更新", 960.0, 800.0, 760.0, 560.0)),
+        "about" => Ok(("关于", 620.0, 720.0, 520.0, 560.0)),
+        _ => Err(format!("unknown dialog kind: {kind}")),
+    }
+}
+
+fn create_one(
+    app: &tauri::AppHandle,
+    owner: &tauri::WebviewWindow,
+    kind: &str,
+) -> Result<(), String> {
+    let (title, width, height, min_width, min_height) = dialog_meta(kind)?;
+    let script = format!(
+        "window.__DSH_DIALOG_VIEW__ = {};",
+        serde_json::to_string(kind).map_err(|e| e.to_string())?
+    );
+
+    let builder = tauri::WebviewWindowBuilder::new(app, label_for(kind), WebviewUrl::App("index.html".into()))
+        .title(title)
+        .inner_size(width, height)
+        .min_inner_size(min_width, min_height)
+        .resizable(true)
+        // System-native border + title bar: the user asked for a real OS frame.
+        .decorations(true)
+        .visible(false)
+        .center()
+        .initialization_script(script);
+    // Owned by the main window: keeps the dialog above its owner on Windows
+    // and avoids it sliding behind the shell.
+    let builder = builder.owner(owner).map_err(|e| e.to_string())?;
+    let window = builder
+        .build()
+        .map_err(|e| format!("failed to create the {kind} dialog window: {e}"))?;
+
+    // Native title-bar X hides instead of destroying, so the dialog can be
+    // reused without re-creating a WebviewWindow later (see module docs).
+    let app_handle = app.clone();
+    let label = window.label().to_string();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            if let Some(win) = app_handle.get_webview_window(&label) {
+                let _ = win.hide();
+            }
+            let _ = app_handle.emit_to(
+                views::SHELL_WEBVIEW,
+                "dialog-closed",
+                serde_json::json!({}),
+            );
+        }
+    });
+    Ok(())
+}
+
+/// Pre-create every dialog window (hidden). Called from `setup`, before the
+/// shell page creates the harness tab child webviews.
+pub fn create_all(
+    app: &tauri::AppHandle,
+    owner: &tauri::WebviewWindow,
+) -> Result<(), String> {
+    for kind in KINDS {
+        create_one(app, owner, kind)?;
+    }
+    Ok(())
+}
+
+/// Show (or focus) the dialog window for `kind`. Callable from the shell page
+/// (and from another dialog window for nesting).
 #[tauri::command]
-pub async fn open_dialog(
-    window: tauri::Window,
+pub fn open_dialog(
+    app: tauri::AppHandle,
     webview: tauri::Webview,
     kind: String,
-    project_id: Option<String>,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
 ) -> Result<(), String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     if !KINDS.contains(&kind.as_str()) {
         return Err(format!("unknown dialog kind: {kind}"));
     }
-
-    let mut script = format!(
-        "window.__DSH_DIALOG_VIEW__ = {};",
-        serde_json::to_string(&kind).map_err(|e| e.to_string())?
-    );
-    if kind == "changelog" {
-        if let Some(project_id) = project_id {
-            script.push_str(&format!(
-                "window.__DSH_DIALOG_PROJECT__ = {};",
-                serde_json::to_string(&project_id).map_err(|e| e.to_string())?
-            ));
-        }
+    let label = label_for(&kind);
+    if app.get_webview_window(&label).is_none() {
+        // Fallback if the pre-created window was closed/destroyed.
+        let owner = app
+            .get_webview_window(views::SHELL_WEBVIEW)
+            .ok_or_else(|| "main shell window is missing".to_string())?;
+        create_one(&app, &owner, &kind)?;
     }
-
-    // Create the child webview off the main thread (same pattern as
-    // `views::view_create`): WebView2 child-window creation can block the
-    // IPC callback and freeze the shell UI.
-    let window = window.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let registry = window.state::<views::ViewRegistry>();
-        if let Some(old) = registry.remove(DIALOG_KEY) {
-            let _ = old.close();
-        }
-
-        let builder = WebviewBuilder::new(label_for(&kind), WebviewUrl::App("index.html".into()))
-            .initialization_script(script)
-            // The dialogs have copy buttons (connection log, changelog markdown).
-            .enable_clipboard_access();
-        let view = window
-            .add_child(
-                builder,
-                LogicalPosition::new(x, y),
-                LogicalSize::new(w.max(240.0), h.max(160.0)),
-            )
-            .map_err(|e| format!("failed to open the {kind} dialog card: {e}"))?;
-        // Raise + focus the card so it sits above the harness tab webview.
-        let _ = view.set_focus();
-        registry.insert(DIALOG_KEY.to_string(), view);
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("dialog create task failed: {e}"))?
+    // Keep the window hidden: the matching dialog page starts its content,
+    // then shows itself (`show_dialog`). The event is broadcast by Tauri's JS
+    // listeners (they register as `Any`), so the payload carries `kind` and
+    // every dialog page checks it — only the requested one acts.
+    let _ = app.emit_to(
+        &label,
+        "dialog-open",
+        serde_json::json!({ "kind": kind }),
+    );
+    Ok(())
 }
 
-/// Close the calling dialog card (dialog page close button or backdrop);
-/// also notifies the shell so its dialog-open flag resets.
+/// Show the calling dialog window after its page finished the content fit
+/// (called by the dialog page itself; see `dialog-open` flow).
 #[tauri::command]
-pub async fn close_dialog(window: tauri::Window, webview: tauri::Webview) -> Result<(), String> {
+pub fn show_dialog(window: tauri::Window, webview: tauri::Webview) -> Result<(), String> {
     views::ensure_dialog(&webview)?;
-    let window = window.clone();
-    let app = window.app_handle().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let registry = window.state::<views::ViewRegistry>();
-        if let Some(view) = registry.remove(DIALOG_KEY) {
-            let _ = view.close();
-        }
-        let _ = app.emit_to(
-            views::SHELL_WEBVIEW,
-            "dialog-closed",
-            serde_json::json!({}),
-        );
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("dialog close task failed: {e}"))?
+    let _ = window.show();
+    let _ = window.set_focus();
+    Ok(())
+}
+
+/// Hide the calling dialog window (dialog page close button). The native
+/// title-bar X is handled by `on_window_event` above with the same effect.
+#[tauri::command]
+pub fn close_dialog(window: tauri::Window, webview: tauri::Webview) -> Result<(), String> {
+    views::ensure_dialog(&webview)?;
+    let _ = window.hide();
+    let _ = window
+        .app_handle()
+        .emit_to(views::SHELL_WEBVIEW, "dialog-closed", serde_json::json!({}));
+    Ok(())
+}
+
+/// Resize the dialog window to fit its content (a native dialog does not
+/// leave blank space around a fixed-size frame). The dialog page measures its
+/// natural layout size (CSS px) and asks the Rust side to set the window
+/// inner size accordingly.
+#[tauri::command]
+pub fn fit_dialog(
+    window: tauri::Window,
+    webview: tauri::Webview,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    views::ensure_dialog(&webview)?;
+    let width = width.clamp(320.0, 1600.0);
+    let height = height.clamp(220.0, 1100.0);
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| format!("failed to fit the dialog window: {e}"))
 }
 
 /// Report a successfully established connection from the connection dialog to
@@ -156,8 +213,8 @@ pub fn ai_update_request(
 }
 
 /// Shell → dialog result channel. The main shell owns the long-running AI
-/// update flow; when it settles it pushes the outcome back to the dialog card
-/// (`target` is a dialog kind, e.g. `"update"`).
+/// update flow; when it settles it pushes the outcome back to the dialog
+/// window (`target` is a dialog kind, e.g. `"update"`).
 #[tauri::command]
 pub fn dialog_event(
     app: tauri::AppHandle,

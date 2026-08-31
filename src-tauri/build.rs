@@ -23,9 +23,11 @@ fn main() {
         "update_root",
         "update_changelog",
         "shell_log",
-        // Dialog-card child webviews + shell↔dialog bridge (see `src/dialogs.rs`).
+        // Dialog windows + shell↔dialog bridge (see `src/dialogs.rs`).
         "open_dialog",
         "close_dialog",
+        "fit_dialog",
+        "show_dialog",
         "connection_added",
         "ai_update_request",
         "dialog_event",

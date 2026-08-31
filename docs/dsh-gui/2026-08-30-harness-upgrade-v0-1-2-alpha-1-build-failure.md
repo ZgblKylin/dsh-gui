@@ -509,37 +509,43 @@ webview 改造（iframe → 独立子 webview）后，点开标题栏汉堡菜�
 1. **汉堡菜单 → Tauri 原生弹出菜单**（`main.rs` 的 `show_config_menu`）：
    与左上角窗口菜单同机制（`window.popup_menu_at`），原生菜单浮在一切
    子 webview 之上，不再需要隐藏 harness。
-2. **连接管理 / 检查更新 / 关于 → 弹窗卡片（子 webview）**（`src/dialogs.rs`）：
-   `open_dialog` 以 `Window::add_child` 在内容区上创建一个
-   `dialog-conn/update/about` 子 webview，加载同一 `index.html` 并注入
-   `window.__DSH_DIALOG_VIEW__`；`app.js` 进入 `dialog-mode`，只渲染对应
-   overlay。卡片尺寸由 shell 按内容区缩放并居中（`dialogBoundsFor`），
-   harness 全程保持可见——卡片之外仍是 dsh 页面，不再是黑屏。
-   - 连接卡片成功后经 `connection_added` 命令 → `connection-added` 事件
+2. **连接管理 / 检查更新 / 关于 → 系统原生弹窗**（`src/dialogs.rs`）：
+   `setup` 阶段预创建三个**隐藏**的 `dialog-conn/update/about` WebviewWindow
+   （加载同一 `index.html` 并注入 `window.__DSH_DIALOG_VIEW__`，`app.js` 进入
+   `dialog-mode`）；`open_dialog` 发出带 `kind` 的 `dialog-open` 事件（Tauri
+   JS 监听器是 Any 目标，会广播，所以各页只响应与自己 kind 匹配的请求），
+   匹配的页面渲染内容后经 `show_dialog` 显示自身；作为主窗口的 **owned
+   window** 永远压在主窗口之上。窗口用**常规尺寸**（长内容在面板内滚动），
+   打开时不做 resize——WebView2 初始化期间同步 `set_size` 会让整个进程冻结；
+   内容变化后的微调由 `fit_dialog` 在显示 1.5s 后才允许执行。
+   harness 全程保持可见——弹窗浮于其上，而非黑屏。
+   - 连接弹窗成功后经 `connection_added` 命令 → `connection-added` 事件
      通知主 shell 追加标签页；
-   - 更新卡片的「AI 更新」经 `ai_update_request` → 主 shell 在活动标签页
-     执行 `view_eval` → `dialog_event` 把结果送回更新卡片；
-   - 更新日志仍在更新卡片内以 overlay 展示（该卡片内没有 harness 子窗口，
+   - 更新弹窗的「AI 更新」经 `ai_update_request` → 主 shell 在活动标签页
+     执行 `view_eval` → `dialog_event` 把结果送回更新弹窗；
+   - 更新日志仍在更新弹窗内以 overlay 展示（该弹窗内没有 harness 子窗口，
      无遮挡问题）。
 
-   > 注：曾试过用 `WebviewWindowBuilder` 把弹窗做成**独立原生窗口**，但
-   > 本项目为子 webview 开启了 tauri `unstable` feature；在该 feature 下
-   > Tauri 存在已知问题——额外的 WebviewWindow 白屏且整个应用卡死
+   > 注：**不能在 IPC 命令中运行时创建** `WebviewWindow`——本项目为子
+   > webview 开启了 tauri `unstable` feature，该 feature 下存在已知问题：
+   > 额外 WebviewWindow 白屏且整个应用卡死
    > （[tauri-apps/tauri#10011](https://github.com/tauri-apps/tauri/issues/10011)）。
-   > 因此改用与标签页同机制的子 webview 卡片，绕开该 bug。
+   > 所以改为在 setup（尚未创建任何子 webview）时预创建隐藏窗口，之后只
+   > 显示/隐藏复用，绕开该 bug。
 
 ## 涉及文件
 
 - `src-tauri/src/dialogs.rs`（新增）：`open_dialog` / `close_dialog` /
-  `connection_added` / `ai_update_request` / `dialog_event`。
+  `fit_dialog` / `show_dialog` / `connection_added` / `ai_update_request` /
+  `dialog_event`。
 - `src-tauri/src/main.rs`：`show_config_menu` 原生菜单；数据命令的
-  `ensure_shell_or_dialog` 放宽到 `dialog-*` 卡片；菜单事件转发。
+  `ensure_shell_or_dialog` 放宽到 `dialog-*` 页面；菜单事件转发。
 - `src-tauri/src/views.rs`：`DIALOG_LABEL_PREFIX` 与
   `ensure_shell_or_dialog` / `ensure_dialog`。
-- `src-tauri/ui/app.js`：`DIALOG_VIEW` 分支（`bootDialog`）、原生菜单调用、
-  弹窗卡片布局/重排（`dialogBoundsFor`/`layoutViews`）、主 shell 的事件监听
-  （`config-menu-action` / `connection-added` / `ai-update-request` /
-  `dialog-closed`）。
+- `src-tauri/ui/app.js`：`DIALOG_VIEW` 分支（`bootDialog`/`dialog-open` kind
+  过滤）、原生菜单调用、显示后延迟自适应（`scheduleFit`/`fitDialogToContent`）、
+  主 shell 的事件监听（`config-menu-action` / `connection-added` /
+  `ai-update-request` / `dialog-closed`）。
 - `src-tauri/ui/titlebar.css`：`dialog-mode` 样式。
 - `src-tauri/build.rs` / `capabilities/default.json`：新命令 ACL 与
   `dialog-*` 标签权限。

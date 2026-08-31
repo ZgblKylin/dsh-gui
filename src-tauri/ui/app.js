@@ -19,11 +19,6 @@ const invoke = (cmd, args) =>
 // The shell then renders only the matching overlay and no harness webviews.
 const DIALOG_VIEW = window.__DSH_DIALOG_VIEW__ || null;
 const DIALOG_PROJECT = window.__DSH_DIALOG_PROJECT__ || null;
-// The shell-side dialog card (a child webview, stored under this reserved
-// ViewRegistry key) plus its current kind, used to re-place it on resize.
-const DIALOG_VIEW_KEY = "__dialog__";
-let dialogOpen = false;
-let dialogKind = null;
 
 const harnessFrame = $("harness-frame");
 const btnMin = $("btn-min");
@@ -243,37 +238,15 @@ const createdViews = new Set(); // tab ids whose webview exists
 let modalDepth = 0;
 
 function markModal(open) {
-  if (DIALOG_VIEW) return; // dialog cards have no harness webview to hide
+  if (DIALOG_VIEW) return; // dialog windows have no harness webview to hide
   modalDepth += open ? 1 : -1;
   if (modalDepth < 0) modalDepth = 0;
   syncViews();
 }
 
-/** Preferred card size per dialog kind; the shell scales it to fit the
- *  harness content area so the harness stays visible around the card. */
-const DIALOG_DESIRED = {
-  conn: [1120, 760],
-  update: [960, 720],
-  changelog: [820, 660],
-  about: [620, 680],
-};
-
-function dialogBoundsFor(kind) {
-  const area = harnessBounds();
-  const desired = DIALOG_DESIRED[kind] || [900, 640];
-  const w = Math.max(280, Math.min(desired[0], Math.max(260, area.w - 48)));
-  const h = Math.max(200, Math.min(desired[1], Math.max(180, area.h - 48)));
-  return {
-    x: area.x + Math.max(0, (area.w - w) / 2),
-    y: area.y + Math.max(0, (area.h - h) / 2),
-    w,
-    h,
-  };
-}
-
-/** Open (or replace) the dialog card in its own child webview; falls back to
- *  the old in-page overlay in a plain browser preview where there is no
- *  harness child webview to cover it. */
+/** Open (or focus) a dialog in its own native window; falls back to the old
+ *  in-page overlay in a plain browser preview where there is no harness
+ *  child webview to cover it. */
 async function openDialog(kind, projectId) {
   if (!tauri) {
     if (kind === "conn") {
@@ -288,11 +261,8 @@ async function openDialog(kind, projectId) {
     }
     return;
   }
-  const b = dialogBoundsFor(kind);
   try {
-    await invoke("open_dialog", { kind, projectId: projectId ?? null, ...b });
-    dialogOpen = true;
-    dialogKind = kind;
+    await invoke("open_dialog", { kind });
   } catch (e) {
     const message = "打开窗口失败：" + String((e && e.message) || e);
     toast(message);
@@ -300,8 +270,8 @@ async function openDialog(kind, projectId) {
   }
 }
 
-/** Dialog cards close themselves through the Rust command (the HTML
- *  `window.close()` is not reliable for a Tauri-managed webview). */
+/** Dialog windows close themselves through the Rust command (the HTML
+ *  `window.close()` is not reliable for a Tauri-managed window). */
 function closeDialogWindow() {
   if (DIALOG_VIEW && tauri) invoke("close_dialog").catch(() => {});
 }
@@ -323,14 +293,6 @@ async function layoutViews() {
       await invoke("view_set_bounds", { tabId: id, ...b });
     } catch (e) {
       invoke("shell_log", { msg: `layout error for ${id}: ${String((e && e.message) || e)}` }).catch(() => {});
-    }
-  }
-  if (dialogOpen && dialogKind) {
-    const d = dialogBoundsFor(dialogKind);
-    try {
-      await invoke("view_set_bounds", { tabId: DIALOG_VIEW_KEY, ...d });
-    } catch (e) {
-      invoke("shell_log", { msg: `dialog layout error: ${String((e && e.message) || e)}` }).catch(() => {});
     }
   }
 }
@@ -519,6 +481,7 @@ function setConnType(type) {
   $("conn-ssh-startcmd-wrap").classList.toggle("hidden", !sshOn);
   $("conn-creds").classList.toggle("hidden", !sshOn);
   $("conn-save-wrap").classList.toggle("hidden", !sshOn);
+  if (DIALOG_VIEW) scheduleFit();
 }
 
 function resetConnForm() {
@@ -654,6 +617,7 @@ function renderSavedList() {
   neu.textContent = "＋ 新建连接";
   neu.addEventListener("click", () => newConnection());
   list.appendChild(neu);
+  if (DIALOG_VIEW) scheduleFit();
 }
 
 function newConnection() {
@@ -702,6 +666,7 @@ function connLog(step, ok, detail) {
   const log = $("conn-log");
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
+  if (DIALOG_VIEW) scheduleFit();
 }
 
 function onPickKey(file) {
@@ -825,6 +790,7 @@ function paintConnLog(lines) {
     log.appendChild(el);
   }
   log.scrollTop = log.scrollHeight;
+  if (DIALOG_VIEW) scheduleFit();
 }
 
 async function connectRemote(gen) {
@@ -998,14 +964,6 @@ function wireConnectionAdded() {
   });
 }
 
-function wireDialogClosed() {
-  if (!tauri || !tauri.event || DIALOG_VIEW) return;
-  tauri.event.listen("dialog-closed", () => {
-    dialogOpen = false;
-    dialogKind = null;
-  });
-}
-
 function wireAiUpdateRequests() {
   if (!tauri || !tauri.event || DIALOG_VIEW) return;
   tauri.event.listen(AI_UPDATE_REQUEST_EVENT, async (event) => {
@@ -1149,11 +1107,13 @@ function appendUpdateProgress(text) {
   line.textContent = text;
   updateProgress.appendChild(line);
   updateProgress.scrollTop = updateProgress.scrollHeight;
+  if (DIALOG_VIEW) scheduleFit();
 }
 
 function clearUpdateProgress() {
   updateProgress.textContent = "";
   updateProgress.classList.add("hidden");
+  if (DIALOG_VIEW) scheduleFit();
 }
 
 function setRootUpdateControls(disabled) {
@@ -1380,6 +1340,7 @@ function renderUpdateDialog(status) {
   updateMarkAll.classList.toggle("hidden", behind.length === 0);
   updateAiAll.classList.toggle("hidden", behind.length === 0);
   updateApply.classList.toggle("hidden", behind.length === 0);
+  if (DIALOG_VIEW) scheduleFit();
 }
 
 function openUpdateDialog() {
@@ -1853,6 +1814,7 @@ async function openChangelog(projectId) {
     changelogLoading.classList.add("error");
   } finally {
     changelogBusy = false;
+    if (DIALOG_VIEW) scheduleFit();
   }
 }
 
@@ -2432,6 +2394,7 @@ function renderAboutInfo(info) {
   for (const section of sections) {
     aboutList.appendChild(aboutRow(section.label, section.item));
   }
+  if (DIALOG_VIEW) scheduleFit();
 }
 
 function renderAboutMessage(text, isError) {
@@ -2488,7 +2451,6 @@ async function boot() {
   wireAiUpdateResults();
   wireConfigMenuActions();
   wireConnectionAdded();
-  wireDialogClosed();
   wireAiUpdateRequests();
   await setHarnessSource().catch(() => {});
   // The tab webviews sit over #harness-frame; keep their bounds in sync with
@@ -2535,17 +2497,69 @@ async function boot() {
   setInterval(() => void checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
 }
 
-/* ── Dialog-card boot ───────────────────────────────────────────
-   The dialog cards (child webviews, see `src/dialogs.rs`) load this same
-   script with `window.__DSH_DIALOG_VIEW__ = "conn"|"update"|"about"` (set by
-   the Rust side). They only render that overlay; there is no harness webview
-   inside the card. */
-async function bootDialog() {
-  document.body.classList.add("dialog-mode");
-  wireDialogAiUpdateResults();
-  await setHarnessSource().catch(() => {});
-  renderSavedList();
+/* ── Dialog-window boot ────────────────────────────────────────
+   The dedicated dialog windows load this same script with
+   `window.__DSH_DIALOG_VIEW__ = "conn"|"update"|"about"` (set by the Rust
+   side). They only render that overlay; there is no harness webview inside.
+   The windows are pre-created hidden (see src/dialogs.rs) and only start
+   their content when Rust emits `dialog-open`; after fitting they show
+   themselves via `show_dialog`. */
+const DIALOG_PANEL_SELECTOR = {
+  conn: ".conn-dialog",
+  update: ".update-dialog",
+  changelog: ".changelog-dialog",
+  about: ".about-dialog",
+};
+// Regular native-dialog heights: content that is taller scrolls inside the
+// panel instead of stretching the window into a super-tall strip.
+const DIALOG_MAX_HEIGHT = {
+  conn: 640,
+  update: 800,
+  changelog: 660,
+  about: 720,
+};
 
+let fitTimer = 0;
+// No `fit_dialog` (set_size) near show time: WebView2 is still initializing
+// then and a synchronous resize on the main thread freezes the whole process.
+// Content fits are only allowed once this timestamp passes.
+let dialogShownAt = 0;
+function scheduleFit() {
+  if (!tauri || !DIALOG_VIEW) return;
+  if (performance.now() < dialogShownAt) return;
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => {
+    fitTimer = 0;
+    void fitDialogToContent();
+  }, 120);
+}
+
+/** Fit the dialog window to its content height (native dialogs do not leave
+ *  blank space below a fixed-size frame). Width stays at the window's current
+ *  value — measuring max-content width is expensive and caused freezes. */
+async function fitDialogToContent() {
+  if (!tauri || !DIALOG_VIEW) return;
+  const selector = DIALOG_PANEL_SELECTOR[DIALOG_VIEW];
+  const panel = selector && document.querySelector(selector);
+  if (!panel) return;
+  const prevHeight = panel.style.height;
+  const prevAlign = panel.style.alignSelf;
+  panel.style.alignSelf = "flex-start";
+  panel.style.height = "auto";
+  const measured = Math.round(panel.scrollHeight || panel.getBoundingClientRect().height);
+  const maxHeight = DIALOG_MAX_HEIGHT[DIALOG_VIEW] || 720;
+  const height = Math.min(measured, maxHeight);
+  panel.style.height = prevHeight;
+  panel.style.alignSelf = prevAlign;
+  const width = Math.round(window.innerWidth || 960);
+  try {
+    await invoke("fit_dialog", { width, height });
+  } catch (_) {
+    /* dialog may be closing; ignore */
+  }
+}
+
+async function startDialogView() {
   if (DIALOG_VIEW === "conn") {
     $("conn-overlay").classList.remove("hidden");
     newConnection();
@@ -2559,6 +2573,36 @@ async function bootDialog() {
   } else if (DIALOG_VIEW === "about") {
     $("about-overlay").classList.remove("hidden");
     void showAbout();
+  }
+  // Show at the pre-configured regular size (no resize during WebView2 init);
+  // content fits are allowed only after a grace period (see scheduleFit).
+  dialogShownAt = performance.now() + 1500;
+  if (tauri) {
+    try {
+      await invoke("show_dialog");
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
+async function bootDialog() {
+  document.body.classList.add("dialog-mode");
+  wireDialogAiUpdateResults();
+  await setHarnessSource().catch(() => {});
+  renderSavedList();
+  if (tauri && tauri.event) {
+    // Tauri's JS listeners are registered with an `Any` target, so the
+    // `dialog-open` event reaches every dialog page; only the page whose kind
+    // matches the payload acts (avoids popping all three windows at once).
+    tauri.event.listen("dialog-open", (event) => {
+      const kind = event.payload && event.payload.kind;
+      if (kind && kind !== DIALOG_VIEW) return;
+      startDialogView();
+    });
+  } else {
+    // Plain browser preview: nothing hides the page, start immediately.
+    startDialogView();
   }
 }
 

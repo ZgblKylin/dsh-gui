@@ -35,6 +35,8 @@
     "allow-shell-log",
     "allow-open-dialog",
     "allow-close-dialog",
+    "allow-fit-dialog",
+    "allow-show-dialog",
     "allow-connection-added",
     "allow-ai-update-request",
     "allow-dialog-event",

@@ -51,7 +51,10 @@ use views::{
     view_set_visible,
 };
 // Native dialog-window commands (see `dialogs`).
-use dialogs::{ai_update_request, close_dialog, connection_added, dialog_event, open_dialog};
+use dialogs::{
+    ai_update_request, close_dialog, connection_added, dialog_event, fit_dialog, open_dialog,
+    show_dialog,
+};
 
 #[cfg(windows)]
 mod job {
@@ -1460,6 +1463,12 @@ fn main() {
                 }
             });
 
+            // Pre-create the dialog windows (hidden) before the shell page can
+            // create harness tab child webviews: creating an additional
+            // WebviewWindow later, while the tauri `unstable` feature is on,
+            // hits tauri#10011 (white + hang).
+            dialogs::create_all(app.handle(), &window)?;
+
             app.manage(WindowMenuState { menu });
             Ok(())
         })
@@ -1484,6 +1493,8 @@ fn main() {
             show_config_menu,
             open_dialog,
             close_dialog,
+            fit_dialog,
+            show_dialog,
             connection_added,
             ai_update_request,
             dialog_event,
