@@ -1163,3 +1163,29 @@ button.secondary:disabled {
 .hidden {
   display: none !important;
 }
+
+/* ── Dedicated dialog windows (native windows, no harness inside) ──────────
+   The dialog windows load index.html with the target overlay shown. The shell
+   parts are hidden and the overlay becomes the full window content. */
+body.dialog-mode {
+  display: block;
+  background: var(--bg);
+}
+
+body.dialog-mode #titlebar,
+body.dialog-mode #harness-frame,
+body.dialog-mode #no-tabs,
+body.dialog-mode .config-menu {
+  display: none !important;
+}
+
+body.dialog-mode .overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 2000;
+}
+
+body.dialog-mode .overlay.hidden {
+  display: none !important;
+}

@@ -129,7 +129,7 @@ fn default_announce() -> bool {
 }
 
 /// Everything the frontend needs after a check.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateStatus {
     pub projects: Vec<ProjectUpdate>,

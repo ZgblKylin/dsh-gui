@@ -35,6 +35,11 @@ use tauri::{
 pub const SHELL_WEBVIEW: &str = "main";
 /// Prefix of every tab view label: `<PREFIX><tab id>`.
 pub const TAB_LABEL_PREFIX: &str = "tab-";
+/// Prefix of every dialog-card webview label: `<PREFIX><kind>`.
+/// Dialog cards are child webviews (not native windows) so the harness tab
+/// webviews never have to be hidden (and the content area never falls back to
+/// a black void).
+pub const DIALOG_LABEL_PREFIX: &str = "dialog-";
 
 /// Live tab views: shell tab id → webview handle.
 #[derive(Default)]
@@ -43,15 +48,15 @@ pub struct ViewRegistry {
 }
 
 impl ViewRegistry {
-    fn get(&self, tab_id: &str) -> Option<Webview<tauri::Wry>> {
+    pub(crate) fn get(&self, tab_id: &str) -> Option<Webview<tauri::Wry>> {
         self.views.lock().unwrap().get(tab_id).cloned()
     }
 
-    fn insert(&self, tab_id: String, webview: Webview<tauri::Wry>) {
+    pub(crate) fn insert(&self, tab_id: String, webview: Webview<tauri::Wry>) {
         self.views.lock().unwrap().insert(tab_id, webview);
     }
 
-    fn remove(&self, tab_id: &str) -> Option<Webview<tauri::Wry>> {
+    pub(crate) fn remove(&self, tab_id: &str) -> Option<Webview<tauri::Wry>> {
         self.views.lock().unwrap().remove(tab_id)
     }
 }
@@ -65,6 +70,34 @@ pub fn ensure_shell(webview: &Webview) -> Result<(), String> {
     } else {
         Err(format!(
             "command is only available to the shell webview (called from '{}')",
+            webview.label()
+        ))
+    }
+}
+
+/// Guard for commands shared by the shell page and the dialog-card webviews
+/// (`dialog-*`): data commands (remote RPC, update checks, about) are safe
+/// from any app-origin page we create, but must still be refused for tab
+/// webviews that load remote harness content.
+pub fn ensure_shell_or_dialog(webview: &Webview) -> Result<(), String> {
+    if webview.label() == SHELL_WEBVIEW || webview.label().starts_with(DIALOG_LABEL_PREFIX) {
+        Ok(())
+    } else {
+        Err(format!(
+            "command is only available to the shell or a dialog webview (called from '{}')",
+            webview.label()
+        ))
+    }
+}
+
+/// Guard for commands that only the dialog-card webviews may call
+/// (reporting a completed connection, requesting an AI update, closing self).
+pub fn ensure_dialog(webview: &Webview) -> Result<(), String> {
+    if webview.label().starts_with(DIALOG_LABEL_PREFIX) {
+        Ok(())
+    } else {
+        Err(format!(
+            "command is only available to dialog webviews (called from '{}')",
             webview.label()
         ))
     }

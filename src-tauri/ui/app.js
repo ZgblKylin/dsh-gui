@@ -14,6 +14,17 @@ const invoke = (cmd, args) =>
     ? tauri.core.invoke(cmd, args)
     : Promise.reject(new Error("__TAURI__ is unavailable (running outside the app?)"));
 
+// When this page runs inside a dedicated dialog window (src/dialogs.rs), the
+// Rust side injects `window.__DSH_DIALOG_VIEW__` before the document loads.
+// The shell then renders only the matching overlay and no harness webviews.
+const DIALOG_VIEW = window.__DSH_DIALOG_VIEW__ || null;
+const DIALOG_PROJECT = window.__DSH_DIALOG_PROJECT__ || null;
+// The shell-side dialog card (a child webview, stored under this reserved
+// ViewRegistry key) plus its current kind, used to re-place it on resize.
+const DIALOG_VIEW_KEY = "__dialog__";
+let dialogOpen = false;
+let dialogKind = null;
+
 const harnessFrame = $("harness-frame");
 const btnMin = $("btn-min");
 const btnMax = $("btn-max");
@@ -232,9 +243,67 @@ const createdViews = new Set(); // tab ids whose webview exists
 let modalDepth = 0;
 
 function markModal(open) {
+  if (DIALOG_VIEW) return; // dialog cards have no harness webview to hide
   modalDepth += open ? 1 : -1;
   if (modalDepth < 0) modalDepth = 0;
   syncViews();
+}
+
+/** Preferred card size per dialog kind; the shell scales it to fit the
+ *  harness content area so the harness stays visible around the card. */
+const DIALOG_DESIRED = {
+  conn: [1120, 760],
+  update: [960, 720],
+  changelog: [820, 660],
+  about: [620, 680],
+};
+
+function dialogBoundsFor(kind) {
+  const area = harnessBounds();
+  const desired = DIALOG_DESIRED[kind] || [900, 640];
+  const w = Math.max(280, Math.min(desired[0], Math.max(260, area.w - 48)));
+  const h = Math.max(200, Math.min(desired[1], Math.max(180, area.h - 48)));
+  return {
+    x: area.x + Math.max(0, (area.w - w) / 2),
+    y: area.y + Math.max(0, (area.h - h) / 2),
+    w,
+    h,
+  };
+}
+
+/** Open (or replace) the dialog card in its own child webview; falls back to
+ *  the old in-page overlay in a plain browser preview where there is no
+ *  harness child webview to cover it. */
+async function openDialog(kind, projectId) {
+  if (!tauri) {
+    if (kind === "conn") {
+      newConnection();
+      $("conn-overlay").classList.remove("hidden");
+    } else if (kind === "update") {
+      void openUpdateDialogWithBestState();
+    } else if (kind === "about") {
+      void showAbout();
+    } else if (kind === "changelog" && projectId) {
+      void openChangelog(projectId);
+    }
+    return;
+  }
+  const b = dialogBoundsFor(kind);
+  try {
+    await invoke("open_dialog", { kind, projectId: projectId ?? null, ...b });
+    dialogOpen = true;
+    dialogKind = kind;
+  } catch (e) {
+    const message = "打开窗口失败：" + String((e && e.message) || e);
+    toast(message);
+    invoke("shell_log", { msg: message }).catch(() => {});
+  }
+}
+
+/** Dialog cards close themselves through the Rust command (the HTML
+ *  `window.close()` is not reliable for a Tauri-managed webview). */
+function closeDialogWindow() {
+  if (DIALOG_VIEW && tauri) invoke("close_dialog").catch(() => {});
 }
 
 /** Current content-area bounds in CSS pixels (#harness-frame's rect). */
@@ -256,6 +325,14 @@ async function layoutViews() {
       invoke("shell_log", { msg: `layout error for ${id}: ${String((e && e.message) || e)}` }).catch(() => {});
     }
   }
+  if (dialogOpen && dialogKind) {
+    const d = dialogBoundsFor(dialogKind);
+    try {
+      await invoke("view_set_bounds", { tabId: DIALOG_VIEW_KEY, ...d });
+    } catch (e) {
+      invoke("shell_log", { msg: `dialog layout error: ${String((e && e.message) || e)}` }).catch(() => {});
+    }
+  }
 }
 
 let layoutRaf = 0;
@@ -269,7 +346,7 @@ function scheduleLayout() {
 
 /** Create (lazily) the child webview for one tab. */
 async function ensureTabView(tab) {
-  if (!tauri || createdViews.has(tab.id)) return;
+  if (DIALOG_VIEW || !tauri || createdViews.has(tab.id)) return;
   const b = harnessBounds();
   try {
     await invoke("view_create", { tabId: tab.id, url: tab.url, ...b });
@@ -281,6 +358,7 @@ async function ensureTabView(tab) {
 }
 
 function syncViews() {
+  if (DIALOG_VIEW) return;
   const tab = activeTab();
   const placeholder = $("no-tabs");
   if (!tab) {
@@ -388,6 +466,15 @@ function renderTabs() {
 
 function addTab(title, url, meta) {
   const tab = { id: uid(), title, url, ...meta };
+  if (DIALOG_VIEW) {
+    // We are inside the connection dialog window: the shell owns the tab list
+    // and the harness webviews, so report the new connection and close.
+    invoke("connection_added", { tab }).catch((e) => {
+      toast("通知主窗口失败：" + String((e && e.message) || e));
+    });
+    closeDialogWindow();
+    return;
+  }
   tabs.push(tab);
   activeId = tab.id;
   persist();
@@ -455,10 +542,9 @@ function resetConnForm() {
 }
 
 function openConnection() {
-  newConnection();
-  markModal(true);
-  $("conn-overlay").classList.remove("hidden");
-  $("conn-name").focus();
+  // The connection dialog lives in its own native window so the harness tab
+  // webview stays visible (no black content area behind a DOM overlay).
+  void openDialog("conn");
 }
 
 /* ── Saved-connections management list (dialog left sidebar) ── */
@@ -879,6 +965,64 @@ async function connectRemote(gen) {
   }
 }
 
+/* ── Shell-side bridge for native menus & dialog windows ───── */
+const CONFIG_MENU_ACTION_EVENT = "config-menu-action";
+const CONNECTION_ADDED_EVENT = "connection-added";
+const AI_UPDATE_REQUEST_EVENT = "ai-update-request";
+
+function wireConfigMenuActions() {
+  if (!tauri || !tauri.event || DIALOG_VIEW) return;
+  tauri.event.listen(CONFIG_MENU_ACTION_EVENT, (event) => {
+    const action = event.payload && event.payload.action;
+    if (action === "new-conn") void openDialog("conn");
+    else if (action === "close-conn") {
+      if (activeId) closeTab(activeId);
+    } else if (action === "update") void openDialog("update");
+    else if (action === "about") void openDialog("about");
+    else if (action === "switch-tab" && typeof event.payload.tabId === "string") {
+      switchTab(event.payload.tabId);
+    }
+  });
+}
+
+function wireConnectionAdded() {
+  if (!tauri || !tauri.event || DIALOG_VIEW) return;
+  tauri.event.listen(CONNECTION_ADDED_EVENT, (event) => {
+    const tab = event.payload && event.payload.tab;
+    if (!tab || typeof tab.id !== "string" || typeof tab.url !== "string") return;
+    tabs.push(tab);
+    activeId = tab.id;
+    persist();
+    renderTabs();
+    syncViews();
+  });
+}
+
+function wireDialogClosed() {
+  if (!tauri || !tauri.event || DIALOG_VIEW) return;
+  tauri.event.listen("dialog-closed", () => {
+    dialogOpen = false;
+    dialogKind = null;
+  });
+}
+
+function wireAiUpdateRequests() {
+  if (!tauri || !tauri.event || DIALOG_VIEW) return;
+  tauri.event.listen(AI_UPDATE_REQUEST_EVENT, async (event) => {
+    const data = event.payload || {};
+    const ok = await postAiUpdateRequest(data.prompt || "");
+    invoke("dialog_event", {
+      target: "update",
+      event: DIALOG_AI_UPDATE_RESULT_EVENT,
+      payload: {
+        requestId: data.requestId,
+        ok,
+        error: ok ? "" : "dsh-ai-update 未确认（检查插件是否已安装并重启）",
+      },
+    }).catch(() => {});
+  });
+}
+
 /* ── Window controls ───────────────────────────────────────── */
 function wireControls() {
   if (!tauri) {
@@ -1258,6 +1402,7 @@ function openUpdateDialog() {
 function closeUpdateDialog() {
   markModal(false);
   updateOverlay.classList.add("hidden");
+  if (DIALOG_VIEW === "update") closeDialogWindow();
 }
 
 function hasCachedUpdateStatus() {
@@ -1274,6 +1419,21 @@ function hasCachedUpdateStatus() {
 // immediately but still refresh it in the background.
 async function openUpdateDialogWithBestState() {
   openUpdateDialog();
+  // Dialog windows share the Rust-side cache with the shell, so the dialog
+  // can render the last completed check immediately instead of racing the
+  // shell's background check for the update lock.
+  if (DIALOG_VIEW && tauri) {
+    try {
+      const cached = await invoke("cached_update_status");
+      if (cached && Array.isArray(cached.projects) && cached.projects.length > 0) {
+        updateStatus = cached;
+        renderUpdateDialog(cached);
+        if (cached.hasUpdates) return;
+      }
+    } catch (_) {
+      /* ignore: fall through to the local preview + fresh check */
+    }
+  }
   const hadCache = hasCachedUpdateStatus();
   if (hadCache) {
     renderUpdateDialog(updateStatus);
@@ -1342,6 +1502,14 @@ async function checkForUpdates(showDialog) {
     return status;
   } catch (error) {
     const message = String((error && error.message) || error);
+    // The shell's background check may hold the update lock (git fetch can
+    // take tens of seconds); retry shortly instead of showing a dead error.
+    if (/already running/i.test(message)) {
+      setTimeout(() => {
+        if (!updateOverlay.classList.contains("hidden")) void checkForUpdates(false);
+      }, 1500);
+      return null;
+    }
     if (showDialog || !updateOverlay.classList.contains("hidden")) {
       updateError(`检查更新失败：${message}`);
     }
@@ -1634,6 +1802,7 @@ function closeChangelog() {
   changelogOverlay.classList.add("hidden");
   clearTimeout(changelogStallTimer);
   changelogStallTimer = null;
+  if (DIALOG_VIEW === "changelog") closeDialogWindow();
 }
 
 async function openChangelog(projectId) {
@@ -1890,10 +2059,49 @@ function wireAiUpdateResults() {
   });
 }
 
+/* Dialog-window AI update: the update dialog cannot reach the active tab
+   webview itself (the shell owns `view_eval`), so it asks the shell via
+   `ai_update_request` and waits for the result on `dialog-ai-update-result`. */
+const DIALOG_AI_UPDATE_RESULT_EVENT = "dialog-ai-update-result";
+const dialogAiUpdateWaiters = new Map(); // requestId -> resolve(bool)
+
+function wireDialogAiUpdateResults() {
+  if (!tauri || !tauri.event) return;
+  tauri.event.listen(DIALOG_AI_UPDATE_RESULT_EVENT, (event) => {
+    const data = event.payload;
+    if (!data || typeof data.requestId !== "string") return;
+    const resolve = dialogAiUpdateWaiters.get(data.requestId);
+    if (!resolve) return;
+    dialogAiUpdateWaiters.delete(data.requestId);
+    resolve(data.ok === true);
+  });
+}
+
+function postAiUpdateRequestViaMain(prompt) {
+  return new Promise((resolve) => {
+    const requestId = "dialog-ai-update-" + (++aiUpdateSeq);
+    const timer = setTimeout(() => {
+      dialogAiUpdateWaiters.delete(requestId);
+      resolve(false);
+    }, AI_UPDATE_TIMEOUT_MS + 5000);
+    dialogAiUpdateWaiters.set(requestId, (ok) => {
+      clearTimeout(timer);
+      resolve(ok);
+    });
+    invoke("ai_update_request", { requestId, prompt }).catch((error) => {
+      dialogAiUpdateWaiters.delete(requestId);
+      clearTimeout(timer);
+      resolve(false);
+      toast("AI 更新请求失败：" + String((error && error.message) || error));
+    });
+  });
+}
+
 // Post one request into the tab's harness page and wait for the plugin's
 // result. Resolves true when the plugin confirmed the session, false when it
 // reported an error or never answered.
 function postAiUpdateRequest(prompt) {
+  if (DIALOG_VIEW === "update") return postAiUpdateRequestViaMain(prompt);
   return new Promise((resolve) => {
     const tab = activeTab();
     if (!tab || !createdViews.has(tab.id)) {
@@ -1970,10 +2178,15 @@ async function startAiUpdate(projects) {
   }
 }
 
-/* ── Config menu ───────────────────────────────────────────── */
+/* ── Config (hamburger) menu ─────────────────────────────────
+   This used to be a DOM dropdown in the shell page. The harness tab webview
+   is a native child window above the shell document, so showing the dropdown
+   required hiding the harness — the black content area users reported. The
+   hamburger now pops a native OS menu (`show_config_menu`), which floats
+   above every child webview; the harness stays visible the whole time.
+   `openMenu`/`closeMenu` remain as inert stubs for the legacy DOM listeners
+   below (the static menu elements stay in index.html but are never shown). */
 function openMenu() {
-  // The dropdown hangs below the title bar into the tab webview area, so the
-  // harness webview is hidden while the menu is open.
   markModal(true);
   configMenu.classList.remove("hidden");
 }
@@ -1983,9 +2196,25 @@ function closeMenu() {
   configMenu.classList.add("hidden");
 }
 
+async function showConfigMenu() {
+  if (!tauri) return;
+  const hasUpdates = !!(updateStatus && (updateStatus.notifyCount ?? 0) > 0);
+  const rect = btnConfig.getBoundingClientRect();
+  try {
+    await invoke("show_config_menu", {
+      tabs: (tabs || []).map((t) => ({ id: t.id, title: t.title || "连接" })),
+      hasUpdates,
+      x: Math.max(4, rect.right - 160),
+      y: rect.bottom,
+    });
+  } catch (e) {
+    toast("菜单打开失败：" + String((e && e.message) || e));
+  }
+}
+
 btnConfig.addEventListener("click", (e) => {
   e.stopPropagation();
-  configMenu.classList.contains("hidden") ? openMenu() : closeMenu();
+  void showConfigMenu();
 });
 
 document.addEventListener("click", (e) => {
@@ -1999,7 +2228,7 @@ $("btn-newconn").addEventListener("click", (e) => {
 });
 $("menu-newconn").addEventListener("click", () => {
   closeMenu();
-  openConnection();
+  void openDialog("conn");
 });
 $("menu-closeconn").addEventListener("click", () => {
   closeMenu();
@@ -2007,7 +2236,7 @@ $("menu-closeconn").addEventListener("click", () => {
 });
 $("menu-update").addEventListener("click", () => {
   closeMenu();
-  void openUpdateDialogWithBestState();
+  void openDialog("update");
 });
 updateClose.addEventListener("click", closeUpdateDialog);
 updateOverlay.addEventListener("click", (e) => {
@@ -2079,6 +2308,7 @@ function cancelConnection() {
   btn.textContent = connectMode === "edit" ? "保存并连接" : "连接";
   markModal(false);
   $("conn-overlay").classList.add("hidden");
+  if (DIALOG_VIEW) closeDialogWindow();
 }
 
 $("conn-cancel").addEventListener("click", cancelConnection);
@@ -2094,6 +2324,7 @@ $("conn-overlay").addEventListener("click", (e) => {
   if (e.target === $("conn-overlay")) {
     markModal(false);
     $("conn-overlay").classList.add("hidden");
+    if (DIALOG_VIEW) closeDialogWindow();
   }
 });
 
@@ -2185,6 +2416,7 @@ let aboutRequestId = 0;
 function closeAbout() {
   markModal(false);
   aboutOverlay.classList.add("hidden");
+  if (DIALOG_VIEW === "about") closeDialogWindow();
 }
 
 function renderAboutInfo(info) {
@@ -2233,7 +2465,7 @@ async function showAbout() {
 
 menuAbout.addEventListener("click", () => {
   closeMenu();
-  void showAbout();
+  void openDialog("about");
 });
 menuExit.addEventListener("click", () => invoke("close_window").catch(() => {}));
 aboutClose.addEventListener("click", closeAbout);
@@ -2254,6 +2486,10 @@ document.addEventListener("keydown", (e) => {
 async function boot() {
   wirePageTheme();
   wireAiUpdateResults();
+  wireConfigMenuActions();
+  wireConnectionAdded();
+  wireDialogClosed();
+  wireAiUpdateRequests();
   await setHarnessSource().catch(() => {});
   // The tab webviews sit over #harness-frame; keep their bounds in sync with
   // the window content area (resize, maximize, DPI change) and with any title
@@ -2299,4 +2535,32 @@ async function boot() {
   setInterval(() => void checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
 }
 
-boot();
+/* ── Dialog-card boot ───────────────────────────────────────────
+   The dialog cards (child webviews, see `src/dialogs.rs`) load this same
+   script with `window.__DSH_DIALOG_VIEW__ = "conn"|"update"|"about"` (set by
+   the Rust side). They only render that overlay; there is no harness webview
+   inside the card. */
+async function bootDialog() {
+  document.body.classList.add("dialog-mode");
+  wireDialogAiUpdateResults();
+  await setHarnessSource().catch(() => {});
+  renderSavedList();
+
+  if (DIALOG_VIEW === "conn") {
+    $("conn-overlay").classList.remove("hidden");
+    newConnection();
+    $("conn-name").focus();
+  } else if (DIALOG_VIEW === "update") {
+    $("update-overlay").classList.remove("hidden");
+    void openUpdateDialogWithBestState();
+  } else if (DIALOG_VIEW === "changelog") {
+    $("changelog-overlay").classList.remove("hidden");
+    if (DIALOG_PROJECT) void openChangelog(DIALOG_PROJECT);
+  } else if (DIALOG_VIEW === "about") {
+    $("about-overlay").classList.remove("hidden");
+    void showAbout();
+  }
+}
+
+if (DIALOG_VIEW) bootDialog();
+else boot();

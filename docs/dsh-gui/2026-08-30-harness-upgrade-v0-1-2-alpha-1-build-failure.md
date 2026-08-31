@@ -480,3 +480,75 @@ GET /?token=... → 303 + set-cookie；GET / + cookie → 200
 - `plugins/remote/dsh-remote/docs/README.md`、`README.md`（文档同步）
 - `lib/index.js` 重建产物（gitignored）
 - 本记录文件（§附 3）
+
+---
+
+# 附 4：弹层打开时 harness 内容黑屏（原生子窗口遮挡，修复记录）
+
+## 症状
+
+webview 改造（iframe → 独立子 webview）后，点开标题栏汉堡菜单、连接管理、
+检查更新/关于等弹层时，窗口内 dsh 内容区域全部变黑；基于 UI Automation 的
+截图工具仍能选中 dsh 会话里的控件，说明页面只是"不显示"而未被卸载。
+
+## 根因
+
+- 改造后每个连接标签页由 `views.rs` 的**原生子 webview**
+  （`Window::add_child`）承载，它是一个独立的原生子窗口，绘制层级在
+  shell 主 webview **之上**。
+- 因此 shell 页面里的 DOM 弹层（`.overlay`、`.config-menu`）永远被 harness
+  子窗口盖住；旧实现用 `ui/app.js` 的 `markModal(true)` 在弹层打开时
+  `view_set_visible(false)` 隐藏 harness webview 来"露出"弹层。
+- 隐藏后内容区只剩 shell 的 `--bg: #0d1117`（近黑背景）——即截图里的黑屏。
+  页面未卸载，所以 UI Automation 仍可见控件。
+
+## 修复（混合方案）
+
+两种界面不再与 harness 子窗口争层级：
+
+1. **汉堡菜单 → Tauri 原生弹出菜单**（`main.rs` 的 `show_config_menu`）：
+   与左上角窗口菜单同机制（`window.popup_menu_at`），原生菜单浮在一切
+   子 webview 之上，不再需要隐藏 harness。
+2. **连接管理 / 检查更新 / 关于 → 弹窗卡片（子 webview）**（`src/dialogs.rs`）：
+   `open_dialog` 以 `Window::add_child` 在内容区上创建一个
+   `dialog-conn/update/about` 子 webview，加载同一 `index.html` 并注入
+   `window.__DSH_DIALOG_VIEW__`；`app.js` 进入 `dialog-mode`，只渲染对应
+   overlay。卡片尺寸由 shell 按内容区缩放并居中（`dialogBoundsFor`），
+   harness 全程保持可见——卡片之外仍是 dsh 页面，不再是黑屏。
+   - 连接卡片成功后经 `connection_added` 命令 → `connection-added` 事件
+     通知主 shell 追加标签页；
+   - 更新卡片的「AI 更新」经 `ai_update_request` → 主 shell 在活动标签页
+     执行 `view_eval` → `dialog_event` 把结果送回更新卡片；
+   - 更新日志仍在更新卡片内以 overlay 展示（该卡片内没有 harness 子窗口，
+     无遮挡问题）。
+
+   > 注：曾试过用 `WebviewWindowBuilder` 把弹窗做成**独立原生窗口**，但
+   > 本项目为子 webview 开启了 tauri `unstable` feature；在该 feature 下
+   > Tauri 存在已知问题——额外的 WebviewWindow 白屏且整个应用卡死
+   > （[tauri-apps/tauri#10011](https://github.com/tauri-apps/tauri/issues/10011)）。
+   > 因此改用与标签页同机制的子 webview 卡片，绕开该 bug。
+
+## 涉及文件
+
+- `src-tauri/src/dialogs.rs`（新增）：`open_dialog` / `close_dialog` /
+  `connection_added` / `ai_update_request` / `dialog_event`。
+- `src-tauri/src/main.rs`：`show_config_menu` 原生菜单；数据命令的
+  `ensure_shell_or_dialog` 放宽到 `dialog-*` 卡片；菜单事件转发。
+- `src-tauri/src/views.rs`：`DIALOG_LABEL_PREFIX` 与
+  `ensure_shell_or_dialog` / `ensure_dialog`。
+- `src-tauri/ui/app.js`：`DIALOG_VIEW` 分支（`bootDialog`）、原生菜单调用、
+  弹窗卡片布局/重排（`dialogBoundsFor`/`layoutViews`）、主 shell 的事件监听
+  （`config-menu-action` / `connection-added` / `ai-update-request` /
+  `dialog-closed`）。
+- `src-tauri/ui/titlebar.css`：`dialog-mode` 样式。
+- `src-tauri/build.rs` / `capabilities/default.json`：新命令 ACL 与
+  `dialog-*` 标签权限。
+
+## 验证
+
+- `cargo check` 通过；`cargo test` 通过（沙箱内 2 个 git 用例受
+  "couldn't create signal pipe" 环境限制失败，无沙箱复跑全部通过）。
+- 窗口级实测（截图见 `.work/dsh-gui-smoke/`）：原生汉堡菜单打开时
+  harness 内容保持可见；「检查更新」与「新建连接」弹窗卡片正常渲染、
+  可关闭；关闭后主界面与 harness 内容均正常，无黑屏/卡死。
+- 细节见 `docs/dsh-gui/gui-window-frame.md` 的行条目更新。

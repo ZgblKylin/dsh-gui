@@ -23,6 +23,7 @@
 
 mod about;
 mod changelog;
+mod dialogs;
 #[cfg(windows)]
 mod native_window;
 mod update;
@@ -40,7 +41,7 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::{Emitter, Manager, State};
 
 // Tab-view commands live in `views`; plain imports (not `views::fn` paths)
@@ -49,6 +50,8 @@ use views::{
     ai_update_result, page_theme, view_close, view_create, view_eval, view_set_bounds,
     view_set_visible,
 };
+// Native dialog-window commands (see `dialogs`).
+use dialogs::{ai_update_request, close_dialog, connection_added, dialog_event, open_dialog};
 
 #[cfg(windows)]
 mod job {
@@ -779,6 +782,10 @@ struct ShellState {
     /// Serializes update checks / launches (git fetch can take tens of
     /// seconds; two checks must never race each other's plan file).
     update_lock: Arc<Mutex<()>>,
+    /// Last completed update check, shared with the dedicated update dialog
+    /// window so it can render immediately instead of racing the shell's
+    /// background check for the lock.
+    update_cache: Arc<Mutex<Option<update::UpdateStatus>>>,
 }
 
 /// The native-looking menu shown by the custom top-left window icon.
@@ -850,12 +857,95 @@ fn show_window_menu(
     Ok(())
 }
 
+/// One entry of the hamburger menu's tab list, reported by the shell page.
+#[derive(serde::Deserialize)]
+struct ConfigTab {
+    id: String,
+    title: String,
+}
+
+/// Shows the hamburger (☰) menu as a *native* popup menu instead of a DOM
+/// dropdown. A DOM dropdown lives in the shell page and would be covered by
+/// the native harness tab webviews — the old code worked around that by
+/// hiding the harness (the black content area in the screenshot). A native
+/// OS popup floats above every child webview, so the harness stays visible.
+#[tauri::command]
+fn show_config_menu(
+    window: tauri::Window,
+    webview: tauri::Webview,
+    tabs: Vec<ConfigTab>,
+    has_updates: bool,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
+    views::ensure_shell(&webview)?;
+    let handle = window.app_handle().clone();
+
+    let mut items: Vec<Box<dyn IsMenuItem<tauri::Wry>>> = Vec::new();
+    if !tabs.is_empty() {
+        items.push(Box::new(
+            MenuItem::with_id(&handle, "tabs.header", "标签页", false, None::<&str>)
+                .map_err(|e| e.to_string())?,
+        ));
+        for tab in tabs {
+            items.push(Box::new(
+                MenuItem::with_id(&handle, format!("tab.{}", tab.id), tab.title, true, None::<&str>)
+                    .map_err(|e| e.to_string())?,
+            ));
+        }
+        items.push(Box::new(
+            PredefinedMenuItem::separator(&handle).map_err(|e| e.to_string())?,
+        ));
+    }
+    items.push(Box::new(
+        MenuItem::with_id(&handle, "conn.new", "新建连接", true, None::<&str>)
+            .map_err(|e| e.to_string())?,
+    ));
+    items.push(Box::new(
+        MenuItem::with_id(&handle, "conn.close", "关闭当前连接", true, None::<&str>)
+            .map_err(|e| e.to_string())?,
+    ));
+    items.push(Box::new(
+        PredefinedMenuItem::separator(&handle).map_err(|e| e.to_string())?,
+    ));
+    items.push(Box::new(
+        MenuItem::with_id(
+            &handle,
+            "config.update",
+            if has_updates { "更新软件" } else { "检查更新" },
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| e.to_string())?,
+    ));
+    items.push(Box::new(
+        PredefinedMenuItem::separator(&handle).map_err(|e| e.to_string())?,
+    ));
+    items.push(Box::new(
+        MenuItem::with_id(&handle, "config.about", "关于", true, None::<&str>)
+            .map_err(|e| e.to_string())?,
+    ));
+    items.push(Box::new(
+        MenuItem::with_id(&handle, "config.exit", "退出", true, None::<&str>)
+            .map_err(|e| e.to_string())?,
+    ));
+
+    let refs: Vec<&dyn IsMenuItem<tauri::Wry>> = items.iter().map(|b| b.as_ref()).collect();
+    let menu = Menu::with_items(&handle, &refs).map_err(|e| e.to_string())?;
+
+    let position = tauri::Position::Logical(tauri::LogicalPosition::new(x, y));
+    std::thread::spawn(move || {
+        let _ = window.popup_menu_at(&menu, position);
+    });
+    Ok(())
+}
+
 /// The self-hosted harness UI URL, so the shell can point tab webviews at the
 /// right port without the port being baked into the assets. Carries the
 /// one-time launch token when the Web profile minted one.
 #[tauri::command]
 fn harness_url(webview: tauri::Webview, state: State<'_, ShellState>) -> Result<String, String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     Ok(state.web_url.clone())
 }
 
@@ -867,7 +957,7 @@ async fn about_info(
     webview: tauri::Webview,
     state: State<'_, ShellState>,
 ) -> Result<about::AboutInfo, String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     let root = state.root.clone();
     tauri::async_runtime::spawn_blocking(move || about::collect(&root))
         .await
@@ -882,8 +972,21 @@ fn local_update_projects(
     webview: tauri::Webview,
     state: State<'_, ShellState>,
 ) -> Result<Vec<update::ProjectUpdate>, String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     Ok(update::local_check(&state.root))
+}
+
+/// Last completed update check (shared cache for dialog windows). The shell
+/// runs a startup + periodic background check; the dedicated update dialog
+/// reads this first so it never has to race the background check for the
+/// update lock.
+#[tauri::command]
+fn cached_update_status(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<Option<update::UpdateStatus>, String> {
+    views::ensure_shell_or_dialog(&webview)?;
+    Ok(state.update_cache.lock().map_err(|_| "update cache is poisoned")?.clone())
 }
 
 /// Check the dsh-gui repository and every submodule for updates. Runs off the
@@ -894,19 +997,24 @@ async fn check_updates(
     webview: tauri::Webview,
     state: State<'_, ShellState>,
 ) -> Result<update::UpdateStatus, String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     let root = state.root.clone();
     let gui_pid = state.gui_pid;
     let harness_pid = state.harness_pid;
     let lock = Arc::clone(&state.update_lock);
-    tauri::async_runtime::spawn_blocking(move || {
+    let cache = Arc::clone(&state.update_cache);
+    let status = tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock
             .lock()
             .map_err(|_| "an update check is already running".to_string())?;
         update::check_and_sync(&root, gui_pid, harness_pid)
     })
     .await
-    .map_err(|e| format!("update check task failed: {e}"))?
+    .map_err(|e| format!("update check task failed: {e}"))??;
+    if let Ok(mut cached) = cache.lock() {
+        *cached = Some(status.clone());
+    }
+    Ok(status)
 }
 
 /// Launch the detached update launcher for the selected project ids (empty:
@@ -921,7 +1029,7 @@ fn start_update(
     ids: Vec<String>,
     modes: HashMap<String, String>,
 ) -> Result<(), String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     let _guard = state
         .update_lock
         .lock()
@@ -955,7 +1063,7 @@ async fn update_root(
     state: State<'_, ShellState>,
     mode: Option<String>,
 ) -> Result<(), String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     let root = state.root.clone();
     let lock = Arc::clone(&state.update_lock);
     tauri::async_runtime::spawn_blocking(move || {
@@ -994,7 +1102,7 @@ async fn update_changelog(
     id: String,
     mode: Option<String>,
 ) -> Result<changelog::UpdateChangelog, String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     let root = state.root.clone();
     let harness_cli = root.join(HARNESS_BIN);
     let port = state.port;
@@ -1164,7 +1272,7 @@ fn shell_log(
     state: State<'_, ShellState>,
     msg: String,
 ) -> Result<(), String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     log_status(&state.root, &format!("[ui] {msg}"));
     Ok(())
 }
@@ -1178,7 +1286,7 @@ async fn remote_call(
     op: String,
     body: String,
 ) -> Result<String, String> {
-    views::ensure_shell(&webview)?;
+    views::ensure_shell_or_dialog(&webview)?;
     if !REMOTE_OPS.contains(&op.as_str()) {
         return Err(format!("unknown op: {op}"));
     }
@@ -1236,6 +1344,7 @@ fn main() {
                 gui_pid: std::process::id(),
                 harness_pid,
                 update_lock: Arc::new(Mutex::new(())),
+                update_cache: Arc::new(Mutex::new(None)),
             });
             app.manage(child);
             // Connection-tab child webviews (created lazily by the shell page).
@@ -1288,22 +1397,67 @@ fn main() {
                 ],
             )?;
 
-            window.on_menu_event(|window, event| match event.id().0.as_str() {
-                "window.restore" => {
-                    let _ = window.unmaximize();
-                }
-                "window.move" => {
-                    let _ = window.start_dragging();
-                }
-                "window.size" => {
-                    #[cfg(windows)]
-                    if let Ok(hwnd) = window.hwnd() {
-                        native_window::start_system_size(hwnd.0);
+            window.on_menu_event(|window, event| {
+                let id = event.id().0.as_str();
+                match id {
+                    "window.restore" => {
+                        let _ = window.unmaximize();
                     }
-                    #[cfg(not(windows))]
-                    let _ = window;
+                    "window.move" => {
+                        let _ = window.start_dragging();
+                    }
+                    "window.size" => {
+                        #[cfg(windows)]
+                        if let Ok(hwnd) = window.hwnd() {
+                            native_window::start_system_size(hwnd.0);
+                        }
+                        #[cfg(not(windows))]
+                        let _ = window;
+                    }
+                    // Hamburger (☰) menu actions: the native menu cannot be a
+                    // DOM handler, so it forwards every choice to the shell
+                    // page as a `config-menu-action` event.
+                    "conn.new" => {
+                        let _ = window.app_handle().emit_to(
+                            "main",
+                            "config-menu-action",
+                            serde_json::json!({ "action": "new-conn" }),
+                        );
+                    }
+                    "conn.close" => {
+                        let _ = window.app_handle().emit_to(
+                            "main",
+                            "config-menu-action",
+                            serde_json::json!({ "action": "close-conn" }),
+                        );
+                    }
+                    "config.update" => {
+                        let _ = window.app_handle().emit_to(
+                            "main",
+                            "config-menu-action",
+                            serde_json::json!({ "action": "update" }),
+                        );
+                    }
+                    "config.about" => {
+                        let _ = window.app_handle().emit_to(
+                            "main",
+                            "config-menu-action",
+                            serde_json::json!({ "action": "about" }),
+                        );
+                    }
+                    "config.exit" => {
+                        let _ = window.close();
+                    }
+                    _ if id.starts_with("tab.") => {
+                        let tab_id = &id["tab.".len()..];
+                        let _ = window.app_handle().emit_to(
+                            "main",
+                            "config-menu-action",
+                            serde_json::json!({ "action": "switch-tab", "tabId": tab_id }),
+                        );
+                    }
+                    _ => {}
                 }
-                _ => {}
             });
 
             app.manage(WindowMenuState { menu });
@@ -1319,12 +1473,20 @@ fn main() {
             harness_url,
             about_info,
             local_update_projects,
+            cached_update_status,
             remote_call,
             check_updates,
             start_update,
             update_root,
             update_changelog,
             shell_log,
+            // Native hamburger menu + dialog-card webviews.
+            show_config_menu,
+            open_dialog,
+            close_dialog,
+            connection_added,
+            ai_update_request,
+            dialog_event,
             // Connection-tab child webviews + page bridge.
             view_create,
             view_set_bounds,

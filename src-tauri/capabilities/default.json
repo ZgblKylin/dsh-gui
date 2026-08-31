@@ -2,7 +2,11 @@
   "identifier": "default",
   "description": "Capability for the main webview window. Window controls and the About dialog use app-defined commands (no ACL plugin permissions required); every connection tab is hosted by a child webview that loads the harness page (or a remote dsh server) as a top-level document. The shell page runs on the app origin (Local context); tab webviews run on loopback harness ports, hence the remote URL pattern.",
   "windows": [
-    "main"
+    "main",
+    "dialog-conn",
+    "dialog-update",
+    "dialog-changelog",
+    "dialog-about"
   ],
   "remote": {
     "urls": [
@@ -18,15 +22,22 @@
     "allow-close-window",
     "allow-start-window-drag",
     "allow-show-window-menu",
+    "allow-show-config-menu",
     "allow-harness-url",
     "allow-about-info",
     "allow-local-update-projects",
+    "allow-cached-update-status",
     "allow-remote-call",
     "allow-check-updates",
     "allow-start-update",
     "allow-update-root",
     "allow-update-changelog",
     "allow-shell-log",
+    "allow-open-dialog",
+    "allow-close-dialog",
+    "allow-connection-added",
+    "allow-ai-update-request",
+    "allow-dialog-event",
     "allow-view-create",
     "allow-view-set-bounds",
     "allow-view-set-visible",
