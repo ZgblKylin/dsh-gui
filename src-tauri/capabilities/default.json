@@ -37,6 +37,7 @@
     "allow-close-dialog",
     "allow-fit-dialog",
     "allow-show-dialog",
+    "allow-save-dialog-size",
     "allow-connection-added",
     "allow-ai-update-request",
     "allow-dialog-event",

@@ -9,9 +9,11 @@
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// One row of the About dialog.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct AboutItem {
     pub name: String,
     pub version: String,
@@ -20,12 +22,34 @@ pub struct AboutItem {
 }
 
 /// Everything the About dialog renders.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct AboutInfo {
     pub shell: AboutItem,
     pub harness: AboutItem,
     pub icon: AboutItem,
     pub plugins: Vec<AboutItem>,
+}
+
+/// In-process cache: the About rows change only when a checkout moves, so a
+/// short TTL avoids re-running `git describe` for every dialog open while
+/// still picking up updates within minutes.
+static ABOUT_CACHE: Mutex<Option<(Instant, AboutInfo)>> = Mutex::new(None);
+const ABOUT_CACHE_TTL: Duration = Duration::from_secs(300);
+
+/// Collect the About rows, served from the in-process cache when fresh.
+pub fn collect(root: &Path) -> AboutInfo {
+    if let Ok(guard) = ABOUT_CACHE.lock() {
+        if let Some((at, info)) = guard.as_ref() {
+            if at.elapsed() < ABOUT_CACHE_TTL {
+                return info.clone();
+            }
+        }
+    }
+    let info = collect_fresh(root);
+    if let Ok(mut guard) = ABOUT_CACHE.lock() {
+        *guard = Some((Instant::now(), info.clone()));
+    }
+    info
 }
 
 /// Run `git <args>` in `dir`, returning trimmed stdout on success.
@@ -139,7 +163,7 @@ fn item(dir: &Path, fallback_name: &str) -> AboutItem {
 /// one wrapper directory per plugin (`plugins/<id>/install.mjs`) holding the
 /// package/repo in a second-level directory; multi-package distribution repos
 /// (e.g. `deep-whale/dsh-deep-whale`) hold their package one level deeper.
-pub fn collect(root: &Path) -> AboutInfo {
+fn collect_fresh(root: &Path) -> AboutInfo {
     let shell = item(root, "dsh-gui");
     let harness = item(&root.join("deepseek-harness"), "deepseek-harness");
     let icon = item(

@@ -322,7 +322,9 @@ body {
 .update-dialog {
   width: min(880px, 94vw);
   max-height: 84vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--titlebar-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -339,13 +341,59 @@ body {
 .update-dialog .update-sub {
   color: var(--muted);
   font-size: 13px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
+/* Header status row: last-check timestamp + manual refresh button; pinned
+   above the scrolling list. */
+.update-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.update-status-line {
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-refresh {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 12px;
+  font-size: 12px;
+  cursor: default;
+}
+
+.update-refresh:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.update-refresh:disabled {
+  opacity: 0.5;
+}
+
+/* The scrollable list area: the dialog chrome (title/sub/status/actions)
+   stays pinned; only this region scrolls. */
 .update-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* Gutter so the scrollbar does not sit on the row borders. */
+  padding-right: 4px;
 }
 
 .update-loading {
@@ -361,6 +409,26 @@ body {
 .update-summary {
   color: var(--muted);
   font-size: 13px;
+}
+
+/* Skeleton placeholder rows while a check is in flight. */
+.skeleton {
+  color: transparent !important;
+  background: linear-gradient(90deg, var(--border) 25%, var(--hover) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+  pointer-events: none;
+  user-select: none;
+}
+
+.skeleton * {
+  visibility: hidden;
+}
+
+@keyframes skeleton-pulse {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
 .update-item {
@@ -424,6 +492,8 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 select.update-mode {
@@ -553,7 +623,8 @@ button.update-run.pending:hover {
    elements here; user-select keeps the text selectable/copyable, max-height +
    overflow add the scrollbar for long release notes or AI summaries. */
 .changelog-body {
-  max-height: 55vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px 14px;
   background: var(--bg);
@@ -703,7 +774,9 @@ button.update-run.pending:hover {
 .about-dialog {
   width: min(560px, 90vw);
   max-height: 80vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--titlebar-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -717,10 +790,16 @@ button.update-run.pending:hover {
   font-weight: 600;
 }
 
+/* Scrollable list: the About dialog pins its title and close button and lets
+   only the module rows scroll. */
 .about-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-right: 4px;
 }
 
 .about-loading {
@@ -860,7 +939,9 @@ body.no-tauri .titlebar-btn {
 .conn-dialog {
   width: min(1000px, 96vw);
   max-height: 84vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--titlebar-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -926,22 +1007,46 @@ body.no-tauri .titlebar-btn {
 }
 
 /* Three-column layout: saved-connection list | config form | start-cmd + log.
- * Columns stretch to the row height so the log fills the whole right column. */
+ * The grid fills the dialog's content area; each column manages its own
+ * overflow so the dialog itself never grows a whole-page scrollbar. */
 .conn-dialog-main {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 196px 1fr 292px;
+  grid-template-columns: 200px minmax(0, 1.1fr) minmax(260px, 0.9fr);
   gap: 16px;
 }
 
+/* The form column scrolls on its own when the SSH extension makes it taller
+   than the window. */
 .conn-config {
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .conn-right {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Narrow dialogs (user shrunk the window): drop to two columns and move the
+   start-command/log column full-width below the form. */
+@media (max-width: 880px) {
+  .conn-dialog-main {
+    grid-template-columns: 180px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .conn-right {
+    grid-column: 1 / -1;
+  }
+  .conn-right .conn-log {
+    max-height: 180px;
+  }
 }
 
 /* Saved-connection list (left sidebar of the dialog). */
@@ -950,7 +1055,7 @@ body.no-tauri .titlebar-btn {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  max-height: calc(84vh - 150px);
+  min-height: 0;
   overflow-y: auto;
   padding-right: 6px;
   border-right: 1px solid var(--border);
@@ -1042,6 +1147,10 @@ body.no-tauri .titlebar-btn {
   font-size: 12px;
   color: var(--muted);
   margin-bottom: 6px;
+  /* Long hint labels wrap at phrase boundaries instead of clipping or
+     pushing the layout sideways. */
+  overflow-wrap: break-word;
+  line-height: 1.45;
 }
 
 .conn-input {
@@ -1089,7 +1198,11 @@ body.no-tauri .titlebar-btn {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 18px;
+  /* The form fields scroll inside .conn-config; the action row is pinned to
+     the dialog footer so it is always reachable. */
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 button.primary,
@@ -1127,8 +1240,8 @@ button.secondary:disabled {
 
 .conn-log {
   margin-top: 0;
-  flex: 1;
-  min-height: 150px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1168,7 +1281,10 @@ button.secondary:disabled {
    The dialog windows load index.html with the target overlay shown. The shell
    parts are hidden and the overlay becomes the full window content. */
 body.dialog-mode {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
   /* Same tone as the dialog panels so no dark "frame" shows around them. */
   background: var(--titlebar-bg);
 }
@@ -1180,23 +1296,32 @@ body.dialog-mode .config-menu {
   display: none !important;
 }
 
+/* The overlay stops being a centered backdrop and becomes the window's root
+   layout container: it fills the whole client area and lets the dialog panel
+   flex inside it. */
 body.dialog-mode .overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--titlebar-bg);
-  z-index: 2000;
+  position: relative;
+  inset: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
   align-items: stretch;
   justify-content: stretch;
+  background: transparent;
+  z-index: 1;
 }
 
-/* The native window frame is the only "border": let the dialog body fill the
-   whole window instead of floating as a rounded panel inside it. */
+/* The native window frame is the only "border": the dialog body fills the
+   whole window as a flex column, with its list/log regions scrolling
+   internally (never a whole-window scrollbar). */
 body.dialog-mode .conn-dialog,
 body.dialog-mode .update-dialog,
 body.dialog-mode .changelog-dialog,
 body.dialog-mode .about-dialog {
+  flex: 1 1 auto;
   width: 100%;
-  height: 100%;
+  height: auto;
+  min-height: 0;
   max-height: none;
   border: none;
   border-radius: 0;

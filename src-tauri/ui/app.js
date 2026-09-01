@@ -34,6 +34,8 @@ const menuUpdate = $("menu-update");
 const updateBadge = $("update-badge");
 const updateOverlay = $("update-overlay");
 const updateBody = $("update-body");
+const updateStatusLine = $("update-status-line");
+const updateRefresh = $("update-refresh");
 const updateMarkAll = $("update-mark-all");
 const updateAiAll = $("update-ai-all");
 const updateApply = $("update-apply");
@@ -246,7 +248,7 @@ function markModal(open) {
 
 /** Open (or focus) a dialog in its own native window; falls back to the old
  *  in-page overlay in a plain browser preview where there is no harness
- *  child webview to cover it. */
+ *  child webview to cover it. `projectId` is forwarded to changelog dialogs. */
 async function openDialog(kind, projectId) {
   if (!tauri) {
     if (kind === "conn") {
@@ -262,7 +264,7 @@ async function openDialog(kind, projectId) {
     return;
   }
   try {
-    await invoke("open_dialog", { kind });
+    await invoke("open_dialog", { kind, project: projectId ?? null });
   } catch (e) {
     const message = "打开窗口失败：" + String((e && e.message) || e);
     toast(message);
@@ -481,6 +483,10 @@ function setConnType(type) {
   $("conn-ssh-startcmd-wrap").classList.toggle("hidden", !sshOn);
   $("conn-creds").classList.toggle("hidden", !sshOn);
   $("conn-save-wrap").classList.toggle("hidden", !sshOn);
+  // Track the layout mode on the panel so CSS can adapt and the fit logic
+  // can measure the right content size.
+  const panel = document.querySelector(".conn-dialog");
+  if (panel) panel.classList.toggle("ssh-active", sshOn);
   if (DIALOG_VIEW) scheduleFit();
 }
 
@@ -1073,7 +1079,6 @@ async function syncMaximizeIcon() {
 // poll keeps the badge and menu text in sync while the app stays open.
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 let updateStatus = null;
-let updateChecking = false;
 let updateSelection = new Set();
 
 function applyUpdateIndicator(status) {
@@ -1090,6 +1095,45 @@ function resetUpdateSelection() {
   updateSelection.clear();
   updateApply.disabled = true;
   updateApply.textContent = "重启并更新";
+}
+
+/* Selections survive background re-renders: only drop ids whose row is no
+   longer behind, and re-apply the pending look to the rest. */
+function reconcileUpdateSelection(status) {
+  const projects = Array.isArray(status && status.projects) ? status.projects : [];
+  const stillBehind = new Set(
+    projects.filter((p) => p && p.behind && !p.error && !p.checking).map((p) => p.id)
+  );
+  for (const id of [...updateSelection]) {
+    if (!stillBehind.has(id)) updateSelection.delete(id);
+  }
+  for (const id of updateSelection) {
+    for (const button of updateBody.querySelectorAll(".update-run")) {
+      if (button.dataset.updateId === id) {
+        button.disabled = true;
+        button.textContent = "待重启";
+        button.classList.add("pending");
+      }
+    }
+  }
+  updateApply.disabled = updateSelection.size === 0;
+  updateApply.textContent =
+    updateSelection.size > 0 ? `重启并更新（${updateSelection.size}）` : "重启并更新";
+}
+
+function formatUpdateStatusLine(status, checking) {
+  if (checking) return "正在检查更新…";
+  if (!status || !status.checkedAt) return "";
+  const when = new Date(status.checkedAt * 1000);
+  const hh = String(when.getHours()).padStart(2, "0");
+  const mm = String(when.getMinutes()).padStart(2, "0");
+  const ss = String(when.getSeconds()).padStart(2, "0");
+  const secs = ((status.durationMs ?? 0) / 1000).toFixed(1);
+  const failed = (status.projects ?? []).filter((p) => p && p.error).length;
+  return (
+    `上次检查 ${hh}:${mm}:${ss} · 耗时 ${secs}s` +
+    (failed > 0 ? ` · ${failed} 个工程检查失败` : "")
+  );
 }
 
 /* ── In-dialog top-level update (仓库本体：git 层 + 实时进度) ─── */
@@ -1152,7 +1196,9 @@ async function runRootUpdate(project) {
       "请重新执行 npm run build 做全量构建（node scripts/dsh-gui.mjs build：harness 安装与构建 → 入口 exe → 插件安装 → agent preset 安装），构建完成后重启 dsh-gui 生效。"
     );
     // Refetch the rows behind this update so the stale "behind" state resets.
-    void checkForUpdates(false);
+    // The root update holds the update lock until here; a short delay avoids
+    // bouncing off the lock's release edge.
+    setTimeout(() => void checkForUpdates(false), 300);
   } catch (error) {
     appendUpdateProgress("❌ 更新失败：" + String((error && error.message) || error));
     appendUpdateProgress("可关闭弹窗重试；git 层未完成时也可改用子模块的「重启并更新」流程。");
@@ -1180,7 +1226,7 @@ function updateError(message) {
   updateApply.classList.add("hidden");
 }
 
-function updateRow(project) {
+function updateRow(project, checking) {
   const row = document.createElement("div");
   row.className = "update-item";
 
@@ -1192,15 +1238,12 @@ function updateRow(project) {
   const versions = document.createElement("div");
   versions.className = "update-item-versions";
   const latest = document.createElement("code");
-  latest.className = project.checking ? "update-checking" : "";
   // When a usable latest tag exists, the 最新 column shows the tag name
   // instead of a commit hash; an unusable tag (older than the current
   // commit, or exactly the commit we are on) stays a hash, matching the
   // disabled mode option beside it.
   const usableTag = project.latestTag && project.latestTagStale !== true ? project.latestTag : "";
-  latest.textContent = project.checking
-    ? project.latest || "检查中…"
-    : usableTag || project.latest || "—";
+  latest.textContent = usableTag || project.latest || "—";
   versions.append(
     "当前 ",
     Object.assign(document.createElement("code"), { textContent: project.current || "unknown" }),
@@ -1209,6 +1252,22 @@ function updateRow(project) {
     latest
   );
   info.append(name, versions);
+
+  const action = document.createElement("div");
+  action.className = "update-item-action";
+
+  if (checking) {
+    // Skeleton placeholder: same footprint as a live row so the list does
+    // not jump when the real result lands.
+    versions.classList.add("skeleton");
+    const wait = document.createElement("span");
+    wait.className = "update-item-checking";
+    wait.textContent = "检测中…";
+    action.appendChild(wait);
+    row.append(info, action);
+    return row;
+  }
+
   // npm-installed wrappers: when the newest tag has no matching npm publish
   // yet, the source-only update is annotated right under the version row so
   // the user knows the installed plugins will not upgrade with this update.
@@ -1233,14 +1292,7 @@ function updateRow(project) {
     info.appendChild(error);
   }
 
-  const action = document.createElement("div");
-  action.className = "update-item-action";
-  if (project.checking) {
-    const checking = document.createElement("span");
-    checking.className = "update-item-checking";
-    checking.textContent = "检测中…";
-    action.appendChild(checking);
-  } else if (project.error) {
+  if (project.error) {
     const unavailable = document.createElement("span");
     unavailable.className = "update-item-unavailable";
     unavailable.textContent = "不可检查";
@@ -1321,25 +1373,30 @@ function markProjectUpdate(id) {
   updateApply.textContent = `重启并更新（${updateSelection.size}）`;
 }
 
-function renderUpdateDialog(status) {
+function renderUpdateDialog(status, asChecking) {
   updateBody.innerHTML = "";
-  resetUpdateSelection();
   const projects = Array.isArray(status && status.projects) ? status.projects : [];
   const behind = projects.filter((project) => project && project.behind && !project.error);
-  const checking = projects.filter((project) => project && project.checking).length;
   const summary = document.createElement("div");
   summary.className = "update-summary";
-  summary.textContent =
-    checking > 0
-      ? `${projects.length} 个工程，正在检测更新…`
-      : behind.length > 0
+  if (asChecking) {
+    // Checking rows are skeleton placeholders: no real update counts yet.
+    summary.textContent = `${projects.length} 个工程，正在检查更新…`;
+    updateBody.appendChild(summary);
+    for (const project of projects) updateBody.appendChild(updateRow(project, true));
+  } else {
+    summary.textContent =
+      behind.length > 0
         ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，agent 预设由你自选），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」包含顶层工程时等价于点击顶层的「更新」并忽略其他更新。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
         : "所有工程均为最新版本。";
-  updateBody.appendChild(summary);
-  for (const project of projects) updateBody.appendChild(updateRow(project));
-  updateMarkAll.classList.toggle("hidden", behind.length === 0);
-  updateAiAll.classList.toggle("hidden", behind.length === 0);
-  updateApply.classList.toggle("hidden", behind.length === 0);
+    updateBody.appendChild(summary);
+    for (const project of projects) updateBody.appendChild(updateRow(project, false));
+    reconcileUpdateSelection(status);
+  }
+  updateStatusLine.textContent = formatUpdateStatusLine(status, asChecking);
+  updateMarkAll.classList.toggle("hidden", asChecking || behind.length === 0);
+  updateAiAll.classList.toggle("hidden", asChecking || behind.length === 0);
+  updateApply.classList.toggle("hidden", asChecking || behind.length === 0);
   if (DIALOG_VIEW) scheduleFit();
 }
 
@@ -1355,6 +1412,7 @@ function openUpdateDialog() {
   loading.className = "update-loading";
   loading.textContent = "正在检查更新…";
   updateBody.appendChild(loading);
+  updateStatusLine.textContent = "";
   updateMarkAll.classList.add("hidden");
   updateAiAll.classList.add("hidden");
   updateApply.classList.add("hidden");
@@ -1374,111 +1432,104 @@ function hasCachedUpdateStatus() {
   );
 }
 
-// Menu entry: when the badge is on (a background check found updates), the
-// dialog reuses that result and must not fetch again. When nothing is cached,
-// show the local preview first; when a stale no-update cache exists, show it
-// immediately but still refresh it in the background.
+// Menu entry: render the best available state immediately, then refresh in
+// the background without blocking the dialog on the git/network check:
+//   1. Rust-side cache (last completed check, shared with the shell) wins;
+//   2. otherwise the local-only preview (name + current version) renders as
+//      skeleton rows while the real check runs in the background;
+//   3. when the background check lands the rows are re-rendered in place.
 async function openUpdateDialogWithBestState() {
   openUpdateDialog();
-  // Dialog windows share the Rust-side cache with the shell, so the dialog
-  // can render the last completed check immediately instead of racing the
-  // shell's background check for the update lock.
-  if (DIALOG_VIEW && tauri) {
+  if (!tauri) return;
+
+  // In the shell window the JS-side copy may already be newer than the Rust
+  // cache (the shell runs the background checks); prefer whichever exists.
+  if (hasCachedUpdateStatus()) {
+    renderUpdateDialog(updateStatus);
+  } else {
     try {
       const cached = await invoke("cached_update_status");
       if (cached && Array.isArray(cached.projects) && cached.projects.length > 0) {
         updateStatus = cached;
         renderUpdateDialog(cached);
-        if (cached.hasUpdates) return;
       }
     } catch (_) {
-      /* ignore: fall through to the local preview + fresh check */
+      /* ignore: fall through to the local preview */
     }
   }
-  const hadCache = hasCachedUpdateStatus();
-  if (hadCache) {
-    renderUpdateDialog(updateStatus);
+  if (hasCachedUpdateStatus()) {
+    // Cached result is on screen; a has-updates cache is fresh enough — skip
+    // the refetch exactly like before. A no-update cache might be stale, so
+    // refresh it in the background without blocking the dialog.
     if (updateStatus.hasUpdates) return;
-  } else if (await previewUpdateProjects()) {
-    // A background check finished while the local preview was loading: show
-    // the fresh result and do not start another fetch.
-    renderUpdateDialog(updateStatus);
+    void checkForUpdates(false);
     return;
+  }
+
+  // No cache at all (typical right after startup): render the local preview
+  // as skeleton rows immediately, then let the background check replace them.
+  try {
+    const projects = await invoke("local_update_projects");
+    // A background check may have completed while the preview loaded.
+    if (hasCachedUpdateStatus()) {
+      renderUpdateDialog(updateStatus);
+    } else if (Array.isArray(projects) && projects.length > 0) {
+      renderUpdateDialog({ projects, hasUpdates: false, updateCount: 0, allChecked: false }, true);
+    }
+  } catch (_) {
+    /* keep the generic loading row; checkForUpdates will still render */
   }
   void checkForUpdates(false);
 }
 
-// Cold-start preview: list every project and its local current version
-// immediately, with 检查中… placeholders on the latest-version column while
-// the slow check runs in the background. Returns true when a background check
-// completed and cached a result while the preview was loading.
-async function previewUpdateProjects() {
-  if (!tauri) {
-    updateError("当前不在 dsh-gui 应用中，无法检查更新。");
-    return false;
-  }
-  try {
-    const projects = await invoke("local_update_projects");
-    if (hasCachedUpdateStatus()) {
-      renderUpdateDialog(updateStatus);
-      return true;
-    }
-    if (Array.isArray(projects) && projects.length > 0) {
-      renderUpdateDialog({
-        projects,
-        hasUpdates: false,
-        updateCount: 0,
-        allChecked: false,
-      });
-    }
-  } catch (_) {
-    // Keep the generic loading row; checkForUpdates will still render.
-    if (hasCachedUpdateStatus()) {
-      renderUpdateDialog(updateStatus);
-      return true;
-    }
-  }
-  return false;
-}
+// One in-flight check at a time, shared across the shell, the dialog window's
+// refresh button, and the background poll: concurrent callers all await the
+// same promise instead of racing the Rust-side update lock.
+let updateCheckPromise = null;
 
 async function checkForUpdates(showDialog) {
   if (showDialog) openUpdateDialog();
-  if (updateChecking) return updateStatus;
   if (!tauri) {
     if (showDialog) updateError("当前不在 dsh-gui 应用中，无法检查更新。");
     return null;
   }
-  updateChecking = true;
-  try {
-    const status = await invoke("check_updates");
-    updateStatus = status;
-    // A partially failed check must not clear an existing badge; a successful
-    // one (or one that found updates) is authoritative.
-    if (status && (status.hasUpdates || status.allChecked)) {
-      applyUpdateIndicator(status);
-    }
-    if (showDialog || !updateOverlay.classList.contains("hidden")) {
-      renderUpdateDialog(status);
-    }
-    return status;
-  } catch (error) {
-    const message = String((error && error.message) || error);
-    // The shell's background check may hold the update lock (git fetch can
-    // take tens of seconds); retry shortly instead of showing a dead error.
-    if (/already running/i.test(message)) {
-      setTimeout(() => {
-        if (!updateOverlay.classList.contains("hidden")) void checkForUpdates(false);
-      }, 1500);
+  if (updateCheckPromise) return updateCheckPromise;
+  updateRefresh.disabled = true;
+  updateCheckPromise = (async () => {
+    try {
+      const status = await invoke("check_updates");
+      updateStatus = status;
+      // A partially failed check must not clear an existing badge; a
+      // successful one (or one that found updates) is authoritative.
+      if (status && (status.hasUpdates || status.allChecked)) {
+        applyUpdateIndicator(status);
+      }
+      if (showDialog || !updateOverlay.classList.contains("hidden")) {
+        renderUpdateDialog(status);
+      }
+      return status;
+    } catch (error) {
+      const message = String((error && error.message) || error);
+      // The shell's background check may hold the update lock (git fetch can
+      // take tens of seconds); retry shortly instead of showing a dead error.
+      if (/already running/i.test(message)) {
+        setTimeout(() => {
+          if (!updateOverlay.classList.contains("hidden")) void checkForUpdates(false);
+        }, 1500);
+        return null;
+      }
+      if (showDialog || !updateOverlay.classList.contains("hidden")) {
+        updateError(`检查更新失败：${message}`);
+        updateStatusLine.textContent = "";
+      }
+      toast(`检查更新失败：${message}`);
       return null;
+    } finally {
+      updateRefresh.disabled = false;
+      updateCheckPromise = null;
     }
-    if (showDialog || !updateOverlay.classList.contains("hidden")) {
-      updateError(`检查更新失败：${message}`);
-    }
-    toast(`检查更新失败：${message}`);
-    return null;
-  } finally {
-    updateChecking = false;
-  }
+  })();
+  return updateCheckPromise;
 }
 
 async function startUpdates(ids) {
@@ -1512,7 +1563,11 @@ async function startUpdates(ids) {
   }
 }
 
+// A dialog window without its own mode selects (the changelog window) pins
+// the update target here; null = read the row's <select>.
+let updateModeOverride = null;
 function updateModeOf(projectId) {
+  if (updateModeOverride) return updateModeOverride;
   const select = updateBody.querySelector('.update-mode[data-update-id="' + projectId + '"]');
   return select && select.value === "tag" ? "tag" : "commit";
 }
@@ -2201,6 +2256,13 @@ $("menu-update").addEventListener("click", () => {
   void openDialog("update");
 });
 updateClose.addEventListener("click", closeUpdateDialog);
+updateRefresh.addEventListener("click", () => {
+  if (updateRefresh.disabled) return;
+  // Manual refresh: keep the current rows visible and mark them as stale in
+  // the status line while the check runs.
+  updateStatusLine.textContent = "正在重新检查…";
+  void checkForUpdates(false);
+});
 updateOverlay.addEventListener("click", (e) => {
   if (e.target === updateOverlay) closeUpdateDialog();
 });
@@ -2225,7 +2287,8 @@ updateBody.addEventListener("click", (e) => {
   }
   const log = e.target.closest(".update-log");
   if (log && log.dataset.updateId && !log.disabled) {
-    void openChangelog(log.dataset.updateId);
+    if (DIALOG_VIEW === "update") void openDialog("changelog", log.dataset.updateId);
+    else void openChangelog(log.dataset.updateId);
     return;
   }
   const button = e.target.closest(".update-run");
@@ -2373,7 +2436,21 @@ function toast(message) {
   toastTimer = setTimeout(() => el.remove(), 1600);
 }
 
+// The Rust side caches AboutInfo for 5 minutes; the JS side mirrors that so
+// opening the dialog twice in a row does not even make the IPC round-trip.
+const ABOUT_CACHE_TTL_MS = 5 * 60 * 1000;
+let aboutCache = null; // { info, at }
 let aboutRequestId = 0;
+
+function aboutCacheGet() {
+  if (!aboutCache) return null;
+  if (Date.now() - aboutCache.at > ABOUT_CACHE_TTL_MS) return null;
+  return aboutCache.info;
+}
+
+function aboutCacheSet(info) {
+  aboutCache = { info, at: Date.now() };
+}
 
 function closeAbout() {
   markModal(false);
@@ -2408,7 +2485,12 @@ function renderAboutMessage(text, isError) {
 function openAboutDialog() {
   markModal(true);
   aboutOverlay.classList.remove("hidden");
-  renderAboutMessage("正在读取各模块信息…", false);
+  const cached = aboutCacheGet();
+  if (cached) {
+    renderAboutInfo(cached);
+  } else {
+    renderAboutMessage("正在读取各模块信息…", false);
+  }
 }
 
 async function showAbout() {
@@ -2416,6 +2498,7 @@ async function showAbout() {
   openAboutDialog();
   try {
     const info = await invoke("about_info");
+    aboutCacheSet(info);
     if (requestId !== aboutRequestId || aboutOverlay.classList.contains("hidden")) return;
     renderAboutInfo(info);
   } catch (e) {
@@ -2492,17 +2575,19 @@ async function boot() {
   scheduleLayout();
   // Update monitoring: one check shortly after startup, then a long-interval
   // background poll. Results drive the badge + menu text; the Rust side keeps
-  // the detached update launcher in sync with what was found.
-  setTimeout(() => void checkForUpdates(false), 3000);
+  // the detached update launcher in sync with what was found. The 1s delay is
+  // short enough that opening the update dialog right after boot usually
+  // finds a warm cache instead of racing the background check.
+  setTimeout(() => void checkForUpdates(false), 1000);
   setInterval(() => void checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
 }
 
 /* ── Dialog-window boot ────────────────────────────────────────
    The dedicated dialog windows load this same script with
-   `window.__DSH_DIALOG_VIEW__ = "conn"|"update"|"about"` (set by the Rust
-   side). They only render that overlay; there is no harness webview inside.
-   The windows are pre-created hidden (see src/dialogs.rs) and only start
-   their content when Rust emits `dialog-open`; after fitting they show
+   `window.__DSH_DIALOG_VIEW__ = "conn"|"update"|"about"|"changelog"` (set by
+   the Rust side). They only render that overlay; there is no harness webview
+   inside. The windows are pre-created hidden (see src/dialogs.rs) and only
+   start their content when Rust emits `dialog-open`; after fitting they show
    themselves via `show_dialog`. */
 const DIALOG_PANEL_SELECTOR = {
   conn: ".conn-dialog",
@@ -2510,48 +2595,70 @@ const DIALOG_PANEL_SELECTOR = {
   changelog: ".changelog-dialog",
   about: ".about-dialog",
 };
-// Regular native-dialog heights: content that is taller scrolls inside the
-// panel instead of stretching the window into a super-tall strip.
-const DIALOG_MAX_HEIGHT = {
-  conn: 640,
-  update: 800,
-  changelog: 660,
-  about: 720,
+// Fit bounds (logical px): heights never stretch the window into a super-tall
+// strip — taller content scrolls inside the panel; widths only shrink from
+// the persisted/default size when the content genuinely fits narrower.
+const DIALOG_FIT_BOUNDS = {
+  conn: { minW: 920, minH: 480, maxH: 820 },
+  update: { minW: 720, minH: 420, maxH: 820 },
+  changelog: { minW: 560, minH: 380, maxH: 780 },
+  about: { minW: 480, minH: 360, maxH: 780 },
 };
 
+// The dialog page fits its content and asks Rust to resize; Rust persists
+// the size itself (see dialogs.rs on_window_event), so nothing else to do.
 let fitTimer = 0;
 // No `fit_dialog` (set_size) near show time: WebView2 is still initializing
-// then and a synchronous resize on the main thread freezes the whole process.
-// Content fits are only allowed once this timestamp passes.
+// then and a synchronous resize on the main thread can freeze the process.
+// The grace period is short (the window already has its persisted/default
+// size); after it, content-driven fits are allowed.
 let dialogShownAt = 0;
-function scheduleFit() {
+function scheduleFit(delay) {
   if (!tauri || !DIALOG_VIEW) return;
   if (performance.now() < dialogShownAt) return;
   clearTimeout(fitTimer);
   fitTimer = setTimeout(() => {
     fitTimer = 0;
     void fitDialogToContent();
-  }, 120);
+  }, delay ?? 120);
 }
 
-/** Fit the dialog window to its content height (native dialogs do not leave
- *  blank space below a fixed-size frame). Width stays at the window's current
- *  value — measuring max-content width is expensive and caused freezes. */
+/** Fit the dialog window to its content (a native dialog does not leave blank
+ *  space around a fixed-size frame). Height follows the content up to the
+ *  kind's cap; width stays at the current (persisted/default) value unless
+ *  the content is narrower — the window never grows wider from a fit, so the
+ *  user's resized width is respected. */
 async function fitDialogToContent() {
   if (!tauri || !DIALOG_VIEW) return;
   const selector = DIALOG_PANEL_SELECTOR[DIALOG_VIEW];
   const panel = selector && document.querySelector(selector);
   if (!panel) return;
+  const bounds = DIALOG_FIT_BOUNDS[DIALOG_VIEW] || { minW: 480, minH: 360, maxH: 780 };
+  // Measure natural content height: let the panel size to content off-flow,
+  // read its scroll height, then restore the flex layout. The panel is a
+  // flex column whose scrollable regions (`.update-body`, `.about-list`,
+  // `.conn-dialog-main`, `.changelog-body`) have `min-height: 0` — their own
+  // scrollHeight stays small when the window is small, so temporarily pin
+  // them to their full content height for the measurement.
   const prevHeight = panel.style.height;
   const prevAlign = panel.style.alignSelf;
   panel.style.alignSelf = "flex-start";
   panel.style.height = "auto";
+  const pinned = [];
+  for (const region of panel.querySelectorAll(
+    ".update-body, .about-list, .conn-dialog-main, .changelog-body"
+  )) {
+    pinned.push([region, region.style.minHeight]);
+    region.style.minHeight = region.scrollHeight + "px";
+  }
+  // Two frames: let the browser commit the layout before measuring.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   const measured = Math.round(panel.scrollHeight || panel.getBoundingClientRect().height);
-  const maxHeight = DIALOG_MAX_HEIGHT[DIALOG_VIEW] || 720;
-  const height = Math.min(measured, maxHeight);
+  for (const [region, prev] of pinned) region.style.minHeight = prev;
   panel.style.height = prevHeight;
   panel.style.alignSelf = prevAlign;
-  const width = Math.round(window.innerWidth || 960);
+  const height = Math.min(Math.max(measured, bounds.minH), bounds.maxH);
+  const width = Math.max(Math.round(window.innerWidth || bounds.minW), bounds.minW);
   try {
     await invoke("fit_dialog", { width, height });
   } catch (_) {
@@ -2559,7 +2666,7 @@ async function fitDialogToContent() {
   }
 }
 
-async function startDialogView() {
+async function startDialogView(project) {
   if (DIALOG_VIEW === "conn") {
     $("conn-overlay").classList.remove("hidden");
     newConnection();
@@ -2569,14 +2676,25 @@ async function startDialogView() {
     void openUpdateDialogWithBestState();
   } else if (DIALOG_VIEW === "changelog") {
     $("changelog-overlay").classList.remove("hidden");
-    if (DIALOG_PROJECT) void openChangelog(DIALOG_PROJECT);
+    if (project) {
+      // The changelog dialog window has no update state of its own; pull the
+      // last completed check so openChangelog can find the project row.
+      try {
+        const cached = await invoke("cached_update_status");
+        if (cached) updateStatus = cached;
+      } catch (_) {
+        /* openChangelog reports a missing project itself */
+      }
+      updateModeOverride = "commit";
+      void openChangelog(project);
+    }
   } else if (DIALOG_VIEW === "about") {
     $("about-overlay").classList.remove("hidden");
     void showAbout();
   }
-  // Show at the pre-configured regular size (no resize during WebView2 init);
-  // content fits are allowed only after a grace period (see scheduleFit).
-  dialogShownAt = performance.now() + 1500;
+  // The window was created with its persisted (or default) size — show it
+  // right away; content-driven fits unlock after the WebView2 warm-up grace
+  // period so a resize never collides with initialization.
   if (tauri) {
     try {
       await invoke("show_dialog");
@@ -2584,6 +2702,8 @@ async function startDialogView() {
       /* ignore */
     }
   }
+  dialogShownAt = performance.now() + 500;
+  scheduleFit(600);
 }
 
 async function bootDialog() {
@@ -2594,15 +2714,15 @@ async function bootDialog() {
   if (tauri && tauri.event) {
     // Tauri's JS listeners are registered with an `Any` target, so the
     // `dialog-open` event reaches every dialog page; only the page whose kind
-    // matches the payload acts (avoids popping all three windows at once).
+    // matches the payload acts (avoids popping all four windows at once).
     tauri.event.listen("dialog-open", (event) => {
       const kind = event.payload && event.payload.kind;
       if (kind && kind !== DIALOG_VIEW) return;
-      startDialogView();
+      startDialogView(event.payload && event.payload.project);
     });
   } else {
     // Plain browser preview: nothing hides the page, start immediately.
-    startDialogView();
+    startDialogView(null);
   }
 }
 

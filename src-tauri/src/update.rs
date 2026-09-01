@@ -141,6 +141,11 @@ pub struct UpdateStatus {
     /// False when at least one repository could not be checked (network/auth),
     /// so a transient failure never clears the badge or the pending plan.
     pub all_checked: bool,
+    /// Unix seconds when this check finished; the dialog shows it as "上次
+    /// 检查" so a cached result is visibly stale.
+    pub checked_at: u64,
+    /// Wall-clock milliseconds the check took; shown next to `checked_at`.
+    pub duration_ms: u64,
 }
 
 fn gui_dir(root: &Path) -> PathBuf {
@@ -696,6 +701,7 @@ pub fn local_check(root: &Path) -> Vec<ProjectUpdate> {
 /// Check the root repository and every submodule. The root is always first so
 /// the pending plan has a deterministic order for the update launcher.
 pub fn check(root: &Path) -> UpdateStatus {
+    let started = std::time::Instant::now();
     let mut projects = Vec::new();
     projects.push(check_project(root, "dsh-gui", "dsh-gui", root));
     for (name, path) in submodule_entries(root) {
@@ -704,11 +710,17 @@ pub fn check(root: &Path) -> UpdateStatus {
     let update_count = projects.iter().filter(|p| p.behind).count();
     let notify_count = projects.iter().filter(|p| p.behind && p.announce).count();
     let all_checked = projects.iter().all(|p| p.error.is_none());
+    let checked_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     UpdateStatus {
         has_updates: update_count > 0,
         update_count,
         notify_count,
         all_checked,
+        checked_at,
+        duration_ms: started.elapsed().as_millis() as u64,
         projects,
     }
 }

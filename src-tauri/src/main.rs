@@ -23,6 +23,7 @@
 
 mod about;
 mod changelog;
+mod dialog_sizes;
 mod dialogs;
 #[cfg(windows)]
 mod native_window;
@@ -53,7 +54,7 @@ use views::{
 // Native dialog-window commands (see `dialogs`).
 use dialogs::{
     ai_update_request, close_dialog, connection_added, dialog_event, fit_dialog, open_dialog,
-    show_dialog,
+    save_dialog_size, show_dialog,
 };
 
 #[cfg(windows)]
@@ -1495,6 +1496,7 @@ fn main() {
             close_dialog,
             fit_dialog,
             show_dialog,
+            save_dialog_size,
             connection_added,
             ai_update_request,
             dialog_event,

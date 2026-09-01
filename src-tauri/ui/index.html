@@ -120,11 +120,11 @@
             </label>
             <div class="conn-field-row" id="conn-ssh-auth">
               <div class="conn-field">
-                <label for="conn-ssh-host">SSH 主机（地址或别名，留空用连接地址）</label>
+                <label for="conn-ssh-host">SSH 主机（留空用连接地址）</label>
                 <input id="conn-ssh-host" class="conn-input" placeholder="ASUS 或 192.168.1.10" />
               </div>
               <div class="conn-field">
-                <label for="conn-ssh-user">SSH 用户名（留空用 ssh config 的 User）</label>
+                <label for="conn-ssh-user">SSH 用户名（留空用 ssh config）</label>
                 <input id="conn-ssh-user" class="conn-input" placeholder="root / chongfei" />
               </div>
             </div>
@@ -143,12 +143,8 @@
               </div>
             </div>
             <label class="conn-check" id="conn-save-wrap">
-              <input type="checkbox" id="conn-save-auth" checked /> 保存认证（Windows 凭据管理器 / Linux gpg）
+              <input type="checkbox" id="conn-save-auth" checked /> 保存认证（系统凭据管理器）
             </label>
-            <div class="conn-actions">
-              <button id="conn-connect" class="primary">连接</button>
-              <button id="conn-cancel" class="secondary">取消</button>
-            </div>
           </div>
           <div class="conn-right">
             <div class="conn-field" id="conn-ssh-startcmd-wrap">
@@ -162,6 +158,10 @@
             <div id="conn-log" class="conn-log"></div>
           </div>
         </div>
+        <div class="conn-actions">
+          <button id="conn-connect" class="primary">连接</button>
+          <button id="conn-cancel" class="secondary">取消</button>
+        </div>
       </div>
     </div>
 
@@ -172,6 +172,10 @@
       <div class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
         <h2 id="update-title">检查更新</h2>
         <div class="update-sub">比较 dsh-gui 与所有 submodule 的本地版本和远端最新版本。检测到可用更新后，建议使用「AI 更新」同步升级：让 agent 回到项目首页选中 dsh-gui 目录并预填同步升级提示词（agent 预设由你自选）。</div>
+        <div class="update-header-row">
+          <span id="update-status-line" class="update-status-line"></span>
+          <button id="update-refresh" class="update-refresh" type="button" title="重新检查">↻ 重新检查</button>
+        </div>
         <div id="update-body" class="update-body">
           <div class="update-loading">正在检查更新…</div>
         </div>

@@ -21,25 +21,27 @@
 
 use tauri::{Emitter, Manager, WebviewUrl};
 
+use crate::dialog_sizes;
 use crate::views;
 
 /// Dialog kinds (window labels are `<DIALOG_LABEL_PREFIX><kind>`). The
-/// changelog stays an overlay *inside* the update window.
-const KINDS: &[&str] = &["conn", "update", "about"];
+/// changelog was an overlay inside the update window; it is now its own
+/// window kind so it floats above everything like the others.
+const KINDS: &[&str] = &["conn", "update", "about", "changelog"];
 
 pub fn label_for(kind: &str) -> String {
     format!("{}{}", views::DIALOG_LABEL_PREFIX, kind)
 }
 
+/// Compiled-in defaults: `(title, width, height, min_width, min_height)`.
+/// Sizes are logical pixels; long content scrolls inside the panel instead
+/// of stretching the window.
 fn dialog_meta(kind: &str) -> Result<(&'static str, f64, f64, f64, f64), String> {
-    // (title, width, height, min_width, min_height)
-    // Regular native-dialog sizes: long content scrolls inside the panel
-    // instead of stretching the window (about/update) or leaving blank space
-    // (connection). `fit_dialog` only tunes later content changes.
     match kind {
-        "conn" => Ok(("连接管理", 1040.0, 600.0, 900.0, 520.0)),
-        "update" => Ok(("检查更新", 960.0, 800.0, 760.0, 560.0)),
-        "about" => Ok(("关于", 620.0, 720.0, 520.0, 560.0)),
+        "conn" => Ok(("连接管理", 1040.0, 620.0, 920.0, 560.0)),
+        "update" => Ok(("检查更新", 960.0, 720.0, 720.0, 520.0)),
+        "about" => Ok(("关于", 620.0, 640.0, 480.0, 480.0)),
+        "changelog" => Ok(("更新日志", 760.0, 660.0, 560.0, 480.0)),
         _ => Err(format!("unknown dialog kind: {kind}")),
     }
 }
@@ -49,7 +51,16 @@ fn create_one(
     owner: &tauri::WebviewWindow,
     kind: &str,
 ) -> Result<(), String> {
-    let (title, width, height, min_width, min_height) = dialog_meta(kind)?;
+    let (title, default_w, default_h, min_width, min_height) = dialog_meta(kind)?;
+    // Restore the last size the user picked; fall back to the compiled default.
+    let root = owner
+        .app_handle()
+        .try_state::<crate::ShellState>()
+        .map(|s| s.root.clone());
+    let (width, height) = root
+        .as_ref()
+        .and_then(|r| dialog_sizes::load(r).0.get(kind).copied())
+        .unwrap_or((default_w, default_h));
     let script = format!(
         "window.__DSH_DIALOG_VIEW__ = {};",
         serde_json::to_string(kind).map_err(|e| e.to_string())?
@@ -64,6 +75,8 @@ fn create_one(
         .decorations(true)
         .visible(false)
         .center()
+        // A dialog does not need a taskbar entry; the owner's is enough.
+        .skip_taskbar(true)
         .initialization_script(script);
     // Owned by the main window: keeps the dialog above its owner on Windows
     // and avoids it sliding behind the shell.
@@ -77,16 +90,34 @@ fn create_one(
     let app_handle = app.clone();
     let label = window.label().to_string();
     window.on_window_event(move |event| {
-        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-            api.prevent_close();
-            if let Some(win) = app_handle.get_webview_window(&label) {
-                let _ = win.hide();
+        match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                if let Some(win) = app_handle.get_webview_window(&label) {
+                    let _ = win.hide();
+                }
+                let _ = app_handle.emit_to(
+                    views::SHELL_WEBVIEW,
+                    "dialog-closed",
+                    serde_json::json!({}),
+                );
             }
-            let _ = app_handle.emit_to(
-                views::SHELL_WEBVIEW,
-                "dialog-closed",
-                serde_json::json!({}),
-            );
+            tauri::WindowEvent::Resized(size) => {
+                // Persist user-driven resizes so the next open restores them.
+                // Programmatic `fit_dialog` resizes also land here; that is
+                // fine — the fitted size *is* the size the user last saw.
+                if let Some(state) = app_handle.try_state::<crate::ShellState>() {
+                    let scale = app_handle
+                        .get_webview_window(&label)
+                        .and_then(|w| w.scale_factor().ok())
+                        .unwrap_or(1.0);
+                    let w = size.width as f64 / scale;
+                    let h = size.height as f64 / scale;
+                    let kind = label.trim_start_matches(views::DIALOG_LABEL_PREFIX);
+                    dialog_sizes::save(&state.root, kind, w, h);
+                }
+            }
+            _ => {}
         }
     });
     Ok(())
@@ -111,6 +142,7 @@ pub fn open_dialog(
     app: tauri::AppHandle,
     webview: tauri::Webview,
     kind: String,
+    project: Option<String>,
 ) -> Result<(), String> {
     views::ensure_shell_or_dialog(&webview)?;
     if !KINDS.contains(&kind.as_str()) {
@@ -131,7 +163,7 @@ pub fn open_dialog(
     let _ = app.emit_to(
         &label,
         "dialog-open",
-        serde_json::json!({ "kind": kind }),
+        serde_json::json!({ "kind": kind, "project": project }),
     );
     Ok(())
 }
@@ -175,6 +207,24 @@ pub fn fit_dialog(
     window
         .set_size(tauri::LogicalSize::new(width, height))
         .map_err(|e| format!("failed to fit the dialog window: {e}"))
+}
+
+/// Persist one dialog's size (called after a successful content fit or a
+/// user resize), so the next open restores the same geometry.
+#[tauri::command]
+pub fn save_dialog_size(
+    webview: tauri::Webview,
+    state: tauri::State<'_, crate::ShellState>,
+    kind: String,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    views::ensure_dialog(&webview)?;
+    if !KINDS.contains(&kind.as_str()) {
+        return Err(format!("unknown dialog kind: {kind}"));
+    }
+    dialog_sizes::save(&state.root, &kind, width, height);
+    Ok(())
 }
 
 /// Report a successfully established connection from the connection dialog to

@@ -28,6 +28,7 @@ fn main() {
         "close_dialog",
         "fit_dialog",
         "show_dialog",
+        "save_dialog_size",
         "connection_added",
         "ai_update_request",
         "dialog_event",
