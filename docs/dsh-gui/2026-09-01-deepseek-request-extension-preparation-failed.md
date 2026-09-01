@@ -1,5 +1,9 @@
 # DeepSeek provider 请求失败排查记录（2026-09-01）
 
+> **状态：修复方案已提交决**。修复方案（仓库根 `package.json` 补 `version`）随提交
+> `c8ae091` 落地，其他设备部署可参考修复方案，清理profile 的悬空
+> `@dsh-external/dsh-mode-boost` 链接。
+
 > 环境：dsh-gui 自托管（`DSH_HOME = <repo>/.dsh`，web profile），
 > `deepseek-harness` 为 pinned 上游子模块（本次**未改动**，仅用于查证规范）。
 >
@@ -41,7 +45,7 @@ provider 后**必现**（同一会话内连续 112 次，包含"会话标题"类
   这条路径，所以 pi-ai 正常、DeepSeek 必挂。
 - 从 session 日志解码确认失败请求的参数：
   `provider: deepseek-official`，`model: deepseek-v4-flash-vision-exp`，
-  `agentPreset: router-standard`（见下文"复现证据"）。
+  `agentPreset: router-standard`（见下文"复现与诊断步骤"）。
 
 ## 根因
 
@@ -116,7 +120,7 @@ profile 合并配置中两者均无覆盖配置，故只有 `dsh_plugin_packages
 `dsh.profile.bundles` 里、非 active 条目，故不是本报错的直接原因，但会
 破坏 node_modules 遍历/重装工具，一并清理。
 
-## 复现与诊断步骤（可复现）
+## 复现与诊断步骤
 
 ```powershell
 # 1. 确认 profile 合并装配中 agent-default-model 指向 deepseek-official
@@ -125,7 +129,7 @@ node deepseek-harness/apps/cli/lib/bin.js --profile web --dump-config |
   Select-String -Pattern 'provider: deepseek-official' -Context 1,1
 #   agent-default-model → provider: deepseek-official, model: deepseek-v4-flash
 
-# 2. 解压失败会话日志（zstd，逐帧解码；复用 harness 自带 scanZstdFrames）
+# 2.解压失败会话日志（初次发现，zstd，逐帧解码；复用 harness 自带 scanZstdFrames）
 #    .dsh/sessions/--D-git-dsh-gui--/session-9ff97111-*/session.jsonl.zstd
 #    → 112 处 "DeepSeek request extension preparation failed" / REQUEST_EXTENSION
 #    → 请求头：provider=deepseek-official, model=deepseek-v4-flash-vision-exp
@@ -228,7 +232,7 @@ package.json` 移除该依赖并删除悬空符号链接。
 
 ## 涉及文件
 
-- `package.json`（仓库根，根因修复：补 `version`；已 `git add` 暂存）
+- `package.json`（仓库根，根因修复：补 `version`；已随 `c8ae091` 提交）
 - `.dsh/profiles/web/package.json`（移除孤儿 `@dsh-external/dsh-mode-boost`
   依赖；`.dsh` 为 gitignored 运行时）
 - `.dsh/profiles/web/node_modules/@dsh-external/dsh-mode-boost`（删除悬空
