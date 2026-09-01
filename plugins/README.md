@@ -84,7 +84,7 @@ would double-mount it and fail the plugin tree with
 - [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（v0.17.1 起含 DSH 0.1.2-alpha.1 适配（双版本兼容）；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包
-- [dsh-deep-whale/maid-atelier](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装
+- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
 - [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 源码安装
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-liangshen@latest](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
@@ -180,18 +180,25 @@ would double-mount it and fail the plugin tree with
   Init without `--recursive`: `git submodule update --init
   plugins/routing-suite/dsh-routing-suite`. See `routing-suite/README.md`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
-  `deep-whale/dsh-deep-whale`: the whale-girl skin series. The current
-  package is `maid-atelier` (`@dsh-external/dsh-client-ui-skin-maid-atelier`,
-  CC BY-NC-SA 4.0), a hot-pluggable deep-sea maid atelier skin. It is
-  installed as a 免编译源码安装 (per the 安装方式 section above): the checkout
+  `deep-whale/dsh-deep-whale`: the whale-girl skin series. The wrapper
+  installs the full upstream trio (per the upstream INSTALL.md /
+  dsh-skin-install skill): the persistent skin manager
+  `@dsh-external/dsh-client-ui-skin-deep-whale-manager` plus the two
+  mutually exclusive skins `maid-atelier` and `orca-link`
+  (`@dsh-external/dsh-client-ui-skin-maid-atelier` /
+  `@dsh-external/dsh-client-ui-skin-orca-link`, each CC BY-NC-SA 4.0). All
+  three are 免编译源码安装 (per the 安装方式 section above): the checkout
   ships prebuilt `lib/` committed in the repo, so the wrapper passes
-  `build: false` and never compiles — it links the prebuilt package as shipped
-  through its own `dsh.bundle.patch` layer (the submodule checkout is linked
-  directly; no copy, no patch). Current upstream tracks the native
-  conversation geometry itself (`--maid-conversation-*`), so the palace
-  backdrop and whale-girl art shrink out of any right/bottom panels
-  generically. See `deep-whale/dsh-deep-whale/README.md` and its
-  `maid-atelier/README.md`.
+  `build: false` and never compiles — it links the prebuilt packages as
+  shipped, each through its own `dsh.bundle.patch` layer (entry ids
+  `ui-skin-deep-whale-manager`, `ui-skin-maid-atelier`, `ui-skin-orca-link`;
+  no copy, no patch). On first bootstrap the wrapper pre-stages skin mutual
+  exclusion to keep `maid-atelier` active (`orca-link` disabled) before the
+  first restart; later switches via `设置 → 皮肤管理` are preserved. Current
+  upstream tracks the native conversation geometry itself
+  (`--maid-conversation-*`), so the palace backdrop and whale-girl art shrink
+  out of any right/bottom panels generically. See
+  `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
   `dsh-web-ui/dsh-web-ui`. Installs three plugin packages of the distribution
   repo from npm `@latest` (per the 安装方式 section above):
