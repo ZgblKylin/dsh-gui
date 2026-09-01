@@ -1,5 +1,6 @@
 {
   "name": "dsh-gui",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Desktop shell for the DeepSeek Harness web UI",
