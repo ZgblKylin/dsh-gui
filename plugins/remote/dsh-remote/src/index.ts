@@ -9,10 +9,11 @@
  *    configurable command (default `npx '@deepseek-ai/dsh' web`) and kept
  *    running inside a `dsh-gui` tmux session. No code is deployed to the
  *    remote — the startup command owns how dsh is run there. The frontend is
- *    reached over an SSH local port forward (`ssh -N -L`): the pipeline
- *    establishes the session, checks the remote toolchain, starts/restarts the
- *    tmux session, discovers the session's serving port, forwards it to a free
- *    local loopback port, and only then reports the local URL as loadable,
+ *    reached over an SSH local port forward (pure-JS `ssh2`, no native ssh
+ *    binary): the pipeline establishes the session, checks the remote
+ *    toolchain, starts/restarts the tmux session, discovers the session's
+ *    serving port, forwards it to a free local loopback port, and only then
+ *    reports the local URL as loadable,
  *  - `creds.*` / `keyfile.write` — the credential store (Windows DPAPI,
  *    Linux gpg; keys and filenames carry `ZgblKylin+dsh-gui+<连接名>`), plus the
  *    uploaded SSH private-key files.
@@ -29,14 +30,32 @@
  * This half is a real Node ESM bundle: node: builtins are used directly.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync, openSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync, openSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { get as httpGet } from 'node:http'
 import { createServer } from 'node:net'
+import { homedir, userInfo } from 'node:os'
 import type { AddressInfo } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
+import SSHConfig, { glob as sshGlob } from 'ssh-config'
+import * as ssh2ns from 'ssh2'
+import type { Client as SshClient, ConnectConfig } from 'ssh2'
+
+/**
+ * ssh2 is a CommonJS module and its named exports are detected by Node's
+ * cjs-module-lexer inconsistently across Node versions (observed: `Client`
+ * resolves, `Server`/`utils` do not on some runtimes). Always prefer the CJS
+ * `default` (module.exports) when the namespace lacks the named export.
+ */
+function loadSshClient(): new () => SshClient {
+  const ns = ssh2ns as unknown as { Client?: unknown; default?: { Client?: unknown } }
+  const ctor = ns.Client ?? ns.default?.Client
+  if (typeof ctor !== 'function') throw new Error('ssh2 Client is not available in this runtime')
+  return ctor as unknown as new () => SshClient
+}
+const Client: new () => SshClient = loadSshClient()
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -219,51 +238,446 @@ function sshAvailability(): { ssh: string | null; plink: string | null; sshpass:
 }
 
 /**
- * Build the real client argv for a remote `bash -s` run.
+ * SSH transport — pure ssh2 (no native ssh/plink/sshpass binaries involved).
  *
- * `auth.host` is the SSH target (an ssh-config alias like `ASUS` or a literal
- * hostname), deliberately distinct from the DSH backend `address`. When
- * neither a password nor a key file is given, the bare host is passed through
- * so the local `~/.ssh/config` (Host alias, User, IdentityFile, port) is
- * reused unchanged. Port flag (ssh `-p` / plink `-P`) is only emitted when an
- * explicit non-default port was supplied — consistent across the three tools.
+ * Password auth now works out of the box (this was the documented weak spot:
+ * the old transport could only feed a password through `plink -pw` /
+ * `sshpass -p`, so any Windows box with only OpenSSH silently rejected a
+ * typed password). Private keys are read from the key file(s) through ssh2
+ * directly (`~/.ssh/config` Host aliases like `ASUS`, plus HostName / User /
+ * Port / IdentityFile, are honored so alias reuse keeps working), host keys
+ * get accept-new treatment against `~/.ssh/known_hosts`, and the typed
+ * password doubles as the passphrase for an uploaded encrypted key when a key
+ * file is chosen ("密码 或 密钥文件").
  */
-function buildSshArgv(auth: Record<string, unknown>, avail: { ssh: string | null; plink: string | null; sshpass: string | null }): string[] | null {
-  const user = String(auth.user ?? '')
-  const userHost = (user !== '' ? `${user}@` : '') + String(auth.host)
-  const explicitPort = auth.port !== undefined && auth.port !== null && Number(auth.port) !== 22
-  const port = String(auth.port ?? 22)
-  if (auth.password && !auth.keyFile) {
-    if (avail.sshpass !== null && avail.ssh !== null) {
-      const argv = [avail.sshpass, '-p', String(auth.password), avail.ssh, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=15']
-      if (explicitPort) argv.push('-p', port)
-      argv.push(userHost, 'bash -s')
-      return argv
-    }
-    if (avail.plink !== null) {
-      const argv = [avail.plink, '-batch', '-pw', String(auth.password)]
-      if (explicitPort) argv.push('-P', port)
-      argv.push(userHost, 'bash -s')
-      return argv
-    }
-    return null
-  }
-  if (avail.ssh === null) return null
-  const argv = [avail.ssh]
-  if (auth.keyFile) argv.push('-i', String(auth.keyFile))
-  argv.push('-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15')
-  if (explicitPort) argv.push('-p', port)
-  argv.push(userHost, 'bash -s')
-  return argv
+
+/** What the connection dialog sends for a remote target. */
+export interface SshAuth {
+  user?: string
+  host?: string
+  port?: number
+  password?: string
+  keyFile?: string
 }
 
-/** One remote command fed to `bash -s` over ssh. */
-async function sshRun(ctx: Context, auth: Record<string, unknown>, script: string, timeoutMs = 120000): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const avail = sshAvailability()
-  if (avail.ssh === null && avail.plink === null) return { exitCode: 1, stdout: '', stderr: 'ssh not available' }
-  const argv = buildSshArgv(auth, avail)
-  if (argv === null) return { exitCode: 1, stdout: '', stderr: 'password auth requires plink or sshpass' }
-  return runSync(argv, script, timeoutMs)
+/** Effective connection plan after merging explicit fields + `~/.ssh/config`. */
+export interface SshPlan {
+  username: string
+  hostname: string
+  port: number
+  password?: string
+  keyPassphrase?: string
+  keyFiles: string[]
+}
+
+/**
+ * Resolved `~/.ssh/config` values for one host. `identityFiles` is ordered
+ * (multiple `IdentityFile` lines accumulate); `identitiesOnly` is true when a
+ * matching section sets `IdentitiesOnly yes`.
+ */
+export interface ResolvedSshConfig {
+  user?: string
+  hostname?: string
+  port?: string
+  identityFiles: string[]
+  identitiesOnly: boolean
+}
+
+/** Local user's home directory (~/.ssh lives under it). */
+function sshHome(): string {
+  try {
+    return homedir()
+  } catch {
+    return process.env.HOME || process.env.USERPROFILE || ''
+  }
+}
+
+/** Expand a `~/...` path from ssh config / our default key list. */
+export function expandTilde(path: string): string {
+  if (path === '~') return sshHome()
+  if (path.startsWith('~/') || path.startsWith('~\\')) return join(sshHome(), path.slice(2))
+  return path
+}
+
+/** Default private keys tried when no explicit credential is provided. */
+const DEFAULT_KEY_FILES = ['~/.ssh/id_ed25519', '~/.ssh/id_rsa', '~/.ssh/id_ecdsa']
+
+/**
+ * Resolve an ssh_config document for one host via the `ssh-config` library —
+ * the OpenSSH-exact parser/stringifier (first-obtained-value wins per
+ * ssh_config(5), Host/Match sections, `*`/`?`/`!` patterns, quoted values,
+ * additive `IdentityFile`). `matchExec` is always off so a config can never
+ * execute shell (`Match exec`) or `nslookup` (CanonicalizeHostName) inside
+ * this process. `Include` directives are parsed but not followed (OpenSSH
+ * would read them; documented limitation).
+ */
+export function resolveSshConfigFromText(host: string, text: string): ResolvedSshConfig {
+  const out: ResolvedSshConfig = { identityFiles: [], identitiesOnly: false }
+  let computed: Record<string, unknown>
+  try {
+    computed = SSHConfig.parse(text).compute(host, { ignoreCase: true, matchExec: false })
+  } catch {
+    return out
+  }
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
+  const user = str(computed['user'])
+  const hostname = str(computed['hostname'])
+  const port = str(computed['port'])
+  const identityFile = computed['identityfile']
+  if (user !== undefined) out.user = user
+  if (hostname !== undefined) out.hostname = hostname
+  if (port !== undefined) out.port = port
+  if (Array.isArray(identityFile)) out.identityFiles = identityFile.filter((v): v is string => typeof v === 'string')
+  else if (typeof identityFile === 'string' && identityFile !== '') out.identityFiles = [identityFile]
+  if (typeof computed['identitiesonly'] === 'string' && /^(yes|true|1)$/i.test(computed['identitiesonly'])) out.identitiesOnly = true
+  return out
+}
+
+/** File-backed `~/.ssh/config` lookup (best effort). */
+function sshConfigFromFile(host: string): ResolvedSshConfig {
+  try {
+    const file = join(sshHome(), '.ssh', 'config')
+    if (!existsSync(file)) return { identityFiles: [], identitiesOnly: false }
+    return resolveSshConfigFromText(host, readFileSync(file, 'utf8'))
+  } catch {
+    return { identityFiles: [], identitiesOnly: false }
+  }
+}
+
+/** Build the effective connection plan for one target. */
+export function buildSshPlan(auth: SshAuth): SshPlan {
+  const host = String(auth.host ?? '')
+  let username = String(auth.user ?? '').trim()
+  let hostname = host
+  let port: number = auth.port !== undefined && Number.isInteger(auth.port) && auth.port > 0 && auth.port <= 65535 ? auth.port : 22
+  let keyFiles: string[] = []
+  if (host !== '') {
+    const cfg = sshConfigFromFile(host)
+    if (cfg.user !== undefined && username === '') username = cfg.user
+    if (cfg.hostname !== undefined && cfg.hostname !== '') hostname = cfg.hostname
+    if (cfg.port !== undefined) {
+      const p = Number(cfg.port)
+      if (Number.isInteger(p) && p > 0 && p <= 65535) port = p
+    }
+    keyFiles = cfg.identityFiles.map(expandTilde)
+  }
+  if (auth.keyFile !== undefined && auth.keyFile !== '') keyFiles = [String(auth.keyFile)]
+  if (username === '') {
+    try { username = userInfo().username } catch { username = '' }
+  }
+  const plan: SshPlan = { username, hostname, port, keyFiles }
+  if (auth.keyFile !== undefined && auth.keyFile !== '') {
+    // A key file was chosen: any typed password is the key's passphrase.
+    if (auth.password !== undefined && auth.password !== '') plan.keyPassphrase = String(auth.password)
+  } else {
+    plan.password = auth.password !== undefined && auth.password !== '' ? String(auth.password) : undefined
+  }
+  return plan
+}
+
+/**
+ * accept-new host-key check against a known_hosts document. Returns whether
+ * the connection may proceed and whether the host was already known (callers
+ * append the key once after a successful first connect).
+ */
+export function checkHostKeyAcceptNew(host: string, key: Buffer, knownText: string): { ok: boolean; known: boolean } {
+  const keyB64 = key.toString('base64')
+  for (const raw of knownText.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('@')) continue // markers: @cert-authority / @revoked
+    const parts = line.split(/\s+/)
+    if (parts.length < 3) continue
+    const hostList = parts[0]
+    if (hostList.includes('|')) continue // hashed host entry (`|1|salt|hash`) — cannot match here
+    if (!sshGlob(hostList, host)) continue
+    if (parts[2] === keyB64) return { ok: true, known: true } // same key → trust
+    return { ok: false, known: false } // key changed for a known host → refuse (possible MITM)
+  }
+  return { ok: true, known: false } // not present → accept-new
+}
+
+function knownHostsPath(): string {
+  return join(sshHome(), '.ssh', 'known_hosts')
+}
+
+function verifyKnownHosts(host: string, key: Buffer): { ok: boolean; known: boolean } {
+  try {
+    const file = knownHostsPath()
+    if (!existsSync(file)) return { ok: true, known: false }
+    return checkHostKeyAcceptNew(host, key, readFileSync(file, 'utf8'))
+  } catch {
+    return { ok: true, known: false }
+  }
+}
+
+/** Fall back to the algorithm tag parsed from the key blob. */
+function keyAlgorithm(key: Buffer): string {
+  try {
+    const len = key.readUInt32BE(0)
+    if (len > 0 && len < 256 && key.length >= 4 + len) return key.subarray(4, 4 + len).toString('ascii')
+  } catch { /* unparsable */ }
+  return 'ssh-rsa'
+}
+
+/** Best-effort append of a newly accepted host key (accept-new persistence). */
+function appendKnownHostKey(host: string, key: Buffer): void {
+  if (host === '') return
+  try {
+    const file = knownHostsPath()
+    if (!existsSync(dirname(file))) return
+    let existing = ''
+    if (existsSync(file)) existing = readFileSync(file, 'utf8')
+    for (const raw of existing.split(/\r?\n/)) {
+      const parts = raw.trim().split(/\s+/)
+      if (parts.length >= 1 && parts[0].split(',').includes(host)) return // already recorded
+    }
+    appendFileSync(file, `${host} ${keyAlgorithm(key)} ${key.toString('base64')}\n`)
+  } catch { /* best-effort */ }
+}
+
+/** One authentication attempt payload for a fresh connection. */
+type SshCandidate =
+  | { kind: 'password'; password: string }
+  | { kind: 'key'; path: string; passphrase?: string }
+  | { kind: 'agent'; sock: string }
+
+/**
+ * One live ssh2 connection (exec + local port forwarding). Owns the client,
+ * any forwarded-port servers/sockets, and the host-key accept-new bookkeeping.
+ */
+export class SshSession {
+  readonly auth: SshAuth
+  readonly plan: SshPlan
+  private client: SshClient | null = null
+  private servers: ReturnType<typeof createServer>[] = []
+  private sockets = new Set<import('node:net').Socket>()
+  private pendingAppend: { host: string; key: Buffer } | null = null
+
+  constructor(auth: SshAuth) {
+    this.auth = auth
+    this.plan = buildSshPlan(auth)
+  }
+
+  get label(): string {
+    const p = this.plan
+    return `${p.username}@${p.hostname}:${p.port}`
+  }
+
+  get connected(): boolean {
+    return this.client !== null
+  }
+
+  get current(): SshClient {
+    if (this.client === null) throw new Error('ssh session not connected')
+    return this.client
+  }
+
+  /** Auth candidates in the order ssh would try them. */
+  private candidates(): SshCandidate[] {
+    const p = this.plan
+    if (p.keyFiles.length === 0 && p.password !== undefined) return [{ kind: 'password', password: p.password }]
+    const list: SshCandidate[] = []
+    const seen = new Set<string>()
+    for (const path of p.keyFiles) {
+      const abs = expandTilde(path)
+      if (!existsSync(abs) || seen.has(abs)) continue
+      seen.add(abs)
+      list.push({ kind: 'key', path: abs, passphrase: p.keyPassphrase })
+    }
+    if (p.password === undefined) {
+      // No explicit credential: fall through to ssh-agent + default keys.
+      if (process.env.SSH_AUTH_SOCK) list.push({ kind: 'agent', sock: process.env.SSH_AUTH_SOCK })
+      for (const rel of DEFAULT_KEY_FILES) {
+        const abs = expandTilde(rel)
+        if (existsSync(abs) && !seen.has(abs)) {
+          seen.add(abs)
+          list.push({ kind: 'key', path: abs })
+        }
+      }
+    }
+    if (list.length === 0) list.push({ kind: 'password', password: p.password ?? '' })
+    return list
+  }
+
+  private hostVerifier(): (key: Buffer) => boolean {
+    return (key: Buffer) => {
+      const res = verifyKnownHosts(this.plan.hostname, key)
+      if (res.ok && !res.known) this.pendingAppend = { host: this.plan.hostname, key: Buffer.from(key) }
+      return res.ok
+    }
+  }
+
+  private openOnce(cand: SshCandidate): Promise<SshClient> {
+    return new Promise((resolve, reject) => {
+      const client = new Client()
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        try { client.end() } catch { /* already closed */ }
+        reject(new Error('SSH 握手超时'))
+      }, 15000)
+      const cfg: ConnectConfig = {
+        host: this.plan.hostname,
+        port: this.plan.port,
+        username: this.plan.username,
+        readyTimeout: 15000,
+        keepaliveInterval: 15000,
+        keepaliveCountMax: 3,
+        hostVerifier: this.hostVerifier(),
+      }
+      if (cand.kind === 'password') {
+        cfg.password = cand.password
+        cfg.tryKeyboard = true // many servers expose password auth as keyboard-interactive
+      } else if (cand.kind === 'key') {
+        try {
+          cfg.privateKey = readFileSync(cand.path)
+        } catch (err) {
+          settled = true
+          clearTimeout(timer)
+          reject(new Error(`密钥读取失败: ${err instanceof Error ? err.message : String(err)}`))
+          return
+        }
+        if (cand.passphrase !== undefined) cfg.passphrase = cand.passphrase
+      } else {
+        cfg.agent = cand.sock
+      }
+      client.on('keyboard-interactive', (_n, _i, _l, prompts, finish) => {
+        finish(prompts.map(() => (cand.kind === 'password' ? cand.password : '')))
+      })
+      client.once('ready', () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (this.pendingAppend !== null) {
+          appendKnownHostKey(this.pendingAppend.host, this.pendingAppend.key)
+          this.pendingAppend = null
+        }
+        resolve(client)
+      })
+      client.once('error', (err) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        try { client.end() } catch { /* already closed */ }
+        reject(err)
+      })
+      client.connect(cfg)
+    })
+  }
+
+  /** Open the connection; tries each auth candidate until one succeeds. */
+  async connect(): Promise<void> {
+    if (this.client !== null) return
+    const failures: string[] = []
+    for (const cand of this.candidates()) {
+      try {
+        this.client = await this.openOnce(cand)
+        return
+      } catch (err) {
+        failures.push(err instanceof Error ? err.message : String(err))
+      }
+    }
+    throw new Error(failures.join('；') || '认证失败')
+  }
+
+  /** Run one remote command via `bash -s` on this session. */
+  async exec(script: string, timeoutMs: number): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    const client = this.client
+    if (client === null) return { exitCode: 1, stdout: '', stderr: '会话未连接' }
+    return new Promise((resolve) => {
+      const out: Buffer[] = []
+      const err: Buffer[] = []
+      let settled = false
+      let timer: ReturnType<typeof setTimeout> | null = null
+      let exitCode = 1
+      const finish = (code: number, signal?: string) => {
+        if (settled) return
+        settled = true
+        if (timer !== null) clearTimeout(timer)
+        resolve({
+          exitCode: signal !== undefined && signal !== '' ? 1 : code,
+          stdout: Buffer.concat(out).toString('utf8'),
+          stderr: Buffer.concat(err).toString('utf8'),
+        })
+      }
+      client.exec('bash -s', (execErr, stream) => {
+        if (execErr !== undefined && execErr !== null) {
+          err.push(Buffer.from(String(execErr)))
+          finish(1)
+          return
+        }
+        stream.on('data', (chunk: Buffer) => out.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+        ;(stream.stderr as unknown as import('node:stream').Readable).on('data', (chunk: Buffer) => err.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+        stream.on('exit', (code: number | null, signal?: string) => {
+          if (typeof code === 'number') exitCode = code
+          else if (signal !== undefined && signal !== '') exitCode = 1
+        })
+        stream.on('close', (code?: number | null, signal?: string) => {
+          if (typeof code === 'number') exitCode = code
+          finish(exitCode, signal)
+        })
+        stream.on('error', (streamErr: Error) => {
+          err.push(Buffer.from(String(streamErr)))
+          finish(1)
+        })
+        try {
+          ;(stream.stdin ?? stream).end(script)
+        } catch { /* channel already closed — nothing to feed */ }
+        timer = setTimeout(() => {
+          try { stream.end() } catch { /* already closed */ }
+          err.push(Buffer.from(`(timeout after ${timeoutMs}ms)`))
+          finish(124)
+        }, timeoutMs)
+      })
+    })
+  }
+
+  /** Register a forwarded-port net.Server so it is torn down with the session. */
+  trackServer(server: ReturnType<typeof createServer>): void {
+    this.servers.push(server)
+    server.once('close', () => {
+      const i = this.servers.indexOf(server)
+      if (i >= 0) this.servers.splice(i, 1)
+    })
+  }
+
+  trackSocket(socket: import('node:net').Socket): void {
+    this.sockets.add(socket)
+    socket.once('close', () => this.sockets.delete(socket))
+  }
+
+  close(): void {
+    this.sockets.forEach((s) => { try { s.destroy() } catch { /* gone */ } })
+    this.sockets.clear()
+    for (const server of this.servers) {
+      try { server.close() } catch { /* gone */ }
+    }
+    this.servers = []
+    const c = this.client
+    this.client = null
+    if (c !== null) {
+      try { c.end() } catch { /* gone */ }
+    }
+  }
+}
+
+/** The transient ssh2 session backing the in-flight `sshRun`; `ssh.cancel` closes it to abort. */
+const activeSession: { current: SshSession | null } = { current: null }
+
+/** One remote command fed to `bash -s` over an ssh2 session (own connection, closed afterwards). */
+async function sshRun(_ctx: Context, auth: SshAuth, script: string, timeoutMs = 120000): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const session = new SshSession(auth)
+  activeSession.current = session
+  try {
+    await session.connect()
+    return await session.exec(script, timeoutMs)
+  } catch (error) {
+    return { exitCode: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }
+  } finally {
+    if (activeSession.current === session) activeSession.current = null
+    session.close()
+  }
 }
 
 /** Shared log line -> plugin console. */
@@ -327,7 +741,7 @@ interface Tunnel {
   key: string
   localPort: number
   remotePort: number
-  proc: ReturnType<typeof spawn>
+  session: SshSession
 }
 
 /** All live tunnels, keyed `${host}:${remotePort}`; killed on teardown. */
@@ -347,54 +761,56 @@ function freeLocalPort(): Promise<number> {
 }
 
 /**
- * Open an SSH local port forward: local 127.0.0.1:<localPort> -> remote
- * 127.0.0.1:<remotePort>. The remote backend binds loopback only, so the
- * traffic rides over the encrypted session instead of being exposed on the
- * LAN. The tunnel process is detached and kept alive; close it with
- * closeTunnel / teardown. Reuses a live tunnel for the same host:port.
+ * Open an SSH local port forward over a long-lived ssh2 session:
+ * local 127.0.0.1:<localPort> -> remote 127.0.0.1:<remotePort>. The traffic
+ * rides the authenticated pure-JS connection (password / key / config all
+ * work), so no external ssh/plink/sshpass binary is involved. The tunnel
+ * process stays alive until closeTunnel / teardown; a live tunnel for the
+ * same host:remotePort is reused.
  */
-async function openTunnel(ctx: Context, auth: Record<string, unknown>, avail: { ssh: string | null; plink: string | null; sshpass: string | null }, remotePort: number): Promise<{ ok: boolean; localPort?: number; error?: string }> {
+async function openTunnel(ctx: Context, auth: SshAuth, remotePort: number): Promise<{ ok: boolean; localPort?: number; error?: string }> {
   const key = `${auth.host}:${remotePort}`
   const existing = tunnels.get(key)
-  if (existing !== undefined && existing.proc.exitCode === null) {
+  if (existing !== undefined && existing.session.connected) {
     void log(ctx, `reuse tunnel ${key} (local ${existing.localPort})`)
     return { ok: true, localPort: existing.localPort }
   }
-  if (existing !== undefined) tunnels.delete(key)
+  if (existing !== undefined) closeTunnel(key)
 
   const localPort = await freeLocalPort()
-  const forward = `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`
-  const user = String(auth.user ?? '')
-  const userHost = `${user !== '' ? `${user}@` : ''}${auth.host}`
-  const explicitPort = auth.port !== undefined && auth.port !== null && Number(auth.port) !== 22
-  const port = String(auth.port ?? 22)
+  const session = new SshSession(auth)
+  try {
+    await session.connect()
+  } catch (error) {
+    session.close()
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
 
-  let argv: string[] | null = null
-  if (auth.password && !auth.keyFile) {
-    if (avail.sshpass !== null && avail.ssh !== null) {
-      argv = [avail.sshpass, '-p', String(auth.password), avail.ssh, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-N', '-L', forward]
-      if (explicitPort) argv.push('-p', port)
-      argv.push(userHost)
-    } else if (avail.plink !== null) {
-      const args = [avail.plink, '-batch', '-pw', String(auth.password), '-L', forward]
-      if (explicitPort) args.push('-P', port)
-      args.push(userHost)
-      argv = args
+  const server = createServer((socket) => {
+    let client: SshClient
+    try {
+      client = session.current
+    } catch {
+      try { socket.destroy() } catch { /* gone */ }
+      return
     }
-  } else if (avail.ssh !== null) {
-    argv = [avail.ssh]
-    if (auth.keyFile) argv.push('-i', String(auth.keyFile))
-    argv.push('-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-N', '-L', forward)
-    if (explicitPort) argv.push('-p', port)
-    argv.push(userHost)
-  }
-  if (argv === null) {
-    return { ok: false, error: 'password auth requires plink or sshpass' }
-  }
-
-  const proc = spawn(argv[0], argv.slice(1), { stdio: 'ignore', detached: process.platform !== 'win32' })
-  tunnels.set(key, { key, localPort, remotePort, proc })
-  proc.once('exit', () => { if (tunnels.get(key)?.proc === proc) tunnels.delete(key) })
+    session.trackSocket(socket)
+    socket.on('error', () => { try { socket.destroy() } catch { /* gone */ } })
+    client.forwardOut('127.0.0.1', 0, '127.0.0.1', remotePort, (forwardErr, stream) => {
+      if (forwardErr !== undefined && forwardErr !== null || stream === undefined) {
+        try { socket.destroy() } catch { /* gone */ }
+        return
+      }
+      stream.on('error', () => { try { socket.destroy() } catch { /* gone */ } })
+      socket.pipe(stream).pipe(socket)
+    })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(localPort, '127.0.0.1', () => resolve())
+  })
+  session.trackServer(server)
+  tunnels.set(key, { key, localPort, remotePort, session })
   void log(ctx, `tunnel open ${key} -> 127.0.0.1:${localPort}`)
   return { ok: true, localPort }
 }
@@ -403,7 +819,7 @@ async function openTunnel(ctx: Context, auth: Record<string, unknown>, avail: { 
 function closeTunnel(key: string): boolean {
   const tunnel = tunnels.get(key)
   if (tunnel !== undefined) {
-    try { tunnel.proc.kill() } catch { /* already gone */ }
+    tunnel.session.close()
     tunnels.delete(key)
     return true
   }
@@ -499,9 +915,13 @@ export function apply(ctx: Context): void {
     }
     locals.clear()
     for (const tunnel of tunnels.values()) {
-      try { tunnel.proc.kill() } catch { /* already gone */ }
+      try { tunnel.session.close() } catch { /* already gone */ }
     }
     tunnels.clear()
+    if (activeSession.current !== null) {
+      try { activeSession.current.close() } catch { /* already gone */ }
+      activeSession.current = null
+    }
   }, 'dsh-remote teardown')
 
   void log(ctx, `host up (${new Date(startedAt).toISOString()})`)
@@ -711,18 +1131,14 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
         // explicit host), distinct from the DSH frontend address. When left
         // empty it falls back to the DSH address.
         const sshHost = String(conn.sshHost ?? conn.address)
-        const auth = {
+        const auth: SshAuth = {
           user: conn.sshUser ? String(conn.sshUser) : '',
           host: sshHost,
           port: conn.sshPort ? Number(conn.sshPort) : undefined,
           password: conn.password ? String(conn.password) : undefined,
           keyFile: conn.keyFile ? String(conn.keyFile) : undefined,
         }
-        const avail = sshAvailability()
         pushLog(logLines, '建立 ssh 会话', true, `${auth.user !== '' ? auth.user + '@' : ''}${auth.host}`)
-        if (auth.password && !auth.keyFile && avail.plink === null && avail.sshpass === null) {
-          return { ok: false, log: [...logLines, { step: '认证', ok: false, detail: '密码登录需要 plink 或 sshpass；请使用密钥文件' }] }
-        }
         // No explicit credential: reuse ~/.ssh/config via the alias. If the
         // alias itself needs authentication, report authRequired so the client
         // falls back to asking for user/password/key.
@@ -738,13 +1154,20 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
             return { ok: false, authRequired: true, log: logLines }
           }
         }
-        return connectRemote(ctx, auth, avail, conn as { address: string; port: number; startCommand?: string }, logLines, connectToken)
+        return connectRemote(ctx, auth, conn as { address: string; port: number; startCommand?: string }, logLines, connectToken)
       } finally {
         remoteProgress.running = false
       }
     }
     case 'ssh.cancel':
       remoteConnectControl.cancelled = true
+      // Abort the in-flight command by tearing down its session immediately
+      // (the old transport could only set a flag and wait for the current
+      // spawnSync to finish).
+      if (activeSession.current !== null) {
+        try { activeSession.current.close() } catch { /* already gone */ }
+        activeSession.current = null
+      }
       return { ok: true }
     case 'ssh.status':
       return {
@@ -764,17 +1187,15 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
 }
 
 /**
- * Non-interactive SSH auth probe: with password/key empty, reuse the local
- * `~/.ssh/config` alias blindly (BatchMode). A non-zero exit means the alias
- * needs authentication the plugin did not supply -> authRequired.
+ * ssh2 auth probe for the no-credential path: connect using the resolved
+ * `~/.ssh/config` alias (or default keys / agent) and run a trivial command.
+ * A failure means the alias needs authentication the plugin was not given →
+ * authRequired.
  */
-async function probeSshAuth(ctx: Context, auth: Record<string, unknown>): Promise<{ ok: boolean }> {
+async function probeSshAuth(ctx: Context, auth: SshAuth): Promise<{ ok: boolean }> {
   const res = await sshRun(ctx, auth, 'echo DSH_REMOTE_AUTH_OK', 20000)
   return { ok: res.exitCode === 0 && res.stdout.includes('DSH_REMOTE_AUTH_OK') }
 }
-
-/** Shared ssh base flags for the non-interactive route. */
-const SSH_BASE_FLAGS = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15']
 
 /**
  * Append the loopback bind + target port to a start command unless it already
@@ -808,8 +1229,7 @@ function appendServeFlags(command: string, port: number): string {
  */
 async function connectRemote(
   ctx: Context,
-  auth: Record<string, unknown>,
-  avail: { ssh: string | null; plink: string | null; sshpass: string | null },
+  auth: SshAuth,
   conn: { address: string; port: number; startCommand?: string },
   log: Array<{ step: string; ok: boolean; detail?: string }>,
   token: number,
@@ -916,7 +1336,7 @@ async function connectRemote(
   }
 
   // 4. open the SSH local port forward and wait for the local URL to load
-  const tunnel = await openTunnel(ctx, auth, avail, remotePort)
+  const tunnel = await openTunnel(ctx, auth, remotePort)
   if (connectCancelled(token)) return bailCancelled()
   if (!tunnel.ok || tunnel.localPort === undefined) {
     pushLog(log, 'ssh 端口转发', false, tunnel.error || '无法建立转发')

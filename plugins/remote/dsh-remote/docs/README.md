@@ -16,15 +16,23 @@
 - **本地连接**：可配置端口（默认 3080 自动填入）。连接时先探测端口是否可加载：可加载则直接加载前端；否则启动内置 dsh（`dsh web --port <端口>`）再加载前端。连接名与端口保存在软件本地存储。
 - **远程连接**：可配置地址（不含 `http://` 头）与端口。连接时先探测端口是否可加载：可加载则直接加载；否则通过 **SSH 启动远端 dsh 并转发端口**。连接名、地址、端口保存在软件本地存储。
 - **SSH 连接（启动 + 安全隧道转发，VSCode Remote 风格）**：
-  - 与 dsh 地址**分离**的 SSH 主机字段（可用 `~/.ssh/config` 的 Host 别名，如 `ASUS`），复用现有 ssh config。
-  - 密码 / 密钥文件二选一（密钥文件通过文件选择上传），可勾选"保存认证"。
-  - 密码与密钥都留空时，若 ssh config 中存在对应 Host，则直接使用该别名尝试免密连接。
+  - **传输层为纯 JS `ssh2`**（不再依赖本机 `ssh`/`plink`/`sshpass` 二进制）：密码认证**原生可用**
+    （旧实现的密码只能经 `plink -pw` / `sshpass -p` 传入，只有 OpenSSH 的 Windows 机器会静默拒绝填写的密码）。
+  - 与 dsh 地址**分离**的 SSH 主机字段（可用 `~/.ssh/config` 的 Host 别名，如 `ASUS`），复用现有 ssh config：
+    `~/.ssh/config` 由成熟库 **`ssh-config`** 解析（OpenSSH 精确语义：首值优先、`Host`/`Match` 块、`*`/`?`/`!`
+    通配、多 `IdentityFile` 累积、大小写不敏感），别名免密 / 加端口免密照常工作。
+  - 密码 / 密钥文件二选一（密钥文件通过文件选择上传），可勾选"保存认证"；**选了密钥文件后又填了密码，该密码会被当作密钥口令
+    （passphrase）解锁加密密钥**——同一输入框的两种语义都接通了。
+  - 密码与密钥都留空时，若 ssh config 中存在对应 Host，则直接使用该别名尝试免密连接（并可回落到默认密钥 /
+    ssh-agent）；需要认证则回退到连接配置，提示补齐用户名/密码/密钥。
+  - **主机密钥 accept-new**：首次连接的远端会按 `~/.ssh/known_hosts` 记录；已记录主机密钥变更会拒绝连接（防 MITM）。
   - 连接过程中出现认证需求（`Permission denied` / publickey / password 等）时判定连接失败，回退到连接配置让用户补齐认证。
   - **远端启动命令可配置**：新建连接对话框提供「远端启动 dsh 的命令」输入框，默认 `npx '@deepseek-ai/dsh' web`
     （留空即用默认）。该命令在远端 `$HOME` 下、名为 `dsh-gui` 的 tmux 会话中运行（会话保证进程在 ssh 命令返回后继续存活）；
     若命令本身未含 `--host` / `--port`，插件会追加 `--host 127.0.0.1 --port <端口>`。
-  - **远端后端只绑定回环地址**（追加了 `--host 127.0.0.1`），绝不暴露到 LAN；前端通过 **SSH 本地端口转发**
-    （`ssh -N -L 127.0.0.1:<本机端口>:127.0.0.1:<远端服务端口>`）经加密会话访问，标签页只看到 `http://127.0.0.1:<本机端口>/`。
+  - **远端后端只绑定回环地址**（追加了 `--host 127.0.0.1`），绝不暴露到 LAN；前端通过 **SSH 本地端口转发**（纯 JS `ssh2`
+    会话内 `forwardOut`：本机 `127.0.0.1:<本机端口>` → 远端 `127.0.0.1:<远端服务端口>`）经加密会话访问，标签页只看到
+    `http://127.0.0.1:<本机端口>/`。
   - **进度实时流式回显**：`ssh.connect` 全程在宿主半端一条往返内执行，插件通过 `ssh.status` 轮询接口把每一步
     （工具预检 / tmux 启动 / 端口等待倒计时 / 隧道 / 前端就绪）实时推回连接对话框，不再"卡在建立连接"看着空白。
   - **失败可诊断**：远端 `dsh-gui` tmux 面板的输出被重定向到 `$HOME/.dsh-gui-remote.log`；端口迟迟不开放或前端超时时，
@@ -40,7 +48,7 @@
     ——用它当启动命令会因端口永不开放而超时。要在远端用它起 GUI，请写成 `npm -C <repo> run harness -- web`（`web` 被透传给 CLI
     启动 web 服务后再叠加 `--host 127.0.0.1 --port <端口>`），或直接用默认 `npx '@deepseek-ai/dsh' web`。
 
-> **关于"不生成本机监听端口"**：SSH `-L` 本地转发需要一个本机回环监听端点，标签页才能经 `http://127.0.0.1:<port>/` 访问隧道；该端点只绑定 `127.0.0.1`（不带 `-g`/GatewayPorts），不对外网及局域网开放，即标准的安全隧道形态。若需要"完全不监听本机端口"，则需在 dsh-gui 内部再包一层代理——当前设计采用前者。
+> **关于"不生成本机监听端口"**：本地端口转发需要一个本机回环监听端点，标签页才能经 `http://127.0.0.1:<port>/` 访问隧道；该端点只绑定 `127.0.0.1`（不对外网及局域网开放），即标准的安全隧道形态。若需要"完全不监听本机端口"，则需在 dsh-gui 内部再包一层代理——当前设计采用前者。
 
 ## 架构：谁负责什么
 
@@ -123,7 +131,11 @@ npm start                          # 启动桌面壳
 
 - 本地后端日志：`<DSH_HOME>/gui/remote-<端口>.log`
 - 关闭标签页不强制断隧道（隧道按 `host:remotePort` 复用，重连即用）；dsh-gui 退出或插件 teardown 时所有隧道一并关闭。
-- 密码方式 SSH 需要本机有 `plink` 或 `sshpass`；否则请使用密钥文件或依赖 ssh config。
+- **ssh2 传输与已知边界**：密码 / 密钥（含口令）通过 `ssh2` 原生认证（`keyboard-interactive` 也自动尝试）；`~/.ssh/config`
+  由 **`ssh-config` 库**解析（支持 `Host`/`Match`、`HostName`/`User`/`Port`/`IdentityFile`/`IdentitiesOnly`、`*`/`?`/`!`
+  通配与 OpenSSH **首值优先**语义；**`Include` 不展开**、`Match exec` / `CanonicalizeHostName` **不执行**）。
+  仍**不支持** `ProxyJump`、证书主机密钥（`@cert-authority`）与哈希式 known_hosts 条目（未匹配时按首次连接接受）；
+  Windows 下不读命名管道 ssh-agent（有 `~/.ssh/id_*` 默认密钥即可）。远端 `~/.ssh/config` 由远端 ssh 自行处理，与本机解析互不影响。
 - 远端启动命令默认 `npx '@deepseek-ai/dsh' web`；可在对话框「远端启动 dsh 的命令」输入框覆盖单个连接的启动命令，
   也可用环境变量 `DSH_REMOTE_START_COMMAND` 为所有连接改默认值。远端 dsh 配置与插件配置位于远端默认 `~/.dsh`
   （或启动命令设置的 DSH_HOME），与本机完全隔离。启动所需远端工具：`node` / `npm`（含 `npx`）/ `tmux`。
@@ -146,8 +158,15 @@ npm start                          # 启动桌面壳
 
 ## 测试
 
-SSH 远程模式可用 `~/.ssh/config` 中已有的别名测试，例如：
+**自动化回归（不依赖真实远端）**：`tests/` 下两个可执行测试，需先 `pnpm run build`：
+
+- `node tests/transport.test.mjs` —— 纯逻辑：`~/.ssh/config` 解析/合并、连接计划、known_hosts accept-new、连接失败路径。
+- `node tests/transport-e2e.test.mjs "<scratch-dir>"` —— 在 127.0.0.2 起临时 `ssh2` 服务器做端到端验证：**密码认证**、
+  `bash -s` stdin 脚本通道、端口转发、accept-new 落盘、会话清理。**必须传隔离 HOME 目录**，避免改动真实 `~/.ssh`。
+
+手工验证（真实远端/`~/.ssh/config` 别名）：
 
 - 新建连接 → 远程连接 → 地址填目标机地址，SSH 主机填 `ASUS`，用户名留空（ssh config 提供 User）
 - 密码/密钥留空：若 `~/.ssh/config` 的 `ASUS` 可免密登录（`PreferredAuthentications publickey` + IdentityFile），
   则直接复用该配置连接；若需要认证则回退到连接配置，提示填写用户名/密码/密钥。
+- 只填密码（不选密钥）：应能直接密码认证连接（旧版在无 plink/sshpass 的机器上会拒绝此路径）。

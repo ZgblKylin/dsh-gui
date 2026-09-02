@@ -74,7 +74,12 @@ export default [
     fixedExtension: false,
     dts: false,
     clean: false,
-    deps: { neverBundle: [/^@deepseek-ai\//] },
+    // Externalize every @deepseek-ai/* peer AND ssh2 (CJS with an optional
+    // native `cpu-features` binding): they resolve at runtime through the
+    // package's own node_modules, and rolldown must not trace/bundle ssh2's
+    // optional native deps. `ssh-config` (dual ESM/CJS) stays external too:
+    // it resolves via its exports map at runtime like any plain dependency.
+    deps: { neverBundle: [/^@deepseek-ai\//, 'ssh2', 'ssh-config'] },
   },
   {
     entry: { client: 'src/client/index.ts' },
