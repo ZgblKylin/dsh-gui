@@ -146,7 +146,7 @@ browser.
   context, then the wire switches to Code Mode (PTC) after the anchored
   promotion. Installed by `plugins/dsh-web-ui/install.mjs` as the
   `@linxin666/dsh-liangshen` npm plugin (`@latest`), which also mounts
-  `dsh-pet` and the `dsh-web-ui-settings` compatibility bridge; the plugin
+  the `dsh-web-ui-settings` compatibility bridge; the plugin
   itself syncs the preset into `.dsh\.agent-presets\liangshen` at startup (the
   preset ships its own Windows custom-bash), so no manual preset copy is
   needed. No other dsh-web-ui npm plugin is installed.
@@ -202,7 +202,7 @@ dsh-gui/
 │                      #   DSH-better-sidebar, deep-whale/dsh-deep-whale,
 │                      #   dsh-web-ui/dsh-web-ui and routing-suite/dsh-routing-suite
 │                      #   are git submodules; dsh-web-ui installs dsh-liangshen
-│                      #   + dsh-pet + dsh-web-ui-settings from npm, and
+│                      #   + dsh-web-ui-settings from npm, and
 │                      #   routing-suite installs dsh-super-injector
 │                      #   + the router-standard/router-spec presets;
 │                      #   see plugins/README.md)
@@ -230,7 +230,7 @@ This is idempotent and fully repo-internal:
 - Runs every plugin install script under `plugins/` — each
   `plugins/<id>/install.mjs` normally builds, installs, and mounts its plugin
   package into the web profile; `dsh-web-ui/install.mjs` installs the
-  `dsh-liangshen`, `dsh-pet` and `dsh-web-ui-settings` plugin bundles from npm
+  `dsh-liangshen` and `dsh-web-ui-settings` plugin bundles from npm
   `@latest` through the same profile pipeline (see
   [Adding plugins](#adding-plugins-at-runtime)).
 - Runs every agent-preset install script under `presets/` — each
@@ -365,16 +365,16 @@ submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
 (`build: false`, no copy, no patch).
 
 `plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
-three npm packages at `@latest` through `installNpmPlugin` —
-`@linxin666/dsh-liangshen`, `@linxin666/dsh-client-ui-web-ui-settings`
-(ordered before) and `@linxin666/dsh-pet`; all declare `dsh.bundle.patch`, so
+two npm packages at `@latest` through `installNpmPlugin` —
+`@linxin666/dsh-liangshen` and `@linxin666/dsh-client-ui-web-ui-settings`
+(ordered before); both declare `dsh.bundle.patch`, so
 `dsh plugin add` reconciles each into `dsh.profile.bundles` (no manual
 cordis insert). The `dsh-liangshen` plugin syncs its own preset into
 `.dsh\.agent-presets\liangshen` on host startup (no copy from the submodule;
 it ships its own Windows custom-bash). The bridge is required because
 dsh-host-apiproxy's hard-coded settings allowlist does not expose third-party
-namespaces such as `pet`, so without it the pet's configuration form is
-read-only. `dsh-web-ui/` stays as the source reference only (v0.3.x layout:
+namespaces, so without it a `webUiSettings`-dependent plugin's configuration
+form is read-only. `dsh-web-ui/` stays as the source reference only (v0.3.x layout:
 `packages/dsh-web-settings`, `packages/dsh-web-all`); every other dsh-web
 package stays uninstalled and unmounted.
 

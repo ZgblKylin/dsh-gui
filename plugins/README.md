@@ -65,11 +65,12 @@ its own bundle layer. A manual profile insert for a bundle-declared plugin
 would double-mount it and fail the plugin tree with
 `duplicate loader entry id`.
 
-- **Multiple npm bundles wrapper** — `dsh-web-ui` installs three plugin
+- **Multiple npm bundles wrapper** — `dsh-web-ui` installs two plugin
   packages of its distribution repo, all from npm as `@latest`:
-  `@linxin666/dsh-liangshen`, `@linxin666/dsh-client-ui-web-ui-settings`
-  (ordered before) and `@linxin666/dsh-pet` (per the 安装方式 section below:
-  not marked as source installs). All three declare `dsh.bundle.patch`, so
+  `@linxin666/dsh-liangshen` and
+  `@linxin666/dsh-client-ui-web-ui-settings`
+  (ordered before; per the 安装方式 section below:
+  not marked as source installs). Both declare `dsh.bundle.patch`, so
   each mounts through its own bundle layer (no manual cordis inserts). It
   does not install agent presets or any other dsh-web-ui package. See
   `dsh-web-ui/README.md`.
@@ -89,7 +90,13 @@ would double-mount it and fail the plugin tree with
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-liangshen@latest](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-web-ui-settings@latest](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
-  - [@linxin666/dsh-pet@latest](dsh-web-ui/packages/dsh-pet/README.zh.md) npm包
+- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.4；子模块
+  checkout 仅作源码参考）。**默认跳过**：client 半依赖已被本 harness
+  （dsh-v0.1.2-alpha.1）移除的 `@deepseek-ai/dsh-client-runtime`，host 又
+  inject 不存在的 `agentDefaultModel`——需 `DSH_PLUGIN_FORCE_INSTALL=1`
+  强制安装（见
+  [dsh-pet/README.md](dsh-pet/README.md)）。安装后自动向用户配置注入
+  `display:"web"` 屏蔽桌面 Electron 模式
 
 ## Current plugins
 
@@ -200,11 +207,21 @@ would double-mount it and fail the plugin tree with
   out of any right/bottom panels generically. See
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
-  `dsh-web-ui/dsh-web-ui`. Installs three plugin packages of the distribution
+  `dsh-web-ui/dsh-web-ui`. Installs two plugin packages of the distribution
   repo from npm `@latest` (per the 安装方式 section above):
-  `@linxin666/dsh-liangshen` (host plugin), the
+  `@linxin666/dsh-liangshen` (host plugin) and the
   `dsh-web-ui-settings` compatibility bundle
-  (`@linxin666/dsh-client-ui-web-ui-settings`, ordered before), and the
-  `dsh-pet` companion plugin (`@linxin666/dsh-pet`) — each mounts through its
-  own `dsh.bundle.patch` layer; it does not install agent presets or any other
-  dsh-web-ui package. See `dsh-web-ui/README.md`.
+  (`@linxin666/dsh-client-ui-web-ui-settings`, ordered before) — each mounts
+  through its own `dsh.bundle.patch` layer; it does not install agent presets
+  or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
+- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.4)
+  at `dsh-pet/dsh-pet`: a floating desktop pet whose host half runs inside
+  DSH and whose optional desktop mode spawns per-pet transparent Electron
+  windows. The wrapper installs the package from npm as `dsh-pet@0.2.4`, then
+  injects a user-layer default pet with `display:"web"` into
+  `$DSH_HOME/dsh-pet/main-config.json` (unless a `display` is already
+  configured) — so no pet resolves to `desktop`/`both` and no Electron helper
+  process is launched or downloaded. It defaults to **skipped** because dsh-pet
+  0.2.4 is not runnable on the pinned harness (`dsh-client-runtime` removed,
+  `agentDefaultModel` absent); set `DSH_PLUGIN_FORCE_INSTALL=1` to install.
+  See `dsh-pet/README.md`.

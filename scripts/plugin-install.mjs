@@ -442,6 +442,12 @@ export function installNpmPlugin({ id, packageSpec, mount = null }) {
 const DEFAULT_SKIPPED_PLUGINS = new Set([
   'flowglass',
   'dsh-web-ui-settings',
+  // PC2005-cloud/dsh-pet wrapper (plugins/dsh-pet): its client half also
+  // requires the removed `@deepseek-ai/dsh-client-runtime`, and its host half
+  // injects `agentDefaultModel`, which this harness does not provide — force
+  // with DSH_PLUGIN_FORCE_INSTALL=1 to install anyway (host likely PENDING).
+  // The former @linxin666/dsh-pet install (plugins/dsh-web-ui) was removed:
+  // the whale pet is superseded by this wrapper.
   'dsh-pet',
 ])
 

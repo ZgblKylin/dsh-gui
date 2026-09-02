@@ -3,23 +3,22 @@
  * install.mjs — install the dsh-web-ui plugin bodies into the web profile
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
- * Three plugin packages of the dsh-web-ui distribution repo are installed,
+ * Two plugin packages of the dsh-web-ui distribution repo are installed,
  * all from npm as `@latest` (upstream renamed itself to dsh-web and the
  * settings-bridge source directory to packages/dsh-web-settings in v0.3.x;
  * the npm package names below are unchanged):
  *
  * 1. the `dsh-liangshen` host plugin (`@linxin666/dsh-liangshen@latest`);
  * 2. the `dsh-web-ui-settings` compatibility bundle
- *    (`@linxin666/dsh-client-ui-web-ui-settings@latest`);
- * 3. the `dsh-pet` companion plugin (`@linxin666/dsh-pet@latest`).
+ *    (`@linxin666/dsh-client-ui-web-ui-settings@latest`).
  *
- * All three declare their own `dsh.bundle.patch`, so `dsh plugin add`
+ * Both declare their own `dsh.bundle.patch`, so `dsh plugin add`
  * reconciles them into `dsh.profile.bundles` and each mounts through its own
  * bundle layer — no manual cordis mount is written (that would double-mount).
- * The settings bridge is installed before dsh-pet, matching the upstream
- * `dsh-web-ui-all/aggregate.yml` convention (dsh-pet reads `webUiSettings`
- * once during activation; without the bridge its settings card shows the
- * "namespace not exposed" explanation).
+ * The settings bridge exposes the `webUiSettings` compatibility binder to
+ * dsh-web family plugins that declare it (the `@linxin666/dsh-pet` companion
+ * is no longer installed here — the PC2005-cloud `dsh-pet` desktop pet has
+ * its own wrapper at `plugins/dsh-pet/`).
  *
  * No other dsh-web-ui package (task-board, skins, community-plugins, ...) and
  * no agent preset from the distribution repo is installed here (agent presets
@@ -36,15 +35,11 @@ installNpmPlugin({
   id: 'dsh-liangshen',
   packageSpec: '@linxin666/dsh-liangshen@latest',
 })
-// 下面两个包依赖旧版 `@deepseek-ai/dsh-client-runtime`（dsh-v0.1.2-alpha.1
-// 中已不存在），安装器默认跳过；upstream 适配后从默认清单移除即可，或临时
-// DSH_PLUGIN_FORCE_INSTALL=1（见
+// 下面的 web-ui-settings 包依赖旧版 `@deepseek-ai/dsh-client-runtime`
+// （dsh-v0.1.2-alpha.1 中已不存在），安装器默认跳过；upstream 适配后从默认
+// 清单移除即可，或临时 DSH_PLUGIN_FORCE_INSTALL=1（见
 // docs/dsh-gui/harness-upgrade-build-failure.md）。
 installNpmPlugin({
   id: 'dsh-web-ui-settings',
   packageSpec: '@linxin666/dsh-client-ui-web-ui-settings@latest',
-})
-installNpmPlugin({
-  id: 'dsh-pet',
-  packageSpec: '@linxin666/dsh-pet@latest',
 })
