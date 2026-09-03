@@ -1922,6 +1922,37 @@ function buildHarnessAuditStep(number) {
   );
 }
 
+// Staging-first upgrade steps shared by the deepseek-harness prompts (single
+// and merged): the risky harness upgrade is first validated in a throwaway
+// clone outside the repository, and only after it passes is anything applied
+// to the real project. `extraAfterClone` steps (if any) are spliced in right
+// after the temp-clone step so a merged batch folds its own module updates
+// into the same remote validation. `tagTarget` says whether the row's update
+// target is the latest tag (true) or the latest commit (false). Returns the
+// numbered step lines (a consecutive counter), the next free number, and the
+// step number of the "temporarily block incompatible plugins" line.
+function buildHarnessValidationSteps(start, extraAfterClone, tagTarget) {
+  let n = start;
+  const lines = [];
+  if (tagTarget) {
+    lines.push((n++) + ". 先 fetch origin（git -C deepseek-harness fetch --prune origin），再用 git -C deepseek-harness describe --tags --abbrev=0 origin/<默认分支> 找到远端默认分支可达的最新 tag（即本次更新目标）；");
+  } else {
+    lines.push((n++) + ". 先 fetch origin（git -C deepseek-harness fetch --prune origin），确认远端默认分支的最新提交（本行选择的是「最新提交」更新目标）；");
+  }
+  if (tagTarget) {
+    lines.push((n++) + ". 建立临时工作目录（位于本仓库之外，如系统临时目录下带时间戳的目录），在其中克隆本工程（git clone --recurse-submodules <本仓库绝对路径> <临时目录>，把 deepseek-harness 与各插件子模块一并拉出），再把其中的 deepseek-harness checkout/reset 到第 1 步确认的最新 tag（git -C <临时目录>/deepseek-harness fetch origin 后 checkout 到该 tag）；注意临时目录是全新 checkout，gitignore 的 .toolchain/ 与 .pnpm-store 不在其中，验证需要时先在临时目录执行 npm run setup 引导本地工具链（联网），或按实际验证范围如实说明限制；");
+  } else {
+    lines.push((n++) + ". 建立临时工作目录（位于本仓库之外，如系统临时目录下带时间戳的目录），在其中克隆本工程（git clone --recurse-submodules <本仓库绝对路径> <临时目录>，把 deepseek-harness 与各插件子模块一并拉出），再把其中的 deepseek-harness fast-forward 到第 1 步确认的最新提交（git -C <临时目录>/deepseek-harness fetch origin 后检出 origin/<默认分支>）；注意临时目录是全新 checkout，gitignore 的 .toolchain/ 与 .pnpm-store 不在其中，验证需要时先在临时目录执行 npm run setup 引导本地工具链（联网），或按实际验证范围如实说明限制；");
+  }
+  if (extraAfterClone) for (const line of extraAfterClone) lines.push((n++) + ". " + line);
+  lines.push((n++) + ". 在临时目录分析该版本更新对当前 dsh-gui 工程、插件的影响：新增、变更或移除的功能/配置/依赖，以及插件需要跟进适配的点（组合方式、插件 API、bundle 契约等），结合 AGENTS.md 与 docs/official/ 汇报；");
+  lines.push((n++) + ". 若有影响，在临时目录进行修复并验证：修改本仓库相应插件/适配代码/安装脚本（仍不得编辑 deepseek-harness/ 内任何文件），并运行 npm run build（node scripts/dsh-gui.mjs build，用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store：harness pnpm install + pnpm run build（CI=true，跳过 lefthook）→ 各插件安装脚本 → 安装 agent preset）验证构建与安装全绿，能构建 exe 就构建；逐项记录修复内容与验证结果；");
+  const maskStep = n++;
+  lines.push(maskStep + ". 对确认与新版不兼容且本次无法修复的插件，在临时目录将其暂时屏蔽安装：在其 install.mjs 顶部加 MASKED 守卫（对照现有 terminal、file-explorer 的写法）并从 profile（.dsh/profiles/web/cordis.patch.yml、package.json 的 bundle/依赖挂载）移除其条目，保证其不参与本次验证的安装；在报告中逐条说明屏蔽原因与恢复条件（如等上游适配）；");
+  lines.push((n++) + ". 全部验证通过（临时目录构建与安装全绿、兼容性速查无未明问题）后才进入实装；验证失败则先在临时目录修正重试，不要直接改动本工程；");
+  return { lines, next: n, maskStep };
+}
+
 // Dedicated prompt for deepseek-harness: the engineering base, not a plugin —
 // never reference the plugins/ layout or the plugin install pipeline for it.
 function buildHarnessUpdatePrompt(project) {
@@ -1933,23 +1964,28 @@ function buildHarnessUpdatePrompt(project) {
   lines.push("");
   lines.push("说明：deepseek-harness 是本工程的基座，不是插件——plugins/ 下的所有插件都基于它工作；它位于仓库根目录的 deepseek-harness/（不在 plugins/ 下），没有 plugins/<id>/install.mjs 安装脚本，其文档在 deepseek-harness/docs/ 与仓库根 AGENTS.md（docs/official/ 是官方文档与源码的符号链接汇总），不要套用插件文档路径（plugins/<id>/<package>/README.md）。按仓库约定，deepseek-harness/ 是 pinned 上游子模块，只用于查证规范：不要编辑其中的任何文件，也不要从该目录向插件源码复制代码。");
   lines.push("");
-  lines.push("步骤：");
-  if (updateModeOf(project.id) === "tag") {
-    lines.push("1. 先 fetch origin（git -C deepseek-harness fetch --prune origin），再用 git -C deepseek-harness describe --tags --abbrev=0 origin/<默认分支> 找到远端默认分支可达的最新 tag，然后 checkout/reset 到该 tag；");
-  } else {
-    lines.push("1. 将该模块快进到远端默认分支的最新提交（submodule 用 git submodule update --remote deepseek-harness，或在 deepseek-harness/ 目录里 fetch origin 后检出 origin/<默认分支>）；");
-  }
-  lines.push("2. 先检查 harness 本次更新对当前 dsh-gui 项目所使用功能的影响（新增、变更或移除的功能/配置/依赖，以及插件需要跟进适配的点——组合方式、插件 API、bundle 契约等），结合 AGENTS.md 与 docs/official/ 汇报；需要修改本仓库对应插件或安装脚本时，先征询用户确认；");
-  lines.push("3. 确认影响后再重建 harness（必须）：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
-  lines.push(buildHarnessAuditStep("4"));
-  lines.push("5. 完成后汇报：改动了哪些文件、执行了哪些安装/构建命令及结果，并给出速查结论（哪些插件安装脚本与官方规范一致、哪些需要调整）。");
+  lines.push("本次升级按「临时目录先行验证、验证通过后再实装」的两阶段流程执行，避免直接改动本工程而影响日常使用：");
+  lines.push("");
+  lines.push("阶段一：临时目录验证（不碰本工程，本工程保持可运行）");
+  const validation = buildHarnessValidationSteps(1, undefined, updateModeOf(project.id) === "tag");
+  for (const line of validation.lines) lines.push(line);
+  lines.push("");
+  lines.push("阶段二：在本工程实装（仅在阶段一全部验证通过后进行）");
+  let n = validation.next;
+  lines.push((n++) + ". 将 deepseek-harness 更新到阶段一第 1 步确认的目标（git -C deepseek-harness fetch origin 后 checkout/reset 到最新 tag，或 fast-forward 到最新提交；亦可用 git submodule update --remote deepseek-harness）；");
+  lines.push((n++) + ". 把临时目录中验证过的适配改动同步到本工程：逐文件核对该差异后复制/应用，不要整目录覆盖（避免带入 .dsh/、.toolchain/、node_modules/ 等 gitignore 产物）；删除本工程已安装的、已被屏蔽的插件（对阶段一步骤 " + validation.maskStep + " 屏蔽的插件，从其已安装状态卸载：移除 profile 的挂载/依赖条目并删除对应 node_modules 链接，避免被后续 Loader 组合重新加载）；");
+  lines.push((n++) + ". 在本工程重建并验证：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
+  lines.push(buildHarnessAuditStep(n++));
+  lines.push((n++) + ". 完成后汇报：确认的最新 tag、临时目录验证结论（修复了哪些适配点、屏蔽了哪些插件及原因/恢复条件）、实装命令与结果、改动了哪些文件，并给出速查结论（哪些插件安装脚本与官方规范一致、哪些被屏蔽/需调整）。");
   return lines;
 }
 
 // Merged prompt for a batch that includes deepseek-harness plus plugin
-// modules: update the harness base first (impact check before the rebuild),
-// then the plugins, then the install-script compatibility audit, then the
-// report — never merge the harness into the generic plugin install pipeline.
+// modules: the whole batch runs as one staging-first flow — temp-clone
+// validation first (harness update + the batched plugin modules + their
+// install-script cross-checks), then the apply phase ports everything to the
+// real project and rebuilds — never merge the harness into the generic plugin
+// install pipeline.
 function buildHarnessMergedPrompt(harness, others) {
   const lines = [];
   lines.push("请更新当前 dsh-gui 仓库：先更新工程基座 deepseek-harness，再更新以下插件模块：");
@@ -1962,25 +1998,27 @@ function buildHarnessMergedPrompt(harness, others) {
     lines.push("- " + project.name + "（" + path + "当前 " + (project.current || "unknown") + "，" + target + "）");
   }
   lines.push("");
-  lines.push("第一部分：更新 deepseek-harness（工程基座——DSH 框架本体，位于仓库根目录 deepseek-harness/，不在 plugins/ 下；不是插件，没有 install.mjs，文档在 deepseek-harness/docs/ 与 AGENTS.md（docs/official/ 为官方文档汇总）；按仓库约定它是 pinned 上游子模块，只用于查证规范——不要编辑其中任何文件，也不要向插件源码复制代码）：");
-  if (updateModeOf(harness.id) === "tag") {
-    lines.push("1. 先 fetch origin（git -C deepseek-harness fetch --prune origin），再用 git -C deepseek-harness describe --tags --abbrev=0 origin/<默认分支> 找到远端默认分支可达的最新 tag，然后 checkout/reset 到该 tag；");
-  } else {
-    lines.push("1. 将该模块快进到远端默认分支的最新提交（submodule 用 git submodule update --remote deepseek-harness，或在 deepseek-harness/ 目录里 fetch origin 后检出 origin/<默认分支>）；");
-  }
-  lines.push("2. 先检查本次更新对当前 dsh-gui 项目所使用功能的影响（新增、变更或移除的功能/配置/依赖，以及插件需要跟进适配的点——组合方式、插件 API、bundle 契约等），结合 AGENTS.md 与 docs/official/ 汇报；需要修改本仓库对应插件或安装脚本时，先征询用户确认；");
-  lines.push("3. 确认影响后再重建 harness（必须）：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
+  lines.push("明确：deepseek-harness 是工程基座（DSH 框架本体，位于仓库根目录 deepseek-harness/，不在 plugins/ 下；不是插件，没有 install.mjs，文档在 deepseek-harness/docs/ 与 AGENTS.md（docs/official/ 为官方文档汇总）；按仓库约定它是 pinned 上游子模块，只用于查证规范——不要编辑其中任何文件，也不要向插件源码复制代码）。整个升级按「临时目录先行验证、验证通过后再实装」的两阶段流程执行，避免直接改动本工程而影响日常使用：");
   lines.push("");
-  lines.push("第二部分：更新其余插件模块（每个按其标注的更新目标处理）：");
-  lines.push("4. 最新提交：快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>）；最新 tag：先 fetch origin，再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag；");
-  lines.push("5. 更新后、运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；");
-  lines.push("6. 确认无误后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
+  lines.push("阶段一：在临时工作目录先行验证（不碰本工程，本工程保持可运行）");
+  const validation = buildHarnessValidationSteps(
+    1,
+    [
+      "在临时目录把其余插件模块更新到各自标注的目标（最新提交：git -C <临时目录> submodule update --remote <path>；最新 tag：先 git -C <临时目录>/<path> fetch origin，再用 git -C <临时目录>/<path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag）；",
+      "在临时目录更新后、运行安装脚本前先交叉检查各模块 install.mjs 的正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；",
+      "在临时目录运行各模块安装脚本（plugins/<id>/install.mjs）——临时目录的 DSH_HOME 指向其自身 .dsh，是全新 profile，验证不会污染本工程；",
+    ],
+    updateModeOf(harness.id) === "tag"
+  );
+  for (const line of validation.lines) lines.push(line);
   lines.push("");
-  lines.push("第三部分：兼容性速查：");
-  lines.push(buildHarnessAuditStep("7"));
-  lines.push("");
-  lines.push("第四部分：汇报：");
-  lines.push("8. 汇报：改动了哪些文件、执行了哪些安装/构建命令及结果；给出速查结论（哪些插件安装脚本与官方规范一致、哪些需要调整）；并逐模块汇报本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+  lines.push("阶段二：在本工程实装（仅在阶段一全部验证通过后进行）");
+  let n = validation.next;
+  lines.push((n++) + ". 将 deepseek-harness 更新到阶段一第 1 步确认的目标，并把其余插件模块分别更新到各自目标（操作同阶段一对应步骤）；");
+  lines.push((n++) + ". 把临时目录中验证过的适配改动同步到本工程：逐文件核对该差异后复制/应用，不要整目录覆盖（避免带入 .dsh/、.toolchain/、node_modules/ 等 gitignore 产物）；删除本工程已安装的、已被屏蔽的插件（对阶段一步骤 " + validation.maskStep + " 屏蔽的插件，从其已安装状态卸载：移除 profile 的挂载/依赖条目并删除对应 node_modules 链接，避免被后续 Loader 组合重新加载）；");
+  lines.push((n++) + ". 在本工程重建并验证：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
+  lines.push(buildHarnessAuditStep(n++));
+  lines.push((n++) + ". 汇报：确认的最新 tag、临时目录验证结论（修复了哪些适配点、屏蔽了哪些插件及原因/恢复条件）、改动文件清单、执行过的安装/构建命令及结果；给出速查结论（哪些插件安装脚本与官方规范一致、哪些需调整/被屏蔽）；并逐模块汇报本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
   lines.push("");
   lines.push("注意：以上路径均相对于 dsh-gui 仓库根目录；请确认会话工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。");
   return lines.join("\n");
@@ -2024,7 +2062,7 @@ function buildAiUpdatePrompt(projects) {
     lines.push("");
     const hasHarness = list.some((project) => project.id === HARNESS_PROJECT_ID);
     if (hasHarness) {
-      lines.push("其中 deepseek-harness 是工程基座（DSH 框架本体，不在 plugins/ 下，其他插件都基于它），不是插件——按步骤 3 单独处理，不要套用插件流程（plugins/<id>/install.mjs、plugins/<id>/<package>/README.md）；");
+      lines.push("其中 deepseek-harness 是工程基座（DSH 框架本体，不在 plugins/ 下，其他插件都基于它），不是插件——按「临时目录先行验证、验证通过后再实装」单独处理，不要套用插件流程（plugins/<id>/install.mjs、plugins/<id>/<package>/README.md）；");
       lines.push("");
     }
     lines.push("对每个模块按其标注的更新目标处理：");
@@ -2032,7 +2070,7 @@ function buildAiUpdatePrompt(projects) {
     lines.push("2. 最新 tag：先 fetch origin，再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag；");
     const steps = [];
     if (hasHarness) {
-      steps.push("3. deepseek-harness（如在本批中）：更新后先检查本次更新对当前 dsh-gui 项目所使用功能的影响（新增、变更或移除的功能/配置/依赖，以及插件需要跟进适配的点——组合方式、插件 API、bundle 契约等），需要修改本仓库对应插件或安装脚本时先征询用户确认；再重建——运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build：pinned pnpm（.toolchain/）+ 仓库本地 .pnpm-store 构建 harness（CI=true）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset；dsh-gui 运行时 exe 被占用可加 --skip-exe，但 harness 构建与插件重装必须完成）。它没有 install.mjs 且不在 plugins/ 下，文档在 deepseek-harness/docs/ 与 AGENTS.md（docs/official/ 为官方文档汇总），也不要编辑 deepseek-harness/ 下任何文件；");
+      steps.push("3. deepseek-harness（如在本批中）——按「临时目录先行验证、验证通过后再实装」处理：先 fetch origin 确认最新 tag（git -C deepseek-harness fetch origin + describe --tags --abbrev=0 origin/<默认分支>），在仓库之外建临时工作目录 clone 本工程（git clone --recurse-submodules）并把其中 deepseek-harness checkout/reset 到该 tag，在临时目录分析该版本更新对当前 dsh-gui 工程、插件的影响（新增、变更或移除的功能/配置/依赖，以及插件需要跟进适配的点——组合方式、插件 API、bundle 契约等）并完成修复与验证（运行 npm run build 全绿；仍不得编辑 deepseek-harness/ 下任何文件）；对确认不兼容且本次无法修复的插件在临时目录暂时屏蔽安装（install.mjs 顶部加 MASKED 守卫并从 profile 移除挂载条目，对照 terminal、file-explorer 写法），并在报告中说明原因与恢复条件；全部验证通过后，把适配改动逐文件同步回本工程、将 deepseek-harness 更新到该 tag、删除已安装的被屏蔽插件，再在本工程重建（npm run build；exe 被占用可加 --skip-exe，但 harness 构建与插件重装必须完成）。它没有 install.mjs 且不在 plugins/ 下，文档在 deepseek-harness/docs/ 与 AGENTS.md（docs/official/ 为官方文档汇总）；");
       steps.push("4. 对每个插件模块：更新后、运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；");
       steps.push("5. 确认无误后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
       steps.push("6. 必要时重建；");

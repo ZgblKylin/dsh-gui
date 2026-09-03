@@ -44,14 +44,24 @@ The shell builds the prefilled prompt in `src-tauri/ui/app.js`
 (`buildAiUpdatePrompt`). `deepseek-harness` gets a dedicated prompt: it is
 the engineering base (the harness itself, at the repository root) and not a
 plugin, so its prompt never references the `plugins/` layout or the plugin
-install pipeline — after the git fast-forward it first assesses the impact
-of the update on the current dsh-gui project (features/config/dependencies
-and adaptation points), and only then routes the rebuild through the
-repository build script (`node scripts/dsh-gui.mjs build`) and its own
-harness documentation. Such a
-prompt always closes with a quick-audit step: every unmasked plugin install
-script (`plugins/<id>/install.mjs`; entries carrying a `MASKED` guard, such
-as `terminal` and `file-explorer`, are skipped) is checked against the
+install pipeline. Its upgrade runs as a **staging-first, two-phase flow**
+(the shared step builders `buildHarnessValidationSteps` /
+`buildHarnessApplySteps`): fetch origin and confirm the latest tag; clone the
+repository into a throwaway working directory outside the repo and check the
+harness out to that tag; analyze the impact of the version bump on the current
+project and its plugins (features / config / dependencies and adaptation
+points); fix and validate inside that working directory (`npm run build` until
+green — it is a fresh checkout, so `.toolchain/` / `.pnpm-store` are absent and
+`npm run setup` bootstraps them when needed); block any plugin confirmed
+incompatible this round (`MASKED` guard at the top of its `install.mjs` +
+profile entry removed, following the `terminal` / `file-explorer` examples) and
+state the reason and restore condition in the report; and only after
+validation passes apply to the real project — port the verified adaptation
+changes (file-by-file, never a whole-tree overwrite), move the harness to the
+target, remove already-installed blocked plugins, and rebuild. The prompt
+always closes with a quick-audit step: every unmasked plugin install script
+(`plugins/<id>/install.mjs`; entries carrying a `MASKED` guard, such as
+`terminal` and `file-explorer`, are skipped) is checked against the
 official spec the updated harness just pinned (repository-root AGENTS.md,
 `docs/official/`, and the dsh-plugin-install skill). Batch prompts include
 this audit only when `deepseek-harness` is among the updated modules.
@@ -62,9 +72,13 @@ Batch AI update (`AI 更新全部`) special-cases the base modules:
   equivalent to clicking the top-level row's 「更新」 (in-dialog root
   update, no prompt is posted);
 - deepseek-harness only: the dedicated harness prompt above;
-- deepseek-harness plus plugins: a merged prompt — harness update
-  (impact check before the rebuild) first, then the plugin modules, then
-  the compatibility audit (`buildHarnessAuditStep`), then the report.
+- deepseek-harness plus plugins: a merged prompt (`buildHarnessMergedPrompt`)
+  — the whole batch follows the same two-phase staging flow: the temp-clone
+  validation covers the harness update plus the batched plugin module updates
+  and their install-script cross-checks (folded into the validation phase),
+  then the apply phase ports everything to the real project and rebuilds;
+  closes with the compatibility audit (`buildHarnessAuditStep`) and the
+  report.
 
 ## Top-level project update (no AI)
 
