@@ -1922,6 +1922,28 @@ function buildHarnessAuditStep(number) {
   );
 }
 
+// Commit-message template (AGENTS.md Conventional Commits) for the outer
+// dsh-gui repo's submodule-bump commit: every module the AI update moves ends
+// in one `feat(submodule): bump <名称> from <旧> to <新>` subject; any extra
+// change notes are appended below the subject as the body.
+const COMMIT_MESSAGE_TEMPLATE =
+  "feat(submodule): bump <插件或 submodule 名称> from <旧版本/旧提交> to <新版本/新提交>";
+
+// Numbered final step for the AI-update prompts: after the update, ask for one
+// ready-to-use commit message per bumped module that follows the template. The
+// agent fills in the concrete module name and the actual before/after version
+// identifiers (tag or commit short hash) it observed, and may append extra
+// change notes as the commit body. It must only draft the text — never run
+// `git commit` for the user itself.
+function buildCommitMessageStep(number) {
+  return (
+    number +
+    ". 为本次更新的每个模块各准备一条可直接使用的 commit message（外层 dsh-gui 仓库的 submodule bump 提交，遵循仓库根 AGENTS.md 的 Conventional Commits 约定）：主题行按模板「" +
+    COMMIT_MESSAGE_TEMPLATE +
+    "」填写——把 `<插件或 submodule 名称>` 换成实际模块名，把 `<旧版本/旧提交>` 与 `<新版本/新提交>` 换成该模块更新前后的实际版本标识（tag 或提交短哈希）；如需附加其他额外的变更说明，在主题行下方空一行开始写正文（逐条用 - 列表）；无额外说明则省略正文。把每条 commit message 用代码块包裹，统一放在汇报末尾。注意：只生成消息文本，不要替用户执行 git commit。"
+  );
+}
+
 // Staging-first upgrade steps shared by the deepseek-harness prompts (single
 // and merged): the risky harness upgrade is first validated in a throwaway
 // clone outside the repository, and only after it passes is anything applied
@@ -1977,6 +1999,7 @@ function buildHarnessUpdatePrompt(project) {
   lines.push((n++) + ". 在本工程重建并验证：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
   lines.push(buildHarnessAuditStep(n++));
   lines.push((n++) + ". 完成后汇报：确认的最新 tag、临时目录验证结论（修复了哪些适配点、屏蔽了哪些插件及原因/恢复条件）、实装命令与结果、改动了哪些文件，并给出速查结论（哪些插件安装脚本与官方规范一致、哪些被屏蔽/需调整）。");
+  lines.push(buildCommitMessageStep(n++));
   return lines;
 }
 
@@ -2019,6 +2042,7 @@ function buildHarnessMergedPrompt(harness, others) {
   lines.push((n++) + ". 在本工程重建并验证：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
   lines.push(buildHarnessAuditStep(n++));
   lines.push((n++) + ". 汇报：确认的最新 tag、临时目录验证结论（修复了哪些适配点、屏蔽了哪些插件及原因/恢复条件）、改动文件清单、执行过的安装/构建命令及结果；给出速查结论（哪些插件安装脚本与官方规范一致、哪些需调整/被屏蔽）；并逐模块汇报本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+  lines.push(buildCommitMessageStep(n++));
   lines.push("");
   lines.push("注意：以上路径均相对于 dsh-gui 仓库根目录；请确认会话工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。");
   return lines.join("\n");
@@ -2048,6 +2072,7 @@ function buildAiUpdatePrompt(projects) {
       lines.push("4. 若改动涉及 harness 或需要重建，按需执行仓库构建脚本；");
       lines.push("5. 完成后汇报改动了哪些文件、执行了哪些安装/构建命令及结果；");
       lines.push("6. 基于该模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+      lines.push(buildCommitMessageStep("7"));
     }
   } else {
     lines.push("请批量更新当前 dsh-gui 仓库中以下可更新的模块：");
@@ -2077,12 +2102,14 @@ function buildAiUpdatePrompt(projects) {
       steps.push("7. 全部完成后汇报每个模块的改动与安装结果；");
       steps.push(buildHarnessAuditStep("8"));
       steps.push("9. 基于各模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，并逐模块汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+      steps.push(buildCommitMessageStep("10"));
     } else {
       steps.push("3. 更新后、运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；");
       steps.push("4. 确认无误后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
       steps.push("5. 必要时重建；");
       steps.push("6. 全部完成后汇报每个模块的改动与安装结果；");
       steps.push("7. 基于各模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，并逐模块汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
+      steps.push(buildCommitMessageStep("8"));
     }
     for (const step of steps) lines.push(step);
   }
