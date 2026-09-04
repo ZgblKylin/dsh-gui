@@ -519,6 +519,19 @@ button.update-ai {
   min-width: 64px;
 }
 
+/* AI update on a checkout sitting exactly on a tag while the remote has no
+   newer tag: the AI flow would move the tag onto a non-tag commit, so the
+   button is grayed out (disabled) as "not recommended to update". */
+button.update-ai.discouraged {
+  background: var(--border);
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+button.update-ai.discouraged:hover {
+  filter: none;
+}
+
 .update-item-ok {
   color: #3fb950;
   font-size: 12px;

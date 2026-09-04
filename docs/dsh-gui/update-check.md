@@ -8,6 +8,19 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 `plugin-market`），仓库新 tag 可能只是源码发布，上游 npm 尚未发布对应版本——
 直接移动 submodule checkout 不会同步已安装的插件本体。
 
+## AI 更新的 tag 保留规则
+
+「AI 更新全部」与行内「AI 更新」不会把 **tag 版本更新到非 tag 提交**：若某个
+模块（含顶层仓库）当前正好检出于某个 tag、而远端默认分支只有更新的提交、没有
+更新的 tag（即 `announce = false` 的“仅提交更新”情形），该行不会进入
+「AI 更新全部」，其行内「AI 更新」按钮置灰禁用（不建议执行）。如确需跟进这类
+模块，请用行内的「更新」流程（确认后「重启并更新」）。
+
+实现：`src-tauri/ui/app.js` 的 `isOnTagWithoutNewer`（复用 Rust 端
+`announce` 字段）过滤 `updatableProjects`（AI 资格），并在 `renderUpdateDialog`
+无可更新行时隐藏「AI 更新全部」；生成的 AI 提示词也加入“跳过在 tag 上且无更新
+tag 的模块”的复核指令。
+
 ## 检测与标注
 
 - **安装记录**：共享流水线 `scripts/plugin-install.mjs` 的 `installNpmPlugin`

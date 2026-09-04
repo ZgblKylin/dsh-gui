@@ -1342,10 +1342,16 @@ function updateRow(project, checking) {
     } else {
       const ai = document.createElement("button");
       ai.type = "button";
-      ai.className = "primary update-ai";
+      // 当前正处在 tag 且远端没有更新 tag 的模块：AI 更新只能把它移到非 tag
+      // 的最新提交，属于不建议操作——按钮置灰并禁用（如需跟进请用行内的「更新」）。
+      const tagLocked = isOnTagWithoutNewer(project);
+      ai.className = "primary update-ai" + (tagLocked ? " discouraged" : "");
       ai.dataset.updateId = project.id;
       ai.textContent = "AI 更新";
-      ai.title = "回到项目首页选中 dsh-gui 目录并预填提示词，预设由你自选";
+      ai.title = tagLocked
+        ? "当前正处在 tag（远端没有更新的 tag）；AI 更新会把 tag 移到非 tag 的最新提交，不建议执行。如需跟进请用「更新」流程"
+        : "回到项目首页选中 dsh-gui 目录并预填提示词，预设由你自选";
+      if (tagLocked) ai.disabled = true;
       action.append(mode, changelog, button, ai);
     }
   } else {
@@ -1377,6 +1383,10 @@ function renderUpdateDialog(status, asChecking) {
   updateBody.innerHTML = "";
   const projects = Array.isArray(status && status.projects) ? status.projects : [];
   const behind = projects.filter((project) => project && project.behind && !project.error);
+  // AI-eligible rows: tag-locked checkouts (on a tag with no newer tag) never
+  // enter「AI 更新全部」, so their tag version is not moved to a non-tag commit
+  // (their per-row「AI 更新」button is grayed out in updateRow).
+  const aiEligible = behind.filter((project) => !isOnTagWithoutNewer(project));
   const summary = document.createElement("div");
   summary.className = "update-summary";
   if (asChecking) {
@@ -1387,7 +1397,7 @@ function renderUpdateDialog(status, asChecking) {
   } else {
     summary.textContent =
       behind.length > 0
-        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，agent 预设由你自选），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」包含顶层工程时等价于点击顶层的「更新」并忽略其他更新。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
+        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，agent 预设由你自选），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」不包含当前正处在 tag 且远端没有更新 tag 的模块（不会把 tag 更新到非 tag 的最新提交），包含顶层工程时等价于点击顶层的「更新」并忽略其他更新；这类模块行内的「AI 更新」按钮呈灰色、不建议执行，如需跟进请用「更新」流程。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
         : "所有工程均为最新版本。";
     updateBody.appendChild(summary);
     for (const project of projects) updateBody.appendChild(updateRow(project, false));
@@ -1395,7 +1405,7 @@ function renderUpdateDialog(status, asChecking) {
   }
   updateStatusLine.textContent = formatUpdateStatusLine(status, asChecking);
   updateMarkAll.classList.toggle("hidden", asChecking || behind.length === 0);
-  updateAiAll.classList.toggle("hidden", asChecking || behind.length === 0);
+  updateAiAll.classList.toggle("hidden", asChecking || aiEligible.length === 0);
   updateApply.classList.toggle("hidden", asChecking || behind.length === 0);
   if (DIALOG_VIEW) scheduleFit();
 }
@@ -1884,8 +1894,22 @@ const AI_UPDATE_VERSION = 1;
 const AI_UPDATE_TIMEOUT_MS = 10000;
 let aiUpdateSeq = 0;
 
+// A checkout sitting exactly on a tag while the remote carries only newer
+// commits (no newer tag) must stay on its tag version: an AI update would only
+// move the tag onto a non-tag commit. `announce === false` encodes exactly
+// that condition (see the Rust check_project badge rule: on_exact_tag &&
+// !has_newer_tag), so it is reused here as the "tag version locked" test.
+function isOnTagWithoutNewer(project) {
+  return Boolean(project && project.behind && project.announce === false);
+}
+
 function updatableProjects(projects) {
-  return (projects ?? []).filter((project) => project && project.behind && !project.error);
+  // AI-update eligibility: behind, checkable, and NOT tag-locked — an on-tag
+  // checkout with no newer tag is excluded so the AI flows never move its tag
+  // version to a non-tag commit.
+  return (projects ?? []).filter(
+    (project) => project && project.behind && !project.error && !isOnTagWithoutNewer(project)
+  );
 }
 
 function aiModuleLabel(project) {
@@ -2021,6 +2045,7 @@ function buildHarnessMergedPrompt(harness, others) {
     lines.push("- " + project.name + "（" + path + "当前 " + (project.current || "unknown") + "，" + target + "）");
   }
   lines.push("");
+  lines.push("复核：若某个模块当前正处在 tag 上且远端没有更新的 tag，跳过它，不要把它更新到非 tag 的最新提交（保持其 tag 版本），并在报告中说明原因。");
   lines.push("明确：deepseek-harness 是工程基座（DSH 框架本体，位于仓库根目录 deepseek-harness/，不在 plugins/ 下；不是插件，没有 install.mjs，文档在 deepseek-harness/docs/ 与 AGENTS.md（docs/official/ 为官方文档汇总）；按仓库约定它是 pinned 上游子模块，只用于查证规范——不要编辑其中任何文件，也不要向插件源码复制代码）。整个升级按「临时目录先行验证、验证通过后再实装」的两阶段流程执行，避免直接改动本工程而影响日常使用：");
   lines.push("");
   lines.push("阶段一：在临时工作目录先行验证（不碰本工程，本工程保持可运行）");
@@ -2090,6 +2115,7 @@ function buildAiUpdatePrompt(projects) {
       lines.push("其中 deepseek-harness 是工程基座（DSH 框架本体，不在 plugins/ 下，其他插件都基于它），不是插件——按「临时目录先行验证、验证通过后再实装」单独处理，不要套用插件流程（plugins/<id>/install.mjs、plugins/<id>/<package>/README.md）；");
       lines.push("");
     }
+    lines.push("对每个模块执行前先复核其当前状态：若某个模块当前正处在 tag 上且远端没有更新的 tag，跳过该模块，不要把它更新到非 tag 的最新提交（保持其 tag 版本），并在报告中说明原因。");
     lines.push("对每个模块按其标注的更新目标处理：");
     lines.push("1. 最新提交：快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>；仓库本体用 git pull）；");
     lines.push("2. 最新 tag：先 fetch origin，再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag；");
