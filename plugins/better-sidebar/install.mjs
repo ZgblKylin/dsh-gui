@@ -13,7 +13,10 @@
  * dsh-flowglass / dsh-sidebar-qa 仍从 npm 安装（两者依赖 better-sidebar 的
  * bundle 层，安装顺序不变：better-sidebar 先装，再装两个 companion；同一
  * 相对顺序也落在 `dsh.profile.bundles`，即 better-sidebar 的 bundle 层先于
- * 其 companions 应用）。
+ * 其 companions 应用）。两个 companion 均 pin 到与其 git submodule tag 一致
+ * 的精确版本（dsh-flowglass@0.3.0、dsh-sidebar-qa@0.4.0），不用 `@latest`：
+ * pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会对 `@latest`/范围
+ * 静默回退到更旧版本，精确 pin 则直接安装并自动豁免，保证结果确定。
  *
  * 三个包都声明 `dsh.bundle.patch`，所以 `dsh plugin add` 各自 reconcile 进
  * `dsh.profile.bundles` 并由其 bundle 层插入 Loader entry——不写手工 insert
@@ -35,15 +38,16 @@ installNpmPlugin({
 // + 可热重载的会话工具箱抽屉，编译产物来自 npm。装好 better-sidebar 时
 // 注册为原生会话级 tab。默认跳过：0.4.x 对 dsh-v0.1.2-alpha.1 的 client
 // 运行时不兼容（见 docs/dsh-gui/harness-upgrade-build-failure.md；upstream
-// 适配后移除默认清单即可，或临时 DSH_PLUGIN_FORCE_INSTALL=1）。
+// 适配后移除默认清单即可，或临时 DSH_PLUGIN_FORCE_INSTALL=1）。版本 pin 到
+// 子模块 tag v0.3.0 对应的 npm 发布。
 installNpmPlugin({
   id: 'flowglass',
-  packageSpec: 'dsh-flowglass@latest',
+  packageSpec: 'dsh-flowglass@0.3.0',
 })
 
 // 然后 dsh-sidebar-qa：保证硬 peer 依赖可解析且 `dsh.profile.bundles` 把
-// better-sidebar 的层排在 companions 之前。
+// better-sidebar 的层排在 companions 之前。版本 pin 到子模块 tag v0.4.0。
 installNpmPlugin({
   id: 'sidebar-qa',
-  packageSpec: 'dsh-sidebar-qa@latest',
+  packageSpec: 'dsh-sidebar-qa@0.4.0',
 })
