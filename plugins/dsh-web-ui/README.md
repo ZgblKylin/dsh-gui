@@ -1,12 +1,16 @@
 # plugins/dsh-web-ui
 
 `dsh-web-ui` 的 git submodule wrapper。这个 wrapper 安装该仓库中的**插件本体**，
-全部以 npm 包形式按 `@latest` 安装进 web profile（见 `plugins/README.md` 的
-「安装方式」一节）：
+全部以 npm 包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的
+「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.3.14`）：
 
-1. **`dsh-liangshen` host 插件**（`@linxin666/dsh-liangshen@latest`）；
+1. **`dsh-liangshen` host 插件**（`@linxin666/dsh-liangshen@0.3.14`）；
 2. **`dsh-web-ui-settings` 兼容设置桥**
-   （`@linxin666/dsh-client-ui-web-ui-settings@latest`，排在最前）。
+   （`@linxin666/dsh-client-ui-web-ui-settings@0.3.14`，排在最前）。
+
+用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
+`@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
+保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 两个版本号。
 
 不安装 dsh-web-ui 的其他任何包、插件、皮肤，也不安装其 agent preset（梁神模式
 等 preset 属于 `presets/` 流程，不在本 wrapper）。
@@ -37,8 +41,8 @@ binder 注入给声明它的家族插件；没有它时，依赖 `webUiSettings`
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
-dsh plugin --profile web add @linxin666/dsh-liangshen@latest
-dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@latest
+dsh plugin --profile web add @linxin666/dsh-liangshen@0.3.14
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.3.14
 ```
 
 两个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
@@ -74,11 +78,11 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@latest
 ```text
 --- E:\Git\dsh-gui\plugins\dsh-web-ui\install.mjs
 
-==> install plugin 'dsh-liangshen' (@linxin666/dsh-liangshen@latest from npm)
+==> install plugin 'dsh-liangshen' (@linxin666/dsh-liangshen@0.3.14 from npm)
   @linxin666/dsh-liangshen declares dsh.bundle.patch — it mounts through its bundle layer, no cordis.patch.yml insert added
 installed plugin 'dsh-liangshen' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@latest from npm)
+==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.3.14 from npm)
   ...
 installed plugin 'dsh-web-ui-settings' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
@@ -91,14 +95,19 @@ node plugins/dsh-web-ui/install.mjs
 
 ## 幂等性
 
-`dsh plugin add <pkg>@latest`（npm）可重复执行；bundle 层挂载由受管安装器
-reconcile 保证幂等。
+`dsh plugin add <pkg>@0.3.14`（npm，精确版本）可重复执行；bundle 层挂载由受管
+安装器 reconcile 保证幂等。
 
 ## 更新源
 
 `dsh-web-ui/` 已登记为 dsh-gui 的 git submodule（
 `zhu1090093659/dsh-web-ui`，路径 `plugins/dsh-web-ui/dsh-web-ui`），仅作源码
-参考。更新 npm `@latest`：
+参考。升级顺序：
+
+1. 先移动子模块到新 tag（`git -C plugins/dsh-web-ui/dsh-web-ui checkout <tag>`）；
+2. 同步把本文件 `install.mjs` 与 `README.md` 中的两个 npm 版本号 bump 到新 tag
+   对应的版本（精确 pin，`pnpm add` 对精确版本自动豁免发布年龄门禁）；
+3. 重跑安装：
 
 ```powershell
 node plugins/dsh-web-ui/install.mjs

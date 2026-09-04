@@ -66,8 +66,10 @@ would double-mount it and fail the plugin tree with
 `duplicate loader entry id`.
 
 - **Multiple npm bundles wrapper** — `dsh-web-ui` installs two plugin
-  packages of its distribution repo, all from npm as `@latest`:
-  `@linxin666/dsh-liangshen` and
+  packages of its distribution repo, pinned to exact versions matching the
+  git tag (`0.3.14`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
+  gate, which would otherwise silently fall back to an older version for
+  `@latest`): `@linxin666/dsh-liangshen` and
   `@linxin666/dsh-client-ui-web-ui-settings`
   (ordered before; per the 安装方式 section below:
   not marked as source installs). Both declare `dsh.bundle.patch`, so
@@ -88,8 +90,8 @@ would double-mount it and fail the plugin tree with
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
 - [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 源码安装
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
-  - [@linxin666/dsh-liangshen@latest](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
-  - [@linxin666/dsh-client-ui-web-ui-settings@latest](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
+  - [@linxin666/dsh-liangshen@0.3.14](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-web-ui-settings@0.3.14](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.4；子模块
   checkout 仅作源码参考）。**默认跳过**：client 半依赖已被本 harness
   （dsh-v0.1.2-alpha.1）移除的 `@deepseek-ai/dsh-client-runtime`，host 又
@@ -212,7 +214,8 @@ would double-mount it and fail the plugin tree with
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
   `dsh-web-ui/dsh-web-ui`. Installs two plugin packages of the distribution
-  repo from npm `@latest` (per the 安装方式 section above):
+  repo pinned to exact versions matching the git tag (`0.3.14`) (per the
+  安装方式 section above):
   `@linxin666/dsh-liangshen` (host plugin) and the
   `dsh-web-ui-settings` compatibility bundle
   (`@linxin666/dsh-client-ui-web-ui-settings`, ordered before) — each mounts
