@@ -14,7 +14,7 @@
  * bundle 层，安装顺序不变：better-sidebar 先装，再装两个 companion；同一
  * 相对顺序也落在 `dsh.profile.bundles`，即 better-sidebar 的 bundle 层先于
  * 其 companions 应用）。两个 companion 均 pin 到与其 git submodule tag 一致
- * 的精确版本（dsh-flowglass@0.3.0、dsh-sidebar-qa@0.4.0），不用 `@latest`：
+ * 的精确版本（dsh-flowglass@0.3.0、dsh-sidebar-qa@0.5.0），不用 `@latest`：
  * pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会对 `@latest`/范围
  * 静默回退到更旧版本，精确 pin 则直接安装并自动豁免，保证结果确定。
  *
@@ -46,8 +46,8 @@ installNpmPlugin({
 })
 
 // 然后 dsh-sidebar-qa：保证硬 peer 依赖可解析且 `dsh.profile.bundles` 把
-// better-sidebar 的层排在 companions 之前。版本 pin 到子模块 tag v0.4.0。
+// better-sidebar 的层排在 companions 之前。版本 pin 到子模块 tag v0.5.0。
 installNpmPlugin({
   id: 'sidebar-qa',
-  packageSpec: 'dsh-sidebar-qa@0.4.0',
+  packageSpec: 'dsh-sidebar-qa@0.5.0',
 })
