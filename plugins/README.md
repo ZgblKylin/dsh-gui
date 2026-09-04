@@ -82,7 +82,7 @@ would double-mount it and fail the plugin tree with
 
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包
-- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（v0.17.1 起含 DSH 0.1.2-alpha.1 适配（双版本兼容）；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
+- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.18.0** 起含 DSH 0.1.2-rc.1 适配（peerDeps 全指 `^0.1.2-rc.1`）；v0.17.1 是针对 dsh-v0.1.2-alpha.1 的适配，import 了 rc.1 已移除的 settingsNamespace，不能在 rc.1 上加载。wrapper 固定 `0.18.0` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会挡掉过新的 0.18.0、回退到旧版 0.17.1；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
@@ -125,9 +125,13 @@ would double-mount it and fail the plugin tree with
   (`omdsh-dev/DSH-better-sidebar`), `better-sidebar/dsh-flowglass`
   (`Iwctwbh/dsh-flowglass`) and `better-sidebar/dsh-sidebar-qa`
   (`ChenRuoT/dsh-sidebar-qa`); its `install.mjs` installs the three packages
-  in order — `dsh-better-sidebar@latest` FIRST (installed from npm since the
-  upstream release landed; the submodule checkout at the pinned tag is kept as
-  a source reference), then `dsh-flowglass@latest`, then `dsh-sidebar-qa@latest`
+  in order — `dsh-better-sidebar@0.18.0` FIRST (0.18.0 is the DSH
+  0.1.2-rc.1 适配版, peerDeps 全指 `^0.1.2-rc.1`; v0.17.1 是针对
+  dsh-v0.1.2-alpha.1 的适配，import 了 rc.1 已移除的 settingsNamespace，不能
+  在 rc.1 上加载。固定精确版本而非 `@latest`，因为 pinned pnpm 11.7 默认
+  supply-chain minimumReleaseAge 会挡掉过新的 0.18.0、回退到旧版 0.17.1；
+  子模块 checkout 在 pinned tag 处保留作源码参考), then `dsh-flowglass@latest`,
+  then `dsh-sidebar-qa@latest`
   (both companions declare better-sidebar as a peer dependency, so it must
   land first; the same order ends up in `dsh.profile.bundles`).
   - `DSH-better-sidebar` — service-first sidebar workbench (right sidebar +
