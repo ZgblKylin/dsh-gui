@@ -283,6 +283,9 @@ Examples:
   npm run setup
   npm run build -- --debug
   npm run build -- --skip-harness
+  npm run build -- --skip-exe
+  npm run build:exe        (alias for build --skip-harness)
+  npm run build:webui      (alias for build --skip-exe; harness web UI only, no desktop exe)
   npm run install:plugins
   npm start
   npm run shortcut -- "D:\\x.lnk"`)

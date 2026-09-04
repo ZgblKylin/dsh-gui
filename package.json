@@ -11,6 +11,7 @@
     "setup": "node scripts/dsh-gui.mjs setup",
     "build": "node scripts/dsh-gui.mjs build",
     "build:exe": "node scripts/dsh-gui.mjs build --skip-harness",
+    "build:webui": "node scripts/dsh-gui.mjs build --skip-exe",
     "install:plugins": "node scripts/dsh-gui.mjs install",
     "plugins": "node scripts/dsh-gui.mjs install",
     "harness": "node scripts/harness.mjs",
