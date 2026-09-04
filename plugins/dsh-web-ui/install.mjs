@@ -3,7 +3,7 @@
  * install.mjs — install the dsh-web-ui plugin bodies into the web profile
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
- * Four plugin packages of the dsh-web-ui distribution repo are installed,
+ * Five plugin packages of the dsh-web-ui distribution repo are installed,
  * pinned to exact versions matching the upstream git tag (`v0.3.14`), not
  * `@latest` — exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (the
  * gate silently falls back to an older version for `@latest`/ranges, while a
@@ -23,9 +23,13 @@
  * 4. the `dsh-skill-explorer` skill center
  *    (`@linxin666/dsh-client-ui-skill-explorer@0.3.14`): browse loaded skills
  *    by source (bundled / project / user / custom / runtime), enable/disable,
- *    create and delete, in a web GUI panel.
+ *    create and delete, in a web GUI panel;
+ * 5. the `dsh-task-board` host-authoritative task board
+ *    (`@linxin666/dsh-client-ui-task-board@0.3.14`): real session execution,
+ *    Host cron scheduling, and optional cross-platform idle-sleep protection,
+ *    mounted without DSH source changes.
  *
- * All four declare their own `dsh.bundle.patch`, so `dsh plugin add`
+ * All five declare their own `dsh.bundle.patch`, so `dsh plugin add`
  * reconciles them into `dsh.profile.bundles` and each mounts through its own
  * bundle layer — no manual cordis mount is written (that would double-mount).
  * The settings bridge exposes the `webUiSettings` compatibility binder to
@@ -73,4 +77,12 @@ installNpmPlugin({
 installNpmPlugin({
   id: 'dsh-skill-explorer',
   packageSpec: '@linxin666/dsh-client-ui-skill-explorer@0.3.14',
+})
+
+// task-board：host 权威任务板（真实会话执行 + Host cron 调度 + 可选跨平台
+// 闲置防睡眠），host 半区挂系统提示词公告 section、浏览器半区渲染任务板 UI。
+// 双半区都经 dsh.bundle.patch 自挂载；版本对齐子模块 tag v0.3.14。
+installNpmPlugin({
+  id: 'dsh-task-board',
+  packageSpec: '@linxin666/dsh-client-ui-task-board@0.3.14',
 })
