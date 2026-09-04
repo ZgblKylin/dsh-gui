@@ -3,7 +3,7 @@
  * install.mjs — install the dsh-web-ui plugin bodies into the web profile
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
- * Two plugin packages of the dsh-web-ui distribution repo are installed,
+ * Three plugin packages of the dsh-web-ui distribution repo are installed,
  * pinned to exact versions matching the upstream git tag (`v0.3.14`), not
  * `@latest` — exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (the
  * gate silently falls back to an older version for `@latest`/ranges, while a
@@ -14,9 +14,14 @@
  *
  * 1. the `dsh-liangshen` host plugin (`@linxin666/dsh-liangshen@0.3.14`);
  * 2. the `dsh-web-ui-settings` compatibility bundle
- *    (`@linxin666/dsh-client-ui-web-ui-settings@0.3.14`).
+ *    (`@linxin666/dsh-client-ui-web-ui-settings@0.3.14`);
+ * 3. the `dsh-plugin-manager` plugin-manager tab
+ *    (`@linxin666/dsh-client-ui-plugin-manager@0.3.14`): registers a
+ *    `settings.plugins.tab` tab in the official Plugins settings section
+ *    (install from npm/git, enable/disable, update/remove, conflict
+ *    reconciliation, repair conversations).
  *
- * Both declare their own `dsh.bundle.patch`, so `dsh plugin add`
+ * All three declare their own `dsh.bundle.patch`, so `dsh plugin add`
  * reconciles them into `dsh.profile.bundles` and each mounts through its own
  * bundle layer — no manual cordis mount is written (that would double-mount).
  * The settings bridge exposes the `webUiSettings` compatibility binder to
@@ -47,4 +52,13 @@ installNpmPlugin({
 installNpmPlugin({
   id: 'dsh-web-ui-settings',
   packageSpec: '@linxin666/dsh-client-ui-web-ui-settings@0.3.14',
+})
+
+// plugin-manager：官方「插件」设置分区内的插件管理器 Tab（启停/安装/更新/卸载
+// + 冲突对账 + 修复会话），双通道（官方 /plugin-installer RPC 或 loopback 网关 +
+// dsh plugin CLI）。engines.dsh >=0.1.2-rc.1 匹配 pinned harness；版本对齐
+// 子模块 tag v0.3.14。
+installNpmPlugin({
+  id: 'dsh-plugin-manager',
+  packageSpec: '@linxin666/dsh-client-ui-plugin-manager@0.3.14',
 })
