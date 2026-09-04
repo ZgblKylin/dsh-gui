@@ -39,12 +39,12 @@ installNpmPlugin({
   id: 'dsh-liangshen',
   packageSpec: '@linxin666/dsh-liangshen@0.3.14',
 })
-// 下面的 web-ui-settings 包依赖旧版 `@deepseek-ai/dsh-client-runtime`
-// （dsh-v0.1.2-alpha.1 中已不存在），默认跳过；upstream 适配后把下面的
-// `skip` 改为 `null`（或删除该选项）即可恢复，或临时 DSH_PLUGIN_FORCE_INSTALL=1
-// （见 docs/dsh-gui/harness-upgrade-build-failure.md）。版本仍与 git tag 同步 pin。
+// web-ui-settings 已适配当前 pinned harness（dsh-v0.1.2-rc.1，engines.dsh
+// >=0.1.2-rc.1）：client 半区 dsh.client.inject 走 dsh-client-store /
+// dsh-client-connection / dsh-client-ui-settings 等新模块，唯一残留的
+// dsh-client-runtime 引用是带降级的旧版 fallback（先 require 新模块，成功即用、
+// 仅缺失时回落）。版本与 git tag v0.3.14 同步 pin。
 installNpmPlugin({
   id: 'dsh-web-ui-settings',
   packageSpec: '@linxin666/dsh-client-ui-web-ui-settings@0.3.14',
-  skip: 'version-incompatible with the pinned harness (client-half still requires the removed @deepseek-ai/dsh-client-runtime)',
 })
