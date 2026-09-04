@@ -12,7 +12,7 @@
 | 形态 | 浏览器 overlay，无桌面模式 | 浏览器 overlay + **可选** Electron 透明桌面小窗 |
 | Loader entry id | `pet` | `pet` |
 | webserver 路由 | `/api/pet` | `/dsh-pet-7340`（v0.1.8 起；旧版 `/pet`） |
-| 本仓库 wrapper | ~~`plugins/dsh-web-ui`~~（已移除安装） | `plugins/dsh-pet`（npm `dsh-pet@0.2.4`） |
+| 本仓库 wrapper | ~~`plugins/dsh-web-ui`~~（已移除安装） | `plugins/dsh-pet`（npm `dsh-pet@0.2.5`） |
 | 安装状态 | 默认跳过 | 默认跳过（`plugins/dsh-pet/install.mjs` 向 `installNpmPlugin` 传入 `skip` 声明） |
 | 用户配置 | `$DSH_HOME/pet.json` | `$DSH_HOME/dsh-pet/main-config.json` |
 
@@ -24,9 +24,9 @@
 | 症状（启动/运行） | 可能原因 | 处置 |
 | --- | --- | --- |
 | `duplicate loader entry id: pet` / `failed to apply loader entry pet`，Harness 无法启动 | 同一 profile 里 `@linxin666/dsh-pet` 与 `dsh-pet`（或手工 patch 行）**同时**用 entry `pet` | §3.1 → 卸载其一（建议卸鲸鱼），§4.1 |
-| `webserver: duplicate prefix route "/pet"` | 装了 **<0.1.8** 的 PC2005 `dsh-pet`（旧路由 `/pet`）且与其它 `/pet` 插件共存 | 升级到 ≥0.1.8（现 v0.2.4）；参考上游 issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)（已修复，0.1.8 起 `/dsh-pet-7340`） |
-| 加载 plugin `dsh-pet` 报 `missed the module table` / client 失败 | 发布包 client 半 require `@deepseek-ai/dsh-client-runtime`，本 harness（dsh-v0.1.2-alpha.1）已移除 | 默认跳过即为正确状态；勿在正式 profile 强装（§4.2） |
-| `pet` 插件行停在 PENDING / 不激活 | host 半 inject `agentDefaultModel`，本版 harness 无此服务 | 同上；等上游适配或加兼容层 |
+| `webserver: duplicate prefix route "/pet"` | 装了 **<0.1.8** 的 PC2005 `dsh-pet`（旧路由 `/pet`）且与其它 `/pet` 插件共存 | 升级到 ≥0.1.8（现 v0.2.5）；参考上游 issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)（已修复，0.1.8 起 `/dsh-pet-7340`） |
+| 加载 plugin `dsh-pet` 报 `missed the module table` / client 失败 | 发布包 client 半要求 `@deepseek-ai/dsh-client-runtime`，本 harness（dsh-v0.1.2-rc.1）已移除该旧运行时 | 默认跳过即为正确状态；勿在正式 profile 强装（§4.2） |
+| `pet` 插件行停在 PENDING / 不激活 | ⚠️ v0.2.5 已解除：`agentDefaultModel` 服务现由 base bundle（dsh-v0.1.2-rc.1）提供，host 半可激活 | 若仍 PENDING，按 `dsh --dump-config` 核对其余 inject 服务（webServer/credentials/llm/commands）；client 半问题见上一行 |
 | 意外出现独立 Electron 小窗 / 自动下载 Electron 到 `$DSH_HOME/electron/` | 某宠物 `display` 为 `desktop`/`both`（内置默认是 `both`） | §3.2 注入 `display:"web"`；已有窗口需重启或保存一次设置页才停 |
 | 设置卡提示"命名空间未暴露" | 只有鲸鱼娘 family 插件依赖 `webUiSettings` 桥；PC2005 `dsh-pet` 用自己的 `/dsh-pet-7340/config`，不依赖该桥 | 与 `dsh-pet` 无关；若要鲸鱼娘设置卡需装 `@linxin666/dsh-client-ui-web-ui-settings`（同样默认跳过） |
 
@@ -74,12 +74,13 @@ node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove @linxin666
 $env:DSH_HOME = 'D:\git\dsh-gui\.dsh'
 # 默认：被跳过清单拦截（安全路径，什么都不装）
 node plugins/dsh-pet/install.mjs
-# 强装（⚠️ 仅临时/测试环境）：client 会 miss module table，host 停在 PENDING
+# 强装（⚠️ 仅临时/测试环境）：client 会 miss module table（host 半 v0.2.5 已兼容）
 $env:DSH_PLUGIN_FORCE_INSTALL = '1'; node plugins/dsh-pet/install.mjs
 ```
 
-> ⚠️ 不要在正式 profile 强装 0.2.4：其发布 bundle 依赖已被本 harness 移除的
-> client runtime。要验证请先复制一个临时 profile（`DSH_HOME` 指向别处）再试。
+> ⚠️ 不要在正式 profile 强装 0.2.5：其发布 bundle 的 client 半仍依赖已被本
+> harness 移除的旧运行时 `@deepseek-ai/dsh-client-runtime`。要验证请先复制一个
+> 临时 profile（`DSH_HOME` 指向别处）再试。
 > 等待上游发布兼容构建后，把 `plugins/dsh-pet/install.mjs` 里 `installNpmPlugin`
 > 的 `skip` 选项改为 `null`（或删除该选项）即可恢复正常安装——屏蔽入口在
 > wrapper 脚本，共享流水线不再硬编码跳过名单。
@@ -133,7 +134,7 @@ Select-String -Path .dsh\profiles\web\cordis.patch.yml -Pattern 'pet' -SimpleMat
 
 ## 6. 相关文件速查
 
-- wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；子模块 `plugins/dsh-pet/dsh-pet`（pin v0.2.4）
+- wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；子模块 `plugins/dsh-pet/dsh-pet`（pin v0.2.5）
 - 跳过声明（wrapper 内）：`plugins/dsh-pet/install.mjs` 的 `skip` 选项；登记与通用机制：`scripts/plugin-install.mjs`（`recordNpmInstall`、`skipInstall`）
 - 更新检查：`docs/dsh-gui/update-check.md`、`src-tauri/src/update.rs`
 - 上游：`https://github.com/PC2005-cloud/dsh-pet`（issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16) = 路由冲突，已修）

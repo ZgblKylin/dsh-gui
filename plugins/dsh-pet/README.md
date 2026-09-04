@@ -9,38 +9,42 @@
 
 ```text
 plugins/dsh-pet/
-├─ install.mjs                   # npm 安装 dsh-pet@0.2.4 + 注入桌面屏蔽配置
+├─ install.mjs                   # npm 安装 dsh-pet@0.2.5 + 注入桌面屏蔽配置
 ├─ inject-config.mjs             # 用户配置注入（纯函数，可单测）
 ├─ README.md                     # 本说明
-└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.2.4）
+└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.2.5）
    ├─ dsh-pet/                   # 真正的 npm 包源码（package.json / cordis.patch.yml / src/…）
    └─ …                          # 仓库其余部分（scripts / tools / prompts 等，仅源码参考）
 ```
 
 来源形态：git submodule（整仓库，源码参考；npm 发布包在仓库内 `dsh-pet/`
 子目录），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
-`dsh-pet@0.2.4`），不参与构建。
+`dsh-pet@0.2.5`），不参与构建。
 
 ## 兼容性状态（默认跳过）
 
-`dsh-pet` 0.2.4 与本仓库 pin 的 harness（dsh-v0.1.2-alpha.1）**不兼容**：
+`dsh-pet` v0.2.5 与本仓库 pin 的 harness（dsh-v0.1.2-rc.1）**部分兼容，仍默认跳过**：
 
-- client 半按旧 harness 构建，运行时 `require('@deepseek-ai/dsh-client-runtime')`
-  ——该包在本 harness 中已移除，加载会 miss module table（与已移除的
-  `@linxin666/dsh-pet` 同因）；
-- host 半 `inject: ['webServer', 'agentDefaultModel', …]`，其中
-  `agentDefaultModel` 服务在本 harness 中不存在，即便强装也停在 PENDING。
+- host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm',
+  'commands']`——`agentDefaultModel` 服务现已由 base bundle 的
+  `@deepseek-ai/dsh-agent-default-model` 提供（v0.2.4 时的“无此服务”阻断已
+  解除），host 半可正常激活；
+- 但 client 半 `dsh.client.inject` 仍要求
+  `@deepseek-ai/dsh-client-runtime`——该旧运行时在本 harness 中已被移除（新
+  版为 `dsh-client-connection / dsh-client-store / dsh-client-modules`），
+  浏览器侧加载会 miss module table，桌宠 UI 无法渲染（与已移除的
+  `@linxin666/dsh-pet` 同因）。
 
 因此 wrapper 在 `plugins/dsh-pet/install.mjs` 里向 `installNpmPlugin` 传入
 `skip` 声明默认跳过（屏蔽入口在插件脚本，共享流水线只负责机制），
 `npm run install:plugins` / `npm run build` 默认
-跳过（不会破坏 profile 启动）。待上游（或本仓库适配层）提供兼容构建后，把
-该 `skip` 选项改为 `null` 即可恢复。临时强制：`$env:DSH_PLUGIN_FORCE_INSTALL=1`
+跳过（不会破坏 profile 启动）。待上游改用新 client 运行时后，把
+该 `skip` 选项改为 `null`（或删除该选项）即可恢复。临时强制：`$env:DSH_PLUGIN_FORCE_INSTALL=1`
 后重跑本脚本。
 
 > 插件名冲突（issue
 > [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)）：上游已把 webserver
-> 路由前缀 `/pet` 改为 `/dsh-pet-7340`（0.1.8 起，v0.2.4 已含），不再与其它插件的
+> 路由前缀 `/pet` 改为 `/dsh-pet-7340`（0.1.8 起，v0.2.5 已含），不再与其它插件的
 > `/pet` 路由撞车。残留风险是 Loader entry id `pet` 与其它同样用 `pet` 的插件
 > 同 profile 共存会 `duplicate loader entry id`——本仓库已移除 `dsh-web-ui` 对
 > `@linxin666/dsh-pet`（同为 entry `pet`）的安装，默认 profile 不会双挂。

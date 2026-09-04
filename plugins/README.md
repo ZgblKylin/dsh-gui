@@ -92,12 +92,12 @@ would double-mount it and fail the plugin tree with
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-liangshen@0.3.14](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-web-ui-settings@0.3.14](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
-- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.4；子模块
+- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.5；子模块
   checkout 仅作源码参考）。**默认跳过**（跳过声明在 wrapper 的 `install.mjs`，
-  不硬编码于共享流水线）：client 半依赖已被本 harness
-  （dsh-v0.1.2-alpha.1）移除的 `@deepseek-ai/dsh-client-runtime`，host 又
-  inject 不存在的 `agentDefaultModel`——需 `DSH_PLUGIN_FORCE_INSTALL=1`
-  强制安装（见
+  不硬编码于共享流水线）：v0.2.5 的 host 半已兼容（`agentDefaultModel` 服务
+  现由 rc.1 的 base bundle 提供），但 client 半仍依赖已被本 harness
+  （dsh-v0.1.2-rc.1）移除的 `@deepseek-ai/dsh-client-runtime`，浏览器侧
+  miss module table——需 `DSH_PLUGIN_FORCE_INSTALL=1` 强制安装（见
   [dsh-pet/README.md](dsh-pet/README.md)）。安装后自动向用户配置注入
   `display:"web"` 屏蔽桌面 Electron 模式
 
@@ -225,14 +225,16 @@ would double-mount it and fail the plugin tree with
   (`@linxin666/dsh-client-ui-web-ui-settings`, ordered before) — each mounts
   through its own `dsh.bundle.patch` layer; it does not install agent presets
   or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
-- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.4)
+- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.5)
   at `dsh-pet/dsh-pet`: a floating desktop pet whose host half runs inside
   DSH and whose optional desktop mode spawns per-pet transparent Electron
-  windows. The wrapper installs the package from npm as `dsh-pet@0.2.4`, then
+  windows. The wrapper installs the package from npm as `dsh-pet@0.2.5`, then
   injects a user-layer default pet with `display:"web"` into
   `$DSH_HOME/dsh-pet/main-config.json` (unless a `display` is already
   configured) — so no pet resolves to `desktop`/`both` and no Electron helper
   process is launched or downloaded. It defaults to **skipped** because dsh-pet
-  0.2.4 is not runnable on the pinned harness (`dsh-client-runtime` removed,
-  `agentDefaultModel` absent); set `DSH_PLUGIN_FORCE_INSTALL=1` to install.
+  0.2.5's client half is still not runnable on the pinned harness
+  (`@deepseek-ai/dsh-client-runtime` removed; the host half is compatible now —
+  `agentDefaultModel` is provided by the base bundle); set
+  `DSH_PLUGIN_FORCE_INSTALL=1` to install.
   See `dsh-pet/README.md`.
