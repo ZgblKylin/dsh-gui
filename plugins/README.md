@@ -84,8 +84,8 @@ would double-mount it and fail the plugin tree with
 
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.38.0`）
-- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.18.0** 起含 DSH 0.1.2-rc.1 适配（peerDeps 全指 `^0.1.2-rc.1`）；v0.17.1 是针对 dsh-v0.1.2-alpha.1 的适配，import 了 rc.1 已移除的 settingsNamespace，不能在 rc.1 上加载。wrapper 固定 `0.18.0` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会挡掉过新的 0.18.0、回退到旧版 0.17.1；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.3.0`、`dsh-sidebar-qa@0.4.0`）
-  - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.3.0`；**默认跳过**，见下）
+- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.18.0** 起含 DSH 0.1.2-rc.1 适配（peerDeps 全指 `^0.1.2-rc.1`）；v0.17.1 是针对 dsh-v0.1.2-alpha.1 的适配，import 了 rc.1 已移除的 settingsNamespace，不能在 rc.1 上加载。wrapper 固定 `0.18.0` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会挡掉过新的 0.18.0、回退到旧版 0.17.1；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.4.5`、`dsh-sidebar-qa@0.4.0`）
+  - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.4.5`，v0.4.5 已适配 rc.1 client 运行时）
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `0.4.0`）
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
 - [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 源码安装
@@ -133,7 +133,7 @@ would double-mount it and fail the plugin tree with
   dsh-v0.1.2-alpha.1 的适配，import 了 rc.1 已移除的 settingsNamespace，不能
   在 rc.1 上加载。固定精确版本而非 `@latest`，因为 pinned pnpm 11.7 默认
   supply-chain minimumReleaseAge 会挡掉过新的 0.18.0、回退到旧版 0.17.1；
-  子模块 checkout 在 pinned tag 处保留作源码参考), then `dsh-flowglass@0.3.0`,
+  子模块 checkout 在 pinned tag 处保留作源码参考), then `dsh-flowglass@0.4.5`,
   then `dsh-sidebar-qa@0.4.0`
   (both companions declare better-sidebar as a peer dependency, so it must
   land first; the same order ends up in `dsh.profile.bundles`; both are pinned
@@ -151,7 +151,7 @@ would double-mount it and fail the plugin tree with
     lanes (user/assistant trunk, tool-call branches, subagent left-column
     branches), parallel-group frames, drill-down with breadcrumbs, and a
     hot-reloadable session toolbox drawer (21 mini-tools). Installed from npm
-    as `dsh-flowglass@0.3.0` (pinned to the submodule tag); declares
+    as `dsh-flowglass@0.4.5` (pinned to the submodule tag); declares
     `dsh.bundle.patch` (self-mounting;
     the repo checkout is kept as a source reference only). Its peer dep on
     `dsh-better-sidebar` is optional: with it installed it registers a native
