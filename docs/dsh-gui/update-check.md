@@ -21,6 +21,15 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 无可更新行时隐藏「AI 更新全部」；生成的 AI 提示词也加入“跳过在 tag 上且无更新
 tag 的模块”的复核指令。
 
+## AI 更新的自动预设
+
+「AI 更新」/「AI 更新全部」启动后，dsh-ai-update 浏览器半（
+`plugins/ai-update/dsh-ai-update/src/client/index.ts`）在落地空白会话上自动
+调用 `ctx.remote.agentPresets.select(sessionId, 'cordis')` 选中 **「创造模式」**
+（harness 内置 `cordis` preset，提供运行时检查、插件实验与 preset 创作指导），
+再预填升级提示词；选择被拒绝时请求失败返回错误，而不是静默落到默认预设。用户
+发送前仍可自行切换预设 chip。
+
 ## 检测与标注
 
 - **安装记录**：共享流水线 `scripts/plugin-install.mjs` 的 `installNpmPlugin`

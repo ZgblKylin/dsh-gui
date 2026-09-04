@@ -1350,7 +1350,7 @@ function updateRow(project, checking) {
       ai.textContent = "AI 更新";
       ai.title = tagLocked
         ? "当前正处在 tag（远端没有更新的 tag）；AI 更新会把 tag 移到非 tag 的最新提交，不建议执行。如需跟进请用「更新」流程"
-        : "回到项目首页选中 dsh-gui 目录并预填提示词，预设由你自选";
+        : "回到项目首页选中 dsh-gui 目录并预填提示词，自动选中「创造模式」预设（发送前可再改）";
       if (tagLocked) ai.disabled = true;
       action.append(mode, changelog, button, ai);
     }
@@ -1397,7 +1397,7 @@ function renderUpdateDialog(status, asChecking) {
   } else {
     summary.textContent =
       behind.length > 0
-        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，agent 预设由你自选），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」不包含当前正处在 tag 且远端没有更新 tag 的模块（不会把 tag 更新到非 tag 的最新提交），包含顶层工程时等价于点击顶层的「更新」并忽略其他更新；这类模块行内的「AI 更新」按钮呈灰色、不建议执行，如需跟进请用「更新」流程。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
+        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，自动选中「创造模式」预设，发送前可再改），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」不包含当前正处在 tag 且远端没有更新 tag 的模块（不会把 tag 更新到非 tag 的最新提交），包含顶层工程时等价于点击顶层的「更新」并忽略其他更新；这类模块行内的「AI 更新」按钮呈灰色、不建议执行，如需跟进请用「更新」流程。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
         : "所有工程均为最新版本。";
     updateBody.appendChild(summary);
     for (const project of projects) updateBody.appendChild(updateRow(project, false));

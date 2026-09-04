@@ -5,7 +5,8 @@
  * The shell's update dialog posts "dsh-gui:ai-update" messages into the
  * embedded page (a synthetic window message dispatched at document top level,
  * where window.parent === window). This plugin does NOT create a session by
- * itself and does NOT pick an agent preset. It:
+ * itself; it selects the 「创造模式」(creator) preset for the session it lands
+ * on and prefills the prompt. It:
  *
  *  1. validates the request (type + version + requestId + prompt),
  *  2. returns the page to the new-session home (sessions.clear),
@@ -13,18 +14,34 @@
  *     pick: uiWorkspace.connectWorkspace reuses the workspace's existing
  *     blank session (a fresh one is only minted when the workspace has none,
  *     exactly like clicking the workspace on the home screen) and opens it,
- *  4. prefills the composer draft with the prompt, leaving the agent preset
- *     chip untouched so the user picks the preset themselves,
- *  5. replies to window.parent with "dsh-gui:ai-update-result" so the shell
+ *  4. auto-selects the 「创造模式」(cordis) preset for that blank session via
+ *     ctx.remote.agentPresets.select — the same selection the hero chip and
+ *     the settings creator-draft entry make, so the AI-update work runs under
+ *     the creator's composition (runtime inspection, plugin experiments,
+ *     preset authoring guidance) instead of the deployment default; a refusal
+ *     fails the request rather than silently running under another preset,
+ *  5. prefills the composer draft with the prompt,
+ *  6. replies to window.parent with "dsh-gui:ai-update-result" so the shell
  *     can toast success/failure.
  *
  * Everything goes through public client services (sessions, workspaces,
- * uiWorkspace, conversation input resolver); no dsh-gui module is imported.
+ * uiWorkspace, conversation input resolver, and the remote agentPresets
+ * namespace); no dsh-gui module is imported.
  */
 
 const REQUEST_TYPE = 'dsh-gui:ai-update'
 const RESULT_TYPE = 'dsh-gui:ai-update-result'
 const PROTOCOL_VERSION = 1
+
+/**
+ * The 「创造模式」(Creator mode) preset id: the harness's shipped `cordis`
+ * preset (preset.yml publishes the display name 「创造模式」), whose
+ * composition adds runtime inspection, plugin experiments, and
+ * preset-authoring guidance on top of the standard capabilities — the
+ * composition an AI-update run of the dsh-gui repo (and its plugins /
+ * harness submodule) is built for.
+ */
+const CREATOR_PRESET_ID = 'cordis'
 
 /** Wire shape the shell sends. */
 interface AiUpdateRequest {
@@ -84,18 +101,38 @@ interface ConversationLike {
   }
 }
 
-/** Structural client context — services resolved lazily via ctx.get. */
+/** One selection RPC's flat result, as the Remote gateway answers it. */
+interface RemoteSelectResultLike {
+  ok: boolean
+  value?: string
+  error?: {
+    message?: string
+    details?: { reason?: unknown }
+  }
+}
+
+/** The typed client Remote gateway — the `agentPresets` namespace only. */
+interface RemoteLike {
+  agentPresets: {
+    select(sessionId: string, agentPreset: string): Promise<RemoteSelectResultLike>
+  }
+}
+
+/** Structural client context — services resolved via ctx.get / ctx.remote. */
 interface ClientCtxLike {
   get(name: 'conversation'): ConversationLike
   get(name: 'sessions'): SessionsLike
   get(name: 'workspaces'): WorkspacesLike
   get(name: 'uiWorkspace'): UiWorkspaceLike
   get(name: string): unknown
+  remote: RemoteLike
   effect(cb: () => () => void): void
 }
 
-/** Required services (cordis fiber inject). */
-export const inject = ['sessions', 'workspaces', 'conversation', 'uiWorkspace']
+/** Required services (cordis fiber inject). `remote` / `remote.agentPresets`
+ *  make `ctx.remote.agentPresets` available (each namespace is its own cordis
+ *  service); the AI-update preset auto-selection relies on it. */
+export const inject = ['sessions', 'workspaces', 'conversation', 'uiWorkspace', 'remote', 'remote.agentPresets']
 
 /** Stable cordis plugin name. */
 export const name = 'dsh-ai-update'
@@ -178,10 +215,27 @@ async function run(ctx: ClientCtxLike, request: AiUpdateRequest): Promise<void> 
   // Back to the new-session home first, then the standard workspace pick:
   // reuses the workspace's existing blank session (creates one only when the
   // workspace has none — the same as clicking the workspace on the home
-  // screen) and opens it. The preset chip is deliberately left untouched.
+  // screen) and opens it.
   sessions.clear()
   const sessionId = await uiWorkspace.connectWorkspace(targetWorkspaceId)
   sessions.open(sessionId)
+
+  // Auto-select the 「创造模式」(creator) preset for the blank session — the
+  // same `agentPresets.select` the hero chip's pick and the settings
+  // creator-draft entry make. connectWorkspace always lands on a blank
+  // session, so the swap is legal; the AI-update work (dsh-gui repo hygiene,
+  // plugin experiments, harness-submodule pinning) is exactly what that
+  // composition is for. Selection is load-bearing: a refusal fails the
+  // request instead of silently running the update under the deployment
+  // default preset.
+  const selected = await ctx.remote.agentPresets.select(sessionId, CREATOR_PRESET_ID)
+  if (!selected.ok) {
+    const reason = selected.error?.details?.reason
+    throw new Error(
+      '无法自动选择「创造模式」（cordis）预设：'
+      + (typeof reason === 'string' && reason !== '' ? reason : selected.error?.message ?? '未知原因'),
+    )
+  }
 
   const actx = sessions.scope(sessionId)
   if (actx === undefined) {

@@ -3,7 +3,7 @@
 A tiny browser-half harness plugin. The dsh-gui desktop shell's update dialog
 has "AI 更新" buttons; clicking one posts a "dsh-gui:ai-update" window message
 into the embedded dsh web page, and this plugin prepares the ready-to-send
-session WITHOUT creating one itself and WITHOUT picking an agent preset:
+session WITHOUT creating one itself:
 
 1. returns the page to the new-session home (the empty hero screen);
 2. selects the target workspace there (preferring the dsh-gui repository
@@ -11,16 +11,21 @@ session WITHOUT creating one itself and WITHOUT picking an agent preset:
    workspace) — the standard workspace pick reuses the workspace's existing
    blank session, and only mints a fresh one when the workspace has none,
    exactly like clicking the workspace on the home screen;
-3. opens that blank session and prefills the composer draft with the prompt
-   built by the shell; the agent preset chip is left untouched so the user
-   picks the preset themselves;
-4. replies "dsh-gui:ai-update-result" to the parent frame so the shell can
+3. opens that blank session and auto-selects the 「创造模式」(creator) preset
+   for it via `ctx.remote.agentPresets.select(sessionId, 'cordis')` — the
+   same selection the hero chip's pick and the settings creator-draft entry
+   make — so the AI-update work runs under the creator's composition
+   (runtime inspection, plugin experiments, preset authoring guidance). A
+   refusal fails the request instead of silently running under another
+   preset; the user may still change the preset chip before sending.
+4. prefills the composer draft with the prompt built by the shell;
+5. replies "dsh-gui:ai-update-result" to the parent frame so the shell can
    toast the outcome.
 
 The plugin imports nothing from dsh-gui and only uses public client services
-(sessions, workspaces, uiWorkspace, conversation), so it also works in a plain
-harness dsh web deployment: any embedding parent may post the same message
-shape.
+(sessions, workspaces, uiWorkspace, conversation, and the `remote.agentPresets`
+namespace), so it also works in a plain harness dsh web deployment: any
+embedding parent may post the same message shape.
 
 ## Wire shape
 
