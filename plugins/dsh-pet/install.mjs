@@ -11,9 +11,9 @@
 //     移除该包），加载会 miss module table；
 //   - host 半 inject 的 `agentDefaultModel` 服务在本版 harness 中不存在，
 //     即使强装也会停在 PENDING。
-//   因此本 id 'dsh-pet' 已在 scripts/plugin-install.mjs 的
-//   DEFAULT_SKIPPED_PLUGINS 中，默认跳过；待上游适配后从默认清单移除。
-//   强制安装：DSH_PLUGIN_FORCE_INSTALL=1（见
+//   因此本 wrapper 向 installNpmPlugin 传入 `skip` 声明默认跳过（屏蔽入口在
+//   插件脚本，共享流水线不再硬编码）；待上游适配后把 `skip` 改为 `null` 即可
+//   恢复，或临时强制安装：DSH_PLUGIN_FORCE_INSTALL=1（见
 //   docs/dsh-gui/harness-upgrade-build-failure.md）。
 //
 // 桌面屏蔽：插件真正装入 profile 后，向 $DSH_HOME/dsh-pet/main-config.json
@@ -32,8 +32,10 @@ import { injectPetConfig, petConfigPath } from './inject-config.mjs'
 const ID = 'dsh-pet'
 // 精确稳定 SemVer（Market 约束：不用 latest / 版本范围 / prerelease 作安装目标）。
 const PACKAGE_SPEC = 'dsh-pet@0.2.4'
+// 屏蔽入口：默认跳过（原因见头部注释）。upstream 适配后改为 null 恢复。
+const SKIP_REASON = 'client-half still requires the removed @deepseek-ai/dsh-client-runtime; host-half injects the absent agentDefaultModel service'
 
-installNpmPlugin({ id: ID, packageSpec: PACKAGE_SPEC })
+installNpmPlugin({ id: ID, packageSpec: PACKAGE_SPEC, skip: SKIP_REASON })
 
 // 注入只在该插件实际位于 profile 时执行（默认跳过时没有包可注入，也不该留孤儿配置）。
 // profile 用 hoisted linker（pinProfileStore 写入），包落在 node_modules/dsh-pet。

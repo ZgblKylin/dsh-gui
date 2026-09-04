@@ -93,7 +93,8 @@ would double-mount it and fail the plugin tree with
   - [@linxin666/dsh-liangshen@0.3.14](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-web-ui-settings@0.3.14](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.4；子模块
-  checkout 仅作源码参考）。**默认跳过**：client 半依赖已被本 harness
+  checkout 仅作源码参考）。**默认跳过**（跳过声明在 wrapper 的 `install.mjs`，
+  不硬编码于共享流水线）：client 半依赖已被本 harness
   （dsh-v0.1.2-alpha.1）移除的 `@deepseek-ai/dsh-client-runtime`，host 又
   inject 不存在的 `agentDefaultModel`——需 `DSH_PLUGIN_FORCE_INSTALL=1`
   强制安装（见

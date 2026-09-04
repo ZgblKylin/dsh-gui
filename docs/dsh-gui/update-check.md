@@ -11,7 +11,7 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 ## 检测与标注
 
 - **安装记录**：共享流水线 `scripts/plugin-install.mjs` 的 `installNpmPlugin`
-  把每个 npm 包名（含被 `DEFAULT_SKIPPED_PLUGINS` 默认跳过的包，如
+  把每个 npm 包名（含 wrapper 通过 `skip` 选项默认跳过的包，如
   `dsh-pet`、`dsh-web-ui-settings`）追加写入
   `.dsh/gui/npm-installs.json`（运行时缓存、gitignored）。
 - **归属判定**：`src-tauri/src/update.rs` 扫描每个 submodule 的 `package.json`
@@ -32,7 +32,7 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 1. 上游发布新 tag 后，更新对话框先显示「tag 版本 npm 未发布」标注；
 2. 上游恢复 npm 发布（例如 `dsh-web` 的 `NPM_PUBLISH_ENABLED`）后，
    `complete` 变为 true，标注消失；
-3. 此时（以及需要解除 `DEFAULT_SKIPPED_PLUGINS` 屏蔽时）重跑对应安装：
+3. 此时（以及需要解除某个 wrapper 自己的 `skip` 屏蔽时）重跑对应安装：
    `node plugins/<id>/install.mjs` 或 `npm run install:plugins`；首次安装后
    更新检查才能确认 npm 版本，因此新克隆环境建议先执行一次插件安装。
 

@@ -31,10 +31,12 @@ plugins/dsh-pet/
 - host 半 `inject: ['webServer', 'agentDefaultModel', …]`，其中
   `agentDefaultModel` 服务在本 harness 中不存在，即便强装也停在 PENDING。
 
-因此 wrapper id `dsh-pet` 在 `scripts/plugin-install.mjs` 的
-`DEFAULT_SKIPPED_PLUGINS` 中，`npm run install:plugins` / `npm run build` 默认
-跳过（不会破坏 profile 启动）。待上游（或本仓库适配层）提供兼容构建后，从
-跳过清单移除即可。临时强制：`$env:DSH_PLUGIN_FORCE_INSTALL=1` 后重跑本脚本。
+因此 wrapper 在 `plugins/dsh-pet/install.mjs` 里向 `installNpmPlugin` 传入
+`skip` 声明默认跳过（屏蔽入口在插件脚本，共享流水线只负责机制），
+`npm run install:plugins` / `npm run build` 默认
+跳过（不会破坏 profile 启动）。待上游（或本仓库适配层）提供兼容构建后，把
+该 `skip` 选项改为 `null` 即可恢复。临时强制：`$env:DSH_PLUGIN_FORCE_INSTALL=1`
+后重跑本脚本。
 
 > 插件名冲突（issue
 > [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)）：上游已把 webserver

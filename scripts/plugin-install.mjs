@@ -377,20 +377,27 @@ function recordNpmInstall(dshHome, packageName) {
  * Without a bundle patch the entry is appended like installPlugin does
  * (explicit `mount` when given, else derived from the installed manifest).
  *
- * @param {{ id: string, packageSpec: string, mount?: { id: string, name: string } | null }} options
+ * @param {{ id: string, packageSpec: string, mount?: { id: string, name: string } | null, skip?: boolean | string | null }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
- *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@latest`.
+ *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@0.18.0`.
  *   - mount: explicit mount entry for packages without a bundle patch.
+ *   - skip: wrapper-declared default skip — `true` (unversioned skip) or a
+ *     string reason. The wrapper owns WHAT is being skipped and WHY (e.g. a
+ *     version incompatible with the pinned harness); the shared pipeline only
+ *     enforces the mechanism: it still records the package for the update
+ *     checker, honors `DSH_PLUGIN_SKIP` additions, and lets
+ *     `DSH_PLUGIN_FORCE_INSTALL=1` override. See skipInstall().
  */
-export function installNpmPlugin({ id, packageSpec, mount = null }) {
+export function installNpmPlugin({ id, packageSpec, mount = null, skip = null }) {
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
   const name = packageNameFromSpec(packageSpec)
   // Record before the skip check: even a currently skipped package belongs to
   // this wrapper's npm set, so the update checker can notice when the tag's
-  // npm publish finally lands (see DEFAULT_SKIPPED_PLUGINS below).
+  // npm publish finally lands (see skipInstall()).
   recordNpmInstall(dshHome, name)
-  if (skipInstall(id)) {
-    console.log(`  skipping '${id}' (${packageSpec}) — version-incompatible with the pinned harness; set DSH_PLUGIN_FORCE_INSTALL=1 to override`)
+  if (skipInstall(id, skip)) {
+    const reason = typeof skip === 'string' ? skip : 'skipped by default from the wrapper'
+    console.log(`  skipping '${id}' (${packageSpec}) — ${reason}; set DSH_PLUGIN_FORCE_INSTALL=1 to override`)
     return
   }
   const profileDir = join(dshHome, 'profiles', 'web')
@@ -431,38 +438,36 @@ export function installNpmPlugin({ id, packageSpec, mount = null }) {
 }
 
 /**
- * Plugins skipped by default because the currently published versions do not
- * run on the pinned harness (dsh-v0.1.2-alpha.1): their client bundles still
- * `require('@deepseek-ai/dsh-client-runtime')`, a package the harness removed,
- * so the loader entry fails with "missed the module table". To re-enable an
- * entry whose upstream has since shipped a compatible build, remove it from
- * the list below, or run the build with `DSH_PLUGIN_FORCE_INSTALL=1` without
- * editing code. See docs/dsh-gui/harness-upgrade-build-failure.md.
- */
-const DEFAULT_SKIPPED_PLUGINS = new Set([
-  'flowglass',
-  'dsh-web-ui-settings',
-  // PC2005-cloud/dsh-pet wrapper (plugins/dsh-pet): its client half also
-  // requires the removed `@deepseek-ai/dsh-client-runtime`, and its host half
-  // injects `agentDefaultModel`, which this harness does not provide — force
-  // with DSH_PLUGIN_FORCE_INSTALL=1 to install anyway (host likely PENDING).
-  // The former @linxin666/dsh-pet install (plugins/dsh-web-ui) was removed:
-  // the whale pet is superseded by this wrapper.
-  'dsh-pet',
-])
-
-/**
- * Temporary install skip switch: true when id is in the default skip list,
- * or listed in the DSH_PLUGIN_SKIP environment variable (comma-separated
- * plugin ids). `DSH_PLUGIN_FORCE_INSTALL=1` overrides both. Keeps a
- * version-incompatible plugin out of the profile without editing the
- * wrapper (see docs/dsh-gui/harness-upgrade-build-failure.md).
+ * Install skip switch. The shared pipeline no longer hard-codes WHICH plugins
+ * are skipped — each wrapper owns that decision and passes it as the `skip`
+ * option to installNpmPlugin() (or installPlugin() when it gains the option):
+ * adding a plugin id to a skipped set used to live here, which forced a
+ * shared-file edit to mask or unmask any single plugin. The wrapper's `skip`
+ * declares the default; this function only layers the generic overrides on
+ * top:
+ *
+ *  - `DSH_PLUGIN_FORCE_INSTALL=1` always wins (forces even a defaulted skip,
+ *    the documented restore path for an upstream that has since adapted);
+ *  - otherwise the wrapper-declared default skip wins;
+ *  - `DSH_PLUGIN_SKIP` (comma-separated plugin ids) additionally skips any
+ *    listed id, whatever its wrapper declared.
+ *
+ * Keeps a version-incompatible plugin out of the profile without touching
+ * shared code. The skip reason shown in installNpmPlugin() output comes from
+ * the wrapper's `skip` string when given (see
+ * docs/dsh-gui/harness-upgrade-build-failure.md).
+ *
  * @param {string} id - the plugin wrapper id ('flowglass', 'dsh-pet', ...).
+ * @param {boolean | string | null} defaultSkip - the wrapper-declared default
+ *   skip: `true` skips for an unversioned reason; a string is a truthy skip
+ *   whose value is used as the human-readable reason.
  * @returns {boolean} whether the install should be skipped.
  */
-export function skipInstall(id) {
+export function skipInstall(id, defaultSkip = null) {
   if (process.env.DSH_PLUGIN_FORCE_INSTALL === '1') return false
-  if (DEFAULT_SKIPPED_PLUGINS.has(id)) return true
+  if (defaultSkip) return true
+  // No wrapper-declared default: leave the decision to DSH_PLUGIN_SKIP alone
+  // (a general opt-out for one-off installs / CI).
   const skipped = (process.env.DSH_PLUGIN_SKIP ?? '')
     .split(',')
     .map((s) => s.trim())

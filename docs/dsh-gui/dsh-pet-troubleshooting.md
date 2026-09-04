@@ -13,7 +13,7 @@
 | Loader entry id | `pet` | `pet` |
 | webserver 路由 | `/api/pet` | `/dsh-pet-7340`（v0.1.8 起；旧版 `/pet`） |
 | 本仓库 wrapper | ~~`plugins/dsh-web-ui`~~（已移除安装） | `plugins/dsh-pet`（npm `dsh-pet@0.2.4`） |
-| 安装状态 | 默认跳过 | 默认跳过（`DEFAULT_SKIPPED_PLUGINS` 含 `'dsh-pet'`） |
+| 安装状态 | 默认跳过 | 默认跳过（`plugins/dsh-pet/install.mjs` 向 `installNpmPlugin` 传入 `skip` 声明） |
 | 用户配置 | `$DSH_HOME/pet.json` | `$DSH_HOME/dsh-pet/main-config.json` |
 
 > 本仓库默认 profile（检测于 2026-09-02）：两者都**未安装**、bundles 无 pet 条目，
@@ -80,8 +80,9 @@ $env:DSH_PLUGIN_FORCE_INSTALL = '1'; node plugins/dsh-pet/install.mjs
 
 > ⚠️ 不要在正式 profile 强装 0.2.4：其发布 bundle 依赖已被本 harness 移除的
 > client runtime。要验证请先复制一个临时 profile（`DSH_HOME` 指向别处）再试。
-> 等待上游发布兼容构建后，从 `scripts/plugin-install.mjs` 的
-> `DEFAULT_SKIPPED_PLUGINS` 移除 `'dsh-pet'` 即可恢复正常安装。
+> 等待上游发布兼容构建后，把 `plugins/dsh-pet/install.mjs` 里 `installNpmPlugin`
+> 的 `skip` 选项改为 `null`（或删除该选项）即可恢复正常安装——屏蔽入口在
+> wrapper 脚本，共享流水线不再硬编码跳过名单。
 
 ### 4.3 清理 npm 安装登记残留（运行时缓存，仅美观）
 
@@ -133,6 +134,6 @@ Select-String -Path .dsh\profiles\web\cordis.patch.yml -Pattern 'pet' -SimpleMat
 ## 6. 相关文件速查
 
 - wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；子模块 `plugins/dsh-pet/dsh-pet`（pin v0.2.4）
-- 跳过清单与登记：`scripts/plugin-install.mjs`（`DEFAULT_SKIPPED_PLUGINS`、`recordNpmInstall`）
+- 跳过声明（wrapper 内）：`plugins/dsh-pet/install.mjs` 的 `skip` 选项；登记与通用机制：`scripts/plugin-install.mjs`（`recordNpmInstall`、`skipInstall`）
 - 更新检查：`docs/dsh-gui/update-check.md`、`src-tauri/src/update.rs`
 - 上游：`https://github.com/PC2005-cloud/dsh-pet`（issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16) = 路由冲突，已修）

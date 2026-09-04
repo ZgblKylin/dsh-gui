@@ -38,11 +38,12 @@ installNpmPlugin({
 // + 可热重载的会话工具箱抽屉，编译产物来自 npm。装好 better-sidebar 时
 // 注册为原生会话级 tab。默认跳过：0.4.x 对 dsh-v0.1.2-alpha.1 的 client
 // 运行时不兼容（见 docs/dsh-gui/harness-upgrade-build-failure.md；upstream
-// 适配后移除默认清单即可，或临时 DSH_PLUGIN_FORCE_INSTALL=1）。版本 pin 到
-// 子模块 tag v0.3.0 对应的 npm 发布。
+// 适配后把下面的 `skip` 改为 `null` 即可恢复，或临时 DSH_PLUGIN_FORCE_INSTALL=1）。
+// 版本 pin 到子模块 tag v0.3.0 对应的 npm 发布。
 installNpmPlugin({
   id: 'flowglass',
   packageSpec: 'dsh-flowglass@0.3.0',
+  skip: 'version-incompatible with the pinned harness',
 })
 
 // 然后 dsh-sidebar-qa：保证硬 peer 依赖可解析且 `dsh.profile.bundles` 把
