@@ -83,7 +83,7 @@ would double-mount it and fail the plugin tree with
 标注源码安装的，基于源码编译后，基于link模式引入源码安装。
 
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
-- [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.38.0`）
+- [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.41.0`）
 - [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.18.0** 起含 DSH 0.1.2-rc.1 适配（peerDeps 全指 `^0.1.2-rc.1`）；v0.17.1 是针对 dsh-v0.1.2-alpha.1 的适配，import 了 rc.1 已移除的 settingsNamespace，不能在 rc.1 上加载。wrapper 固定 `0.18.0` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会挡掉过新的 0.18.0、回退到旧版 0.17.1；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.4.5`、`dsh-sidebar-qa@0.4.0`）
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.4.5`，v0.4.5 已适配 rc.1 client 运行时）
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `0.4.0`）
@@ -166,7 +166,7 @@ would double-mount it and fail the plugin tree with
     `README.md`.
 - `plugin-market` — git submodule (`dsh-market/dsh-market`) at
   `plugin-market/dsh-market`: visual plugin market (browse/search/one-click
-  install community plugins). It is installed from npm as `dshmarket@1.38.0`
+  install community plugins). It is installed from npm as `dshmarket@1.41.0`
   (pinned to the submodule tag; per the 安装方式 section; the submodule
   checkout is kept as a source
   reference only), declares `dsh.bundle.patch`, so `dsh plugin add` mounts it

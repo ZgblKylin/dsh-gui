@@ -3,7 +3,7 @@
  * install.mjs — install the `dshmarket` plugin into the web profile.
  *
  * ⚠️ Installed from npm pinned to an exact version matching the git
- * submodule tag (`v1.38.0`), not `@latest` — exact pins bypass pnpm 11's
+ * submodule tag (`v1.41.0`), not `@latest` — exact pins bypass pnpm 11's
  * 24h `minimumReleaseAge` gate (which silently falls back to an older
  * version for `@latest`/ranges), and keep the installed body in sync with
  * the checkout beside this script (per plugins/README.md's 安装方式
@@ -23,5 +23,5 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'plugin-market',
-  packageSpec: 'dshmarket@1.38.0',
+  packageSpec: 'dshmarket@1.41.0',
 })
