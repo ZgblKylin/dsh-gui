@@ -8,7 +8,9 @@
 2. **`dsh-web-ui-settings` 兼容设置桥**
    （`@linxin666/dsh-client-ui-web-ui-settings@0.3.14`，排在最前）；
 3. **`dsh-plugin-manager` 插件管理器 Tab**
-   （`@linxin666/dsh-client-ui-plugin-manager@0.3.14`）。
+   （`@linxin666/dsh-client-ui-plugin-manager@0.3.14`）；
+4. **`dsh-skill-explorer` 技能中心面板**
+   （`@linxin666/dsh-client-ui-skill-explorer@0.3.14`）。
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
@@ -32,7 +34,7 @@ plugins/dsh-web-ui/
 
 ## 安装范围
 
-### dsh-liangshen + dsh-web-ui-settings + dsh-plugin-manager
+### dsh-liangshen + dsh-web-ui-settings + dsh-plugin-manager + dsh-skill-explorer
 
 当前 DSH 的 `dsh-host-apiproxy` 只向 web 设置页暴露硬编码的
 `WEB_SETTINGS_NAMESPACES`，不包含第三方插件的设置命名空间。`dsh-web-ui-settings`
@@ -47,21 +49,26 @@ loopback HTTP 网关（`/api/plugin-manager/*`）spawn 官方 `dsh plugin` CLI�
 两种通道最终都由官方写入器落盘。提供插件列表 / 启停开关 / npm·git 安装 /
 更新·卸载 / 安装冲突对账 / 失败修复会话（seed 不含任何密钥/token）。
 
+`dsh-skill-explorer` 是 DSH 技能中心：按来源（bundled / project / user /
+custom / runtime）浏览已加载技能、启停、创建与删除；仅依赖官方 locale /
+renderer 服务，作为独立 bundle 层自挂载。
+
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
 dsh plugin --profile web add @linxin666/dsh-liangshen@0.3.14
 dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.3.14
 dsh plugin --profile web add @linxin666/dsh-client-ui-plugin-manager@0.3.14
+dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.3.14
 ```
 
-三个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
+四个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
 的 bundle 列表，无需手工 cordis 挂载。
 
 安装目标：
 
 ```text
-.dsh/profiles/web/package.json    # 三个 npm 依赖 + dsh.profile.bundles
+.dsh/profiles/web/package.json    # 四个 npm 依赖 + dsh.profile.bundles
 ```
 
 其中 `DSH_HOME` 与 dsh-gui 的其他 install 脚本一致：显式传入的
@@ -74,7 +81,7 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-plugin-manager@0.3.14
   `dsh-web-all`（v0.3.x 起，旧名 `dsh-web-ui-all`）等 dsh-web 其他 package；
 - `@linxin666/dsh-pet`（鲸鱼娘桌宠）——已从本 wrapper 移除，改由
   `plugins/dsh-pet/`（PC2005-cloud 的 dsh-pet）独立 wrapper 安装；
-- 对三个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
+- 对四个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
   bundle patch 挂载；
 - 对上游 submodule 的任何修改。
 
@@ -99,6 +106,10 @@ installed plugin 'dsh-web-ui-settings' into E:\Git\dsh-gui\.dsh\profiles\web
 ==> install plugin 'dsh-plugin-manager' (@linxin666/dsh-client-ui-plugin-manager@0.3.14 from npm)
   ...
 installed plugin 'dsh-plugin-manager' into E:\Git\dsh-gui\.dsh\profiles\web
+
+==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.3.14 from npm)
+  ...
+installed plugin 'dsh-skill-explorer' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
 
 ### 手动执行
@@ -119,7 +130,7 @@ node plugins/dsh-web-ui/install.mjs
 参考。升级顺序：
 
 1. 先移动子模块到新 tag（`git -C plugins/dsh-web-ui/dsh-web-ui checkout <tag>`）；
-2. 同步把本文件 `install.mjs` 与 `README.md` 中的三个 npm 版本号 bump 到新 tag
+2. 同步把本文件 `install.mjs` 与 `README.md` 中的四个 npm 版本号 bump 到新 tag
    对应的版本（精确 pin，`pnpm add` 对精确版本自动豁免发布年龄门禁）；
 3. 重跑安装：
 

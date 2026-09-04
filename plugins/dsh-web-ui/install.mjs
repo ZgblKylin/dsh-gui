@@ -3,7 +3,7 @@
  * install.mjs — install the dsh-web-ui plugin bodies into the web profile
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
- * Three plugin packages of the dsh-web-ui distribution repo are installed,
+ * Four plugin packages of the dsh-web-ui distribution repo are installed,
  * pinned to exact versions matching the upstream git tag (`v0.3.14`), not
  * `@latest` — exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (the
  * gate silently falls back to an older version for `@latest`/ranges, while a
@@ -19,9 +19,13 @@
  *    (`@linxin666/dsh-client-ui-plugin-manager@0.3.14`): registers a
  *    `settings.plugins.tab` tab in the official Plugins settings section
  *    (install from npm/git, enable/disable, update/remove, conflict
- *    reconciliation, repair conversations).
+ *    reconciliation, repair conversations);
+ * 4. the `dsh-skill-explorer` skill center
+ *    (`@linxin666/dsh-client-ui-skill-explorer@0.3.14`): browse loaded skills
+ *    by source (bundled / project / user / custom / runtime), enable/disable,
+ *    create and delete, in a web GUI panel.
  *
- * All three declare their own `dsh.bundle.patch`, so `dsh plugin add`
+ * All four declare their own `dsh.bundle.patch`, so `dsh plugin add`
  * reconciles them into `dsh.profile.bundles` and each mounts through its own
  * bundle layer — no manual cordis mount is written (that would double-mount).
  * The settings bridge exposes the `webUiSettings` compatibility binder to
@@ -61,4 +65,12 @@ installNpmPlugin({
 installNpmPlugin({
   id: 'dsh-plugin-manager',
   packageSpec: '@linxin666/dsh-client-ui-plugin-manager@0.3.14',
+})
+
+// skill-explorer：DSH 技能中心面板，按来源（bundled/project/user/custom/runtime）
+// 浏览已加载技能、启停、创建与删除。engines.dsh >=0.1.2-rc.1 匹配 pinned
+// harness；版本对齐子模块 tag v0.3.14。
+installNpmPlugin({
+  id: 'dsh-skill-explorer',
+  packageSpec: '@linxin666/dsh-client-ui-skill-explorer@0.3.14',
 })
