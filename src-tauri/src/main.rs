@@ -1144,6 +1144,11 @@ const REMOTE_OPS: &[&str] = &[
     "ssh.connect",
     "ssh.cancel",
     "ssh.status",
+    "docker.available",
+    "docker.list",
+    "docker.connect",
+    "docker.cancel",
+    "docker.status",
     "diag",
 ];
 

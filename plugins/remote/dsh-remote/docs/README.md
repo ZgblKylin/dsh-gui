@@ -1,6 +1,6 @@
 # dsh-remote
 
-多后端远程连接插件：在 **dsh-gui（Tauri 桌面壳）的原生标题栏**上提供连接标签页（VSCode 风格）、新建连接对话框与汉堡菜单，支持本机端口后端与（VSCode Remote SSH 模式）远端 SSH 启动 + 端口转发。非侵入：不修改 dsh 框架本体，仅作为 `plugins/remote/dsh-remote/` 插件包挂载到 web profile。**不做任何远端部署**——远端 dsh 由用户配置的启动命令自行启动。
+多后端远程连接插件：在 **dsh-gui（Tauri 桌面壳）的原生标题栏**上提供连接标签页（VSCode 风格）、新建连接对话框与汉堡菜单，支持本机端口后端、（VSCode Remote SSH 模式）远端 SSH 启动 + 端口转发，以及 **Docker 连接**（`docker exec` 启动容器内 dsh 并用 stdio 隧道转发，**无需任何端口映射**）。非侵入：不修改 dsh 框架本体，仅作为 `plugins/remote/dsh-remote/` 插件包挂载到 web profile。**不做任何远端部署**——远端/容器内 dsh 由用户配置的启动命令自行启动。
 
 ## 特性
 
@@ -15,6 +15,9 @@
   各标签页的会话状态与页面保持。
 - **本地连接**：可配置端口（默认 3080 自动填入）。连接时先探测端口是否可加载：可加载则直接加载前端；否则启动内置 dsh（`dsh web --port <端口>`）再加载前端。连接名与端口保存在软件本地存储。
 - **远程连接**：可配置地址（不含 `http://` 头）与端口。连接时先探测端口是否可加载：可加载则直接加载；否则通过 **SSH 启动远端 dsh 并转发端口**。连接名、地址、端口保存在软件本地存储。
+- **Docker 连接**：填一个**运行中**的容器名/ID 与端口（默认 3090），插件用 `docker exec -d` 在容器内启动 dsh（只绑容器内
+  `127.0.0.1`），再用 **`docker exec -i` stdio 隧道**把容器回环端口桥接到本机 `127.0.0.1` 的随机端口——**容器不需要 `-p`
+  端口映射**，也不需要 socat / nc / SSH 服务端（将 dsh 即可，node 是 dsh 自身的运行时）。连接名、容器、端口保存在软件本地存储。
 - **SSH 连接（启动 + 安全隧道转发，VSCode Remote 风格）**：
   - **传输层为纯 JS `ssh2`**（不再依赖本机 `ssh`/`plink`/`sshpass` 二进制）：密码认证**原生可用**
     （旧实现的密码只能经 `plink -pw` / `sshpass -p` 传入，只有 OpenSSH 的 Windows 机器会静默拒绝填写的密码）。
@@ -44,11 +47,43 @@
     本次启动的远端会话（日志尾部出现 `Killed`）。现已修正：连接时自动从远端 `$HOME/.dsh-gui-remote.log` 提取
     launch token，用带 token 的隧道 URL 做就绪探测（**303 / 2xx 即就绪**）并作为标签页 URL 返回（与本地壳层
     `spawn_harness` 的 token 适配一致）；旧版无 token 的 profile 仍按裸 URL 2xx 直连，自动兼容。
-  - **启动命令必须是"起 web 服务"的命令**：`npm run harness`（本仓库 `scripts/harness.mjs`）是 **headless CLI 启动器，不监听端口**
-    ——用它当启动命令会因端口永不开放而超时。要在远端用它起 GUI，请写成 `npm -C <repo> run harness -- web`（`web` 被透传给 CLI
-    启动 web 服务后再叠加 `--host 127.0.0.1 --port <端口>`），或直接用默认 `npx '@deepseek-ai/dsh' web`。
+  - **启动命令必须是"起 web 服务"的命令**：`npm run harness`（本仓库 `scripts/harness.mjs`）现在会**直接启动 web 服务**
+    （固定 `node bin.js web --port <DSH_GUI_PORT|3080> --no-open`，忽略额外 argv；**端口由 `DSH_GUI_PORT` 决定，默认 3080**）。
+    插件对 `npm|pnpm|bun run <script>` 命令会自动在附加的 `--host/--port/--no-open` 前插入 ` -- `，因此这类启动命令不会再被
+    npm 当成自身配置参数报 `Unknown cli flags`；若端口不是 3080 且使用的是 `npm run harness`，请在环境变量列表加
+    `DSH_GUI_PORT=<端口>`，或改用直接命令 `node <repo>/deepseek-harness/apps/cli/lib/bin.js web` / 默认 `npx '@deepseek-ai/dsh' web`。
 
 > **关于"不生成本机监听端口"**：本地端口转发需要一个本机回环监听端点，标签页才能经 `http://127.0.0.1:<port>/` 访问隧道；该端点只绑定 `127.0.0.1`（不对外网及局域网开放），即标准的安全隧道形态。若需要"完全不监听本机端口"，则需在 dsh-gui 内部再包一层代理——当前设计采用前者。
+
+- **Docker 连接（启动 + `docker exec` 隧道转发，无需端口映射）**：
+  - **原理**：宿主半端用 `docker exec -d <容器> sh -c '…'` 启动容器内 dsh（自动补 `--host 127.0.0.1 --port <端口>`
+    与 **`--no-open`**——无浏览器的容器里 `dsh web` 会自动尝试拉起来并把 HTTP 服务卡住）；随后在
+    `127.0.0.1:<本机随机端口>` 起一个 `net.Server`，每次连接 spawn 一个
+    `docker exec -i <容器> node -e '<stdio↔TCP 桥>‘`，把流量桥接到容器自身 `127.0.0.1:<端口>`。
+  - **容器零改动**：不要求 `-p`、不要求容器重启、不要求容器预装 socat/nc/ssh 服务端；只要求容器
+    **有 node/npm/npx**（dsh 的运行前提）且 Docker CLI 能访问目标 daemon（本机 socket / `docker context` /
+    `DOCKER_HOST` 均可）。
+  - **容器内进程管理**：启动命令写入**容器内 `/tmp/dsh-gui-docker-<端口>.pid`**（实际 dsh 进程 PID）与
+    **`/tmp/dsh-gui-docker-<端口>.log`**（启动输出，首行 `node -v`）——用 `/tmp` 以便任意 `-u` 用户可写，
+    按端口后缀可让同一容器并存多个后端；连接失败/取消时只清理**本次启动**的 PID 与隧道，已有进程存活则复用。
+  - **可用指定用户 / 工作目录 / 环境变量列表**：Docker 表单提供「用户名（容器内，`docker exec -u`）」「工作目录
+    （容器内，启动前 `cd` 到该路径，留空用 `$HOME`）」「环境变量列表（每行 `KEY=VALUE`，经 `docker exec -e` 传入，
+    值不需要 shell 转义；日志只显示变量条数，不回显值）」。未指定用户名时用容器默认用户；`docker exec -u <用户>`
+    会自动把 `HOME` 设为该用户家目录。
+  - **进度与认证**：与 SSH 同一条 `docker.status` 实时进度管道；浏览器认证（launch token）同样从容器日志
+    提取，`303 / 2xx` 即前端就绪，旧版无 token 的 profile 直接按裸 URL 2xx 兼容。
+  - **容器内启动命令可配置**：对话框「容器内启动 dsh 的命令」默认
+    `npx -y '@deepseek-ai/dsh' web`，可用环境变量 `DSH_DOCKER_START_COMMAND` 改全局默认；
+    也可写 `DSH_HOME=… node /path/to/bin.js web` 直接复用容器内已有 checkout（也可改从环境变量列表里配 `DSH_HOME`）。
+    例如用容器内已有 checkout 时配 `npm run harness` 也**可以**（见上文 `--` 分隔符与 `DSH_GUI_PORT` 说明）。
+  - **启动失败即刻反馈**：容器内进程若在启动后几秒内退出（如 `npm error Unknown cli flags`、`command not found`、
+    工作目录不存在），插件会**立刻**读取 `/tmp/dsh-gui-docker-<端口>.log` 尾部并把真实错误回显到连接日志，
+    不再傻等 300s 端口超时。
+  - **备选方案（默认不用）**：① Linux 主机 + bridge 网络下可直接访问容器 IP
+    （`--host 0.0.0.0` + `http://<容器IP>:<端口>`，但会暴露到 Docker bridge）；② 容器内
+    `ssh -R` 反向隧道（需容器有 ssh 客户端 + 主机 sshd）；③ 同用户自定义网络起 nginx/caddy
+    sidecar 反代并（可选）只发布 sidecar 端口。上面三种要么暴露面更大、要么多容器/多依赖，
+    所以插件默认走 `docker exec` stdio 隧道。
 
 ## 架构：谁负责什么
 
@@ -60,14 +95,14 @@
         │
 Tauri 壳（src-tauri/ui/*.html/css/js）
   标题栏: ☰ 汉堡菜单 + 标签页条 + ＋ 连接 + 最小化/最大化/关闭
-  新建连接对话框: 本地 / 远程(SSH) 表单
+  新建连接对话框: 本地 / 远程(SSH) / Docker 表单
         │  invoke('remote_call', { op, body })   ← Rust 命令
         ▼
 Rust（src-tauri/src/main.rs, remote_call）
   白名单校验 op → 本机回环 HTTP POST /remote-api/<op>（无 Origin 头，同源视同）
         ▼
 插件 Host 半端（plugins/remote/dsh-remote/src/index.ts, Node ESM）
-  /remote-api/*: probe / local.start / ssh.connect / creds.* / keyfile.write / tunnel.close / diag
+  /remote-api/*: probe / local.start / ssh.connect / docker.connect / creds.* / keyfile.write / tunnel.close / diag
 ```
 
 - **插件 client 半端已置为 inert**：它随 web 应用加载但 `apply` 不注册任何槽位/样式，因此内嵌页面始终干净、不再有"太高了"的重复标题栏。
@@ -76,11 +111,14 @@ Rust（src-tauri/src/main.rs, remote_call）
 
 ## 配置归属
 
-- **dsh-gui 管理**：连接配置（连接名、地址/端口、SSH 主机/用户名/端口、保存的认证）。
+- **dsh-gui 管理**：连接配置（连接名、地址/端口、SSH 主机/用户名/端口、Docker 容器/端口/用户名/工作目录/环境变量列表、保存的认证）。
   连接名与地址端口等保存在壳页面（Tauri webview 源）的 localStorage（key `dsh.remote.*`）；凭证在系统密钥库
   （Windows DPAPI / Linux gpg，路径/文件名含 `ZgblKylin+dsh-gui+<连接名>`），密钥文件存于
   `<DSH_HOME>/gui/keys/`。
 - **远端管理**：远端后端自身的 dsh 配置与插件配置位于远端默认 DSH_HOME（`~/.dsh`），或由用户配置的启动命令自行设置（如命令内 `DSH_HOME=... npx dsh web`），与本机完全隔离。插件不向远端部署任何代码。
+- **容器管理**：Docker 连接不修改容器——不装包、不写镜像、不改端口映射；只通过 `docker exec -d` 启动 dsh 进程并写
+  容器内 `/tmp/dsh-gui-docker-<端口>.{log,pid}` 两个文件，进程存活判断与清理均以 PID 文件为准。用户名/工作目录/环境变量列表
+  作为连接配置随 localStorage 保存（环境变量值会明文存在本机，包含敏感值请自行斟酌）。
 
 ## 结构
 
@@ -88,7 +126,7 @@ Rust（src-tauri/src/main.rs, remote_call）
 plugins/remote/            插件 wrapper（install.mjs 归本仓库）
   install.mjs              构建 + 安装 + 挂载本插件（委托 scripts/plugin-install.mjs）
   dsh-remote/              插件包（Host 引擎 + 空 client）
-    src/index.ts           Host 半端（Node ESM）：/remote-api 路由 + 本地启动/SSH 启动与隧道/凭据
+    src/index.ts           Host 半端（Node ESM）：/remote-api 路由 + 本地启动/SSH 启动与隧道/Docker exec 隧道/凭据
     src/client/index.ts    浏览器半端：inert（不再渲染连接 chrome，见"架构"节）
     tsdown.config.ts       tsdown 构建：lib/index.js（Host）+ lib/client.js（Browser module）
     docs/                  本目录（插件文档）
@@ -131,6 +169,17 @@ npm start                          # 启动桌面壳
 
 - 本地后端日志：`<DSH_HOME>/gui/remote-<端口>.log`
 - 关闭标签页不强制断隧道（隧道按 `host:remotePort` 复用，重连即用）；dsh-gui 退出或插件 teardown 时所有隧道一并关闭。
+- **Docker 连接运维**：
+  - 前提：宿主有 Docker CLI 且目标 daemon 可达（本机 socket / `docker context use <name>` / `DOCKER_HOST`），容器处于
+    **Running** 状态且内有 `node`/`npm`/`npx`；容器自身无需任何 `-p` 端口映射。
+  - 进程日志：容器内 `/tmp/dsh-gui-docker-<端口>.log`；进程 PID：容器内 `/tmp/dsh-gui-docker-<端口>.pid`；启动命令首行回显 `node -v`。
+  - 可配置项：**用户名**（`docker exec -u`，留空用容器默认用户）、**工作目录**（启动前 `cd`，留空用容器 `$HOME`）、
+    **环境变量列表**（每行 `KEY=VALUE`，`docker exec -e` 传入；日志只显示条数不回显值）。
+  - 默认会给启动命令追加 `--host 127.0.0.1 --port <端口> --no-open`（已含则跳过）；容器内无浏览器时
+    必须 `--no-open`，否则 dsh web 尝试拉起浏览器可卡住服务。
+  - 连接失败/取消只清理本次创建的容器进程与隧道；容器内 dsh 若已存活（PID 文件存在且 `kill -0` 通过）则复用不重启。
+  - 手动清理：`docker exec <容器> sh -c 'kill $(cat /tmp/dsh-gui-docker-<端口>.pid)'`（或直接 `pkill -f …`）；重连前最好
+    `rm -f /tmp/dsh-gui-docker-<端口>.pid /tmp/dsh-gui-docker-<端口>.log`。
 - **ssh2 传输与已知边界**：密码 / 密钥（含口令）通过 `ssh2` 原生认证（`keyboard-interactive` 也自动尝试）；`~/.ssh/config`
   由 **`ssh-config` 库**解析（支持 `Host`/`Match`、`HostName`/`User`/`Port`/`IdentityFile`/`IdentitiesOnly`、`*`/`?`/`!`
   通配与 OpenSSH **首值优先**语义；**`Include` 不展开**、`Match exec` / `CanonicalizeHostName` **不执行**）。
@@ -170,3 +219,15 @@ npm start                          # 启动桌面壳
 - 密码/密钥留空：若 `~/.ssh/config` 的 `ASUS` 可免密登录（`PreferredAuthentications publickey` + IdentityFile），
   则直接复用该配置连接；若需要认证则回退到连接配置，提示填写用户名/密码/密钥。
 - 只填密码（不选密钥）：应能直接密码认证连接（旧版在无 plink/sshpass 的机器上会拒绝此路径）。
+
+手工验证（Docker，无端口映射）：
+
+- `docker run -d --name dsh-test node:24-alpine sleep infinity`（或任意含 node 的运行中容器）；
+- 新建连接 → Docker → 容器名填 `dsh-test`，端口填 3090 → 连接：插件用 `docker exec -d` 启动 dsh、
+  开 `docker exec -i` 隧道，标签页加载出 DSH Web 前端（token 303 就绪）；
+- **用户 / 工作目录 / 环境变量**：容器名填 `dsh-test`，用户名填容器内已有用户，工作目录填该用户可写路径，
+  环境变量列表加一行 `DSH_HOME=/path/to/.dsh` → 连接成功后容器内 `ps -o user= -p $(cat /tmp/dsh-gui-docker-3090.pid)`
+  应显示该用户、`/tmp/dsh-gui-docker-3090.log` 首行 `node -v` 为该用户 PATH 里的版本；
+- 全程 `docker exec -it dsh-test sh -c 'ps aux'` 只看到 dsh 进程、`docker port dsh-test` 为空（无映射）、
+  宿主 `netstat -ano` 只有 `127.0.0.1:<随机端口>` 监听；
+- 二次连接复用进程与隧道；取消连接后容器内 PID 被杀、隧道关闭。

@@ -100,6 +100,10 @@
                 <b>远程连接</b>
                 <small>通过 SSH 启动远端 dsh 并转发端口访问</small>
               </div>
+              <div class="conn-type-card" data-type="docker">
+                <b>Docker 连接</b>
+                <small>docker exec 启动容器内 dsh，无需端口映射</small>
+              </div>
             </div>
             <div class="conn-field-row">
               <div class="conn-field">
@@ -114,6 +118,25 @@
             <div class="conn-field" id="conn-addr-wrap">
               <label for="conn-addr">地址（不含 http://）</label>
               <input id="conn-addr" class="conn-input" placeholder="192.168.1.10" />
+            </div>
+            <div class="conn-field" id="conn-docker-container-wrap">
+              <label for="conn-docker-container">容器名或 ID（运行中）</label>
+              <input id="conn-docker-container" class="conn-input" placeholder="dsh 或 1a2b3c…" />
+            </div>
+            <div class="conn-field-row" id="conn-docker-user-workdir-wrap">
+              <div class="conn-field">
+                <label for="conn-docker-user">用户名（容器内，留空用默认）</label>
+                <input id="conn-docker-user" class="conn-input" placeholder="root / chongfei" />
+              </div>
+              <div class="conn-field">
+                <label for="conn-docker-workdir">工作目录（容器内，留空用 $HOME）</label>
+                <input id="conn-docker-workdir" class="conn-input" placeholder="/data/dsh 或 $HOME/dsh" />
+              </div>
+            </div>
+            <div class="conn-field" id="conn-docker-env-wrap">
+              <label>环境变量列表（KEY=VALUE，经 docker exec -e 传入）</label>
+              <div id="conn-docker-env-list" class="conn-docker-env-list"></div>
+              <button id="conn-docker-env-add" type="button" class="conn-docker-env-add">＋ 添加变量</button>
             </div>
             <label class="conn-check" id="conn-ssh-toggle">
               <input type="checkbox" id="conn-ssh-on" /> 通过 SSH 启动并转发端口（端口不可加载时使用）
@@ -150,6 +173,10 @@
             <div class="conn-field" id="conn-ssh-startcmd-wrap">
               <label for="conn-ssh-startcmd">远端启动 dsh 的命令（留空用默认）</label>
               <input id="conn-ssh-startcmd" class="conn-input" spellcheck="false" placeholder="npx '@deepseek-ai/dsh' web" />
+            </div>
+            <div class="conn-field" id="conn-docker-startcmd-wrap">
+              <label for="conn-docker-startcmd">容器内启动 dsh 的命令（留空用默认）</label>
+              <input id="conn-docker-startcmd" class="conn-input" spellcheck="false" placeholder="npx -y '@deepseek-ai/dsh' web" />
             </div>
             <div class="conn-log-head">
               <span>连接日志</span>

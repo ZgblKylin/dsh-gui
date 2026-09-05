@@ -104,7 +104,8 @@ would double-mount it and fail the plugin tree with
 ## Current plugins
 
 - `remote` — in-tree plugin at `remote/dsh-remote`: multi-backend remote mode
-  for the web GUI (connection tabs, new-connection page, SSH deploy). It
+  for the web GUI (connection tabs, new-connection page, SSH deploy, Docker
+  exec connect). It
   declares `dsh.bundle.patch` and mounts through its own bundle layer (no
   manual cordis insert). See `remote/dsh-remote/docs/`.
 - `terminal` — git submodule (`ZgblKylin/dsh-terminal`) at

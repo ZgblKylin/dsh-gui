@@ -14,6 +14,10 @@
  *    toolchain, starts/restarts the tmux session, discovers the session's
  *    serving port, forwards it to a free local loopback port, and only then
  *    reports the local URL as loadable,
+ *  - `docker.connect` — Docker backend mode: starts (or reuses) dsh inside a
+ *    running container with `docker exec -d`, then bridges the container's
+ *    loopback port to a local 127.0.0.1 port via a `docker exec -i` stdio
+ *    tunnel — no host port mapping is required,
  *  - `creds.*` / `keyfile.write` — the credential store (Windows DPAPI,
  *    Linux gpg; keys and filenames carry `ZgblKylin+dsh-gui+<连接名>`), plus the
  *    uploaded SSH private-key files.
@@ -29,13 +33,14 @@
  *
  * This half is a real Node ESM bundle: node: builtins are used directly.
  */
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync, openSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { get as httpGet } from 'node:http'
 import { createServer } from 'node:net'
 import { homedir, userInfo } from 'node:os'
 import type { AddressInfo } from 'node:net'
+import type { Server as NetServer } from 'node:net'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
@@ -78,6 +83,10 @@ const MAX_KEY_B64 = 8 * 1024 * 1024
 /** Default remote command that starts the DSH backend; override via env. */
 export const defaultStartCommand = (): string =>
   process.env.DSH_REMOTE_START_COMMAND || `npx '@deepseek-ai/dsh' web`
+
+/** Default command used to start DSH inside a Docker container; override via env. */
+export const defaultDockerStartCommand = (): string =>
+  process.env.DSH_DOCKER_START_COMMAND || `npx -y '@deepseek-ai/dsh' web`
 
 interface Discovery {
   home: string
@@ -730,6 +739,10 @@ function pushLog(log: Array<{ step: string; ok: boolean; detail?: string }>, ste
 /** Replace a connection-log line (both log and live store). */
 function replaceLog(log: Array<{ step: string; ok: boolean; detail?: string }>, index: number, step: string, ok: boolean, detail?: string): void {
   log[index] = { step, ok, detail }
+  if (index < remoteProgress.steps.length) {
+    remoteProgress.steps[index] = { step, ok, detail }
+    return
+  }
   progress(step, ok, detail)
 }
 
@@ -826,14 +839,278 @@ function closeTunnel(key: string): boolean {
   return false
 }
 
+/* ── Docker backend (no published ports needed) ────────────────────────
+ *
+ * The target container's DSH backend is reached through a `docker exec`
+ * bidirectional stdio tunnel: the host half listens on a loopback-only local
+ * port and answers every inbound TCP connection with a fresh
+ * `docker exec -i <container> node -e '<stdio↔TCP bridge>'`. That bridges the
+ * connection to the container's 127.0.0.1:<port>, so the container needs no
+ * `-p` / port mapping (and no socat / nc / ssh server). Node is guaranteed to
+ * exist: it is the runtime DSH itself runs on.
+ */
+
+/** Container-side log/pid file paths (under /tmp so any `-u` user can write them; port-suffixed so several backends can coexist in one container). */
+const dockerLogPath = (port: number): string => `/tmp/dsh-gui-docker-${port}.log`
+const dockerPidPath = (port: number): string => `/tmp/dsh-gui-docker-${port}.pid`
+
+/** A live Docker exec tunnel: local 127.0.0.1:<localPort> -> container 127.0.0.1:<remotePort>. */
+interface DockerTunnel {
+  key: string
+  container: string
+  localPort: number
+  remotePort: number
+  server: NetServer
+  children: Set<ChildProcess>
+}
+
+/** All live Docker tunnels, keyed `${container}:${remotePort}`; killed on teardown. */
+const dockerTunnels = new Map<string, DockerTunnel>()
+
+/** Docker CLI + daemon availability. `error` carries the daemon failure when the CLI exists. */
+function dockerAvailability(): { docker: string | null; server?: string; error?: string } {
+  const docker = resolveTool('docker')
+  if (docker === 'docker') return { docker: null, error: 'docker CLI 未找到' }
+  const r = runSync([docker, 'version', '--format', '{{.Server.Version}}'], undefined, 12000)
+  if (r.exitCode !== 0) {
+    return { docker, error: (r.stderr || r.stdout).trim().slice(0, 500) || 'docker daemon 不可用' }
+  }
+  return { docker, server: r.stdout.trim() }
+}
+
+/** Options carried into `docker exec` (user / extra env) for the Docker backend. */
+interface DockerExecOpts {
+  user?: string
+  env?: string[]
+}
+
+/** Run a short-lived command inside a running container via `docker exec -i`. */
+function dockerExecSync(container: string, args: string[], opts: DockerExecOpts = {}, input?: string, timeoutMs = 20000): { exitCode: number; stdout: string; stderr: string } {
+  const argv = ['docker', 'exec', '-i']
+  if (opts.user !== undefined && opts.user !== '') argv.push('-u', opts.user)
+  for (const entry of opts.env ?? []) argv.push('-e', entry)
+  argv.push(container, ...args)
+  return runSync(argv, input, timeoutMs)
+}
+
+/** Find a running container by exact name or by id prefix. */
+function findDockerContainer(query: string): { name: string; id: string } | null {
+  const q = String(query ?? '').trim()
+  if (q === '') return null
+  const r = runSync(['docker', 'ps', '--format', '{{.Names}}\t{{.ID}}'], undefined, 15000)
+  if (r.exitCode !== 0) return null
+  for (const line of r.stdout.split(/\r?\n/)) {
+    const [name, id] = line.trim().split('\t')
+    if (name === undefined || id === undefined || name === '' || id === '') continue
+    if (name === q || id.startsWith(q) || q.startsWith(id)) return { name, id }
+  }
+  return null
+}
+
+/** List running containers (name / id / image) for the dialog / diagnostics. */
+function listDockerContainers(): Array<{ name: string; id: string; image: string }> {
+  const r = runSync(['docker', 'ps', '--format', '{{.Names}}\t{{.ID}}\t{{.Image}}'], undefined, 15000)
+  if (r.exitCode !== 0) return []
+  const out: Array<{ name: string; id: string; image: string }> = []
+  for (const line of r.stdout.split(/\r?\n/)) {
+    const [name, id, image] = line.trim().split('\t')
+    if (name !== undefined && id !== undefined && name !== '' && id !== '') out.push({ name, id, image: image ?? '' })
+  }
+  return out
+}
+
+/** Normalize the UI's configurable env list into `docker exec -e` entries: `KEY=VALUE` strings or `{key,value}` pairs. */
+function normalizeDockerEnv(env: unknown): string[] {
+  if (!Array.isArray(env)) return []
+  const out: string[] = []
+  for (const item of env) {
+    if (typeof item === 'string') {
+      const s = item.trim()
+      if (s !== '' && s.includes('=')) out.push(s)
+      continue
+    }
+    if (item !== null && typeof item === 'object') {
+      const rec = item as Record<string, unknown>
+      const key = String(rec.key ?? '').trim()
+      if (key === '' || key.includes('=')) continue
+      out.push(`${key}=${String(rec.value ?? '')}`)
+    }
+  }
+  return out
+}
+
+/** True when the container-side DSH process started by this plugin is alive. */
+function dockerProcessAlive(container: string, port: number, user?: string): boolean {
+  const pid = dockerPidPath(port)
+  const r = dockerExecSync(
+    container,
+    ['sh', '-c', `test -f "${pid}" && kill -0 $(cat "${pid}" 2>/dev/null) 2>/dev/null && echo ALIVE || echo NO`],
+    { user },
+    undefined,
+    10000,
+  )
+  return r.exitCode === 0 && r.stdout.includes('ALIVE')
+}
+
+/** Start options: `workdir` runs the command from this container path (`$HOME` when empty). */
+interface DockerStartOpts extends DockerExecOpts {
+  workdir?: string
+}
+
+/**
+ * Start DSH inside the container detached (`docker exec -d`). The inner shell
+ * writes its own PID to the pid file and `exec`s the start command, so the PID
+ * file names the actual long-lived DSH process (safe to kill for cleanup).
+ * Output goes to the port-suffixed log for post-mortem diagnostics. `-u`
+ * switches the container user and every `env` entry becomes `docker exec -e
+ * KEY=VALUE` (so values need no shell escaping; `$HOME` etc. in values stay
+ * literal unless the user writes a shell command).
+ */
+function dockerStart(container: string, startCommand: string, port: number, opts: DockerStartOpts = {}): { exitCode: number; stdout: string; stderr: string } {
+  const serveFlags = appendServeFlags(startCommand, port)
+  // In a headless container there is no browser; dsh web tries to open one and
+  // can hang before serving. Pass --no-open unless the command already does.
+  const flags = /--no-open(?:\s|=|$)/.test(serveFlags) ? serveFlags : `${serveFlags} --no-open`
+  // Workdir: user path wins; otherwise fall back to the container HOME (or / if
+  // HOME is unset, e.g. a custom `-u` user without a home). `cd` (not `-w`) is
+  // used so a bad path lands in the tail log instead of a bare exec error.
+  const workdir = opts.workdir === undefined ? '' : String(opts.workdir).trim()
+  const cd = workdir !== '' ? `cd ${JSON.stringify(workdir)} && ` : `cd "\${HOME:-/}" && `
+  const log = dockerLogPath(port)
+  const pid = dockerPidPath(port)
+  const inner = `${cd}echo $$ > "${pid}" && { node -v; exec sh -c ${JSON.stringify(flags)}; } > "${log}" 2>&1`
+  const argv = ['docker', 'exec', '-d']
+  if (opts.user !== undefined && opts.user !== '') argv.push('-u', opts.user)
+  for (const entry of opts.env ?? []) argv.push('-e', entry)
+  argv.push(container, 'sh', '-c', inner)
+  return runSync(argv, undefined, 30000)
+}
+
+/** Best-effort stop of a plugin-started container-side DSH process (children first). */
+function dockerStop(container: string, port: number, user?: string): boolean {
+  const pid = dockerPidPath(port)
+  const r = dockerExecSync(
+    container,
+    ['sh', '-c', `pid=$(cat "${pid}" 2>/dev/null); [ -n "$pid" ] && { pkill -TERM -P "$pid" 2>/dev/null; kill -TERM "$pid" 2>/dev/null; }; true`],
+    { user },
+    undefined,
+    10000,
+  )
+  return r.exitCode === 0
+}
+
+/** TCP-open probe on the container's 127.0.0.1:<port> (Node is guaranteed by DSH itself). */
+function dockerPortOpen(container: string, port: number, user?: string): boolean {
+  const script = `const n=require('net');const s=n.connect(${port},'127.0.0.1',()=>process.exit(0));s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),2000)`
+  const r = dockerExecSync(container, ['node', '-e', script], { user }, undefined, 5000)
+  return r.exitCode === 0
+}
+
+/** Tail the container-side start log for diagnostics. */
+async function dockerLogTail(container: string, port: number, user: string | undefined, lines = 12, chars = 1500): Promise<string> {
+  const log = dockerLogPath(port)
+  const r = dockerExecSync(container, ['sh', '-c', `tail -n ${lines} "${log}" 2>/dev/null || true`], { user }, undefined, 15000)
+  return (r.stdout + r.stderr).trim().split('\n').slice(-lines).join('\n').slice(0, chars)
+}
+
+/** Harvest the one-time launch token from the container-side log (see remoteLaunchToken). */
+async function dockerLaunchToken(container: string, port: number, user?: string): Promise<string | null> {
+  const log = dockerLogPath(port)
+  const r = dockerExecSync(
+    container,
+    ['sh', '-c', `tail -n 200 "${log}" 2>/dev/null | grep -a 'dsh web:' | tail -1 | grep -ao 'token=[^ )&]*' | tail -1`],
+    { user },
+    undefined,
+    15000,
+  )
+  const m = /^token=([^\s]+)/.exec((r.stdout ?? '').trim())
+  return m !== null && m[1] !== '' ? m[1] : null
+}
+
+/**
+ * Open a Docker exec tunnel. Every inbound TCP connection spawns a fresh
+ * `docker exec -i <container> node -e '<stdio↔TCP bridge>'` so the local
+ * loopback port acts exactly like a port forward into the container's own
+ * loopback. Reuses a live tunnel for the same container:remotePort.
+ */
+async function openDockerTunnel(ctx: Context, container: string, remotePort: number, user?: string): Promise<{ ok: boolean; localPort?: number; error?: string }> {
+  const key = `${container}:${remotePort}`
+  const existing = dockerTunnels.get(key)
+  if (existing !== undefined && existing.server.listening) {
+    void log(ctx, `reuse docker tunnel ${key} (local ${existing.localPort})`)
+    return { ok: true, localPort: existing.localPort }
+  }
+  if (existing !== undefined) closeDockerTunnel(key)
+
+  const localPort = await freeLocalPort()
+  const script = [
+    `const n=require('net');`,
+    `const s=n.connect(${remotePort},'127.0.0.1');`,
+    `process.stdin.pipe(s);`,
+    `s.pipe(process.stdout);`,
+    `s.on('error',()=>process.exit(1));`,
+    `process.stdin.on('end',()=>s.end());`,
+    `s.on('close',()=>process.exit(0));`,
+  ].join('')
+  const children = new Set<ChildProcess>()
+  const server = createServer((socket) => {
+    const execArgs = ['exec', '-i']
+    if (user !== undefined && user !== '') execArgs.push('-u', user)
+    execArgs.push(container, 'node', '-e', script)
+    const child = spawn('docker', execArgs, {
+      stdio: ['pipe', 'pipe', 'ignore'],
+      windowsHide: true,
+    })
+    children.add(child)
+    child.once('exit', () => {
+      children.delete(child)
+      try { socket.destroy() } catch { /* already gone */ }
+    })
+    socket.on('error', () => { try { socket.destroy() } catch { /* already gone */ } })
+    socket.on('close', () => {
+      try { child.stdin?.end() } catch { /* already gone */ }
+      try { child.kill() } catch { /* already gone */ }
+    })
+    if (child.stdout !== null) child.stdout.pipe(socket)
+    if (child.stdin !== null) socket.pipe(child.stdin)
+  })
+
+  let listenError: string | null = null
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(localPort, '127.0.0.1', () => resolve())
+  }).catch((error: unknown) => {
+    listenError = error instanceof Error ? error.message : String(error)
+    try { server.close() } catch { /* not listening */ }
+  })
+  if (listenError !== null) return { ok: false, error: listenError }
+
+  dockerTunnels.set(key, { key, container, localPort, remotePort, server, children })
+  void log(ctx, `docker tunnel open ${key} -> 127.0.0.1:${localPort}`)
+  return { ok: true, localPort }
+}
+
+/** Close a live Docker tunnel by container:remotePort. */
+function closeDockerTunnel(key: string): boolean {
+  const tunnel = dockerTunnels.get(key)
+  if (tunnel === undefined) return false
+  try { tunnel.server.close() } catch { /* not listening */ }
+  for (const child of [...tunnel.children]) {
+    try { child.kill() } catch { /* already gone */ }
+  }
+  tunnel.children.clear()
+  dockerTunnels.delete(key)
+  return true
+}
+
 /** Remote TCP-open probe on 127.0.0.1:<port> through ssh. */
-async function sshPortOpen(ctx: Context, auth: Record<string, unknown>, port: number): Promise<boolean> {
+async function sshPortOpen(ctx: Context, auth: SshAuth, port: number): Promise<boolean> {
   const res = await sshRun(ctx, auth, `(echo > /dev/tcp/127.0.0.1/${port}) >/dev/null 2>&1 && echo OPEN || echo CLOSED`, 20000)
   return res.exitCode === 0 && res.stdout.includes('OPEN')
 }
 
 /** Remote toolchain presence check; reports each missing tool. */
-async function checkRemoteToolchain(ctx: Context, auth: Record<string, unknown>): Promise<{ ok: boolean; detail: string }> {
+async function checkRemoteToolchain(ctx: Context, auth: SshAuth): Promise<{ ok: boolean; detail: string }> {
   const res = await sshRun(ctx, auth, [
     // node/npm (npx ships with npm) run the dsh CLI; tmux hosts the session so
     // the backend survives the ssh command returning. git/pnpm are no longer
@@ -850,7 +1127,7 @@ async function checkRemoteToolchain(ctx: Context, auth: Record<string, unknown>)
 }
 
 /** Discover the port the live `dsh-gui` tmux session is serving on. */
-async function discoverSessionPort(ctx: Context, auth: Record<string, unknown>, fallback: number): Promise<number> {
+async function discoverSessionPort(ctx: Context, auth: SshAuth, fallback: number): Promise<number> {
   const res = await sshRun(ctx, auth, 'tmux list-panes -t dsh-gui -F \'#{pane_start_command}\' 2>/dev/null | head -1', 20000)
   const m = /--port(?:\s+|=)(\d+)/.exec(res.stdout)
   const port = m ? Number(m[1]) : fallback
@@ -858,7 +1135,7 @@ async function discoverSessionPort(ctx: Context, auth: Record<string, unknown>, 
 }
 
 /** ACTIVE when the tmux session exists and its pane is not dead. */
-async function sessionState(ctx: Context, auth: Record<string, unknown>): Promise<'MISSING' | 'STALE' | 'ALIVE'> {
+async function sessionState(ctx: Context, auth: SshAuth): Promise<'MISSING' | 'STALE' | 'ALIVE'> {
   const res = await sshRun(ctx, auth, [
     'if tmux has-session -t dsh-gui 2>/dev/null; then',
     '  if tmux list-panes -t dsh-gui -F \'#{pane_dead}\' 2>/dev/null | grep -q 1; then echo STALE; else echo ALIVE; fi',
@@ -880,7 +1157,7 @@ async function sessionState(ctx: Context, auth: Record<string, unknown>): Promis
  * null when the profile prints no launch line (legacy dsh web serves 2xx
  * directly and needs no token).
  */
-async function remoteLaunchToken(ctx: Context, auth: Record<string, unknown>): Promise<string | null> {
+async function remoteLaunchToken(ctx: Context, auth: SshAuth): Promise<string | null> {
   const res = await sshRun(
     ctx,
     auth,
@@ -907,7 +1184,7 @@ export function apply(ctx: Context): void {
     handler: (req: IncomingMessage, res: ServerResponse) => { void dispatch(ctx, req, res, locals) },
   })
 
-  // Kill locally started backends and every SSH tunnel on teardown.
+  // Kill locally started backends, every SSH tunnel and every Docker tunnel on teardown.
   ctx.effect(() => () => {
     disposeRoute()
     for (const handle of locals.values()) {
@@ -918,6 +1195,7 @@ export function apply(ctx: Context): void {
       try { tunnel.session.close() } catch { /* already gone */ }
     }
     tunnels.clear()
+    for (const key of [...dockerTunnels.keys()]) closeDockerTunnel(key)
     if (activeSession.current !== null) {
       try { activeSession.current.close() } catch { /* already gone */ }
       activeSession.current = null
@@ -1041,7 +1319,7 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
   const env = discover()
   switch (op) {
     case 'env':
-      return { ...env, ssh: sshAvailability() }
+      return { ...env, ssh: sshAvailability(), docker: dockerAvailability() }
     case 'probe':
       return probe(String(args.url ?? ''))
     case 'local.start': {
@@ -1106,8 +1384,12 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
       return sshAvailability()
     case 'tunnel.close': {
       const conn = (args.conn ?? {}) as Record<string, unknown>
-      if (!conn.sshHost && !conn.address) return { ok: false, error: 'no host' }
       const remotePort = Number(conn.port)
+      if (conn.container) {
+        const key = `${conn.container}:${remotePort}`
+        return { ok: closeDockerTunnel(key), key }
+      }
+      if (!conn.sshHost && !conn.address) return { ok: false, error: 'no host' }
       const host = String(conn.sshHost ?? conn.address)
       const key = `${host}:${remotePort}`
       return { ok: closeTunnel(key), key }
@@ -1175,11 +1457,56 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
         startedAt: remoteProgress.startedAt,
         steps: remoteProgress.steps.map(step => ({ ...step })),
       }
+    case 'docker.available':
+      return dockerAvailability()
+    case 'docker.list':
+      return { containers: listDockerContainers() }
+    case 'docker.connect': {
+      remoteProgress.running = true
+      remoteProgress.startedAt = Date.now()
+      remoteProgress.steps = []
+      // Bump the token so this attempt owns the (single) in-flight pipeline, and
+      // clear any earlier cancel request.
+      remoteConnectControl.token += 1
+      const connectToken = remoteConnectControl.token
+      remoteConnectControl.cancelled = false
+      try {
+        const conn = (args.conn ?? {}) as Record<string, unknown>
+        const logLines: Array<{ step: string; ok: boolean; detail?: string }> = []
+        if (!conn.container || !conn.port) {
+          return { ok: false, log: [{ step: 'connect', ok: false, detail: 'container and port required' }] }
+        }
+        return connectDocker(
+          ctx,
+          {
+            container: String(conn.container),
+            port: Number(conn.port),
+            startCommand: conn.startCommand ? String(conn.startCommand) : undefined,
+            workdir: conn.workdir ? String(conn.workdir) : undefined,
+            user: conn.user ? String(conn.user) : undefined,
+            env: conn.env,
+          },
+          logLines,
+          connectToken,
+        )
+      } finally {
+        remoteProgress.running = false
+      }
+    }
+    case 'docker.cancel':
+      remoteConnectControl.cancelled = true
+      return { ok: true }
+    case 'docker.status':
+      return {
+        running: remoteProgress.running,
+        startedAt: remoteProgress.startedAt,
+        steps: remoteProgress.steps.map(step => ({ ...step })),
+      }
     case 'diag': {
       const probeMe = await probe(`http://127.0.0.1:${ctx.webServer.port}/`)
       const livePorts = Array.from(locals.keys())
       const tunnelCount = tunnels.size
-      return { env, probeMe, locals: livePorts, tunnels: tunnelCount }
+      return { env, probeMe, locals: livePorts, tunnels: tunnelCount, dockerTunnels: dockerTunnels.size }
     }
     default:
       return { ok: false, error: `unknown op: ${op}` }
@@ -1209,7 +1536,72 @@ function appendServeFlags(command: string, port: number): string {
   if (!hasFlag('--host')) flags.push('--host 127.0.0.1')
   if (!hasFlag('--port')) flags.push(`--port ${port}`)
   const base = command.trim()
-  return flags.length > 0 ? `${base} ${flags.join(' ')}` : base
+  if (flags.length === 0) return base
+  // `npm|pnpm|bun run <script>` only forwards further argv after a `--`
+  // separator; without it npm yells `Unknown cli flags: --host/--port`.
+  const pmRun = /^(?:npm|pnpm|bun)\s+(?:(?:-C|--dir)\s+\S+\s+)*run\s+\S/.test(base)
+  const sep = pmRun && !/\s--\s*$/.test(base) ? ' -- ' : ' '
+  return `${base}${sep}${flags.join(' ')}`
+}
+
+/**
+ * Wait until a tunneled loopback URL is frontend-ready. Shared by the SSH and
+ * Docker pipelines: a legacy profile serves 2xx on the bare URL, while dsh
+ * v0.1.2-alpha.1+ gates behind a one-time launch token (bare URL = 401,
+ * tokenized first visit = 303 + Set-Cookie). Both are accepted; the token is
+ * re-harvested every round when the first probe stays 401. Returns the exact
+ * URL to load (with token when present) and the observed HTTP status.
+ */
+async function waitFrontendReady(
+  ctx: Context,
+  baseLocalUrl: string,
+  harvestToken: () => Promise<string | null>,
+  tail: (lines?: number, chars?: number) => Promise<string>,
+  log: Array<{ step: string; ok: boolean; detail?: string }>,
+  token: number,
+  logLabel: string,
+): Promise<{ ok: boolean; cancelled?: boolean; url: string; status?: number }> {
+  let launchToken = await harvestToken()
+  if (connectCancelled(token)) return { ok: false, cancelled: true, url: baseLocalUrl }
+  let reportUrl = launchToken !== null ? `${baseLocalUrl}?token=${encodeURIComponent(launchToken)}` : baseLocalUrl
+  const deadline = Date.now() + 150000
+  const startedAt = Date.now()
+  let ready = false
+  let status: number | undefined
+  let waitIter = 0
+  while (Date.now() < deadline) {
+    // Legacy profile: bare URL answers 2xx directly.
+    const bare = await probe(baseLocalUrl)
+    if (bare.loadable) {
+      status = bare.status
+      reportUrl = baseLocalUrl
+      ready = true
+      break
+    }
+    // Token-gated profile: harvest (re-)the launch token and probe the
+    // authenticated URL; a 303 (token accepted, cookie mint pending) or a
+    // 2xx counts as ready. A persistent 401 means the harvested token is
+    // stale — the loop re-harvests next round.
+    launchToken = await harvestToken()
+    if (launchToken !== null) reportUrl = `${baseLocalUrl}?token=${encodeURIComponent(launchToken)}`
+    const authed = await probe(reportUrl)
+    status = authed.status
+    if (authed.reachable && (authed.loadable || authed.status === 303)) {
+      ready = true
+      break
+    }
+    waitIter++
+    const waited = Math.round((Date.now() - startedAt) / 1000)
+    if (waitIter % 3 === 1) {
+      const tailText = await tail(6, 1500)
+      progress('等待前端就绪', undefined, `${reportUrl}（已等待 ${waited}s）${tailText !== '' ? `\n${logLabel}:\n${tailText}` : ''}`)
+    } else {
+      progress('等待前端就绪', undefined, `${reportUrl}（已等待 ${waited}s）`)
+    }
+    await new Promise(r => setTimeout(r, 2000))
+    if (connectCancelled(token)) return { ok: false, cancelled: true, url: reportUrl }
+  }
+  return { ok: ready, url: reportUrl, status }
 }
 
 /**
@@ -1355,44 +1747,167 @@ async function connectRemote(
   // `spawn_harness` (src-tauri): harvest the token from the remote start log
   // and authenticate the tunneled URL with it. Legacy dsh web prints no
   // token and serves 2xx directly — both are supported below.
-  let launchToken = await remoteLaunchToken(ctx, auth)
-  if (connectCancelled(token)) return bailCancelled()
-  let reportUrl = launchToken !== null ? `${baseLocalUrl}?token=${encodeURIComponent(launchToken)}` : baseLocalUrl
-
-  const deadline = Date.now() + 150000
-  let ready = false
-  let status: number | undefined
-  while (Date.now() < deadline) {
-    // Legacy profile: bare URL answers 2xx directly.
-    const bare = await probe(baseLocalUrl)
-    if (bare.loadable) {
-      status = bare.status
-      reportUrl = baseLocalUrl
-      ready = true
-      break
-    }
-    // Token-gated profile: harvest (re-)the launch token and probe the
-    // authenticated URL; a 303 (token accepted, cookie mint pending) or a
-    // 2xx counts as ready. A persistent 401 means the harvested token is
-    // stale — the loop re-harvests next round.
-    launchToken = await remoteLaunchToken(ctx, auth)
-    if (launchToken !== null) reportUrl = `${baseLocalUrl}?token=${encodeURIComponent(launchToken)}`
-    const authed = await probe(reportUrl)
-    status = authed.status
-    if (authed.reachable && (authed.loadable || authed.status === 303)) {
-      ready = true
-      break
-    }
-    progress('等待前端就绪', undefined, `${reportUrl}（已等待 ${Math.round(150000 - (deadline - Date.now())) / 1000}s）`)
-    await new Promise(r => setTimeout(r, 2000))
-    if (connectCancelled(token)) return bailCancelled()
-  }
-  if (!ready) {
+  const ready = await waitFrontendReady(
+    ctx,
+    baseLocalUrl,
+    () => remoteLaunchToken(ctx, auth),
+    (lines?: number, chars?: number) => remoteTail(lines ?? 12, chars ?? 1500),
+    log,
+    token,
+    '远端日志',
+  )
+  if (ready.cancelled) return bailCancelled()
+  if (!ready.ok) {
     const tail = await remoteTail(40, 3000)
-    pushLog(log, '前端就绪', false, `${reportUrl} 超时${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
+    pushLog(log, '前端就绪', false, `${ready.url} 超时${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
     await teardown()
     return { ok: false, log }
   }
-  pushLog(log, `前端就绪 ${reportUrl}`, true, `HTTP ${status}`)
-  return { ok: ready, log, url: reportUrl, tunnelKey: key }
+  pushLog(log, `前端就绪 ${ready.url}`, true, `HTTP ${ready.status}`)
+  return { ok: ready.ok, log, url: ready.url, tunnelKey: key }
+}
+
+/**
+ * Docker backend pipeline (no container port mapping required):
+ *   1. precheck the docker CLI + daemon,
+ *   2. locate the running container (name or id prefix),
+ *   3. start (or reuse) DSH inside the container via `docker exec -d`, bound to
+ *      the container's 127.0.0.1 only,
+ *   4. open a Docker exec stdio tunnel (`docker exec -i ... node -e` bridge)
+ *      from a free local loopback port into the container loopback,
+ *   5. wait for the tunneled port and the frontend (bare 2xx or token 303/2xx).
+ *
+ * The container is never modified: no `-p`, no restart, no extra binaries
+ * (node is DSH's own runtime). Teardown only kills a DSH process started by
+ * THIS attempt (via the container-side pid file) and closes this tunnel.
+ */
+async function connectDocker(
+  ctx: Context,
+  conn: { container: string; port: number; startCommand?: string; workdir?: string; user?: string; env?: unknown },
+  log: Array<{ step: string; ok: boolean; detail?: string }>,
+  token: number,
+): Promise<{ ok: boolean; cancelled?: boolean; log: Array<{ step: string; ok: boolean; detail?: string }>; url?: string; tunnelKey?: string }> {
+  const container = String(conn.container ?? '').trim()
+  const startCommand = String(conn.startCommand ?? '').trim() || defaultDockerStartCommand()
+  const user = String(conn.user ?? '').trim() || undefined
+  const workdir = String(conn.workdir ?? '').trim() || undefined
+  const env = normalizeDockerEnv(conn.env)
+  let startedHere = false
+  let tunnelKey: string | undefined
+
+  /** Best-effort teardown of resources THIS attempt created. */
+  async function teardown(): Promise<void> {
+    if (startedHere) dockerStop(container, conn.port, user)
+    if (tunnelKey !== undefined) closeDockerTunnel(tunnelKey)
+  }
+
+  /** Abort point: the shell cancelled (or a newer connect superseded us). */
+  async function bailCancelled(): Promise<{ ok: false; cancelled: true; log: Array<{ step: string; ok: boolean; detail?: string }> }> {
+    pushLog(log, '已取消', false, '连接被用户取消')
+    await teardown()
+    return { ok: false, cancelled: true, log }
+  }
+
+  // 1. docker CLI + daemon
+  const avail = dockerAvailability()
+  pushLog(log, 'docker 可用性', avail.docker !== null, avail.docker !== null ? (avail.server ?? '客户端已就绪') : (avail.error ?? 'docker 不可用'))
+  if (connectCancelled(token)) return bailCancelled()
+  if (avail.docker === null) return { ok: false, log }
+  if (avail.error !== undefined) {
+    pushLog(log, 'docker daemon', false, avail.error)
+    return { ok: false, log }
+  }
+
+  // 2. locate the running container
+  const found = findDockerContainer(container)
+  pushLog(log, `容器 ${container}`, found !== null, found !== null ? `运行中 (${found.name})` : '未找到运行中的容器')
+  if (connectCancelled(token)) return bailCancelled()
+  if (found === null) return { ok: false, log }
+  const ctr = found.name
+
+  // 3. start or reuse container-side DSH (with the configured user/workdir/env)
+  const configDetail = [`工作目录: ${workdir ?? '$HOME'}`]
+  if (user !== undefined) configDetail.push(`用户: ${user}`)
+  if (env.length > 0) configDetail.push(`环境变量: ${env.length} 项`)
+  pushLog(log, '容器启动配置', true, configDetail.join('；'))
+  const alive = dockerProcessAlive(ctr, conn.port, user)
+  if (alive) {
+    pushLog(log, '容器内 dsh', true, '进程存活，复用')
+  } else {
+    pushLog(log, '启动容器内 dsh', false, startCommand)
+    const start = dockerStart(ctr, startCommand, conn.port, { workdir, user, env })
+    replaceLog(log, log.length - 1, 'docker exec 启动 dsh', start.exitCode === 0, (start.stdout + start.stderr).trim().slice(0, 2000))
+    if (connectCancelled(token)) return bailCancelled()
+    if (start.exitCode !== 0) return { ok: false, log }
+    startedHere = true
+    // Fail fast: a bad npm script / missing binary kills the container-side
+    // process within a second; surface the tail log instead of waiting out the
+    // full 300s port deadline. A slow first-run (npx download) stays alive, so
+    // this only catches real startup deaths.
+    await new Promise(r => setTimeout(r, 5000))
+    if (connectCancelled(token)) return bailCancelled()
+    if (!dockerProcessAlive(ctr, conn.port, user)) {
+      const tail = await dockerLogTail(ctr, conn.port, user, 30, 3000)
+      pushLog(log, '启动失败（进程已退出）', false, tail !== '' ? tail : '容器内 dsh 进程未存活')
+      await teardown()
+      return { ok: false, log }
+    }
+  }
+
+  // 4. Docker exec stdio tunnel
+  const tunnel = await openDockerTunnel(ctx, ctr, conn.port, user)
+  if (connectCancelled(token)) return bailCancelled()
+  if (!tunnel.ok || tunnel.localPort === undefined) {
+    pushLog(log, 'docker exec 隧道', false, tunnel.error || '无法建立隧道')
+    await teardown()
+    return { ok: false, log }
+  }
+  tunnelKey = `${ctr}:${conn.port}`
+  const baseLocalUrl = `http://127.0.0.1:${tunnel.localPort}/`
+  pushLog(log, 'docker exec 隧道', true, `127.0.0.1:${tunnel.localPort} -> ${ctr}:${conn.port}`)
+
+  // 5a. wait until the container loopback port is open (first npx fetch can be slow)
+  const openDeadline = Date.now() + 300000
+  const openedAt = Date.now()
+  let open = false
+  let waitIter = 0
+  while (!open && Date.now() < openDeadline) {
+    await new Promise(r => setTimeout(r, 2000))
+    if (connectCancelled(token)) return bailCancelled()
+    open = dockerPortOpen(ctr, conn.port, user)
+    waitIter++
+    const waited = Math.round((Date.now() - openedAt) / 1000)
+    if (waitIter % 3 === 1) {
+      const tail = await dockerLogTail(ctr, conn.port, user, 6)
+      progress('等待服务端口开放', undefined, `127.0.0.1:${conn.port}（已等待 ${waited}s）${tail !== '' ? `\n容器日志:\n${tail}` : ''}`)
+    } else {
+      progress('等待服务端口开放', undefined, `127.0.0.1:${conn.port}（已等待 ${waited}s）`)
+    }
+  }
+  if (!open) {
+    const tail = await dockerLogTail(ctr, conn.port, user, 60, 4000)
+    pushLog(log, '服务端口未就绪', false, `127.0.0.1:${conn.port} 未在 300s 内开放${tail !== '' ? `\n容器日志:\n${tail}` : ''}`)
+    await teardown()
+    return { ok: false, log }
+  }
+
+  // 5b. wait until the tunneled local URL is frontend-ready
+  const ready = await waitFrontendReady(
+    ctx,
+    baseLocalUrl,
+    () => dockerLaunchToken(ctr, conn.port, user),
+    (lines?: number, chars?: number) => dockerLogTail(ctr, conn.port, user, lines ?? 12, chars ?? 1500),
+    log,
+    token,
+    '容器日志',
+  )
+  if (ready.cancelled) return bailCancelled()
+  if (!ready.ok) {
+    const tail = await dockerLogTail(ctr, conn.port, user, 40, 3000)
+    pushLog(log, '前端就绪', false, `${ready.url} 超时${tail !== '' ? `\n容器日志 (${dockerLogPath(conn.port)}):\n${tail}` : ''}`)
+    await teardown()
+    return { ok: false, log }
+  }
+  pushLog(log, `前端就绪 ${ready.url}`, true, `HTTP ${ready.status}`)
+  return { ok: true, log, url: ready.url, tunnelKey }
 }

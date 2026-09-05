@@ -475,6 +475,7 @@ function setConnType(type) {
     card.classList.toggle("sel", card.dataset.type === type);
   }
   const remote = type === "remote";
+  const docker = type === "docker";
   $("conn-addr-wrap").classList.toggle("hidden", !remote);
   $("conn-ssh-toggle").classList.toggle("hidden", !remote);
   const sshOn = remote && $("conn-ssh-on").checked;
@@ -483,6 +484,10 @@ function setConnType(type) {
   $("conn-ssh-startcmd-wrap").classList.toggle("hidden", !sshOn);
   $("conn-creds").classList.toggle("hidden", !sshOn);
   $("conn-save-wrap").classList.toggle("hidden", !sshOn);
+  $("conn-docker-container-wrap").classList.toggle("hidden", !docker);
+  $("conn-docker-user-workdir-wrap").classList.toggle("hidden", !docker);
+  $("conn-docker-env-wrap").classList.toggle("hidden", !docker);
+  $("conn-docker-startcmd-wrap").classList.toggle("hidden", !docker);
   // Track the layout mode on the panel so CSS can adapt and the fit logic
   // can measure the right content size.
   const panel = document.querySelector(".conn-dialog");
@@ -499,6 +504,11 @@ function resetConnForm() {
   $("conn-ssh-user").value = "";
   $("conn-ssh-port").value = "";
   $("conn-ssh-startcmd").value = "";
+  $("conn-docker-container").value = "";
+  $("conn-docker-user").value = "";
+  $("conn-docker-workdir").value = "";
+  $("conn-docker-startcmd").value = "";
+  setDockerEnvRows([]);
   $("conn-password").value = "";
   $("conn-keyfile").value = "";
   $("conn-key-path").textContent = "";
@@ -553,6 +563,13 @@ function readForm() {
       entry.startCommand = $("conn-ssh-startcmd").value.trim() || undefined;
       entry.saveAuth = $("conn-save-auth").checked;
     }
+  } else if (connType === "docker") {
+    entry.container = $("conn-docker-container").value.trim() || undefined;
+    entry.user = $("conn-docker-user").value.trim() || undefined;
+    entry.workdir = $("conn-docker-workdir").value.trim() || undefined;
+    entry.startCommand = $("conn-docker-startcmd").value.trim() || undefined;
+    const envRows = collectDockerEnv();
+    if (envRows.length > 0) entry.env = envRows;
   }
   return entry;
 }
@@ -567,12 +584,17 @@ function fillFormFromSaved(entry) {
   $("conn-ssh-user").value = entry.sshUser || "";
   $("conn-ssh-port").value = entry.sshPort ? String(entry.sshPort) : "";
   $("conn-ssh-startcmd").value = entry.startCommand || "";
+  $("conn-docker-container").value = entry.container || "";
+  $("conn-docker-user").value = entry.user || "";
+  $("conn-docker-workdir").value = entry.workdir || "";
+  $("conn-docker-startcmd").value = entry.startCommand || "";
+  setDockerEnvRows(entry.env || []);
   $("conn-password").value = "";
   $("conn-keyfile").value = "";
   $("conn-key-path").textContent = "";
   $("conn-save-auth").checked = entry.saveAuth !== false;
   serverKeyPath = null;
-  setConnType(entry.type === "remote" ? "remote" : "local");
+  setConnType(entry.type === "remote" ? "remote" : entry.type === "docker" ? "docker" : "local");
 }
 
 /** On a successful connect, record the connection into the list (update the
@@ -604,11 +626,12 @@ function renderSavedList() {
   for (const c of savedConnections) {
     const item = document.createElement("div");
     item.className = "conn-list-item" + (c.id === connectEditId ? " active" : "");
-    const kind = c.type === "remote" ? (c.sshOn ? "远程 · SSH" : "远程") : "本地";
-    item.title = `${kind} · ${c.addr || "本机"}:${c.port ?? ""}`;
+    const kind = c.type === "docker" ? "Docker" : c.type === "remote" ? (c.sshOn ? "远程 · SSH" : "远程") : "本地";
+    const target = c.type === "docker" ? (c.container || "容器") : c.type === "remote" ? (c.addr || "远端") : "本机";
+    item.title = `${kind} · ${target}:${c.port ?? ""}`;
     const name = document.createElement("span");
     name.className = "item-name";
-    name.textContent = c.name || c.addr || "连接";
+    name.textContent = c.name || target || "连接";
     item.append(
       name,
       mkItemBtn("▶", "启动", () => launchSaved(c.id)),
@@ -701,6 +724,64 @@ function onPickKey(file) {
   reader.readAsArrayBuffer(file);
 }
 
+/* ── Docker env-variable list (configurable KEY/VALUE rows) ── */
+function makeDockerEnvRow(key, value) {
+  const row = document.createElement("div");
+  row.className = "conn-docker-env-row";
+  const keyInput = document.createElement("input");
+  keyInput.className = "conn-input conn-docker-env-key";
+  keyInput.placeholder = "KEY";
+  keyInput.value = key || "";
+  keyInput.spellcheck = false;
+  const valueInput = document.createElement("input");
+  valueInput.className = "conn-input conn-docker-env-value";
+  valueInput.placeholder = "VALUE";
+  valueInput.value = value || "";
+  valueInput.spellcheck = false;
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "conn-docker-env-del";
+  del.title = "删除变量";
+  del.textContent = "×";
+  row.append(keyInput, valueInput, del);
+  return row;
+}
+
+function addDockerEnvRow(key, value) {
+  const list = $("conn-docker-env-list");
+  if (list) list.appendChild(makeDockerEnvRow(key, value));
+  if (DIALOG_VIEW) scheduleFit();
+}
+
+function setDockerEnvRows(rows) {
+  const list = $("conn-docker-env-list");
+  if (!list) return;
+  list.innerHTML = "";
+  const normalized = Array.isArray(rows) ? rows : [];
+  for (const item of normalized) {
+    if (typeof item === "string") {
+      const i = item.indexOf("=");
+      addDockerEnvRow(i >= 0 ? item.slice(0, i).trim() : "", i >= 0 ? item.slice(i + 1) : item);
+    } else if (item && typeof item === "object") {
+      addDockerEnvRow(String(item.key || ""), String(item.value ?? ""));
+    }
+  }
+  if (normalized.length === 0) addDockerEnvRow("", "");
+}
+
+function collectDockerEnv() {
+  const out = [];
+  for (const row of document.querySelectorAll("#conn-docker-env-list .conn-docker-env-row")) {
+    const keyInput = row.querySelector(".conn-docker-env-key");
+    const valueInput = row.querySelector(".conn-docker-env-value");
+    if (!keyInput || !valueInput) continue;
+    const key = keyInput.value.trim();
+    if (key === "") continue;
+    out.push({ key, value: valueInput.value });
+  }
+  return out;
+}
+
 async function doConnect() {
   const gen = ++connectGen;
   const btn = $("conn-connect");
@@ -709,6 +790,7 @@ async function doConnect() {
   $("conn-log").innerHTML = "";
   try {
     if (connType === "local") await connectLocal(gen);
+    else if (connType === "docker") await connectDocker(gen);
     else await connectRemote(gen);
   } catch (e) {
     if (gen === connectGen) connLog("连接失败", false, String(e && e.message ? e.message : e));
@@ -934,6 +1016,91 @@ async function connectRemote(gen) {
       false,
       "该主机需要认证（SSH 别名无法免密）——请填写 SSH 用户名、密码或密钥文件（二选一），或勾选保存认证"
     );
+  }
+}
+
+async function connectDocker(gen) {
+  const name = $("conn-name").value.trim();
+  const container = $("conn-docker-container").value.trim();
+  const p = Number($("conn-port").value);
+  const lines = [];
+  const show = () => paintConnLog(lines);
+  const push = (step, ok, detail) => {
+    lines.push({ step, ok, detail });
+    show();
+  };
+  if (name === "") {
+    push("校验", false, "请填写连接名");
+    return;
+  }
+  if (container === "") {
+    push("校验", false, "请填写容器名或 ID");
+    return;
+  }
+  if (!Number.isInteger(p) || p <= 0 || p > 65535) {
+    push("校验", false, "端口无效");
+    return;
+  }
+  push("检查 docker 环境");
+  const avail = await rpc("docker.available");
+  if (gen !== connectGen) return;
+  if (!avail || !avail.docker) {
+    push("docker 不可用", false, (avail && avail.error) || "docker CLI 未找到");
+    return;
+  }
+  if (avail.error) {
+    push("docker daemon", false, avail.error);
+    return;
+  }
+  const conn = {
+    container,
+    port: p,
+    user: $("conn-docker-user").value.trim() || undefined,
+    workdir: $("conn-docker-workdir").value.trim() || undefined,
+    env: collectDockerEnv(),
+    startCommand: $("conn-docker-startcmd").value.trim() || undefined,
+  };
+  const preamble = lines.slice();
+
+  // The host pipeline runs in ONE docker.connect RPC; live-stream its progress
+  // via docker.status instead of staring at a silent dialog.
+  let lastServerJson = "";
+  statusPollTimer = setInterval(async () => {
+    try {
+      if (gen !== connectGen) {
+        clearInterval(statusPollTimer);
+        statusPollTimer = null;
+        return;
+      }
+      const st = await rpc("docker.status");
+      if (gen !== connectGen) return;
+      const steps = Array.isArray(st && st.steps) ? st.steps : [];
+      const json = JSON.stringify(steps);
+      if (json !== lastServerJson) {
+        lastServerJson = json;
+        paintConnLog([...preamble, ...steps]);
+      }
+      if (st && st.running === false) clearInterval(statusPollTimer);
+    } catch (_) {
+      /* transient poll errors are fine — the connect result is authoritative */
+    }
+  }, 800);
+
+  let res;
+  try {
+    res = await rpc("docker.connect", { conn });
+  } finally {
+    if (statusPollTimer !== null && statusPollTimer !== undefined) {
+      clearInterval(statusPollTimer);
+      statusPollTimer = null;
+    }
+  }
+  if (gen !== connectGen) return;
+  const finalSteps = Array.isArray(res && res.log) ? res.log : [];
+  paintConnLog([...preamble, ...finalSteps]);
+  if (res && res.ok === true) {
+    recordSuccessfulConnection();
+    addTab(name, res.url ?? `http://127.0.0.1:${p}/`, { type: "docker", container, port: p });
   }
 }
 
@@ -2414,6 +2581,7 @@ function cancelConnection() {
     statusPollTimer = null;
   }
   void rpc("ssh.cancel").catch(() => {});
+  void rpc("docker.cancel").catch(() => {});
   if (connType === "local") {
     // A cancelled local connect may have started a backend; stop it.
     const p = Number($("conn-port").value);
@@ -2435,6 +2603,14 @@ $("conn-log-copy").addEventListener("click", () => {
     .map((el) => el.textContent)
     .join("\n");
   copyText(text);
+});
+$("conn-docker-env-add").addEventListener("click", () => addDockerEnvRow("", ""));
+$("conn-docker-env-list").addEventListener("click", (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest(".conn-docker-env-del") : null;
+  if (!btn) return;
+  const row = btn.closest(".conn-docker-env-row");
+  if (row) row.remove();
+  if (DIALOG_VIEW) scheduleFit();
 });
 $("conn-overlay").addEventListener("click", (e) => {
   if (e.target === $("conn-overlay")) {

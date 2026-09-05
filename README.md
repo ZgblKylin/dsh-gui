@@ -26,9 +26,12 @@ new-connection button, and on their inner side a hamburger (☰) menu — the
 standard minimize / maximize / close controls come after it, and the hamburger
 menu carries the tab list plus **新建连接** / **关闭当前连接** and the existing
 **关于** / **退出** entries. The new-connection dialog supports a local backend
-(probe the port, or start the built-in harness on it) and a remote backend
+(probe the port, or start the built-in harness on it), a remote backend
 (VSCode Remote SSH style: load the frontend, or SSH-deploy it to another host,
-reaching it over an SSH local port forward). The connection chrome lives in the
+reaching it over an SSH local port forward), and a Docker backend (start dsh
+inside a running container via `docker exec` and bridge its loopback port with
+a `docker exec -i` stdio tunnel — no port mapping required). The connection
+chrome lives in the
 native title bar — the embedded harness page renders none of it. The About
 dialog shows the version (exact git tag, else the commit short hash), license,
 and GitHub link for dsh-gui, the deepseek-harness submodule, the whale-girl
@@ -56,9 +59,12 @@ browser.
   close buttons and persisted tab/active state; closing the last tab reopens
   the new-connection dialog.
 - **New connection (`＋`)** — local backend (probe the port, or start the
-  built-in harness on it) and remote backend (load the frontend, or SSH-deploy
+  built-in harness on it), remote backend (load the frontend, or SSH-deploy
   it to another host and reach it through a loopback-only SSH local port
-  forward).
+  forward), and Docker backend (start dsh in a running container via
+  `docker exec -d`, then bridge its loopback port with a `docker exec -i`
+  stdio tunnel — the container needs no `-p` port mapping; the container-side
+  user, working directory and environment-variable list are configurable).
 - **Hamburger menu (`☰`)** — tab list, `新建连接` / `关闭当前连接`, `检查更新`,
   `关于` / `退出`.
 - **About dialog** — version (git tag or commit short hash), license, and

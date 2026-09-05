@@ -976,7 +976,7 @@ body.no-tauri .titlebar-btn {
 
 .conn-type-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -1205,6 +1205,55 @@ body.no-tauri .titlebar-btn {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 60%;
+}
+
+.conn-docker-env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0 8px;
+}
+
+.conn-docker-env-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 28px;
+  gap: 8px;
+  align-items: center;
+}
+
+.conn-docker-env-row .conn-input {
+  min-width: 0;
+}
+
+.conn-docker-env-del {
+  width: 28px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: default;
+}
+
+.conn-docker-env-del:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.conn-docker-env-add {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: default;
+}
+
+.conn-docker-env-add:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 
 .conn-actions {
