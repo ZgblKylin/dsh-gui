@@ -6,10 +6,10 @@
  * Every path resolves from the repository root regardless of the invoking cwd.
  *
  * Commands:
- *   setup    one-shot bootstrap: pinned pnpm -> harness install+build -> entry
- *            exe (release unless --debug) -> plugins (each plugins/<id>/install.mjs)
- *            -> install agent presets
- *   build    harness install+build (unless --skip-harness) -> entry exe ->
+ *   setup    one-shot bootstrap: pinned pnpm -> harness clean+install+build ->
+ *            entry exe (release unless --debug) -> plugins (each
+ *            plugins/<id>/install.mjs) -> install agent presets
+ *   build    harness clean+install+build (unless --skip-harness) -> entry exe ->
  *            plugins (each plugins/<id>/install.mjs) -> install agent presets
  *   install  run every plugins/<id>/install.mjs (alias: plugins)
  *   run      launch the entry exe detached; the invoking terminal returns at
@@ -57,7 +57,21 @@ function harnessInstall(frozen) {
   })
 }
 
+function harnessClean() {
+  step('Clean previous harness build outputs', () => {
+    // The harness is a pinned submodule; stale ignored build output can
+    // survive a revision switch (lib/ + node_modules of packages that no
+    // longer exist) and break tsdown's workspace enumeration with missing
+    // exports, so clean every build before rebuilding. CI=true is required:
+    // the pre-run `verify-deps-before-run` install aborts with
+    // ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY when it finds orphaned
+    // modules without a TTY.
+    pnpm(['run', 'clean'], { cwd: HARNESS, env: { CI: 'true' } })
+  })
+}
+
 function harnessBuild() {
+  harnessClean()
   step('Build harness (host lib + web dist)', () => {
     // CI=true keeps `verify-deps-before-run` from re-running the harness's
     // lefthook postinstall (in the nested `pnpm install` it spawns), which
@@ -264,10 +278,11 @@ Usage:
   npm run <command> -- [flags]        (from the repository root)
 
 Commands:
-  setup       one-shot bootstrap: pinned pnpm -> harness install+build -> entry
-              exe (release unless --debug) -> plugins (each plugins/<id>/install.mjs) ->
-              agent presets (each presets/<id>/install.mjs)
-  build       harness install+build (unless --skip-harness) -> entry exe ->
+  setup       one-shot bootstrap: pinned pnpm -> harness clean+install+build ->
+              entry exe (release unless --debug) -> plugins (each
+              plugins/<id>/install.mjs) -> agent presets (each
+              presets/<id>/install.mjs)
+  build       harness clean+install+build (unless --skip-harness) -> entry exe ->
               plugins (each plugins/<id>/install.mjs) -> agent presets
   install     run every plugins/*/install.mjs (alias: plugins)
   run         launch the entry exe detached; the terminal returns immediately
