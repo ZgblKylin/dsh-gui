@@ -5,19 +5,14 @@
 //   仅作源码参考，不参与构建）；安装走 npm（installNpmPlugin，精确版本
 //   dsh-pet@0.2.6），与 dsh-web-ui 等 npm 型 wrapper 同一通道。
 //
-// 兼容性（client 半不兼容，默认跳过）：
-//   - v0.2.6 的 host 半 inject `webServer / agentDefaultModel / credentials /
-//     llm / commands`，其中 `agentDefaultModel` 服务在本仓库 pin 的
-//     dsh-v0.1.2-rc.1 已由 base bundle（@deepseek-ai/dsh-agent-default-model）
-//     提供，host 半可正常激活（v0.2.4 时的“无此服务”阻断已解除）；
-//   - 但 client 半 `dsh.client.inject` 仍依赖已被移除的旧运行时
-//     `@deepseek-ai/dsh-client-runtime`（dsh-v0.1.2-rc.1 改用
-//     dsh-client-connection / dsh-client-store / dsh-client-modules），
-//     浏览器侧加载会 miss module table，桌宠 UI 无法渲染。
-//   因此本 wrapper 向 installNpmPlugin 传入 `skip` 声明默认跳过（屏蔽入口在
-//   插件脚本，共享流水线不再硬编码）；待上游改用新 client 运行时后把 `skip`
-//   改为 `null` 即可恢复，或临时强制安装：DSH_PLUGIN_FORCE_INSTALL=1（见
-//   docs/dsh-gui/dsh-pet-troubleshooting.md）。
+// 兼容性：v0.2.6 的 host 半 inject `webServer / agentDefaultModel / credentials /
+//   llm / commands`，其中 `agentDefaultModel` 服务在本仓库 pin 的
+//   dsh-v0.1.2-rc.1 已由 base bundle（@deepseek-ai/dsh-agent-default-model）
+//   提供，host 半可正常激活；浏览器半原依赖的 `@deepseek-ai/dsh-client-runtime`
+//   在本 harness 中已被 dsh-client-connection / dsh-client-store /
+//   dsh-client-modules 取代，但经实测 dsh-pet 的浏览器半可正常加载运行（系统
+//   通知权限由 dsh-gui 壳层的 WebView2 授权弹窗支持，见 src-tauri）。故本
+//   wrapper 不再默认跳过。
 //
 // 桌面屏蔽：插件真正装入 profile 后，向 $DSH_HOME/dsh-pet/main-config.json
 //   注入 display:"web" 的默认宠物（见 inject-config.mjs），使任何宠物都不
@@ -35,10 +30,8 @@ import { injectPetConfig, petConfigPath } from './inject-config.mjs'
 const ID = 'dsh-pet'
 // 精确稳定 SemVer（Market 约束：不用 latest / 版本范围 / prerelease 作安装目标）。
 const PACKAGE_SPEC = 'dsh-pet@0.2.6'
-// 屏蔽入口：默认跳过（原因见头部注释）。upstream 改用新 client 运行时后改为 null 恢复。
-const SKIP_REASON = 'client-half still requires the removed @deepseek-ai/dsh-client-runtime'
 
-installNpmPlugin({ id: ID, packageSpec: PACKAGE_SPEC, skip: SKIP_REASON })
+installNpmPlugin({ id: ID, packageSpec: PACKAGE_SPEC })
 
 // 注入只在该插件实际位于 profile 时执行（默认跳过时没有包可注入，也不该留孤儿配置）。
 // profile 用 hoisted linker（pinProfileStore 写入），包落在 node_modules/dsh-pet。
@@ -48,8 +41,8 @@ const installed = existsSync(
 )
 if (!installed) {
   console.log(
-    `  dsh-pet not present in profile (skipped by default or install failed) — ` +
-      `desktop-block config injection skipped. Set DSH_PLUGIN_FORCE_INSTALL=1 to install.`,
+    `  dsh-pet not present in profile (install failed) — ` +
+      `desktop-block config injection skipped.`,
   )
 } else {
   const target = petConfigPath(dshHome)

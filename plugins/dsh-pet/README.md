@@ -21,26 +21,22 @@ plugins/dsh-pet/
 子目录），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
 `dsh-pet@0.2.6`），不参与构建。
 
-## 兼容性状态（默认跳过）
+## 兼容性状态
 
-`dsh-pet` v0.2.6 与本仓库 pin 的 harness（dsh-v0.1.2-rc.1）**部分兼容，仍默认跳过**：
+`dsh-pet` v0.2.6 在本仓库 pin 的 harness（dsh-v0.1.2-rc.1）下**可正常安装运行**：
 
 - host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm',
   'commands']`——`agentDefaultModel` 服务现已由 base bundle 的
-  `@deepseek-ai/dsh-agent-default-model` 提供（v0.2.4 时的“无此服务”阻断已
-  解除），host 半可正常激活；
-- 但 client 半 `dsh.client.inject` 仍要求
-  `@deepseek-ai/dsh-client-runtime`——该旧运行时在本 harness 中已被移除（新
-  版为 `dsh-client-connection / dsh-client-store / dsh-client-modules`），
-  浏览器侧加载会 miss module table，桌宠 UI 无法渲染（与已移除的
-  `@linxin666/dsh-pet` 同因）。
+  `@deepseek-ai/dsh-agent-default-model` 提供，host 半可正常激活；
+- client 半 `dsh.client.inject` 原依赖 `@deepseek-ai/dsh-client-runtime`
+  （该旧运行时在本 harness 中已由 `dsh-client-connection / dsh-client-store /
+  dsh-client-modules` 取代），但经实测 dsh-pet 的浏览器半可正常加载运行；其
+  「系统通知」所需的浏览器通知权限由 dsh-gui 壳层的 WebView2 授权处理（见
+  `src-tauri/src/views.rs` 与 `src-tauri/ui/view-bridge.js`）支持，不再依赖
+  浏览器的「网站设置→通知」。
 
-因此 wrapper 在 `plugins/dsh-pet/install.mjs` 里向 `installNpmPlugin` 传入
-`skip` 声明默认跳过（屏蔽入口在插件脚本，共享流水线只负责机制），
-`npm run install:plugins` / `npm run build` 默认
-跳过（不会破坏 profile 启动）。待上游改用新 client 运行时后，把
-该 `skip` 选项改为 `null`（或删除该选项）即可恢复。临时强制：`$env:DSH_PLUGIN_FORCE_INSTALL=1`
-后重跑本脚本。
+因此 `plugins/dsh-pet/install.mjs` 不再向 `installNpmPlugin` 传 `skip`，
+`npm run install:plugins` / `npm run build` 默认安装（不会破坏 profile 启动）。
 
 > 插件名冲突（issue
 > [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)）：上游已把 webserver
@@ -75,10 +71,7 @@ plugins/dsh-pet/
 ## 安装
 
 ```powershell
-# 默认（会被跳过清单拦截）
 node plugins/dsh-pet/install.mjs
-# 强制安装（不兼容，host 大概率 PENDING）
-$env:DSH_PLUGIN_FORCE_INSTALL = '1'; node plugins/dsh-pet/install.mjs
 ```
 
 ## 更新
@@ -90,7 +83,7 @@ $env:DSH_PLUGIN_FORCE_INSTALL = '1'; node plugins/dsh-pet/install.mjs
 ## 验证
 
 ```powershell
-# web profile 未装（默认跳过）：
+# web profile 是否已装：
 Test-Path .dsh/profiles/web/node_modules/dsh-pet
 # 用户配置已注入 / 未被触碰：
 Get-Content .dsh/dsh-pet/main-config.json
