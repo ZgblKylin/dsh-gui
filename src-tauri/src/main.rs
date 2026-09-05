@@ -48,8 +48,8 @@ use tauri::{Emitter, Manager, State};
 // Tab-view commands live in `views`; plain imports (not `views::fn` paths)
 // keep the `generate_handler!` / permission-autogen name extraction working.
 use views::{
-    ai_update_result, page_theme, view_close, view_create, view_eval, view_set_bounds,
-    view_set_visible,
+    ai_update_result, page_theme, view_answer_permission, view_close, view_create, view_eval,
+    view_set_bounds, view_set_visible,
 };
 // Native dialog-window commands (see `dialogs`).
 use dialogs::{
@@ -323,6 +323,17 @@ fn log_status(root: &Path, msg: &str) {
         {
             let _ = writeln!(file, "[dsh-gui] {msg}");
         }
+    }
+}
+
+/// Write a diagnostic line to `.dsh/gui/gui.log` (and stderr), reachable from
+/// the other modules via `crate::dsh_log`. Used to trace the WebView2
+/// permission-consent flow without a console.
+pub(crate) fn dsh_log(app: &tauri::AppHandle, msg: &str) {
+    if let Some(state) = app.try_state::<ShellState>() {
+        log_status(&state.root, msg);
+    } else {
+        eprintln!("[dsh-gui] {msg}");
     }
 }
 
@@ -1358,6 +1369,9 @@ fn main() {
             app.manage(child);
             // Connection-tab child webviews (created lazily by the shell page).
             app.manage(views::ViewRegistry::default());
+            // WebView2 notification-permission consent registry (Windows).
+            #[cfg(windows)]
+            app.manage(views::PermissionRegistry::default());
             // Frameless: the shell page (ui/index.html, served from the app
             // origin) draws its own title bar and window controls; every
             // connection tab is hosted by a child webview (see views.rs) that
@@ -1513,6 +1527,7 @@ fn main() {
             view_eval,
             page_theme,
             ai_update_result,
+            view_answer_permission,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the dsh-gui application");

@@ -31,6 +31,23 @@ use tauri::{
     Window,
 };
 
+#[cfg(windows)]
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(windows)]
+use webview2_com::PermissionRequestedEventHandler;
+#[cfg(windows)]
+use webview2_com::SetPermissionStateCompletedHandler;
+#[cfg(windows)]
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ,
+    COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+    COREWEBVIEW2_PERMISSION_STATE_DEFAULT, COREWEBVIEW2_PERMISSION_STATE_DENY,
+    ICoreWebView2, ICoreWebView2_13, ICoreWebView2Deferral,
+    ICoreWebView2PermissionRequestedEventArgs, ICoreWebView2Profile4,
+};
+#[cfg(windows)]
+use windows::core::{HSTRING, Interface, PCWSTR};
+
 /// Label of the shell page webview (the frameless main window).
 pub const SHELL_WEBVIEW: &str = "main";
 /// Prefix of every tab view label: `<PREFIX><tab id>`.
@@ -158,16 +175,21 @@ pub fn ensure(
     let builder = WebviewBuilder::new(label, WebviewUrl::External(parse_url(url)?))
         // Run the page-theme + AI-update bridge inside the harness page.
         .initialization_script(include_str!("../ui/view-bridge.js"))
-        // Async Clipboard API (code-block / message copy controls).
-        .enable_clipboard_access()
         // The harness walks WebView2's natural new-window flow (popups open
         // in their own WebView2 window); no shell-side popup handling for now.
+        // Clipboard and notification permissions are answered by the
+        // `install_webview_permissions` handler (below) instead of wry's
+        // built-in clipboard-only handler, so the consent dialog can prompt.
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Allow);
 
     let (x, y, w, h) = bounds;
     let view = window
         .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w, h))
         .map_err(|e| format!("failed to create the tab webview: {e}"))?;
+    // Windows: answer WebView2 permission requests ourselves (clipboard always
+    // allowed; notifications deferred to an in-page consent prompt).
+    #[cfg(windows)]
+    install_webview_permissions(&view, origin_of(url));
     registry.insert(tab_id.to_string(), view);
     Ok(())
 }
@@ -361,6 +383,227 @@ pub fn ai_update_result(
         }),
     )
     .map_err(|e| format!("failed to forward the AI-update result: {e}"))
+}
+
+/* ── WebView2 permission consent (Windows) ─────────────────────── */
+
+/// A pending WebView2 notification-permission request held while the user
+/// decides in the in-page consent overlay (view-bridge.js).
+#[cfg(windows)]
+struct PendingPermission {
+    args: ICoreWebView2PermissionRequestedEventArgs,
+    deferral: ICoreWebView2Deferral,
+}
+
+// WebView2's `ICoreWebView2Deferral` is the documented mechanism for
+// completing a permission request asynchronously (optionally from another
+// thread), and we only touch both COM objects on the main thread (the
+// `PermissionRequested` handler and `run_on_main_thread`). Marking the pair
+// Send lets the registry live in Tauri's `Send + Sync` app state.
+#[cfg(windows)]
+unsafe impl Send for PendingPermission {}
+
+/// Registry of deferred WebView2 permission requests, keyed by the request id
+/// handed to the page overlay; `view_answer_permission` resolves them.
+#[cfg(windows)]
+#[derive(Default)]
+pub struct PermissionRegistry {
+    pending: Mutex<HashMap<u64, PendingPermission>>,
+    next_id: AtomicU64,
+}
+
+/// Reset the persisted notification permission for `origin` back to `default`
+/// so the next `requestPermission()` re-raises `PermissionRequested`.
+#[cfg(windows)]
+fn reset_notification_permission(core: &ICoreWebView2, origin: &str) -> bool {
+    let Ok(core13) = core.cast::<ICoreWebView2_13>() else {
+        return false;
+    };
+    let Ok(profile) = (unsafe { core13.Profile() }) else {
+        return false;
+    };
+    let Ok(profile4) = profile.cast::<ICoreWebView2Profile4>() else {
+        return false;
+    };
+    let origin_w = HSTRING::from(origin);
+    let handler = SetPermissionStateCompletedHandler::create(Box::new(|_| Ok(())));
+    unsafe {
+        profile4
+            .SetPermissionState(
+                COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
+                PCWSTR(origin_w.as_ptr()),
+                COREWEBVIEW2_PERMISSION_STATE_DEFAULT,
+                &handler,
+            )
+            .is_ok()
+    }
+}
+
+/// Extract the origin (`scheme://host[:port]`) from a tab URL for WebView2's
+/// `SetPermissionState`.
+#[cfg(windows)]
+fn origin_of(url: &str) -> Option<String> {
+    let u = url.parse::<tauri::Url>().ok()?;
+    let scheme = u.scheme();
+    let host = u.host_str()?;
+    match u.port() {
+        Some(p) => Some(format!("{scheme}://{host}:{p}")),
+        None => Some(format!("{scheme}://{host}")),
+    }
+}
+
+/// Attach the WebView2 permission handler to a connection-tab webview.
+///
+/// This replaces wry's built-in clipboard-only handler, so
+/// `enable_clipboard_access()` is intentionally left off the tab builder:
+/// clipboard is always allowed, while the notifications permission is deferred
+/// and answered by the user through the injected consent overlay
+/// (`window.__dshPermissionPrompt`, see view-bridge.js).
+#[cfg(windows)]
+fn install_webview_permissions(view: &Webview, origin: Option<String>) {
+    let outer: Webview = (*view).clone();
+    let inner_view: Webview = (*view).clone();
+    let app: tauri::AppHandle = tauri::AppHandle::clone(view.app_handle());
+    let label = view.label().to_string();
+    crate::dsh_log(&app, &format!("perm: install_webview_permissions on '{label}'"));
+    // Runs on the main thread while the tab webview is created.
+    let _ = outer.with_webview(move |platform| {
+        let controller = platform.controller();
+        let core = unsafe { controller.CoreWebView2() };
+        let Ok(core) = core else {
+            crate::dsh_log(&app, &format!("perm: CoreWebView2() failed on '{label}'"));
+            return;
+        };
+        // WebView2 persists a per-origin notification permission 'denied' from
+        // earlier runs; dsh-pet only re-requests when the state is 'default',
+        // so reset it once so the consent prompt can fire again.
+        match &origin {
+            Some(origin) => {
+                let ok = reset_notification_permission(&core, origin);
+                crate::dsh_log(
+                    &app,
+                    &format!("perm: reset notification state ok={ok} origin='{origin}' label='{label}'"),
+                );
+            }
+            None => {
+                crate::dsh_log(&app, &format!("perm: no origin to reset label='{label}'"));
+            }
+        }
+        let mut token = 0i64;
+        let handler_app = app.clone();
+        let handler_label = label.clone();
+        let handler = PermissionRequestedEventHandler::create(Box::new(
+            move |_sender, args| {
+                let Some(args) = args else { return Ok(()) };
+                let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+                unsafe { args.PermissionKind(&mut kind) }?;
+                crate::dsh_log(
+                    &handler_app,
+                    &format!("perm: event kind={kind:?} label='{handler_label}'"),
+                );
+                if kind == COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ {
+                    unsafe { args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW) }?;
+                    return Ok(());
+                }
+                if kind != COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS {
+                    return Ok(());
+                }
+                let deferral = unsafe { args.GetDeferral() };
+                let Ok(deferral) = deferral else {
+                    crate::dsh_log(
+                        &handler_app,
+                        &format!("perm: GetDeferral failed on '{handler_label}'"),
+                    );
+                    return Ok(());
+                };
+                let id = handler_app
+                    .state::<PermissionRegistry>()
+                    .next_id
+                    .fetch_add(1, Ordering::SeqCst);
+                handler_app
+                    .state::<PermissionRegistry>()
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .insert(id, PendingPermission { args, deferral });
+                crate::dsh_log(
+                    &handler_app,
+                    &format!("perm: deferred id={id} label='{handler_label}'"),
+                );
+                // Ask the page to render the consent overlay.
+                let js = format!(
+                    "window.__dshPermissionPrompt && window.__dshPermissionPrompt({});",
+                    serde_json::json!({ "requestId": id })
+                );
+                let eval_res = inner_view.eval(&js);
+                crate::dsh_log(
+                    &handler_app,
+                    &format!("perm: overlay eval id={id} ok={}", eval_res.is_ok()),
+                );
+                Ok(())
+            },
+        ));
+        let add_res = unsafe { core.add_PermissionRequested(&handler, &mut token) };
+        crate::dsh_log(
+            &app,
+            &format!(
+                "perm: add_PermissionRequested result={:?} token={token} label='{label}'",
+                add_res
+            ),
+        );
+    });
+}
+
+/// Answer a previously deferred WebView2 permission request. Called by the
+/// injected consent overlay (view-bridge.js) once the user chooses.
+#[tauri::command]
+pub fn view_answer_permission(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    request_id: u64,
+    allow: bool,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        ensure_tab_view(&webview)?;
+        crate::dsh_log(
+            &app,
+            &format!("perm: answer request_id={request_id} allow={allow}"),
+        );
+        let pending = {
+            let registry = app.state::<PermissionRegistry>();
+            let removed = registry.pending.lock().unwrap().remove(&request_id);
+            removed
+        };
+        let Some(pending) = pending else {
+            crate::dsh_log(&app, &format!("perm: answer id={request_id} not found"));
+            return Ok(());
+        };
+        // Complete the WebView2 request on the main thread (COM apartment).
+        // `let p = pending` moves the whole struct so Rust's disjoint field
+        // capture doesn't capture the non-`Send` COM fields separately.
+        let res = app.run_on_main_thread(move || {
+            let p = pending;
+            let state = if allow {
+                COREWEBVIEW2_PERMISSION_STATE_ALLOW
+            } else {
+                COREWEBVIEW2_PERMISSION_STATE_DENY
+            };
+            let _ = unsafe { p.args.SetState(state) };
+            let _ = unsafe { p.deferral.Complete() };
+        });
+        if let Err(e) = &res {
+            crate::dsh_log(&app, &format!("perm: answer id={request_id} main-thread err: {e}"));
+        } else {
+            crate::dsh_log(&app, &format!("perm: answer id={request_id} done"));
+        }
+        res.map_err(|e| e.to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, webview, request_id, allow);
+        Ok(())
+    }
 }
 
 #[cfg(all(test, windows))]

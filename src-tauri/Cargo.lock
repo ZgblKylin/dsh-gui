@@ -679,6 +679,8 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-snap-layout",
+ "webview2-com",
+ "windows",
  "windows-sys 0.61.2",
 ]
 

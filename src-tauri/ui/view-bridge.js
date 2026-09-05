@@ -32,6 +32,61 @@
     }
   };
 
+  /* ── WebView2 notification-permission consent ─────────────────── */
+  // The Rust side (src-tauri/src/views.rs) registers a permission handler on
+  // this webview. For the notifications permission it defers the WebView2
+  // request, then evals this function to render an inline consent dialog. The
+  // user's choice is sent back over IPC (view_answer_permission), which lets
+  // WebView2 resolve the deferred request (allow / deny).
+  window.__dshPermissionPrompt = (payload) => {
+    try {
+      if (!payload || !document.body) return;
+      if (document.getElementById("dsh-permission-overlay")) return;
+      const root = document.createElement("div");
+      root.id = "dsh-permission-overlay";
+      root.style.cssText =
+        "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;" +
+        "justify-content:center;background:rgba(0,0,0,.45);" +
+        "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;";
+      const box = document.createElement("div");
+      box.style.cssText =
+        "background:#1f1f1f;color:#eee;border-radius:12px;padding:20px 22px;max-width:360px;" +
+        "box-shadow:0 10px 40px rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.08);";
+      box.innerHTML =
+        "<div style='font-size:15px;font-weight:600;margin-bottom:8px;'>🔔 通知权限</div>" +
+        "<p style='margin:0 0 16px;font-size:13px;line-height:1.55;color:#bbb;'>是否允许此页面显示系统通知？" +
+        "<br>（对话完成 / 生成失败 / 权限申请等会弹通知）</p>";
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;";
+      const deny = document.createElement("button");
+      deny.textContent = "拒绝";
+      deny.style.cssText =
+        "padding:7px 14px;border:1px solid rgba(255,255,255,.18);border-radius:8px;" +
+        "background:transparent;color:#ccc;cursor:pointer;font-size:13px;";
+      const allow = document.createElement("button");
+      allow.textContent = "允许";
+      allow.style.cssText =
+        "padding:7px 18px;border:none;border-radius:8px;background:#2f6fed;color:#fff;" +
+        "cursor:pointer;font-size:13px;";
+      const answer = (ok) => {
+        try {
+          invoke("view_answer_permission", { requestId: payload.requestId, allow: ok });
+        } catch {
+          /* ignore */
+        }
+        root.remove();
+      };
+      deny.onclick = () => answer(false);
+      allow.onclick = () => answer(true);
+      row.append(deny, allow);
+      box.append(row);
+      root.append(box);
+      document.body.appendChild(root);
+    } catch {
+      /* ignore */
+    }
+  };
+
   /* ── AI-update result forwarding ─────────────────────────── */
   // The dsh-ai-update browser plugin answers to `window.parent`, which for a
   // top-level webview is this window itself; the message event's source is

@@ -29,3 +29,9 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# WebView2 permission-consent handler (src/views.rs). The version must match
+# the `webview2-com` that wry pins (0.38) so the COM interface types unify.
+webview2-com = "0.38"
+# `windows` brings `core::{HSTRING, PCWSTR, Interface}` used to reset the
+# persisted notification-permission state (SetPermissionState on the profile).
+windows = "0.61"
