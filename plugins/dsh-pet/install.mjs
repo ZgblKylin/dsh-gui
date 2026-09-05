@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // plugins/dsh-pet/install.mjs — PC2005-cloud/dsh-pet（npm 包名 dsh-pet）wrapper。
 //
-// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 最新版本 tag v0.2.5，
+// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 最新版本 tag v0.2.6，
 //   仅作源码参考，不参与构建）；安装走 npm（installNpmPlugin，精确版本
-//   dsh-pet@0.2.5），与 dsh-web-ui 等 npm 型 wrapper 同一通道。
+//   dsh-pet@0.2.6），与 dsh-web-ui 等 npm 型 wrapper 同一通道。
 //
 // 兼容性（client 半不兼容，默认跳过）：
-//   - v0.2.5 的 host 半 inject `webServer / agentDefaultModel / credentials /
+//   - v0.2.6 的 host 半 inject `webServer / agentDefaultModel / credentials /
 //     llm / commands`，其中 `agentDefaultModel` 服务在本仓库 pin 的
 //     dsh-v0.1.2-rc.1 已由 base bundle（@deepseek-ai/dsh-agent-default-model）
 //     提供，host 半可正常激活（v0.2.4 时的“无此服务”阻断已解除）；
@@ -34,7 +34,7 @@ import { injectPetConfig, petConfigPath } from './inject-config.mjs'
 
 const ID = 'dsh-pet'
 // 精确稳定 SemVer（Market 约束：不用 latest / 版本范围 / prerelease 作安装目标）。
-const PACKAGE_SPEC = 'dsh-pet@0.2.5'
+const PACKAGE_SPEC = 'dsh-pet@0.2.6'
 // 屏蔽入口：默认跳过（原因见头部注释）。upstream 改用新 client 运行时后改为 null 恢复。
 const SKIP_REASON = 'client-half still requires the removed @deepseek-ai/dsh-client-runtime'
 

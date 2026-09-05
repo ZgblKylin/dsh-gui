@@ -22,8 +22,8 @@ export const DEFAULT_PET = {
   name: '蓝毛小女仆',
   size: 462,
   balanceEnabled: true,
-  // 与上游 v0.2.5 同步：碎碎念默认关闭（后台调用会顶掉本地单并发 LLM 的 KV cache，
-  // 见上游 assets/config.jsonc 0.2.5 注释）；需要时在设置页开启。
+  // 与上游 v0.2.6 同步：碎碎念默认关闭（后台调用会顶掉本地单并发 LLM 的 KV cache，
+  // 见上游 assets/config.jsonc 0.2.6 注释）；需要时在设置页开启。
   whisperEnabled: false,
   display: 'web',
   position: { corner: 'top-right', marginX: 24, marginY: 100 },

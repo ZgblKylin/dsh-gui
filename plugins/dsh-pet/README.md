@@ -9,21 +9,21 @@
 
 ```text
 plugins/dsh-pet/
-├─ install.mjs                   # npm 安装 dsh-pet@0.2.5 + 注入桌面屏蔽配置
+├─ install.mjs                   # npm 安装 dsh-pet@0.2.6 + 注入桌面屏蔽配置
 ├─ inject-config.mjs             # 用户配置注入（纯函数，可单测）
 ├─ README.md                     # 本说明
-└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.2.5）
+└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.2.6）
    ├─ dsh-pet/                   # 真正的 npm 包源码（package.json / cordis.patch.yml / src/…）
    └─ …                          # 仓库其余部分（scripts / tools / prompts 等，仅源码参考）
 ```
 
 来源形态：git submodule（整仓库，源码参考；npm 发布包在仓库内 `dsh-pet/`
 子目录），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
-`dsh-pet@0.2.5`），不参与构建。
+`dsh-pet@0.2.6`），不参与构建。
 
 ## 兼容性状态（默认跳过）
 
-`dsh-pet` v0.2.5 与本仓库 pin 的 harness（dsh-v0.1.2-rc.1）**部分兼容，仍默认跳过**：
+`dsh-pet` v0.2.6 与本仓库 pin 的 harness（dsh-v0.1.2-rc.1）**部分兼容，仍默认跳过**：
 
 - host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm',
   'commands']`——`agentDefaultModel` 服务现已由 base bundle 的
@@ -44,7 +44,7 @@ plugins/dsh-pet/
 
 > 插件名冲突（issue
 > [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)）：上游已把 webserver
-> 路由前缀 `/pet` 改为 `/dsh-pet-7340`（0.1.8 起，v0.2.5 已含），不再与其它插件的
+> 路由前缀 `/pet` 改为 `/dsh-pet-7340`（0.1.8 起，v0.2.6 已含），不再与其它插件的
 > `/pet` 路由撞车。残留风险是 Loader entry id `pet` 与其它同样用 `pet` 的插件
 > 同 profile 共存会 `duplicate loader entry id`——本仓库已移除 `dsh-web-ui` 对
 > `@linxin666/dsh-pet`（同为 entry `pet`）的安装，默认 profile 不会双挂。
