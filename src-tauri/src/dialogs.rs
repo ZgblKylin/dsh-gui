@@ -136,13 +136,17 @@ pub fn create_all(
 }
 
 /// Show (or focus) the dialog window for `kind`. Callable from the shell page
-/// (and from another dialog window for nesting).
+/// (and from another dialog window for nesting). For the changelog window
+/// `project` selects the repository row and `mode` ("tag"/"commit") forwards
+/// the caller's chosen update target so the window can prefer GitHub Release
+/// notes instead of always falling back to the dsh AI summary.
 #[tauri::command]
 pub fn open_dialog(
     app: tauri::AppHandle,
     webview: tauri::Webview,
     kind: String,
     project: Option<String>,
+    mode: Option<String>,
 ) -> Result<(), String> {
     views::ensure_shell_or_dialog(&webview)?;
     if !KINDS.contains(&kind.as_str()) {
@@ -163,7 +167,7 @@ pub fn open_dialog(
     let _ = app.emit_to(
         &label,
         "dialog-open",
-        serde_json::json!({ "kind": kind, "project": project }),
+        serde_json::json!({ "kind": kind, "project": project, "mode": mode }),
     );
     Ok(())
 }

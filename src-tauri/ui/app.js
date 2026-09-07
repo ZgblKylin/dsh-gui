@@ -248,8 +248,10 @@ function markModal(open) {
 
 /** Open (or focus) a dialog in its own native window; falls back to the old
  *  in-page overlay in a plain browser preview where there is no harness
- *  child webview to cover it. `projectId` is forwarded to changelog dialogs. */
-async function openDialog(kind, projectId) {
+ *  child webview to cover it. `projectId` is forwarded to changelog dialogs,
+ *  and `mode` ("tag"/"commit") forwards the caller's chosen update target so
+ *  the changelog window can prefer GitHub Release notes for a tag target. */
+async function openDialog(kind, projectId, mode) {
   if (!tauri) {
     if (kind === "conn") {
       newConnection();
@@ -264,7 +266,7 @@ async function openDialog(kind, projectId) {
     return;
   }
   try {
-    await invoke("open_dialog", { kind, project: projectId ?? null });
+    await invoke("open_dialog", { kind, project: projectId ?? null, mode: mode ?? null });
   } catch (e) {
     const message = "打开窗口失败：" + String((e && e.message) || e);
     toast(message);
@@ -2545,7 +2547,8 @@ updateBody.addEventListener("click", (e) => {
   }
   const log = e.target.closest(".update-log");
   if (log && log.dataset.updateId && !log.disabled) {
-    if (DIALOG_VIEW === "update") void openDialog("changelog", log.dataset.updateId);
+    if (DIALOG_VIEW === "update")
+      void openDialog("changelog", log.dataset.updateId, updateModeOf(log.dataset.updateId));
     else void openChangelog(log.dataset.updateId);
     return;
   }
@@ -2933,7 +2936,7 @@ async function fitDialogToContent() {
   }
 }
 
-async function startDialogView(project) {
+async function startDialogView(project, mode) {
   if (DIALOG_VIEW === "conn") {
     $("conn-overlay").classList.remove("hidden");
     newConnection();
@@ -2952,7 +2955,17 @@ async function startDialogView(project) {
       } catch (_) {
         /* openChangelog reports a missing project itself */
       }
-      updateModeOverride = "commit";
+      // No mode <select> here: honor the caller's chosen target when the
+      // update window forwarded one, otherwise fall back to the same default
+      // the update dialog uses — the newest non-stale tag (whose GitHub
+      // Release notes are shown) or the remote commit.
+      if (mode === "tag" || mode === "commit") {
+        updateModeOverride = mode;
+      } else {
+        const row = (updateStatus?.projects ?? []).find((p) => p.id === project);
+        updateModeOverride =
+          row && row.latestTag && row.latestTagStale !== true ? "tag" : "commit";
+      }
       void openChangelog(project);
     }
   } else if (DIALOG_VIEW === "about") {
@@ -2985,7 +2998,10 @@ async function bootDialog() {
     tauri.event.listen("dialog-open", (event) => {
       const kind = event.payload && event.payload.kind;
       if (kind && kind !== DIALOG_VIEW) return;
-      startDialogView(event.payload && event.payload.project);
+      startDialogView(
+        event.payload && event.payload.project,
+        event.payload && event.payload.mode
+      );
     });
   } else {
     // Plain browser preview: nothing hides the page, start immediately.
