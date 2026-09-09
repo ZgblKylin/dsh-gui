@@ -1080,7 +1080,10 @@ mod tests {
         assert!(entries
             .iter()
             .any(|(name, path)| name == "deepseek-harness" && path.ends_with("deepseek-harness")));
-        assert!(entries.iter().any(|(name, _)| name == "dsh-terminal"));
+        assert!(entries
+            .iter()
+            .any(|(name, path)| name == "plugins/review/dsh-review"
+                && path.ends_with("dsh-review")));
     }
 
     #[test]
@@ -1377,17 +1380,17 @@ mod tests {
         let temp =
             std::env::temp_dir().join(format!("dsh-gui-console-test-{}", std::process::id()));
         let script = write_update_script(&temp, 4242, 4343).expect("script generation must work");
-        let ids = vec!["deepseek-harness".to_string(), "dsh-terminal".to_string()];
+        let ids = vec!["deepseek-harness".to_string(), "dsh-review".to_string()];
         let modes = HashMap::from([
             ("deepseek-harness".to_string(), "tag".to_string()),
-            ("dsh-terminal".to_string(), "commit".to_string()),
+            ("dsh-review".to_string(), "commit".to_string()),
         ]);
         let launcher = write_windows_console_launcher(&temp, &ids, &modes, &script)
             .expect("ps1 generation must work");
         let content = fs::read_to_string(&launcher).expect("ps1 must be readable");
         assert!(content.contains("& node"));
-        assert!(content.contains("--ids 'deepseek-harness,dsh-terminal'"));
-        assert!(content.contains("--modes 'deepseek-harness=tag,dsh-terminal=commit'"));
+        assert!(content.contains("--ids 'deepseek-harness,dsh-review'"));
+        assert!(content.contains("--modes 'deepseek-harness=tag,dsh-review=commit'"));
         let _ = fs::remove_dir_all(temp.join(".dsh"));
     }
 

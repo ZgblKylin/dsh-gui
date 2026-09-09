@@ -110,23 +110,6 @@ would double-mount it and fail the plugin tree with
   exec connect). It
   declares `dsh.bundle.patch` and mounts through its own bundle layer (no
   manual cordis insert). See `remote/dsh-remote/docs/`.
-- `terminal` — git submodule (`ZgblKylin/dsh-terminal`) at
-  `terminal/dsh-terminal`: VSCode-style integrated terminal panel. See
-  `terminal/dsh-terminal/docs/`.
-  ⛔ **Temporarily masked** — superseded by `better-sidebar`'s terminal tabs:
-  its `install.mjs` skips the install pipeline (guard `MASKED` at the top
-  of the script) and its insert row was removed from
-  `.dsh/profiles/web/cordis.patch.yml`.
-- `file-explorer` — git submodule (`joejojoking-cloud/dsh-file-explorer`) at
-  `file-explorer/dsh-file-explorer`: right-side resizable file tree with
-  search, syntax-highlighted preview, in-panel editing, and VS Code open. It
-  ships prebuilt and mounts through its own `dsh.bundle.patch` layer. See
-  `docs/plugins/dsh-file-explorer.md` in the repository root for integration
-  notes, and its own `README.md` for the feature set.
-  ⛔ **Temporarily masked** — superseded by `better-sidebar`'s explorer/viewers:
-  its `install.mjs` skips the install pipeline (guard `MASKED` at the top
-  of the script) and its dependency + bundle entry were removed from
-  `.dsh/profiles/web/package.json`.
 - `better-sidebar` — three git submodules at `better-sidebar/DSH-better-sidebar`
   (`omdsh-dev/DSH-better-sidebar`), `better-sidebar/dsh-flowglass`
   (`Iwctwbh/dsh-flowglass`) and `better-sidebar/dsh-sidebar-qa`
@@ -148,8 +131,9 @@ would double-mount it and fail the plugin tree with
     model tools — **off by default**), Git panel, embedded browser,
     background-job page, and the `ctx.betterSidebar` extension API. It
     declares `dsh.bundle.patch`, so `dsh plugin add` mounts it through its
-    own bundle layer (no manual cordis insert). Currently supersedes the
-    `terminal` and `file-explorer` wrappers. See its `README.md` and `docs/`.
+    own bundle layer (no manual cordis insert). It is the successor to the
+    former `terminal` / `file-explorer` wrappers, now removed from this
+    repository. See its `README.md` and `docs/`.
   - `dsh-flowglass` — turn the current session into a live flowgraph: three
     lanes (user/assistant trunk, tool-call branches, subagent left-column
     branches), parallel-group frames, drill-down with breadcrumbs, and a

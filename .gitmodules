@@ -1,12 +1,6 @@
 [submodule "deepseek-harness"]
 	path = deepseek-harness
 	url = https://github.com/deepseek-ai/deepseek-harness
-[submodule "dsh-terminal"]
-	path = plugins/terminal/dsh-terminal
-	url = ../dsh-terminal
-[submodule "dsh-file-explorer"]
-	path = plugins/file-explorer/dsh-file-explorer
-	url = https://github.com/joejojoking-cloud/dsh-file-explorer
 [submodule "dsh-anchored-standard"]
 	path = presets/anchored-standard/dsh-anchored-standard
 	url = https://github.com/xiaobright/dsh-anchored-standard

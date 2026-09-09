@@ -111,15 +111,6 @@ browser.
   reconnect replay; optional `terminal_*` model tools, off by default), Git
   panel, embedded browser, and background-job page (see
   `plugins/better-sidebar/DSH-better-sidebar/README.md`).
-- **`dsh-terminal`** — VSCode-style integrated terminal panel (xterm.js +
-  node-pty): ``Ctrl+` `` toggle, resizable panel under the composer, multiple
-  terminals with a dropdown, and new/close terminal controls. ⛔ Temporarily
-  masked by `dsh-better-sidebar` (its installer skips installation).
-- **`dsh-file-explorer`** — right-side resizable file tree (260–900 px) with
-  recursive search, Markdown/syntax-highlighted preview, in-panel editing, and
-  one-click VS Code open (see `docs/plugins/dsh-file-explorer.md`). ⛔
-  Temporarily masked by `dsh-better-sidebar` (its installer skips
-  installation).
 - **`dsh-review`** — `/review` slash command for code review of uncommitted
   changes, a commit, a branch diff, a PR URL/number, or a custom request (see
   `plugins/review/dsh-review/README.md`).
@@ -183,8 +174,7 @@ dsh-gui/
 │                      #   .dsh/.agent-presets/ (see presets/README.md)
 ├─ plugins/            # plugin wrappers, preset-style: each plugins/<id>/ owns an
 │                      #   install.mjs plus the plugin package/repo checkout
-│                      #   (remote/dsh-remote in-tree; terminal/dsh-terminal,
-│                      #   file-explorer/dsh-file-explorer, better-sidebar/
+│                      #   (remote/dsh-remote in-tree; better-sidebar/
 │                      #   DSH-better-sidebar, deep-whale/dsh-deep-whale and
 │                      #   dsh-web-ui/dsh-web-ui are git submodules;
 │                      #   dsh-web-ui installs dsh-web-ui-settings +
@@ -337,7 +327,7 @@ installPlugin({
    to the package name without a leading `dsh-`.
 
 A plugin that declares `dsh.bundle.patch` (its own `cordis.patch.yml` bundle
-layer, e.g. `dsh-file-explorer`) mounts itself: `dsh plugin add` reconciles it
+layer, e.g. `dsh-review`) mounts itself: `dsh plugin add` reconciles it
 into the profile's `dsh.profile.bundles` list and its patch inserts the entry
 as a bundle layer — no `cordis.patch.yml` insert is written for it. When a
 previous version was mounted manually before gaining a bundle declaration, the

@@ -54,14 +54,13 @@ points); fix and validate inside that working directory (`npm run build` until
 green — it is a fresh checkout, so `.toolchain/` / `.pnpm-store` are absent and
 `npm run setup` bootstraps them when needed); block any plugin confirmed
 incompatible this round (`MASKED` guard at the top of its `install.mjs` +
-profile entry removed, following the `terminal` / `file-explorer` examples) and
-state the reason and restore condition in the report; and only after
-validation passes apply to the real project — port the verified adaptation
-changes (file-by-file, never a whole-tree overwrite), move the harness to the
-target, remove already-installed blocked plugins, and rebuild. The prompt
-always closes with a quick-audit step: every unmasked plugin install script
-(`plugins/<id>/install.mjs`; entries carrying a `MASKED` guard, such as
-`terminal` and `file-explorer`, are skipped) is checked against the
+profile entry removed) and state the reason and restore condition in the
+report; and only after validation passes apply to the real project — port the
+verified adaptation changes (file-by-file, never a whole-tree overwrite), move
+the harness to the target, remove already-installed blocked plugins, and
+rebuild. The prompt always closes with a quick-audit step: every unmasked
+plugin install script (`plugins/<id>/install.mjs`; entries carrying a `MASKED`
+guard are skipped) is checked against the
 official spec the updated harness just pinned (repository-root AGENTS.md,
 `docs/official/`, and the dsh-plugin-install skill). Batch prompts include
 this audit only when `deepseek-harness` is among the updated modules.

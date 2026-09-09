@@ -64,8 +64,6 @@ plugins/
 | `plugins/remote` | `remote/dsh-remote` | 内嵌源码 | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
 | `plugins/review` | `review/dsh-review` | git submodule（`../dsh-review`） | 无 `build` 脚本；`dsh.bundle.patch` 自挂载；`sourceHint` 提示如何初始化子模块 |
 | `plugins/ai-update` | `ai-update/dsh-ai-update` | 内嵌源码 | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
-| `plugins/terminal` | `terminal/dsh-terminal` | git submodule | ⛔ masked：被 `better-sidebar` 取代，`install.mjs` 顶部有 `MASKED` guard 跳过安装 |
-| `plugins/file-explorer` | `file-explorer/dsh-file-explorer` | git submodule | ⛔ masked：同上；无 `build` 脚本；`dsh.bundle.patch` 自挂载 |
 | `plugins/deep-whale` | `deep-whale/dsh-deep-whale/maid-atelier` | git submodule（多包仓库） | `build: false` 使用预构建产物；`dsh.bundle.patch` 自挂载 |
 
 ### 1.2 两种来源
