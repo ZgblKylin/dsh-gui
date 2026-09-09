@@ -5,15 +5,15 @@ Local DeepSeek Harness plugin packages, in the same preset-style layout as
 `install.mjs` plus the plugin package/repo checkout (for multi-package
 distribution repos such as `deep-whale`, the package path points one level
 deeper). A wrapper may own several checkouts and install several npm
-packages in one script. `dsh-web-ui` is the exception: it installs the
-`liangshen` agent preset, the `dsh-pet` plugin, and the
-`dsh-web-ui-settings` compatibility bundle — and nothing else from its
-distribution repo.
+packages in one script. `dsh-web-ui` is the exception: it installs four npm
+bundles of its distribution repo — `dsh-web-ui-settings`,
+`dsh-plugin-manager`, `dsh-skill-explorer` and `dsh-task-board` — and
+nothing else.
 
 ```
 plugins/
 ├─ <id>/
-│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: preset + pet + settings bridge
+│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: four npm bundles
 │  └─ <package>/         # the plugin package (in-tree, or a git submodule)
 └─ ...
 ```
@@ -65,17 +65,18 @@ its own bundle layer. A manual profile insert for a bundle-declared plugin
 would double-mount it and fail the plugin tree with
 `duplicate loader entry id`.
 
-- **Multiple npm bundles wrapper** — `dsh-web-ui` installs two plugin
+- **Multiple npm bundles wrapper** — `dsh-web-ui` installs four plugin
   packages of its distribution repo, pinned to exact versions matching the
   git tag (`0.3.14`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
   gate, which would otherwise silently fall back to an older version for
-  `@latest`): `@linxin666/dsh-liangshen` and
-  `@linxin666/dsh-client-ui-web-ui-settings`
-  (ordered before; per the 安装方式 section below:
-  not marked as source installs). Both declare `dsh.bundle.patch`, so
-  each mounts through its own bundle layer (no manual cordis inserts). It
-  does not install agent presets or any other dsh-web-ui package. See
-  `dsh-web-ui/README.md`.
+  `@latest`): `@linxin666/dsh-client-ui-web-ui-settings`,
+  `@linxin666/dsh-client-ui-plugin-manager`,
+  `@linxin666/dsh-client-ui-skill-explorer` and
+  `@linxin666/dsh-client-ui-task-board` (the settings bridge is ordered
+  first; per the 安装方式 section below: not marked as source installs). All
+  four declare `dsh.bundle.patch`, so each mounts through its own bundle
+  layer (no manual cordis inserts). It does not install agent presets or any
+  other dsh-web-ui package. See `dsh-web-ui/README.md`.
 
 ## 安装方式
 
@@ -88,10 +89,11 @@ would double-mount it and fail the plugin tree with
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.4.5`，v0.4.5 已适配 rc.1 client 运行时）
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `0.4.0`）
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
-- [dsh-routing-suite](https://github.com/yjh051108/dsh-routing-suite) 源码安装
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
-  - [@linxin666/dsh-liangshen@0.3.14](dsh-web-ui/packages/dsh-liangshen/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-web-ui-settings@0.3.14](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-plugin-manager@0.3.14](dsh-web-ui/packages/dsh-plugin-manager/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-skill-explorer@0.3.14](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-task-board@0.3.14](dsh-web-ui/packages/dsh-task-board/README.zh.md) npm包
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.5；子模块
   checkout 仅作源码参考）。**默认跳过**（跳过声明在 wrapper 的 `install.mjs`，
   不硬编码于共享流水线）：v0.2.5 的 host 半已兼容（`agentDefaultModel` 服务
@@ -188,15 +190,6 @@ would double-mount it and fail the plugin tree with
   picks a preset). It declares `dsh.bundle.patch` and mounts through its own
   bundle layer (no manual cordis insert). See
   `ai-update/dsh-ai-update/docs/`.
-- `routing-suite` — git submodule (`yjh051108/dsh-routing-suite`) at
-  `routing-suite/dsh-routing-suite`: aggregator suite whose `injector`
-  (`dsh-super-injector`, built against the harness checkout, then mounted
-  through its own `dsh.bundle.patch`) and `preset` (`router-standard` +
-  `router-spec` agent presets copied whole into `.dsh/.agent-presets/`,
-  matching the suite README's manual install step) are plain tracked
-  directories since upstream `21a7260` (component submodules flattened).
-  Init without `--recursive`: `git submodule update --init
-  plugins/routing-suite/dsh-routing-suite`. See `routing-suite/README.md`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`: the whale-girl skin series. The wrapper
   installs the full upstream trio (per the upstream INSTALL.md /
@@ -218,12 +211,13 @@ would double-mount it and fail the plugin tree with
   out of any right/bottom panels generically. See
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
-  `dsh-web-ui/dsh-web-ui`. Installs two plugin packages of the distribution
+  `dsh-web-ui/dsh-web-ui`. Installs four plugin packages of the distribution
   repo pinned to exact versions matching the git tag (`0.3.14`) (per the
-  安装方式 section above):
-  `@linxin666/dsh-liangshen` (host plugin) and the
-  `dsh-web-ui-settings` compatibility bundle
-  (`@linxin666/dsh-client-ui-web-ui-settings`, ordered before) — each mounts
+  安装方式 section above): the `dsh-web-ui-settings` compatibility bundle
+  (`@linxin666/dsh-client-ui-web-ui-settings`, ordered first),
+  `dsh-plugin-manager` (`@linxin666/dsh-client-ui-plugin-manager`),
+  `dsh-skill-explorer` (`@linxin666/dsh-client-ui-skill-explorer`) and
+  `dsh-task-board` (`@linxin666/dsh-client-ui-task-board`) — each mounts
   through its own `dsh.bundle.patch` layer; it does not install agent presets
   or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
 - `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.5)

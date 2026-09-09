@@ -131,10 +131,6 @@ browser.
 - **`dsh-deep-whale`** — whale-girl skin series; currently ships the
   hot-pluggable `maid-atelier` skin (light/dark palace backgrounds, navy lace
   UI overlay, Q-version sidebar, embedded assets).
-- **`dsh-routing-suite`** — the runtime plugin injector (`dsh-super-injector`:
-  `dev_*` tool family, hot reload, staging-promote/uninject, plugin management
-  UI), installed from the `dsh-routing-suite` submodule (see
-  `plugins/routing-suite/README.md`).
 
 ### Agent presets
 
@@ -147,22 +143,6 @@ browser.
   ripgrep), promotes the Windows shell to `pwsh`, and denies the promoted
   session's `bash` at runtime via an agent-scope `tools.restrict()` (lifted
   again when compaction returns the session to the controlled phase).
-- **`liangshen`（梁神模式）** — the dsh-web-ui distribution of the two-stage
-  anchored idea: phase 1 exposes the Minimal pair and quarantines injected
-  context, then the wire switches to Code Mode (PTC) after the anchored
-  promotion. Installed by `plugins/dsh-web-ui/install.mjs` as the
-  `@linxin666/dsh-liangshen` npm plugin (`@latest`), which also mounts
-  the `dsh-web-ui-settings` compatibility bridge; the plugin
-  itself syncs the preset into `.dsh\.agent-presets\liangshen` at startup (the
-  preset ships its own Windows custom-bash), so no manual preset copy is
-  needed. No other dsh-web-ui npm plugin is installed.
-- **`router-standard`（Router Standard (experimental)）** — task-aware
-  reasoning-mode routing (spec/react/weak bands, self-optimization tools
-  `dev_router_status` / `dev_router_mode`); installed by
-  `plugins/routing-suite/install.mjs` alongside its deep-think-first variant
-  **`router-spec`（Router Spec (experimental)）**. Both presets come from the
-  `dsh-routing-suite` submodule and land in `.dsh\.agent-presets\`, matching
-  the suite README's manual install step.
 
 ![dsh-gui with the plugin features expanded](docs/dsh-gui/images/dsh-gui-features.png)
 
@@ -205,12 +185,11 @@ dsh-gui/
 │                      #   install.mjs plus the plugin package/repo checkout
 │                      #   (remote/dsh-remote in-tree; terminal/dsh-terminal,
 │                      #   file-explorer/dsh-file-explorer, better-sidebar/
-│                      #   DSH-better-sidebar, deep-whale/dsh-deep-whale,
-│                      #   dsh-web-ui/dsh-web-ui and routing-suite/dsh-routing-suite
-│                      #   are git submodules; dsh-web-ui installs dsh-liangshen
-│                      #   + dsh-web-ui-settings from npm, and
-│                      #   routing-suite installs dsh-super-injector
-│                      #   + the router-standard/router-spec presets;
+│                      #   DSH-better-sidebar, deep-whale/dsh-deep-whale and
+│                      #   dsh-web-ui/dsh-web-ui are git submodules;
+│                      #   dsh-web-ui installs dsh-web-ui-settings +
+│                      #   dsh-plugin-manager + dsh-skill-explorer +
+│                      #   dsh-task-board from npm;
 │                      #   see plugins/README.md)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
@@ -235,9 +214,8 @@ This is idempotent and fully repo-internal:
   elsewhere).
 - Runs every plugin install script under `plugins/` — each
   `plugins/<id>/install.mjs` normally builds, installs, and mounts its plugin
-  package into the web profile; `dsh-web-ui/install.mjs` installs the
-  `dsh-liangshen` and `dsh-web-ui-settings` plugin bundles from npm
-  `@latest` through the same profile pipeline (see
+  package into the web profile; `dsh-web-ui/install.mjs` installs its four
+  npm bundles through the same profile pipeline (see
   [Adding plugins](#adding-plugins-at-runtime)).
 - Runs every agent-preset install script under `presets/` — each
   `presets/<id>/` directory lands in `.dsh\.agent-presets\<id>\` and appears on
@@ -371,13 +349,13 @@ submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
 (`build: false`, no copy, no patch).
 
 `plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
-two npm packages at `@latest` through `installNpmPlugin` —
-`@linxin666/dsh-liangshen` and `@linxin666/dsh-client-ui-web-ui-settings`
-(ordered before); both declare `dsh.bundle.patch`, so
-`dsh plugin add` reconciles each into `dsh.profile.bundles` (no manual
-cordis insert). The `dsh-liangshen` plugin syncs its own preset into
-`.dsh\.agent-presets\liangshen` on host startup (no copy from the submodule;
-it ships its own Windows custom-bash). The bridge is required because
+four npm bundles pinned to the submodule tag (`0.3.14`) through
+`installNpmPlugin` — `@linxin666/dsh-client-ui-web-ui-settings` (ordered
+first), `@linxin666/dsh-client-ui-plugin-manager`,
+`@linxin666/dsh-client-ui-skill-explorer` and
+`@linxin666/dsh-client-ui-task-board`; all four declare `dsh.bundle.patch`,
+so `dsh plugin add` reconciles each into `dsh.profile.bundles` (no manual
+cordis insert). The bridge is required because
 dsh-host-apiproxy's hard-coded settings allowlist does not expose third-party
 namespaces, so without it a `webUiSettings`-dependent plugin's configuration
 form is read-only. `dsh-web-ui/` stays as the source reference only (v0.3.x layout:

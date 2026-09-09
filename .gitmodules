@@ -28,9 +28,6 @@
 [submodule "plugins/better-sidebar/dsh-sidebar-qa"]
 	path = plugins/better-sidebar/dsh-sidebar-qa
 	url = https://github.com/ChenRuoT/dsh-sidebar-qa.git
-[submodule "plugins/routing-suite/dsh-routing-suite"]
-	path = plugins/routing-suite/dsh-routing-suite
-	url = https://github.com/yjh051108/dsh-routing-suite.git
 [submodule "plugins/plugin-market/dsh-market"]
 	path = plugins/plugin-market/dsh-market
 	url = https://github.com/dsh-market/dsh-market
