@@ -68,7 +68,7 @@ persona。persona 的说明是创作 preset 的起点：
 - 根目录 [`presets/README.md`](../../../presets/README.md) —— dsh-gui preset 源目录约定。
 - [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— `installPresets()` 的发现与执行逻辑。
 - 内嵌示例：[`presets/review/`](../../../presets/review)
-- submodule 示例：[`presets/anchored-standard/`](../../../presets/anchored-standard)
+- 外置源 submodule 示例：当前仓库没有在装实例（模式仍受支持，见 2.1「两种来源」）
 
 ### 2.1 目录结构
 
@@ -92,7 +92,6 @@ presets/
 | 目录 | 来源形态 | 安装脚本做什么 |
 |---|---|---|
 | `presets/review` | 内嵌源 | 逐文件覆盖复制到 `.dsh/.agent-presets/review/` |
-| `presets/anchored-standard` | git submodule（`dsh-anchored-standard`） | 整目录 `preset/` 复制到 `.dsh/.agent-presets/anchored-standard/` |
 
 两种来源与 `plugins/` 同构：
 
@@ -129,8 +128,8 @@ for (const file of FILES) {
 console.log(`installed agent preset '${PRESET_ID}' -> ${target}`)
 ```
 
-外置源模板（复制 `presets/anchored-standard/install.mjs` 改 `SOURCE` 与
-`PRESET_ID`）：**整目录复制**，因为 `agent.cordis.yml` 里的相对路径
+外置源模板：**整目录复制**（组合目录来自 submodule 检出
+`presets/<id>/<repo>/` 下），因为 `agent.cordis.yml` 里的相对路径
 （如 `name: ./tool-bootstrap.mjs`）相对 preset 安装目录解析，逐文件复制会丢
 本地插件/技能/资源。实现上先 `rmSync(target)` 再 `cpSync(SOURCE, target)`
 保证幂等且不会残留旧文件。
@@ -313,8 +312,8 @@ filesystem realm：
    `standingKeyFor(id)` 通过。
 3. **落到源目录**：把最终 `agent.cordis.yml`、`preset.yml`、相对路径引用的
    本地插件/资源放进 `presets/<id>/`；外置源加 submodule。
-4. **写 `install.mjs`**：内嵌源照 `presets/review/install.mjs`，外置源照
-   `presets/anchored-standard/install.mjs`；保持幂等、只写 `$DSH_HOME`。
+4. **写 `install.mjs`**：内嵌源照 `presets/review/install.mjs`，外置源按
+   2.2 的整目录复制模板；保持幂等、只写 `$DSH_HOME`。
 5. **构建安装**：`npm run build -- --skip-harness --skip-exe`（首次没构建过
    harness 则 `npm run setup`），确认输出 `installed agent preset '<id>'`。
 6. **验证**：重启/新开会话选新 preset，确认工具表与 persona；有条件的在
@@ -328,7 +327,6 @@ filesystem realm：
 
 - [`presets/README.md`](../../../presets/README.md) —— dsh-gui preset 源目录与安装约定。
 - [`presets/review/`](../../../presets/review) —— 内嵌源 + 逐文件安装范例。
-- [`presets/anchored-standard/`](../../../presets/anchored-standard) —— 外置 submodule + 整目录安装范例。
 - [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— 构建时安装 preset 的入口。
 - [`.agents/skills/dsh-gui-plugin-dev/SKILL.md`](../../../.agents/skills/dsh-gui-plugin-dev/SKILL.md) —— 插件开发 skill；preset 常引用插件行。
 

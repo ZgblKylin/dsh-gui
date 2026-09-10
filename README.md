@@ -127,13 +127,6 @@ browser.
 
 - **`review`（审阅模式）** — review-focused coding agent built from the opencode
   review prompt; reviews changes and replies in the user's language.
-- **`anchored-standard`** — experimental two-stage preset: the Minimal pair
-  (`bash` + `str_replace_editor`) for the first request, then a minimal
-  resident toolset after the first persisted tool call or reply; its install
-  script also injects the platform-specific instruction hint (Windows CRLF and
-  ripgrep), promotes the Windows shell to `pwsh`, and denies the promoted
-  session's `bash` at runtime via an agent-scope `tools.restrict()` (lifted
-  again when compaction returns the session to the controlled phase).
 
 ![dsh-gui with the plugin features expanded](docs/dsh-gui/images/dsh-gui-features.png)
 
