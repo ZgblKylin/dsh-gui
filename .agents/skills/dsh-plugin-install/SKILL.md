@@ -102,6 +102,10 @@ node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove <pkg>
 - 卸载后若 profile 的 `cordis.patch.yml` 里还留有该包的 `disabled` / insert 残留
   （曾手工维护过时），应一并清理，避免 `duplicate loader entry id` 启动失败。
 
+> 本节只覆盖 **profile 侧卸载**。要彻底移除一个插件（仓库侧 git submodule 与 wrapper
+> 目录/安装脚本、`.git/` 内部残留、`.dsh` 配置与状态残留、插件包 node_modules、文档与
+> 提示词引用自检），按 **`dsh-plugin-uninstall` skill** 的清单逐项做。
+
 ## 源码编译安装（git 仓库 / 非 npm 包）
 
 ### 为什么不用 `allowBuilds`
@@ -162,6 +166,8 @@ node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove <pkg>
 
 - 之后 `third_party/<plugin>` 源码目录与 `.tgz` 是否保留，征求用户意见；`*.tgz`
   已被外层 `.gitignore` 排除，不会入库。
+- 源码/本地目录安装的插件同样会在 `.dsh` 留下依赖、bundles、配置与状态残留，彻底清理
+  与验证见 **`dsh-plugin-uninstall` skill**。
 
 ## 无 dsh-gui 环境（系统全局安装）
 
