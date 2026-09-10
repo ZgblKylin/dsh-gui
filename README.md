@@ -174,6 +174,9 @@ dsh-gui/
 │                      #   dsh-plugin-manager + dsh-skill-explorer +
 │                      #   dsh-task-board from npm;
 │                      #   see plugins/README.md)
+├─ .staging/           # (gitignored) upgrade staging clone: this repository plus
+│                      #   every submodule, where a plugin/harness upgrade is
+│                      #   validated before it is applied here (scripts/staging.mjs)
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
 
@@ -274,6 +277,26 @@ npm run build
 git submodule update --remote deepseek-harness
 npm run build             # reinstall + rebuild harness, then rebuild exe + plugins
 ```
+
+## Validating an upgrade in the staging clone
+
+`.staging/dsh-gui` is a persistent clone of this checkout, submodules included,
+with its own `DSH_HOME`, toolchain, pnpm store, and build output. Move an
+upgrade through the clone first, so a broken harness or plugin revision never
+reaches the installation this checkout serves:
+
+```powershell
+npm run staging -- ensure        # first time only: create the clone
+npm run staging -- sync          # move the clone onto this checkout's revision
+cd .staging\dsh-gui
+npm run build -- --skip-exe      # harness install+build -> plugin installs -> presets
+```
+
+`npm run staging -- status` reports both revisions, submodule drift, and how far
+the clone's build has come; `npm run staging -- clean --yes` deletes the clone.
+The full upgrade workflow is the `dsh-gui-update` skill; the workspace itself is
+documented in
+[docs/dsh-gui/upgrade-staging-workspace.md](docs/dsh-gui/upgrade-staging-workspace.md).
 
 ## Adding plugins at runtime
 

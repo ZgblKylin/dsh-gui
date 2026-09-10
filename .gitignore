@@ -9,6 +9,10 @@ node_modules/
 .npm-tmp-cache/
 # Scratch: ad-hoc smoke scripts / probe bundles / throwaway cargo target dirs.
 .work/
+# Persistent upgrade-validation workspace: a clone of this repository plus every
+# submodule, where a plugin/harness upgrade is built and smoke-tested before it
+# is applied here. Maintained by scripts/staging.mjs; never a source of truth.
+.staging/
 
 # ── Tauri / Rust build output (entry exe lives here, but is never committed) ──
 src-tauri/target/

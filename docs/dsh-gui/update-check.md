@@ -30,6 +30,14 @@ tag 的模块”的复核指令。
 再预填升级提示词；选择被拒绝时请求失败返回错误，而不是静默落到默认预设。用户
 发送前仍可自行切换预设 chip。
 
+## 升级的验证与实装
+
+「AI 更新」生成的提示词要求 agent 在系统临时目录建立一次性副本再验证。
+`.staging/dsh-gui` 持久化副本是该流程的落地形式：升级先在副本中更新、构建与
+冒烟检查，通过后才实装到本工程。工作区说明见
+[upgrade-staging-workspace.md](upgrade-staging-workspace.md)，完整流程见 skill
+`dsh-gui-update`。
+
 ## 检测与标注
 
 - **安装记录**：共享流水线 `scripts/plugin-install.mjs` 的 `installNpmPlugin`
@@ -63,3 +71,4 @@ tag 的模块”的复核指令。
 - `scripts/plugin-install.mjs` —— 安装期记录 npm 包名
 - `src-tauri/src/update.rs` —— registry 读取、submodule 扫描、npm 查询
 - `src-tauri/ui/app.js`、`src-tauri/ui/titlebar.css` —— 行内标注渲染
+- `scripts/staging.mjs`、`docs/dsh-gui/upgrade-staging-workspace.md` —— 升级验证副本

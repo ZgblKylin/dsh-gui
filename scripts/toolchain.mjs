@@ -26,18 +26,17 @@ export const BIN_NAME = IS_WINDOWS ? 'dsh-gui.exe' : 'dsh-gui'
 export const PNPM_VERSION = '11.7.0'
 
 /**
- * Run a command with inherited stdio; a `.cmd` shim needs a shell on Windows
- * (CVE-2024-27980).
+ * Run a command with inherited stdio.
  * @param {string} command - executable to spawn.
  * @param {string[]} args - arguments, verbatim.
- * @param {{ cwd?: string, env?: NodeJS.ProcessEnv }} [options] - spawn options.
+ * @param {{ cwd?: string, env?: NodeJS.ProcessEnv, shell?: boolean }} [options] - spawn options.
  */
 export function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? ROOT,
     env: { ...process.env, ...(options.env ?? {}) },
     stdio: 'inherit',
-    shell: IS_WINDOWS && /\.(cmd|bat)$/i.test(command),
+    shell: options.shell ?? (IS_WINDOWS && /\.(cmd|bat)$/i.test(command)),
   })
   if (result.error) throw new Error(`failed to spawn ${command}: ${result.error.message}`)
   if (result.status !== 0) {
@@ -103,10 +102,27 @@ export function pnpm(args, options = {}) {
   run(shim, args, { ...options, env })
 }
 
+/**
+ * npm's JS entry beside the running node, or null. On Windows `npm` is only a
+ * `.cmd` shim: Node refuses to spawn it directly (ENOENT) and rejects the shim
+ * path itself, so the bootstrap runs the JS entry through `node` instead of
+ * going through a shell.
+ */
+export function npmEntry() {
+  const candidates = [
+    join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    join(dirname(process.execPath), 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ]
+  return candidates.find(existsSync) ?? null
+}
+
 /** Install pnpm@11.7.0 into .toolchain with a repo-local npm cache. */
 export function bootstrapPnpm() {
   if (hasPnpm()) return
   mkdirSync(TOOLCHAIN, { recursive: true })
-  run('npm', ['install', '--global', '--prefix', TOOLCHAIN, '--cache', join(TOOLCHAIN, 'npm-cache'), `pnpm@${PNPM_VERSION}`])
+  const args = ['install', '--global', '--prefix', TOOLCHAIN, '--cache', join(TOOLCHAIN, 'npm-cache'), `pnpm@${PNPM_VERSION}`]
+  const entry = npmEntry()
+  if (entry !== null) run('node', [entry, ...args])
+  else run('npm', args, { shell: IS_WINDOWS })
   if (!hasPnpm()) throw new Error('pnpm bootstrap did not produce an entry under .toolchain')
 }
