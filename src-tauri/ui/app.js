@@ -1519,7 +1519,7 @@ function updateRow(project, checking) {
       ai.textContent = "AI 更新";
       ai.title = tagLocked
         ? "当前正处在 tag（远端没有更新的 tag）；AI 更新会把 tag 移到非 tag 的最新提交，不建议执行。如需跟进请用「更新」流程"
-        : "回到项目首页选中 dsh-gui 目录并预填提示词，自动选中「创造模式」预设（发送前可再改）";
+        : "回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 /dsh-gui-update 提示词（发送前可再改）";
       if (tagLocked) ai.disabled = true;
       action.append(mode, changelog, button, ai);
     }
@@ -1566,7 +1566,7 @@ function renderUpdateDialog(status, asChecking) {
   } else {
     summary.textContent =
       behind.length > 0
-        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录并预填提示词，自动选中「创造模式」预设，发送前可再改），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」不包含当前正处在 tag 且远端没有更新 tag 的模块（不会把 tag 更新到非 tag 的最新提交），包含顶层工程时等价于点击顶层的「更新」并忽略其他更新；这类模块行内的「AI 更新」按钮呈灰色、不建议执行，如需跟进请用「更新」流程。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
+        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 /dsh-gui-update 提示词，发送前可再改），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」不包含当前正处在 tag 且远端没有更新 tag 的模块（不会把 tag 更新到非 tag 的最新提交），包含顶层工程时等价于点击顶层的「更新」并忽略其他更新；这类模块行内的「AI 更新」按钮呈灰色、不建议执行，如需跟进请用「更新」流程。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
         : "所有工程均为最新版本。";
     updateBody.appendChild(summary);
     for (const project of projects) updateBody.appendChild(updateRow(project, false));
@@ -2055,9 +2055,10 @@ async function openChangelog(projectId) {
 /* ── AI update (项目首页选中 dsh-gui + 预填充提示词) ─────── */
 // The shell only builds the message; the dsh-ai-update browser plugin inside
 // the harness tab webview returns the page to the new-session home, selects
-// the dsh-gui workspace there, and prefills the composer draft (the agent
-// preset choice stays with the user). It replies with a result message that
-// ui/view-bridge.js forwards to the shell over IPC (see postAiUpdateRequest).
+// the dsh-gui workspace there, selects the 「创造模式」(cordis) preset on the
+// resulting blank session, and prefills the composer draft. It replies with a
+// result message that ui/view-bridge.js forwards to the shell over IPC (see
+// postAiUpdateRequest).
 const AI_UPDATE_MESSAGE = "dsh-gui:ai-update";
 const AI_UPDATE_VERSION = 1;
 const AI_UPDATE_TIMEOUT_MS = 10000;
@@ -2098,218 +2099,92 @@ function aiUpdateTargetText(project) {
   return "更新目标：最新提交（远端默认分支 HEAD；当前 " + current + "，最新 " + (project.latest || "?") + "）";
 }
 
-// Deepseek-harness is the engineering base every plugin is built on: it lives
-// at the repo root (NOT under plugins/), has no plugins/<id>/install.mjs
-// wrapper, and its update re-pins the official spec — so its prompt is built
-// separately and is followed by a quick audit of every unmasked plugin
-// install script against that new spec.
+// The prefilled draft opens with this skill gesture. The harness resolves a
+// whitespace-bounded `/name` in a user message against the skill registry and
+// loads that skill's body into the session before the model answers, so the
+// prompt itself carries only the facts the skill cannot know: which modules, at
+// which paths, to which target. No client command owns the name, so the
+// composer submits the line as an ordinary prompt. The skill ships with this
+// repository (`.agents/skills/dsh-gui-update/SKILL.md`), inside the workspace
+// the update dialog selects, and holds the two-phase upgrade procedure.
+const AI_UPDATE_SKILL = "/dsh-gui-update";
+
+// deepseek-harness is the engineering base every plugin is built on: it lives
+// at the repo root (NOT under plugins/) and has no plugins/<id>/install.mjs
+// wrapper, so its prompt states that instead of plugin paths.
 const HARNESS_PROJECT_ID = "deepseek-harness";
+const HARNESS_MODULE_NOTE = "说明：deepseek-harness 是本工程的基座，不是插件——它位于仓库根目录 deepseek-harness/（不在 plugins/ 下），没有 plugins/<id>/install.mjs 安装脚本，文档在 deepseek-harness/docs/ 与仓库根 AGENTS.md。按仓库约定它是 pinned 上游子模块，只用于查证规范：不要编辑其中的任何文件，也不要从该目录向插件源码复制代码。";
 
-// Quick-audit step shared by the harness prompts (single and batch): every
-// unmasked plugins/<id>/install.mjs must match the official spec the updated
-// harness just pinned.
-function buildHarnessAuditStep(number) {
-  return (
-    number +
-    ". 速查：盘点 plugins/ 下所有未被 mask 的插件（跳过 install.mjs 顶部带 MASKED 守卫、或 wrapper 以 skip 声明默认跳过的条目，如 dsh-pet），逐一检查其安装脚本（plugins/<id>/install.mjs）是否与最新的官方规范一致——对照仓库根 AGENTS.md（开发约定/插件开发规范/插件市场约束/bundle 加载注意事项）、docs/official/（deepseek-harness 官方文档：develop-basic/publish.md 的 bundle 打包教程、packages-bundle/ 官方 bundle 实例、cli-reference.md 的 dsh plugin 行为）与 dsh 插件安装教程（先加载 skill dsh-plugin-install，内容见 .dsh/skills/dsh-plugin-install/SKILL.md）。核对要点：安装方式与 plugins/README.md「安装方式」标注一致——「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「dsh plugin --profile web add <npm 包>」；声明 dsh.bundle.patch 的包应通过自己的 bundle 层挂载，不手动插入 cordis.patch.yml（避免双重挂载）；Market 约束（精确稳定 SemVer、无 preinstall/install/postinstall/prepare lifecycle script、engines.node 接受 Node LTS、files 白名单只含必要构建产物，README 不暗示被收录/审核/推荐）；无异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）。发现不一致的插件先停下来向用户报告，不要擅自修改；"
-  );
+// Closing facts shared by every AI-update prompt: the paths are relative to
+// the repository root, the session must run in that workspace (its skill root
+// is what makes the gesture above resolve), and verification belongs to the
+// persistent staging clone before anything reaches this checkout.
+const AI_UPDATE_WORKSPACE_NOTE = "注意：以上路径均相对于 dsh-gui 仓库根目录；请确认会话工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。升级必须先在持久化验证副本 .staging/dsh-gui 中验证通过，再实装到本工程。";
+
+// One module row of a batch prompt: name, path, current version, and the
+// update target its dialog row selected.
+function aiModuleRow(project) {
+  const path = project.path ? "路径 " + project.path + "，" : "";
+  const target = updateModeOf(project.id) === "tag"
+    ? "更新到最新 tag" + (project.latestTag ? "「" + project.latestTag + "」" : "")
+    : "更新到最新提交（最新 " + (project.latest || "?") + "）";
+  return "- " + project.name + "（" + path + "当前 " + (project.current || "unknown") + "，" + target + "）";
 }
 
-// Commit-message template (AGENTS.md Conventional Commits) for the outer
-// dsh-gui repo's submodule-bump commit: every module the AI update moves ends
-// in one `feat(submodule): bump <名称> from <旧> to <新>` subject; any extra
-// change notes are appended below the subject as the body.
-const COMMIT_MESSAGE_TEMPLATE =
-  "feat(submodule): bump <插件或 submodule 名称> from <旧版本/旧提交> to <新版本/新提交>";
-
-// Numbered final step for the AI-update prompts: after the update, ask for one
-// ready-to-use commit message per bumped module that follows the template. The
-// agent fills in the concrete module name and the actual before/after version
-// identifiers (tag or commit short hash) it observed, and may append extra
-// change notes as the commit body. It must only draft the text — never run
-// `git commit` for the user itself.
-function buildCommitMessageStep(number) {
-  return (
-    number +
-    ". 为本次更新的每个模块各准备一条可直接使用的 commit message（外层 dsh-gui 仓库的 submodule bump 提交，遵循仓库根 AGENTS.md 的 Conventional Commits 约定）：主题行按模板「" +
-    COMMIT_MESSAGE_TEMPLATE +
-    "」填写——把 `<插件或 submodule 名称>` 换成实际模块名，把 `<旧版本/旧提交>` 与 `<新版本/新提交>` 换成该模块更新前后的实际版本标识（tag 或提交短哈希）；如需附加其他额外的变更说明，在主题行下方空一行开始写正文（逐条用 - 列表）；无额外说明则省略正文。把每条 commit message 用代码块包裹，统一放在汇报末尾。注意：只生成消息文本，不要替用户执行 git commit。"
-  );
-}
-
-// Staging-first upgrade steps shared by the deepseek-harness prompts (single
-// and merged): the risky harness upgrade is first validated in a throwaway
-// clone outside the repository, and only after it passes is anything applied
-// to the real project. `extraAfterClone` steps (if any) are spliced in right
-// after the temp-clone step so a merged batch folds its own module updates
-// into the same remote validation. `tagTarget` says whether the row's update
-// target is the latest tag (true) or the latest commit (false). Returns the
-// numbered step lines (a consecutive counter), the next free number, and the
-// step number of the "temporarily block incompatible plugins" line.
-function buildHarnessValidationSteps(start, extraAfterClone, tagTarget) {
-  let n = start;
-  const lines = [];
-  if (tagTarget) {
-    lines.push((n++) + ". 先 fetch origin（git -C deepseek-harness fetch --prune origin），再用 git -C deepseek-harness describe --tags --abbrev=0 origin/<默认分支> 找到远端默认分支可达的最新 tag（即本次更新目标）；");
-  } else {
-    lines.push((n++) + ". 先 fetch origin（git -C deepseek-harness fetch --prune origin），确认远端默认分支的最新提交（本行选择的是「最新提交」更新目标）；");
-  }
-  if (tagTarget) {
-    lines.push((n++) + ". 建立临时工作目录（位于本仓库之外，如系统临时目录下带时间戳的目录），在其中克隆本工程（git clone --recurse-submodules <本仓库绝对路径> <临时目录>，把 deepseek-harness 与各插件子模块一并拉出），再把其中的 deepseek-harness checkout/reset 到第 1 步确认的最新 tag（git -C <临时目录>/deepseek-harness fetch origin 后 checkout 到该 tag）；注意临时目录是全新 checkout，gitignore 的 .toolchain/ 与 .pnpm-store 不在其中，验证需要时先在临时目录执行 npm run setup 引导本地工具链（联网），或按实际验证范围如实说明限制；");
-  } else {
-    lines.push((n++) + ". 建立临时工作目录（位于本仓库之外，如系统临时目录下带时间戳的目录），在其中克隆本工程（git clone --recurse-submodules <本仓库绝对路径> <临时目录>，把 deepseek-harness 与各插件子模块一并拉出），再把其中的 deepseek-harness fast-forward 到第 1 步确认的最新提交（git -C <临时目录>/deepseek-harness fetch origin 后检出 origin/<默认分支>）；注意临时目录是全新 checkout，gitignore 的 .toolchain/ 与 .pnpm-store 不在其中，验证需要时先在临时目录执行 npm run setup 引导本地工具链（联网），或按实际验证范围如实说明限制；");
-  }
-  if (extraAfterClone) for (const line of extraAfterClone) lines.push((n++) + ". " + line);
-  lines.push((n++) + ". 在临时目录分析该版本更新对当前 dsh-gui 工程、插件的影响：新增、变更或移除的功能/配置/依赖，以及插件需要跟进适配的点（组合方式、插件 API、bundle 契约等），结合 AGENTS.md 与 docs/official/ 汇报；");
-  lines.push((n++) + ". 若有影响，在临时目录进行修复并验证：修改本仓库相应插件/适配代码/安装脚本（仍不得编辑 deepseek-harness/ 内任何文件），并运行 npm run build（node scripts/dsh-gui.mjs build，用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store：harness pnpm install + pnpm run build（CI=true，跳过 lefthook）→ 各插件安装脚本 → 安装 agent preset）验证构建与安装全绿，能构建 exe 就构建；逐项记录修复内容与验证结果；");
-  const maskStep = n++;
-  lines.push(maskStep + ". 对确认与新版不兼容且本次无法修复的插件，在临时目录将其暂时屏蔽安装：在其 install.mjs 顶部加 MASKED 守卫（或按 scripts/plugin-install.mjs 的 skip 声明）并从 profile（.dsh/profiles/web/cordis.patch.yml、package.json 的 bundle/依赖挂载）移除其条目，保证其不参与本次验证的安装；在报告中逐条说明屏蔽原因与恢复条件（如等上游适配）；");
-  lines.push((n++) + ". 全部验证通过（临时目录构建与安装全绿、兼容性速查无未明问题）后才进入实装；验证失败则先在临时目录修正重试，不要直接改动本工程；");
-  return { lines, next: n, maskStep };
-}
-
-// Dedicated prompt for deepseek-harness: the engineering base, not a plugin —
-// never reference the plugins/ layout or the plugin install pipeline for it.
+// Prompt for deepseek-harness alone: the engineering base, not a plugin.
 function buildHarnessUpdatePrompt(project) {
-  const lines = [];
-  lines.push("请更新当前 dsh-gui 仓库中的「deepseek-harness」模块：");
-  lines.push("");
-  lines.push("- 模块：deepseek-harness（工程基座——DSH 框架本体，路径：deepseek-harness）；");
-  lines.push("- " + aiUpdateTargetText(project));
-  lines.push("");
-  lines.push("说明：deepseek-harness 是本工程的基座，不是插件——plugins/ 下的所有插件都基于它工作；它位于仓库根目录的 deepseek-harness/（不在 plugins/ 下），没有 plugins/<id>/install.mjs 安装脚本，其文档在 deepseek-harness/docs/ 与仓库根 AGENTS.md（docs/official/ 是官方文档与源码的符号链接汇总），不要套用插件文档路径（plugins/<id>/<package>/README.md）。按仓库约定，deepseek-harness/ 是 pinned 上游子模块，只用于查证规范：不要编辑其中的任何文件，也不要从该目录向插件源码复制代码。");
-  lines.push("");
-  lines.push("本次升级按「临时目录先行验证、验证通过后再实装」的两阶段流程执行，避免直接改动本工程而影响日常使用：");
-  lines.push("");
-  lines.push("阶段一：临时目录验证（不碰本工程，本工程保持可运行）");
-  const validation = buildHarnessValidationSteps(1, undefined, updateModeOf(project.id) === "tag");
-  for (const line of validation.lines) lines.push(line);
-  lines.push("");
-  lines.push("阶段二：在本工程实装（仅在阶段一全部验证通过后进行）");
-  let n = validation.next;
-  lines.push((n++) + ". 将 deepseek-harness 更新到阶段一第 1 步确认的目标（git -C deepseek-harness fetch origin 后 checkout/reset 到最新 tag，或 fast-forward 到最新提交；亦可用 git submodule update --remote deepseek-harness）；");
-  lines.push((n++) + ". 把临时目录中验证过的适配改动同步到本工程：逐文件核对该差异后复制/应用，不要整目录覆盖（避免带入 .dsh/、.toolchain/、node_modules/ 等 gitignore 产物）；删除本工程已安装的、已被屏蔽的插件（对阶段一步骤 " + validation.maskStep + " 屏蔽的插件，从其已安装状态卸载：移除 profile 的挂载/依赖条目并删除对应 node_modules 链接，避免被后续 Loader 组合重新加载）；");
-  lines.push((n++) + ". 在本工程重建并验证：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
-  lines.push(buildHarnessAuditStep(n++));
-  lines.push((n++) + ". 完成后汇报：确认的最新 tag、临时目录验证结论（修复了哪些适配点、屏蔽了哪些插件及原因/恢复条件）、实装命令与结果、改动了哪些文件，并给出速查结论（哪些插件安装脚本与官方规范一致、哪些被屏蔽/需调整）。");
-  lines.push(buildCommitMessageStep(n++));
-  return lines;
+  return [
+    AI_UPDATE_SKILL,
+    "",
+    "请更新当前 dsh-gui 仓库中的「deepseek-harness」模块：",
+    "",
+    "- 模块：" + aiModuleLabel(project),
+    "- " + aiUpdateTargetText(project),
+    "",
+    HARNESS_MODULE_NOTE,
+    "",
+    AI_UPDATE_WORKSPACE_NOTE,
+  ].join("\n");
 }
 
-// Merged prompt for a batch that includes deepseek-harness plus plugin
-// modules: the whole batch runs as one staging-first flow — temp-clone
-// validation first (harness update + the batched plugin modules + their
-// install-script cross-checks), then the apply phase ports everything to the
-// real project and rebuilds — never merge the harness into the generic plugin
-// install pipeline.
+// Prompt for a batch that includes deepseek-harness plus plugin modules: the
+// base first, then every plugin row, all driven by the same skill. The skill
+// owns the staging-first flow for both, so the harness never enters the plain
+// plugin-install path.
 function buildHarnessMergedPrompt(harness, others) {
-  const lines = [];
-  lines.push("请更新当前 dsh-gui 仓库：先更新工程基座 deepseek-harness，再更新以下插件模块：");
-  lines.push("");
-  for (const project of [harness, ...others]) {
-    const path = project.path ? "路径 " + project.path + "，" : "";
-    const target = updateModeOf(project.id) === "tag"
-      ? "更新到最新 tag" + (project.latestTag ? "「" + project.latestTag + "」" : "")
-      : "更新到最新提交（最新 " + (project.latest || "?") + "）";
-    lines.push("- " + project.name + "（" + path + "当前 " + (project.current || "unknown") + "，" + target + "）");
-  }
-  lines.push("");
-  lines.push("复核：若某个模块当前正处在 tag 上且远端没有更新的 tag，跳过它，不要把它更新到非 tag 的最新提交（保持其 tag 版本），并在报告中说明原因。");
-  lines.push("明确：deepseek-harness 是工程基座（DSH 框架本体，位于仓库根目录 deepseek-harness/，不在 plugins/ 下；不是插件，没有 install.mjs，文档在 deepseek-harness/docs/ 与 AGENTS.md（docs/official/ 为官方文档汇总）；按仓库约定它是 pinned 上游子模块，只用于查证规范——不要编辑其中任何文件，也不要向插件源码复制代码）。整个升级按「临时目录先行验证、验证通过后再实装」的两阶段流程执行，避免直接改动本工程而影响日常使用：");
-  lines.push("");
-  lines.push("阶段一：在临时工作目录先行验证（不碰本工程，本工程保持可运行）");
-  const validation = buildHarnessValidationSteps(
-    1,
-    [
-      "在临时目录把其余插件模块更新到各自标注的目标（最新提交：git -C <临时目录> submodule update --remote <path>；最新 tag：先 git -C <临时目录>/<path> fetch origin，再用 git -C <临时目录>/<path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag）；",
-      "在临时目录更新后、运行安装脚本前先交叉检查各模块 install.mjs 的正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；",
-      "在临时目录运行各模块安装脚本（plugins/<id>/install.mjs）——临时目录的 DSH_HOME 指向其自身 .dsh，是全新 profile，验证不会污染本工程；",
-    ],
-    updateModeOf(harness.id) === "tag"
-  );
-  for (const line of validation.lines) lines.push(line);
-  lines.push("");
-  lines.push("阶段二：在本工程实装（仅在阶段一全部验证通过后进行）");
-  let n = validation.next;
-  lines.push((n++) + ". 将 deepseek-harness 更新到阶段一第 1 步确认的目标，并把其余插件模块分别更新到各自目标（操作同阶段一对应步骤）；");
-  lines.push((n++) + ". 把临时目录中验证过的适配改动同步到本工程：逐文件核对该差异后复制/应用，不要整目录覆盖（避免带入 .dsh/、.toolchain/、node_modules/ 等 gitignore 产物）；删除本工程已安装的、已被屏蔽的插件（对阶段一步骤 " + validation.maskStep + " 屏蔽的插件，从其已安装状态卸载：移除 profile 的挂载/依赖条目并删除对应 node_modules 链接，避免被后续 Loader 组合重新加载）；");
-  lines.push((n++) + ". 在本工程重建并验证：运行仓库构建脚本 npm run build（node scripts/dsh-gui.mjs build——用 .toolchain/ 的 pinned pnpm 与仓库本地 .pnpm-store 执行 harness 的 pnpm install + pnpm run build（CI=true，跳过 lefthook）→ cargo 编译入口 exe → 执行各插件安装脚本 → 安装 agent preset）。dsh-gui 运行时入口 exe 被占用，可先加 --skip-exe（npm run build -- --skip-exe）；但 harness 构建与插件安装脚本必须执行，确保各插件基于新 harness 重新构建/安装；");
-  lines.push(buildHarnessAuditStep(n++));
-  lines.push((n++) + ". 汇报：确认的最新 tag、临时目录验证结论（修复了哪些适配点、屏蔽了哪些插件及原因/恢复条件）、改动文件清单、执行过的安装/构建命令及结果；给出速查结论（哪些插件安装脚本与官方规范一致、哪些需调整/被屏蔽）；并逐模块汇报本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
-  lines.push(buildCommitMessageStep(n++));
-  lines.push("");
-  lines.push("注意：以上路径均相对于 dsh-gui 仓库根目录；请确认会话工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。");
+  const lines = [
+    AI_UPDATE_SKILL,
+    "",
+    "请更新当前 dsh-gui 仓库：先更新工程基座 deepseek-harness，再更新以下插件模块：",
+    "",
+  ];
+  for (const project of [harness, ...others]) lines.push(aiModuleRow(project));
+  lines.push("", HARNESS_MODULE_NOTE, "", AI_UPDATE_WORKSPACE_NOTE);
   return lines.join("\n");
 }
 
+// Prompt for one plugin module or a plugin-only batch. A batch containing
+// deepseek-harness is routed to buildHarnessMergedPrompt (see startAiUpdate),
+// so this builder never has to explain the base module.
 function buildAiUpdatePrompt(projects) {
   const list = updatableProjects(projects);
-  const lines = [];
   if (list.length === 1) {
     const project = list[0];
-    if (project.id === HARNESS_PROJECT_ID) {
-      lines.push(...buildHarnessUpdatePrompt(project));
-    } else {
-      lines.push("请更新当前 dsh-gui 仓库中的「" + project.name + "」模块：");
-      lines.push("");
-      lines.push("- 模块：" + aiModuleLabel(project));
-      lines.push("- " + aiUpdateTargetText(project));
-      lines.push("");
-      lines.push("步骤：");
-      if (updateModeOf(project.id) === "tag") {
-        lines.push("1. 先 fetch origin（git -C <path> fetch --prune origin），再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到远端默认分支可达的最新 tag，然后 checkout/reset 到该 tag；");
-      } else {
-        lines.push("1. 将该模块快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>，或在模块目录里 fetch origin 后检出 origin/<默认分支>；仓库本体则 pull/reset 到 origin 默认分支）；");
-      }
-      lines.push("2. 运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、该模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，内容见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与上述约定一致。各插件安装脚本通常都很简单——「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」——并无复杂操作；仅当发现异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下来向用户报告，不要执行；");
-      lines.push("3. 确认安装脚本无误后运行：插件模块运行其 plugins/<id>/install.mjs（或仓库根目录的 npm run install:plugins）；");
-      lines.push("4. 若改动涉及 harness 或需要重建，按需执行仓库构建脚本；");
-      lines.push("5. 完成后汇报改动了哪些文件、执行了哪些安装/构建命令及结果；");
-      lines.push("6. 基于该模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
-      lines.push(buildCommitMessageStep("7"));
-    }
-  } else {
-    lines.push("请批量更新当前 dsh-gui 仓库中以下可更新的模块：");
-    lines.push("");
-    for (const project of list) {
-      const path = project.path ? "路径 " + project.path + "，" : "";
-      const target = updateModeOf(project.id) === "tag"
-        ? "更新到最新 tag" + (project.latestTag ? "「" + project.latestTag + "」" : "")
-        : "更新到最新提交（最新 " + (project.latest || "?") + "）";
-      lines.push("- " + project.name + "（" + path + "当前 " + (project.current || "unknown") + "，" + target + "）");
-    }
-    lines.push("");
-    const hasHarness = list.some((project) => project.id === HARNESS_PROJECT_ID);
-    if (hasHarness) {
-      lines.push("其中 deepseek-harness 是工程基座（DSH 框架本体，不在 plugins/ 下，其他插件都基于它），不是插件——按「临时目录先行验证、验证通过后再实装」单独处理，不要套用插件流程（plugins/<id>/install.mjs、plugins/<id>/<package>/README.md）；");
-      lines.push("");
-    }
-    lines.push("对每个模块执行前先复核其当前状态：若某个模块当前正处在 tag 上且远端没有更新的 tag，跳过该模块，不要把它更新到非 tag 的最新提交（保持其 tag 版本），并在报告中说明原因。");
-    lines.push("对每个模块按其标注的更新目标处理：");
-    lines.push("1. 最新提交：快进到远端默认分支的最新提交（submodule 用 git submodule update --remote <path>；仓库本体用 git pull）；");
-    lines.push("2. 最新 tag：先 fetch origin，再用 git -C <path> describe --tags --abbrev=0 origin/<默认分支> 找到最新 tag，然后 checkout/reset 到该 tag；");
-    const steps = [];
-    if (hasHarness) {
-      steps.push("3. deepseek-harness（如在本批中）——按「临时目录先行验证、验证通过后再实装」处理：先 fetch origin 确认最新 tag（git -C deepseek-harness fetch origin + describe --tags --abbrev=0 origin/<默认分支>），在仓库之外建临时工作目录 clone 本工程（git clone --recurse-submodules）并把其中 deepseek-harness checkout/reset 到该 tag，在临时目录分析该版本更新对当前 dsh-gui 工程、插件的影响（新增、变更或移除的功能/配置/依赖，以及插件需要跟进适配的点——组合方式、插件 API、bundle 契约等）并完成修复与验证（运行 npm run build 全绿；仍不得编辑 deepseek-harness/ 下任何文件）；对确认不兼容且本次无法修复的插件在临时目录暂时屏蔽安装（install.mjs 顶部加 MASKED 守卫并从 profile 移除挂载条目），并在报告中说明原因与恢复条件；全部验证通过后，把适配改动逐文件同步回本工程、将 deepseek-harness 更新到该 tag、删除已安装的被屏蔽插件，再在本工程重建（npm run build；exe 被占用可加 --skip-exe，但 harness 构建与插件重装必须完成）。它没有 install.mjs 且不在 plugins/ 下，文档在 deepseek-harness/docs/ 与 AGENTS.md（docs/official/ 为官方文档汇总）；");
-      steps.push("4. 对每个插件模块：更新后、运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；");
-      steps.push("5. 确认无误后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
-      steps.push("6. 必要时重建；");
-      steps.push("7. 全部完成后汇报每个模块的改动与安装结果；");
-      steps.push(buildHarnessAuditStep("8"));
-      steps.push("9. 基于各模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，并逐模块汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
-      steps.push(buildCommitMessageStep("10"));
-    } else {
-      steps.push("3. 更新后、运行安装脚本前先交叉检查其正确性：对照仓库根 AGENTS.md（开发约定/安装规范）、各模块文档（plugins/<id>/<package>/README.md 与 docs/）以及 dsh 插件安装教程（先加载 skill dsh-plugin-install，见 .dsh/skills/dsh-plugin-install/SKILL.md），确认 install.mjs 的安装方式与约定一致——各插件通常只是「源码构建（pnpm install + pnpm run build）+ dsh plugin --profile web add link: 安装」或「直接 npm 安装」，无复杂操作；某模块安装脚本有异常步骤（越出仓库、绕过 scripts/plugin-install.mjs 共享流水线、修改依赖或配置文件之外的东西等）时，先停下报告该模块，不要执行；");
-      steps.push("4. 确认无误后运行对应安装脚本（plugins/<id>/install.mjs，或仓库根目录 npm run install:plugins）；");
-      steps.push("5. 必要时重建；");
-      steps.push("6. 全部完成后汇报每个模块的改动与安装结果；");
-      steps.push("7. 基于各模块的安装脚本（plugins/<id>/install.mjs，或仓库内相关 install.mjs / 构建配置）检查本次更新引入的功能，并逐模块汇报该目标仓库本次更新对当前 dsh-gui 项目所使用功能的改变（新增、变更或移除的功能/配置/依赖，以及 dsh-gui 侧需要跟进适配的点）。");
-      steps.push(buildCommitMessageStep("8"));
-    }
-    for (const step of steps) lines.push(step);
+    if (project.id === HARNESS_PROJECT_ID) return buildHarnessUpdatePrompt(project);
+    return [
+      AI_UPDATE_SKILL,
+      "",
+      "请更新当前 dsh-gui 仓库中的「" + project.name + "」模块：",
+      "",
+      "- 模块：" + aiModuleLabel(project),
+      "- " + aiUpdateTargetText(project),
+      "",
+      AI_UPDATE_WORKSPACE_NOTE,
+    ].join("\n");
   }
-  lines.push("");
-  lines.push("注意：以上路径均相对于 dsh-gui 仓库根目录；请确认会话工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。");
+  const lines = [AI_UPDATE_SKILL, "", "请批量更新当前 dsh-gui 仓库中以下模块：", ""];
+  for (const project of list) lines.push(aiModuleRow(project));
+  lines.push("", AI_UPDATE_WORKSPACE_NOTE);
   return lines.join("\n");
 }
 
@@ -2394,7 +2269,7 @@ function postAiUpdateRequest(prompt) {
       settled = true;
       clearTimeout(timer);
       aiUpdateWaiters.delete(requestId);
-      if (ok) toast("已在项目首页选中 dsh-gui 目录并预填充提示词，请选择预设后发送");
+      if (ok) toast("已在项目首页选中 dsh-gui 目录并预填 /dsh-gui-update 提示词，请确认后发送");
       else toast("AI 更新启动失败：" + (error || "未知错误"));
       resolve(ok);
     };
@@ -2434,7 +2309,8 @@ async function startAiUpdate(projects) {
     return;
   }
   // 只含 deepseek-harness → 该模块专用提示词；含 deepseek-harness + 插件 →
-  // 融合提示词（先基座 → 插件 → 兼容性速查 → 汇报）。
+  // 融合提示词（先基座 → 插件）。两者的流程都由预填的 /dsh-gui-update skill
+  // 提供，提示词只补充模块、路径与目标。
   const harness = list.find((project) => project.id === HARNESS_PROJECT_ID);
   const prompt =
     harness && list.length > 1

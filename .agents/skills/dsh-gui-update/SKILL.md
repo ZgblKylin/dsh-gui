@@ -19,13 +19,13 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 
 | 来源 | 内容 |
 | --- | --- |
-| [`src-tauri/ui/app.js`](../../../src-tauri/ui/app.js) | 产品内 AI 更新提示词：`buildHarnessUpdatePrompt`（仅 harness）、`buildHarnessMergedPrompt`（harness 与插件批量）、`buildAiUpdatePrompt`（插件单模块与批量）、`buildHarnessValidationSteps`（两阶段步骤骨架）、`buildHarnessAuditStep`（安装脚本速查）、`buildCommitMessageStep`（提交信息草稿） |
+| [`src-tauri/ui/app.js`](../../../src-tauri/ui/app.js) | 更新对话框预填的提示词：`AI_UPDATE_SKILL`（手势常量 `/dsh-gui-update`）、`buildHarnessUpdatePrompt`（仅 harness）、`buildHarnessMergedPrompt`（harness 与插件批量）、`buildAiUpdatePrompt`（单模块与插件批量）。提示词只给出模块名、路径、当前版本与更新目标，流程由本 skill 承载 |
 | [`docs/dsh-gui/upgrade-staging-workspace.md`](../../../docs/dsh-gui/upgrade-staging-workspace.md) | 副本的位置、维护命令、远端语义、副本内构建与冒烟检查 |
 | [`docs/dsh-gui/update-check.md`](../../../docs/dsh-gui/update-check.md) | 更新检查的判定规则与 npm 发布状态 |
 | [`AGENTS.md`](../../../AGENTS.md) | 开发约定、插件开发规范、插件市场约束、bundle 加载注意事项、提交规范 |
 | [`plugins/README.md`](../../../plugins/README.md) | 各 wrapper 的安装方式标注与来源形态 |
 
-产品内提示词要求 agent 在系统临时目录建立一次性副本再验证；本 skill 改用持久化副本 `.staging/dsh-gui`，步骤与判定标准与提示词一致。
+更新对话框的「AI 更新」预填的草稿以 `/dsh-gui-update` 开头：host 侧的 `dsh-tool-skill` 会把本 skill 的内容注入会话，因此本 skill 就是升级流程的权威步骤。手势名称取自 `src-tauri/ui/app.js` 的 `AI_UPDATE_SKILL` 常量；重命名本 skill 时必须在同一改动中同步该常量。
 
 ## 2. 更新目标与跳过规则
 

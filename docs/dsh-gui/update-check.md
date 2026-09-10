@@ -18,10 +18,10 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 
 实现：`src-tauri/ui/app.js` 的 `isOnTagWithoutNewer`（复用 Rust 端
 `announce` 字段）过滤 `updatableProjects`（AI 资格），并在 `renderUpdateDialog`
-无可更新行时隐藏「AI 更新全部」；生成的 AI 提示词也加入“跳过在 tag 上且无更新
-tag 的模块”的复核指令。
+无可更新行时隐藏「AI 更新全部」；被过滤的行因此不会进入预填的模块清单。该跳过
+规则同时写在 skill `dsh-gui-update` 的更新目标与跳过规则中。
 
-## AI 更新的自动预设
+## AI 更新的提示词与预设
 
 「AI 更新」/「AI 更新全部」启动后，dsh-ai-update 浏览器半（
 `plugins/ai-update/dsh-ai-update/src/client/index.ts`）在落地空白会话上自动
@@ -30,13 +30,12 @@ tag 的模块”的复核指令。
 再预填升级提示词；选择被拒绝时请求失败返回错误，而不是静默落到默认预设。用户
 发送前仍可自行切换预设 chip。
 
-## 升级的验证与实装
-
-「AI 更新」生成的提示词要求 agent 在系统临时目录建立一次性副本再验证。
-`.staging/dsh-gui` 持久化副本是该流程的落地形式：升级先在副本中更新、构建与
-冒烟检查，通过后才实装到本工程。工作区说明见
-[upgrade-staging-workspace.md](upgrade-staging-workspace.md)，完整流程见 skill
-`dsh-gui-update`。
+提示词由 `src-tauri/ui/app.js` 生成（`buildAiUpdatePrompt` 与两个基座提示词
+构造器），以 `/dsh-gui-update` skill 手势开头：host 侧的 `dsh-tool-skill` 会把
+该 skill 的内容注入会话，升级流程（先在 `.staging/dsh-gui` 副本中验证、通过后
+才实装）全部由该 skill 承载，提示词只补充模块名、路径、当前版本与更新目标。
+工作区说明见
+[upgrade-staging-workspace.md](upgrade-staging-workspace.md)。
 
 ## 检测与标注
 

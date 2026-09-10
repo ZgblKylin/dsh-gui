@@ -40,44 +40,34 @@ harness plugin usable without dsh-gui.
 
 ## Prompt composition
 
-The shell builds the prefilled prompt in `src-tauri/ui/app.js`
-(`buildAiUpdatePrompt`). `deepseek-harness` gets a dedicated prompt: it is
-the engineering base (the harness itself, at the repository root) and not a
-plugin, so its prompt never references the `plugins/` layout or the plugin
-install pipeline. Its upgrade runs as a **staging-first, two-phase flow**
-(the shared step builders `buildHarnessValidationSteps` /
-`buildHarnessApplySteps`): fetch origin and confirm the latest tag; clone the
-repository into a throwaway working directory outside the repo and check the
-harness out to that tag; analyze the impact of the version bump on the current
-project and its plugins (features / config / dependencies and adaptation
-points); fix and validate inside that working directory (`npm run build` until
-green — it is a fresh checkout, so `.toolchain/` / `.pnpm-store` are absent and
-`npm run setup` bootstraps them when needed); block any plugin confirmed
-incompatible this round (`MASKED` guard at the top of its `install.mjs` +
-profile entry removed) and state the reason and restore condition in the
-report; and only after validation passes apply to the real project — port the
-verified adaptation changes (file-by-file, never a whole-tree overwrite), move
-the harness to the target, remove already-installed blocked plugins, and
-rebuild. The prompt always closes with a quick-audit step: every unmasked
-plugin install script (`plugins/<id>/install.mjs`; entries carrying a `MASKED`
-guard are skipped) is checked against the
-official spec the updated harness just pinned (repository-root AGENTS.md,
-`docs/official/`, and the dsh-plugin-install skill). Batch prompts include
-this audit only when `deepseek-harness` is among the updated modules.
+The shell builds the prefilled draft in `src-tauri/ui/app.js`
+(`buildAiUpdatePrompt`, `buildHarnessUpdatePrompt`,
+`buildHarnessMergedPrompt`). The draft opens with the `/dsh-gui-update` skill
+gesture: a whitespace-bounded `/name` in a user message is what makes
+`dsh-tool-skill` load that skill's body into the session before the model
+answers, and no client command owns this name, so the composer submits the line
+as an ordinary prompt. The upgrade procedure therefore lives in that skill —
+`.agents/skills/dsh-gui-update/SKILL.md`, discovered through the workspace's
+`.agents/skills` root, and referenced by `AI_UPDATE_SKILL` in the shell: the
+persistent `.staging/dsh-gui` staging clone and its sync/verify commands, the
+per-module update targets, the batched plugin updates, the install-script audit
+against the official spec the updated harness pins, masking a plugin that stays
+incompatible, applying to the real project, reporting, and drafting the
+submodule-bump commit messages. The prompt itself states only what the skill
+cannot know: the module name, its path, its current version, and the target its
+dialog row selected. `deepseek-harness` is the engineering base (the harness
+itself, at the repository root) and not a plugin, so its prompt says so instead
+of referencing the `plugins/` layout or the plugin install pipeline.
 
 Batch AI update (`AI 更新全部`) special-cases the base modules:
 
 - dsh-gui in the batch: the other updates are ignored and the flow is
   equivalent to clicking the top-level row's 「更新」 (in-dialog root
   update, no prompt is posted);
-- deepseek-harness only: the dedicated harness prompt above;
+- deepseek-harness only: the dedicated harness prompt;
 - deepseek-harness plus plugins: a merged prompt (`buildHarnessMergedPrompt`)
-  — the whole batch follows the same two-phase staging flow: the temp-clone
-  validation covers the harness update plus the batched plugin module updates
-  and their install-script cross-checks (folded into the validation phase),
-  then the apply phase ports everything to the real project and rebuilds;
-  closes with the compatibility audit (`buildHarnessAuditStep`) and the
-  report.
+  listing the base first and then every plugin row, so the whole batch runs
+  under the same skill.
 
 ## Top-level project update (no AI)
 

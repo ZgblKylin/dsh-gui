@@ -49,7 +49,7 @@ node .staging\dsh-gui\deepseek-harness\apps\cli\lib\bin.js --profile web --dump-
 
 ## 与产品内「AI 更新」的关系
 
-更新对话框的「AI 更新」把 `src-tauri/ui/app.js` 生成的提示词预填到会话，其中要求 agent 在系统临时目录建立一次性副本再验证。本工作区是该流程的持久化形式：副本跨会话保留，已完成的依赖安装与构建可以复用，重复验证不必每次重新引导工具链。
+更新对话框的「AI 更新」把 `src-tauri/ui/app.js` 生成的提示词预填到会话：提示词以 `/dsh-gui-update` skill 手势开头，由 skill `dsh-gui-update` 驱动升级流程，本工作区就是该流程的验证位置。副本跨会话保留，已完成的依赖安装与构建可以复用，重复验证不必每次重新引导工具链。
 
 ## 沙箱与提权
 
