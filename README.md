@@ -69,6 +69,8 @@ browser.
   `关于` / `退出`.
 - **About dialog** — version (git tag or commit short hash), license, and
   GitHub link for dsh-gui, the harness, the icon submodule, and every plugin.
+  A plain click copies the URL; **Ctrl+click** opens it in the system default
+  browser.
 - **Update dialog** — checks every in-repo project for updates, lets you choose
   which ones to update and their target (latest commit / latest tag), then
   exits, updates in a console window, and restarts. The dialog recommends
@@ -88,7 +90,9 @@ browser.
   (`dsh --profile headless`), whose session store is redirected to a temp
   directory — neither path persists a session. The markdown result renders
   in a scrollable, selectable dialog whose copy button copies the raw source
-  text.
+  text; **Ctrl+click** on a link in it opens the URL in the system default
+  browser (a plain click stays a text-selection gesture, since a webview link
+  cannot spawn a popup on its own).
 
 ### Plugins
 

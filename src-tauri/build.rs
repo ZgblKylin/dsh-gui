@@ -32,6 +32,7 @@ fn main() {
         "connection_added",
         "ai_update_request",
         "dialog_event",
+        "open_external",
         // Connection-tab child webviews + page bridge (see `src/views.rs`).
         "view_create",
         "view_set_bounds",

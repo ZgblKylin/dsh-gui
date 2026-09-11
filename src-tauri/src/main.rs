@@ -1297,6 +1297,77 @@ fn shell_log(
     Ok(())
 }
 
+/// Validate a URL before it reaches the OS opener: only the schemes the UI
+/// itself renders as links (`http`/`https`/`mailto`) may leave the app, so a
+/// stray `file:` or a custom scheme (both of which `ShellExecuteW` would hand
+/// to a local handler) can never be turned into a click-driven launch.
+fn external_http_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    let parsed = tauri::Url::parse(trimmed).map_err(|e| format!("invalid url {trimmed:?}: {e}"))?;
+    match parsed.scheme() {
+        "http" | "https" | "mailto" => Ok(parsed.to_string()),
+        other => Err(format!("refusing to open a {other}: url")),
+    }
+}
+
+/// Hand a URL to the system's default browser (`ShellExecuteW` + the shell's
+/// `open` verb), so the About repo links and the changelog release notes open
+/// outside the webview.
+#[cfg(windows)]
+fn shell_open(url: &str) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    fn wide(value: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let operation = wide("open");
+    let file = wide(url);
+    // SAFETY: both buffers are NUL-terminated and outlive the call; the
+    // window, parameter and directory arguments are documented as optional.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // Win32: a return value <= 32 is an error code, not an HINSTANCE.
+    let code = result as isize;
+    if code <= 32 {
+        Err(format!("ShellExecuteW failed for {url} (code {code})"))
+    } else {
+        Ok(())
+    }
+}
+
+/// The shell is a Windows desktop app; other targets have no wired opener.
+#[cfg(not(windows))]
+fn shell_open(url: &str) -> Result<(), String> {
+    Err(format!(
+        "opening {url} in a browser is only implemented on Windows"
+    ))
+}
+
+/// Open an external http(s)/mailto URL in the system default browser. The
+/// dialog windows call this on Ctrl/Cmd+click: a `target="_blank"` anchor
+/// cannot open anything by itself, because a webview without an
+/// `on_new_window` handler answers the new-window request with "handled" (see
+/// `views` for the tab webviews, which opt into popups instead).
+#[tauri::command]
+fn open_external(webview: tauri::Webview, url: String) -> Result<(), String> {
+    views::ensure_shell_or_dialog(&webview)?;
+    shell_open(&external_http_url(&url)?)
+}
+
 /// Forward one operation to the harness plugin's `/remote-api` route. Runs off
 /// the main thread (via spawn_blocking) so a long remote run never blocks the UI.
 #[tauri::command]
@@ -1519,6 +1590,7 @@ fn main() {
             connection_added,
             ai_update_request,
             dialog_event,
+            open_external,
             // Connection-tab child webviews + page bridge.
             view_create,
             view_set_bounds,
@@ -1537,7 +1609,10 @@ fn main() {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::{ensure_loopback_port_available, job::KillJob, loopback_listener_pid, parse_launch_token};
+    use super::{
+        ensure_loopback_port_available, external_http_url, job::KillJob, loopback_listener_pid,
+        parse_launch_token,
+    };
     use std::net::TcpListener;
     use std::process::Command;
     use std::time::Duration;
@@ -1550,6 +1625,29 @@ mod tests {
         );
         assert_eq!(parse_launch_token("dsh web: http://127.0.0.1:4567/"), None);
         assert_eq!(parse_launch_token(""), None);
+    }
+
+    /// Only browsable links may reach `ShellExecuteW`: a `file:` or custom
+    /// scheme would otherwise launch a local handler from a UI click.
+    #[test]
+    fn only_link_schemes_reach_the_system_opener() {
+        assert_eq!(
+            external_http_url(" https://github.com/omdsh-dev/DSH-better-sidebar ").expect("https"),
+            "https://github.com/omdsh-dev/DSH-better-sidebar"
+        );
+        assert!(external_http_url("http://127.0.0.1:3080/?token=x").is_ok());
+        assert!(external_http_url("mailto:someone@example.com").is_ok());
+        for refused in [
+            "file:///C:/Windows/System32/calc.exe",
+            "javascript:alert(1)",
+            "ms-settings:",
+            "example.com",
+        ] {
+            assert!(
+                external_http_url(refused).is_err(),
+                "{refused} must be refused"
+            );
+        }
     }
 
     /// Spawn a long-lived node helper to stand in for the harness.

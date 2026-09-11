@@ -1775,6 +1775,21 @@ function changelogSafeUrl(url, text) {
   return "";
 }
 
+/**
+ * A release-note link. `target="_blank"` cannot open anything by itself: a
+ * webview only gets popups when it opts in (`on_new_window`), which the dialog
+ * windows do not. `openExternal` is the path that actually opens one.
+ */
+function changelogAnchor(href, inner) {
+  return (
+    '<a href="' +
+    changelogEscape(href) +
+    '" target="_blank" rel="noopener noreferrer" title="Ctrl+点击在浏览器打开">' +
+    inner +
+    "</a>"
+  );
+}
+
 function changelogInline(text) {
   // A fresh regex per call: `changelogInline` recurses for emphasis content,
   // and a shared mutable lastIndex would make the outer scan loop forever.
@@ -1802,14 +1817,12 @@ function changelogInline(text) {
     } else if (linkUrl !== undefined) {
       const safe = changelogSafeUrl(linkUrl, linkText);
       out += safe
-        ? '<a href="' + changelogEscape(safe) + '" target="_blank" rel="noopener noreferrer">' +
-          changelogInline(linkText) + "</a>"
+        ? changelogAnchor(safe, changelogInline(linkText))
         : changelogEscape(match[0]);
     } else if (autoUrl !== undefined) {
       const safe = changelogSafeUrl(autoUrl, autoUrl);
       out += safe
-        ? '<a href="' + changelogEscape(safe) + '" target="_blank" rel="noopener noreferrer">' +
-          changelogEscape(autoUrl) + "</a>"
+        ? changelogAnchor(safe, changelogEscape(autoUrl))
         : changelogEscape(match[0]);
     } else {
       out += changelogEscape(match[0]);
@@ -2445,6 +2458,23 @@ changelogOverlay.addEventListener("click", (e) => {
   if (e.target === changelogOverlay) closeChangelog();
 });
 
+// Release-note links open in the system browser on Ctrl/Cmd+click; a plain
+// click keeps its text-selection role. The handler sits on the document so the
+// shell window and the changelog dialog window behave the same.
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    const target = e.target;
+    if (!target || typeof target.closest !== "function") return;
+    const anchor = target.closest("a[href]");
+    if (!anchor) return;
+    e.preventDefault();
+    void openExternal(anchor.href);
+  },
+  true
+);
+
 /* ── New-connection dialog wiring ──────────────────────────── */
 for (const card of document.querySelectorAll(".conn-type-card")) {
   card.addEventListener("click", () => setConnType(card.dataset.type));
@@ -2534,9 +2564,14 @@ function aboutRow(label, item) {
     const link = document.createElement("button");
     link.className = "about-item-repo";
     link.type = "button";
-    link.title = "点击复制链接";
+    link.title = "点击复制链接；Ctrl+点击在浏览器打开";
     link.textContent = item.repo;
-    link.addEventListener("click", () => copyText(item.repo));
+    link.addEventListener("click", (e) => {
+      // Ctrl/Cmd+click jumps to the repository; a plain click keeps this row's
+      // copy gesture.
+      if (e.ctrlKey || e.metaKey) void openExternal(item.repo);
+      else copyText(item.repo);
+    });
     repoRow.append(rl, link);
   } else {
     const rv = document.createElement("span");
@@ -2555,6 +2590,20 @@ function copyText(text) {
     navigator.clipboard.writeText(text).then(done, () => legacyCopy(text, done));
   } else {
     legacyCopy(text, done);
+  }
+}
+
+/**
+ * Hand an external URL to the system default browser. The About rows and the
+ * changelog window both display URLs that a plain click cannot open, because a
+ * webview popup needs an `on_new_window` opt-in that only the connection tabs
+ * request. Ctrl/Cmd+click is the gesture that routes a URL to the OS opener.
+ */
+async function openExternal(url) {
+  try {
+    await invoke("open_external", { url: String(url ?? "") });
+  } catch (e) {
+    toast("无法在浏览器打开：" + e);
   }
 }
 

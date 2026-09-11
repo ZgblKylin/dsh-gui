@@ -41,6 +41,7 @@
     "allow-connection-added",
     "allow-ai-update-request",
     "allow-dialog-event",
+    "allow-open-external",
     "allow-view-create",
     "allow-view-set-bounds",
     "allow-view-set-visible",
