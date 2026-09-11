@@ -104,7 +104,7 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
 ### bundle 加载（`dsh.bundle.patch`）注意事项
 
 - `dsh.bundle.patch` 是**官方契约**（非社区私有约定）：npm 包的 manifest 声明 `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`，即成为一个可安装的 profile bundle 层。
-- 官方依据：`packages/boot/app-boot/src/profile.ts` 的 `DshBundleManifest`；`docs/user/develop/basic/publish.md`（bundle 教程）；`apps/cli/reference/README.md`（`dsh plugin add` 后按该声明 reconcile `dsh.profile.bundles`）；`docs/architecture.md`（"`dsh.bundle` points at a bundle's patch file"）；官方内置 `packages/bundle/{base,web-app,headless}/` 均为此格式。
+- 官方依据：`packages/util/package-manifest/src/types.ts` 的 `DshBundleManifest`（`dsh-v0.1.5-rc.2` 起由 `packages/boot/app-boot/src/profile.ts` 迁出，app-boot 不再导出）；`docs/user/develop/basic/publish.md`（bundle 教程）；`apps/cli/reference/README.md`（`dsh plugin add` 后按该声明 reconcile `dsh.profile.bundles`）；`docs/architecture.md`（"`dsh.bundle` points at a bundle's patch file"）；官方内置 `packages/bundle/{base,web-app,headless}/` 均为此格式。
 - 流程：`dsh plugin --profile <name> add <pkg>` 安装后，若 manifest 声明了 `dsh.bundle`，CLI 自动把该包追加进 `dsh.profile.bundles`；profile 启动时按列表顺序应用各 bundle 的 patch 层。
 - 因此**同时带 client 半的插件**（`dsh.client`）也走 bundle 通道即可：patch 里 `insert` 自己的 Loader row（`name` 为包名），Node 半侧扫描该 entry 的 `dsh.client` 并服务浏览器 bundle，无需手工改 profile 的 `cordis.patch.yml`。
 - patch 文件必须随发布包含（`files` 白名单加 `cordis.patch.yml`），且路径不得越出 package 目录（Market 安装器会校验）。
@@ -166,7 +166,8 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
   - `cordis-primer.md` — Cordis 五种核心思想、事件模式、waterfall 语义
   - `develop-basic/` — 开发者基础教程目录（含 `publish.md` bundle 打包/发布教程、`config.md`、`index.md`、`tool.md` 等）
   - `cli-reference.md` — profile 组合、`dsh plugin add` 与 bundles reconcile 行为
-  - `app-boot-profile.ts` — `DshBundleManifest` 与 profile/bundle 加载契约
+  - `app-boot-profile.ts` — profile 模板、profile 目录与 bundle 层加载契约（`loadProfileDirectory` / `loadProfile`）
+  - `package-manifest-types.ts` — `package.json.dsh` 的声明类型，含 `DshBundleManifest`（bundle 层契约）
   - `packages-bundle/` — 官方内置 bundle（base / web-app / headless）的 patch 层实例
   - `examples/` — 官方示例（`deepseek-harness/examples`）
 - `docs/dsh-gui`: 本仓库（dsh-gui）文档

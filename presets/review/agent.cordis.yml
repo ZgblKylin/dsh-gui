@@ -30,7 +30,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: |-
+    prefix: |-
       You are a review agent powered by the {{model}} model. Your working directory is {{cwd}}.
 
       Your job is to review code changes and provide actionable feedback.

@@ -134,8 +134,11 @@ browser.
 
 - Windows 10/11 with the **WebView2 Evergreen runtime** (ships with most modern
   Windows / Edge installs).
-- **Node.js** `^22.19 || >=24` and **npm** on `PATH` (used by the build tooling
-  and by the shell to launch `bin.js`).
+- **Node.js** `^22.19 || >=24.2` and **npm** on `PATH` (used by the build tooling
+  and by the shell to launch `bin.js`). The `>=24.2` floor is real: the harness
+  CLI entry is gated on `import.meta.main`, which Node only provides from
+  22.18.0 / 24.2.0 on — on 24.0–24.1 `bin.js` exits 0 without starting and the
+  shell reports `harness exited before becoming ready (status exit status: 0)`.
 - **Rust** toolchain (`rustc`/`cargo`) for the entry exe.
 
 Everything fetched at build time (npm packages, the pnpm store, cargo crates)
@@ -391,7 +394,8 @@ and install just the harness + plugins.
   `npm run install:plugins` once — every plugin install script writes
   `storeDir` into `.dsh\profiles\web\pnpm-workspace.yaml` before re-adding
   its `link:` dependency.
-- **"failed to spawn harness (is `node` on PATH?)"** — install Node 22+.
+- **"failed to spawn harness (is `node` on PATH?)"** — install Node `^22.19` or
+  `>=24.2` (see the requirements above; 24.0–24.1 cannot start the harness CLI).
 - **Blank window / connection refused** — read `.dsh\gui\harness.log`; the
   harness failed to start (e.g. port already in use — set `DSH_GUI_PORT`).
 - **"127.0.0.1:3080 is already in use"** — close the existing dsh-gui / `dsh
