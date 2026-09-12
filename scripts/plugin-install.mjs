@@ -20,7 +20,7 @@
  *     entry when given, else one derived from the package manifest.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import {
   bootstrapPnpm,
@@ -366,6 +366,28 @@ function recordNpmInstall(dshHome, packageName) {
 }
 
 /**
+ * Remove a foreign nested `node_modules` inside an installed npm package
+ * directory. The published tarball never carries node_modules (npm excludes
+ * it regardless of `files`), and the pinned hoisted linker does not create
+ * nested virtual stores, so a `node_modules/` next to the package's own
+ * `lib/` is always a stale leftover — e.g. a package that used to be a
+ * `link:` source install whose submodule's dev `node_modules` (holding an
+ * old private copy such as `@deepseek-ai/dsh-session@0.1.1-rc.1`) was copied
+ * along. Left in place, Node resolves that stale copy ahead of the profile's
+ * hoisted peers and the Loader fails at boot (`The requested module ... does
+ * not provide an export named ...`). Removing it lets the package resolve the
+ * profile's hoisted dependencies instead.
+ * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {string} packageName - the npm package name (may be scoped).
+ */
+function removeForeignNestedNodeModules(profileDir, packageName) {
+  const nested = join(profileDir, 'node_modules', ...packageName.split('/'), 'node_modules')
+  if (!existsSync(nested)) return
+  console.log(`  removing foreign nested node_modules in '${packageName}' (stale from a previous install)`)
+  rmSync(nested, { recursive: true, force: true })
+}
+
+/**
  * Install one plugin package from the npm registry into the repo-local web
  * profile (per plugins/README.md's 安装方式 section: plugins not marked as
  * source installs use `dsh plugin add <package>`).
@@ -379,7 +401,7 @@ function recordNpmInstall(dshHome, packageName) {
  *
  * @param {{ id: string, packageSpec: string, mount?: { id: string, name: string } | null, skip?: boolean | string | null }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
- *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@0.18.0`.
+ *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@0.19.1`.
  *   - mount: explicit mount entry for packages without a bundle patch.
  *   - skip: wrapper-declared default skip — `true` (unversioned skip) or a
  *     string reason. The wrapper owns WHAT is being skipped and WHY (e.g. a
@@ -413,6 +435,7 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null })
       PATH: pinnedPath(),
     },
   })
+  removeForeignNestedNodeModules(profileDir, name)
 
   const manifestPath = join(profileDir, 'node_modules', ...name.split('/'), 'package.json')
   if (!existsSync(manifestPath)) {
