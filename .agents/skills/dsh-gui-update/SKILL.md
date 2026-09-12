@@ -1,7 +1,7 @@
 ---
 name: dsh-gui-update
-description: 'Use when updating a dsh-gui module to a newer upstream revision — the deepseek-harness engineering base or a plugin module under plugins/ — and when validating that upgrade before it reaches the working repository. Covers the persistent staging clone (.staging/dsh-gui via scripts/staging.mjs), the staging-first two-phase flow, plugin masking, the post-upgrade install-script audit, the npm publish state of npm-installed wrappers, reporting and commit-message drafting, and the sandbox elevation rule.'
-whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上游修订（最新 tag 或最新提交）、需要在实装前先验证、或更新对话框的「AI 更新」把升级提示词预填到会话后落地该流程时使用。
+description: 'Use when updating a dsh-gui module to a newer upstream revision — the deepseek-harness engineering base or a plugin module under plugins/ — and when validating that upgrade before it reaches the working repository. Covers the persistent staging clone (.staging/dsh-gui via scripts/staging.mjs), the staging-first two-phase flow, the ban on building or installing inside the running checkout (phase two only syncs install scripts and submodule pins, then hands the rebuild back to the user), plugin masking, the post-upgrade install-script audit, the npm publish state of npm-installed wrappers, reporting and commit-message drafting, and the sandbox elevation rule.'
+whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上游修订（最新 tag 或最新提交）、需要在实装前先验证、需要在实装阶段避免改动正在运行的 dsh 实例、或更新对话框的「AI 更新」把升级提示词预填到会话后落地该流程时使用。
 ---
 
 # dsh-gui 模块更新
@@ -11,6 +11,8 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 ## 0. 铁律：先验证，后实装
 
 - 阶段一在副本 `.staging/dsh-gui` 中更新、构建与冒烟检查；阶段二在本工程实装。本工程正在服务运行中的 dsh-gui，一次失败的升级会让它无法启动，副本验证正是为了在改动本工程之前暴露这类问题（事故复盘见 [`docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md`](../../../docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md)）。
+- 更新、构建与安装只在副本中进行。副本自带独立的 DSH_HOME（`.staging/dsh-gui/.dsh`），全部产出落在副本内。禁止在本工程执行任何构建或安装动作（`npm run build`、各插件的 `install.mjs`、`dsh plugin add`，以及直接写入本工程 `.dsh/` 的改动）：这些动作会改写正在运行的 dsh 实例的 profile、插件与 preset，使其损坏到无法操作。
+- 阶段二因此只写本工程中受版本管理的文件：安装脚本、插件源码适配与子模块指针。本工程的重新构建由用户在停止运行中的实例后自行执行，会话只负责通知，不代跑。
 - 阶段一全部通过之前，禁止改动本工程的子模块指针、插件安装与构建产物。
 - 一次只推进一个明确目标：更新目标是「最新 tag」还是「最新提交」，由用户在更新对话框按行选择，或由用户直接指定。
 - `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范：禁止编辑其中任何文件，也禁止从该目录向插件源码复制代码。
@@ -32,7 +34,7 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 - **tag 目标**：`git -C <path> fetch --prune origin`，再用 `git -C <path> describe --tags --abbrev=0 origin/<默认分支>` 取得远端默认分支可达的最新 tag，然后检出该 tag。
 - **提交目标**：远端默认分支的最新提交，子模块用 `git -C .staging/dsh-gui submodule update --remote <path>`，或在该模块目录内 `fetch origin` 后检出 `origin/<默认分支>`。
 - **跳过**：模块当前正好检出于某个 tag，而远端只有更新的提交、没有更新的 tag 时，保持其 tag 版本，不要把它更新到非 tag 提交，并在报告中说明原因。产品内该状态对应 `announce === false`（[`src-tauri/src/update.rs`](../../../src-tauri/src/update.rs) 的 `check_project`）。
-- **顶层仓库本体**不进入本流程：更新对话框对顶层行直接执行 git 层更新（顶层快进加子模块递归同步），随后由 `npm run build` 重建。
+- **顶层仓库本体**不进入本流程：更新对话框对顶层行直接执行 git 层更新（顶层快进加子模块递归同步），随后由用户执行 `npm run build` 重建。
 
 ## 3. 阶段一：副本内验证（不碰本工程）
 
@@ -49,12 +51,16 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 
 ## 4. 阶段二：在本工程实装（阶段一全部通过后进行）
 
+本阶段只改本工程中受版本管理的文件，不执行构建或安装，也不改动本工程 `.dsh/` 中的已安装状态（见第 0 节）。
+
 1. 把本工程的目标模块更新到阶段一确认的修订。
 2. 逐文件同步副本中验证过的适配改动：核对差异后复制或应用，禁止整目录覆盖，避免带入 `.dsh/`、`.toolchain/`、`.pnpm-store/`、`node_modules/` 等 gitignore 产物。
-3. 从本工程的已安装状态中卸载被屏蔽的插件：移除 profile 的挂载与依赖条目并删除对应 node_modules 链接，避免后续 Loader 组合重新加载它。卸载流程见 skill `dsh-plugin-uninstall`。
-4. 在本工程重建：`npm run build`。入口 exe 被运行中的 dsh-gui 占用时可以加 `--skip-exe`，但 harness 构建与各插件安装脚本必须执行，使插件基于新的 harness 重新构建与安装。
-5. 执行第 5 节的安装脚本速查。
-6. 汇报，并在末尾给出 commit message 草稿：为本次更新的每个模块各准备一条外层仓库的 submodule bump 提交信息，主题行遵循 `AGENTS.md` 的 Conventional Commits 约定，模板为 `feat(submodule): bump <模块名> from <旧版本/旧提交> to <新版本/新提交>`，需要时在其下方空一行写正文。只生成消息文本，禁止替用户执行 `git commit`。
+3. 执行第 5 节的安装脚本速查。
+4. 汇报并通知用户重新构建，列出：
+   - 本次同步的文件与子模块指针；
+   - 被屏蔽插件在本工程的卸载动作：移除 profile 的挂载与依赖条目并删除对应 node_modules 链接，避免后续 Loader 组合重新加载它（卸载流程见 skill `dsh-plugin-uninstall`）；
+   - 重新构建命令 `npm run build`：入口 exe 被运行中的 dsh-gui 占用时可以加 `--skip-exe`，但构建与卸载都由用户在停止运行中的实例后执行。
+5. 在末尾给出 commit message 草稿：为本次更新的每个模块各准备一条外层仓库的 submodule bump 提交信息，主题行遵循 `AGENTS.md` 的 Conventional Commits 约定，模板为 `feat(submodule): bump <模块名> from <旧版本/旧提交> to <新版本/新提交>`，需要时在其下方空一行写正文。只生成消息文本，禁止替用户执行 `git commit`。
 
 ## 5. 安装脚本速查
 
@@ -77,17 +83,17 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 - 副本的 `--profile web --dump-config` 能渲染组合；
 - 不兼容插件已屏蔽，原因与恢复条件已记录；
 - npm 安装型 wrapper 的 npm 发布状态已核对（判据见 `docs/dsh-gui/update-check.md`）；
-- 本工程重建后各插件与 agent preset 安装无异常。
+- 本工程已更新到阶段一确认的修订，验证过的安装脚本与适配改动已逐文件同步；
+- 已通知用户重新构建，构建结果与重建后各插件、agent preset 的安装由用户确认。
 
-验证失败时先在副本中修正重试，不要带着失败的升级改动回到本工程。本工程需要回滚时，把对应模块检回旧修订后重建：
+验证失败时先在副本中修正重试，不要带着失败的升级改动回到本工程。本工程需要回滚时，把对应模块检回旧修订，然后同样通知用户重新构建：
 
 ```powershell
 git -C deepseek-harness checkout <旧修订>
 git -C plugins\<id>\<package> checkout <旧修订>
-npm run build
 ```
 
-顶层仓库自身的回滚用 `git reset --hard <旧提交>`，随后同样执行 `npm run build`。
+顶层仓库自身的回滚用 `git reset --hard <旧提交>`，随后同样通知用户重新构建。
 
 ## 7. 沙箱与提权
 
@@ -109,6 +115,6 @@ npm run build
 
 - **harness 子模块的残留构建产物**：升级后旧的 `lib/` 与 `node_modules/` 会被 tsdown 的 workspace glob 当成构建目标，报 `MISSING_EXPORT` 并中止构建。副本从干净检出安装，能提前暴露该问题；本工程的修复见事故复盘。
 - **子模块指针漂移**：本工程记录的修订与子模块工作区 HEAD 不一致时，`git status` 显示 ` M <path>`；实装要让两者一致，否则本工程处于半升级状态。
-- **移动了 checkout 却没有重跑安装**：`link:` 安装指向包目录，包需要重新构建才会生效，因此实装阶段必须执行 `npm run build`。
+- **移动了 checkout 却没有重跑安装**：`link:` 安装指向包目录，包需要重新构建才会生效，因此本工程检出阶段一确认的修订后，必须由用户重新构建才会生效。
 - **npm 安装型 wrapper 的发布滞后**：仓库 tag 可能早于 npm 发布，只移动 submodule checkout 不会更新已安装的插件本体。
 - **副本不含未提交改动**：本工程有待提交的改动时，副本验证的不是将要实装的状态。
