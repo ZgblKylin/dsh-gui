@@ -85,9 +85,9 @@ would double-mount it and fail the plugin tree with
 
 - [dsh-review](https://github.com/ZgblKylin/dsh-review) 源码安装
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.41.0`）
-- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.18.0** 起含 DSH 0.1.2-rc.1 适配（peerDeps 全指 `^0.1.2-rc.1`）；v0.17.1 是针对 dsh-v0.1.2-alpha.1 的适配，import 了 rc.1 已移除的 settingsNamespace，不能在 rc.1 上加载。wrapper 固定 `0.18.0` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会挡掉过新的 0.18.0、回退到旧版 0.17.1；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.4.5`、`dsh-sidebar-qa@0.4.0`）
+- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.19.1** 起含 DSH 0.1.5-rc.1 适配（peerDeps 全指 `^0.1.5-rc.1`，上游已在 rc.2 上完成真机挂载验证，与本工程 pinned 的 dsh-v0.1.5-rc.2 harness 一致），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.19.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.4.5`、`dsh-sidebar-qa@0.5.0`）
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.4.5`，v0.4.5 已适配 rc.1 client 运行时）
-  - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `0.4.0`）
+  - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `0.5.0`）
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-client-ui-web-ui-settings@0.3.14](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
@@ -114,18 +114,18 @@ would double-mount it and fail the plugin tree with
   (`omdsh-dev/DSH-better-sidebar`), `better-sidebar/dsh-flowglass`
   (`Iwctwbh/dsh-flowglass`) and `better-sidebar/dsh-sidebar-qa`
   (`ChenRuoT/dsh-sidebar-qa`); its `install.mjs` installs the three packages
-  in order — `dsh-better-sidebar@0.18.0` FIRST (0.18.0 is the DSH
-  0.1.2-rc.1 适配版, peerDeps 全指 `^0.1.2-rc.1`; v0.17.1 是针对
-  dsh-v0.1.2-alpha.1 的适配，import 了 rc.1 已移除的 settingsNamespace，不能
-  在 rc.1 上加载。固定精确版本而非 `@latest`，因为 pinned pnpm 11.7 默认
-  supply-chain minimumReleaseAge 会挡掉过新的 0.18.0、回退到旧版 0.17.1；
-  子模块 checkout 在 pinned tag 处保留作源码参考), then `dsh-flowglass@0.4.5`,
-  then `dsh-sidebar-qa@0.4.0`
+  in order — `dsh-better-sidebar@0.19.1` FIRST (0.19.1 is the DSH
+  0.1.5-rc.1+ 适配版, peerDeps 全指 `^0.1.5-rc.1`，上游已在 rc.2 上完成真机
+  挂载验证。固定精确版本而非 `@latest`，因为 pinned pnpm 11.7 默认
+  supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退
+  到更旧版本；子模块 checkout 在 pinned tag 处保留作源码参考),
+  then `dsh-flowglass@0.4.5`, then `dsh-sidebar-qa@0.5.0`
   (both companions declare better-sidebar as a peer dependency, so it must
   land first; the same order ends up in `dsh.profile.bundles`; both are pinned
   to exact versions matching their submodule tags).
-  - `DSH-better-sidebar` — service-first sidebar workbench (right sidebar +
-    bottom panel) with per-session explorer, CodeMirror editor and
+  - `DSH-better-sidebar` — service-first sidebar workbench (tab types on DSH's
+    native right sidebar + its own bottom panel) with per-session explorer,
+    CodeMirror editor and
     file-viewer registry (image/PDF/Markdown/HTML/code/binary), real
     terminal (xterm.js + node-pty, reconnect replay, optional `terminal_*`
     model tools — **off by default**), Git panel, embedded browser,
