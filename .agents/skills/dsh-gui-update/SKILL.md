@@ -39,6 +39,8 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 ## 3. 阶段一：副本内验证（不碰本工程）
 
 1. 同步副本：`npm run staging -- sync`（副本尚不存在时先运行 `npm run staging -- ensure`）。副本工作区必须干净；本工程的未提交改动不会进入副本，需要一并验证时先在副本中重做同样的编辑，或导出为 patch 应用。
+   - **动手前先把副本重置到与本工程一致的版本状态**：`git -C .staging/dsh-gui status` 必须干净，且 `git -C .staging/dsh-gui submodule status` 的每个指针与 `git -C . submodule status` 对应项相同。上一次验证可能把副本留在别的修订，或留下未跟踪残留（临时脚本、被删插件的目录），那样这次验证的基线就不是"将要实装的状态"。`sync` 只快进顶层，不清理这些；用 `git -C .staging/dsh-gui reset --hard` 加 `git -C .staging/dsh-gui submodule update --init --recursive` 拉回，再删除未跟踪残留，然后才动手。
+   - **副本内的每一条 `node` / `dsh` / `install.mjs` 调用都必须显式设置 `DSH_HOME`**：见第 9 节的同名条目。
 2. 在副本中把目标模块更新到目标修订，操作同第 2 节的两种目标。
 3. 分析该版本的影响：新增、变更或移除的功能、配置与依赖，以及本仓库插件需要跟进适配的点（组合方式、插件 API、bundle 契约）。以 `AGENTS.md` 与 [`docs/official/`](../../../docs/official) 为依据。
 4. 在副本中完成适配修改并验证：改动本仓库侧的插件源码、适配代码与安装脚本（不涉及 `deepseek-harness/` 内文件），然后运行副本内的 `npm run build -- --skip-exe`，必须全绿；需要一并验证入口 exe 时用 `npm run build`。
@@ -118,3 +120,4 @@ git -C plugins\<id>\<package> checkout <旧修订>
 - **移动了 checkout 却没有重跑安装**：`link:` 安装指向包目录，包需要重新构建才会生效，因此本工程检出阶段一确认的修订后，必须由用户重新构建才会生效。
 - **npm 安装型 wrapper 的发布滞后**：仓库 tag 可能早于 npm 发布，只移动 submodule checkout 不会更新已安装的插件本体。
 - **副本不含未提交改动**：本工程有待提交的改动时，副本验证的不是将要实装的状态。
+- **`DSH_HOME` 会从会话环境继承，指向正在运行的实例**：dsh 会话自身导出了 `DSH_HOME=<本工程>/.dsh`，副本里跑的每条 `node` / `dsh` / `install.mjs` 命令都会继承它，于是"副本内验证"实际写进了本工程的 profile。典型症状是 pnpm 报 `ERR_PNPM_UNEXPECTED_STORE`（副本的 store 与本工程 profile 记录的 store 不同），或本工程 `.dsh/` 冒出新的文件。副本内的每条命令都显式带上 `$env:DSH_HOME="<副本>/.dsh"`。若已经写进去，按本工程 `.dsh` 的改动清单逐项复原，至少核对 `profiles/web/pnpm-workspace.yaml` 的 `storeDir`、`gui/npm-installs.json` 与 `profiles/web/package.json` 的依赖与 `dsh.profile.bundles`。
