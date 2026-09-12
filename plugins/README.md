@@ -87,7 +87,7 @@ would double-mount it and fail the plugin tree with
 - [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.19.1** 起含 DSH 0.1.5-rc.1 适配（peerDeps 全指 `^0.1.5-rc.1`，上游已在 rc.2 上完成真机挂载验证，与本工程 pinned 的 dsh-v0.1.5-rc.2 harness 一致），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.19.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.4.5`、`dsh-sidebar-qa@0.5.0`）
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.4.5`，v0.4.5 已适配 rc.1 client 运行时）
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `0.5.0`）
-- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
+- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（pin 子模块 tag `v0.1.2`；skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-client-ui-web-ui-settings@0.3.14](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-plugin-manager@0.3.14](dsh-web-ui/packages/dsh-plugin-manager/README.zh.md) npm包
@@ -172,7 +172,8 @@ would double-mount it and fail the plugin tree with
   `@dsh-external/dsh-client-ui-skin-deep-whale-manager` plus the two
   mutually exclusive skins `maid-atelier` and `orca-link`
   (`@dsh-external/dsh-client-ui-skin-maid-atelier` /
-  `@dsh-external/dsh-client-ui-skin-orca-link`, each CC BY-NC-SA 4.0). All
+  `@dsh-external/dsh-client-ui-skin-orca-link`, each MIT for its code and
+  CC BY-NC-SA 4.0 for its artwork). All
   three are 免编译源码安装 (per the 安装方式 section above): the checkout
   ships prebuilt `lib/` committed in the repo, so the wrapper passes
   `build: false` and never compiles — it links the prebuilt packages as
