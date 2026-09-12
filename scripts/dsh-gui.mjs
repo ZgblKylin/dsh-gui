@@ -8,9 +8,11 @@
  * Commands:
  *   setup    one-shot bootstrap: pinned pnpm -> harness clean+install+build ->
  *            entry exe (release unless --debug) -> plugins (each
- *            plugins/<id>/install.mjs) -> install agent presets
+ *            plugins/<id>/install.mjs) -> install agent presets -> install the
+ *            global agent template (global_template.agents/ -> .dsh/.agents/)
  *   build    harness clean+install+build (unless --skip-harness) -> entry exe ->
- *            plugins (each plugins/<id>/install.mjs) -> install agent presets
+ *            plugins (each plugins/<id>/install.mjs) -> install agent presets ->
+ *            install the global agent template
  *   install  run every plugins/<id>/install.mjs (alias: plugins)
  *   run      launch the entry exe detached; the invoking terminal returns at
  *            once and closing it never kills dsh-gui (or its harness child)
@@ -28,6 +30,7 @@ import { copyFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import {
   BIN_NAME,
+  GLOBAL_AGENTS_TEMPLATE,
   HARNESS,
   IS_WINDOWS,
   PLUGINS,
@@ -35,6 +38,7 @@ import {
   STORE,
   WEB_HOME,
   bootstrapPnpm,
+  fillTreeFromTemplate,
   pnpm,
   run,
 } from './toolchain.mjs'
@@ -203,6 +207,33 @@ function installPresets() {
   })
 }
 
+/**
+ * Install the global agent-config template into the harness home.
+ *
+ * `global_template.agents/` is the versioned source of the agent configuration
+ * shared by every profile of this installation (the always-loaded docs and the
+ * user-level skills). It lands in `<DSH_HOME>/.agents/`, which the harness
+ * scans as its agents home once the desktop shell points `DSH_AGENTS_HOME`
+ * there, so user-level skills reach every session and every workspace.
+ *
+ * The install only fills in files that are missing: an installed file that
+ * already exists is never rewritten, so a user's edit to a global doc or skill
+ * survives every later build. Update `global_template.agents/` for content
+ * that should change.
+ */
+function installGlobalTemplate() {
+  if (!existsSync(GLOBAL_AGENTS_TEMPLATE)) {
+    console.log('No global_template.agents/ — skipping the global agent template.')
+    return
+  }
+  const target = join(WEB_HOME, '.agents')
+  let written = 0
+  step('Install the global agent template into the harness home', () => {
+    written = fillTreeFromTemplate(GLOBAL_AGENTS_TEMPLATE, target)
+  })
+  console.log(`Installed global_template.agents/ -> ${target} (${written} new file(s); existing files left untouched)`)
+}
+
 function setup(options) {
   bootstrapPnpm()
   harnessInstall(true)
@@ -210,7 +241,8 @@ function setup(options) {
   if (!options.skipExe) buildExe(options.debug)
   plugins()
   installPresets()
-  console.log('\nDone. Entry exe at the repository root; plugins and agent presets installed.')
+  installGlobalTemplate()
+  console.log('\nDone. Entry exe at the repository root; plugins, agent presets, and the global agent template installed.')
 }
 
 function build(options) {
@@ -222,7 +254,8 @@ function build(options) {
   if (!options.skipExe) buildExe(options.debug)
   plugins()
   installPresets()
-  console.log('\nDone. Entry exe at the repository root; plugins and agent presets installed.')
+  installGlobalTemplate()
+  console.log('\nDone. Entry exe at the repository root; plugins, agent presets, and the global agent template installed.')
 }
 
 /** Launch the entry exe detached so the invoking terminal returns at once. */
@@ -281,9 +314,11 @@ Commands:
   setup       one-shot bootstrap: pinned pnpm -> harness clean+install+build ->
               entry exe (release unless --debug) -> plugins (each
               plugins/<id>/install.mjs) -> agent presets (each
-              presets/<id>/install.mjs)
+              presets/<id>/install.mjs) -> global agent template
+              (global_template.agents/ -> .dsh/.agents/)
   build       harness clean+install+build (unless --skip-harness) -> entry exe ->
-              plugins (each plugins/<id>/install.mjs) -> agent presets
+              plugins (each plugins/<id>/install.mjs) -> agent presets ->
+              global agent template
   install     run every plugins/*/install.mjs (alias: plugins)
   run         launch the entry exe detached; the terminal returns immediately
   shortcut    create a Windows desktop shortcut (Windows only)

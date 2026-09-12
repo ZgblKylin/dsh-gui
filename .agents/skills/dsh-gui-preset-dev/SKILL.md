@@ -67,7 +67,8 @@ persona。persona 的说明是创作 preset 的起点：
 
 - 根目录 [`presets/README.md`](../../../presets/README.md) —— dsh-gui preset 源目录约定。
 - [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— `installPresets()` 的发现与执行逻辑。
-- 内嵌示例：[`presets/review/`](../../../presets/review)
+- 内嵌示例：当前仓库没有在装实例（`presets/` 下只剩 `README.md`），模板见
+  [`presets/README.md`](../../../presets/README.md) 与 2.2 的最小模板
 - 外置源 submodule 示例：当前仓库没有在装实例（模式仍受支持，见 2.1「两种来源」）
 
 ### 2.1 目录结构
@@ -87,11 +88,8 @@ presets/
 └─ ...
 ```
 
-当前实例：
-
-| 目录 | 来源形态 | 安装脚本做什么 |
-|---|---|---|
-| `presets/review` | 内嵌源 | 逐文件覆盖复制到 `.dsh/.agent-presets/review/` |
+当前实例：**没有**。`presets/` 下只有 `README.md`；新增 preset 时按上面的目录
+结构建目录即可，`scripts/dsh-gui.mjs` 会自动发现。
 
 两种来源与 `plugins/` 同构：
 
@@ -106,7 +104,7 @@ presets/
 `install.mjs`，**不需要改任何 npm script**。注意：`npm run install:plugins`
 只装插件，不会跑 preset 安装。
 
-内嵌源最小模板（复制 `presets/review/install.mjs` 改 id 和文件列表即可）：
+内嵌源最小模板（完整范例见 [`presets/README.md`](../../../presets/README.md)）：
 
 ```js
 import { copyFileSync, mkdirSync } from 'node:fs'
@@ -151,6 +149,30 @@ console.log(`installed agent preset '${PRESET_ID}' -> ${target}`)
 --- E:\Git\dsh-gui\presets\my-preset\install.mjs
 installed agent preset 'my-preset' -> E:\Git\dsh-gui\.dsh\.agent-presets\my-preset
 ```
+
+### 2.3 用户级 skill：走 global_template.agents（与 preset 区分）
+
+preset 决定「一个 agent 有什么能力」，用户级 skill 决定「任意 agent 能按需加载
+哪些指令」。二者交付位置不同，不要混：
+
+| | preset | 用户级 skill |
+|---|---|---|
+| 仓库源 | `presets/<id>/` | `global_template.agents/skills/<name>/SKILL.md` |
+| 安装目标 | `.dsh/.agent-presets/<id>/` | `.dsh/.agents/skills/<name>/` |
+| 安装者 | `presets/<id>/install.mjs`（每个 preset 自带） | `scripts/dsh-gui.mjs` 的 `installGlobalTemplate()`（`setup` / `build` 都跑） |
+
+- `global_template.agents/` 是整份 agent 配置模板（`docs/` 常驻文档 +
+  `skills/` 用户级 skill），构建时把其中**缺失**的文件装到
+  `$DSH_HOME/.agents/`。已存在的文件不覆盖，用户对已安装文档/skill 的修改
+  因此能跨构建保留；要改内容就改 `global_template.agents/` 下的源文件，
+  但已存在的安装副本需要用户自行删掉或同步。
+- harness 只有在 `DSH_AGENTS_HOME` 指向该目录时才把它当 agents home 扫描：
+  外壳 `src-tauri/src/main.rs` 启动 harness 时已 pin
+  `DSH_AGENTS_HOME=<repo>/.dsh/.agents`（`skill-filesystem` 的 `agentsHome`
+  缺省是 `$DSH_AGENTS_HOME` 或 `~/.agents`）。
+- skill 因此以 source `user-agents`（rank 500）被发现，对所有 workspace 生效；
+  skill 的 frontmatter（`name`/`description`/`whenToUse`/`user-invocable`）与
+  写作规范见 [`packages/skill/skill-filesystem/README.md`](../../../deepseek-harness/packages/skill/skill-filesystem/README.md)。
 
 ## 3. 编写 agent.cordis.yml 的技术要点
 
@@ -312,7 +334,7 @@ filesystem realm：
    `standingKeyFor(id)` 通过。
 3. **落到源目录**：把最终 `agent.cordis.yml`、`preset.yml`、相对路径引用的
    本地插件/资源放进 `presets/<id>/`；外置源加 submodule。
-4. **写 `install.mjs`**：内嵌源照 `presets/review/install.mjs`，外置源按
+4. **写 `install.mjs`**：内嵌源照 2.2 的最小模板，外置源按
    2.2 的整目录复制模板；保持幂等、只写 `$DSH_HOME`。
 5. **构建安装**：`npm run build -- --skip-harness --skip-exe`（首次没构建过
    harness 则 `npm run setup`），确认输出 `installed agent preset '<id>'`。
@@ -326,8 +348,10 @@ filesystem realm：
 **dsh-gui 侧**
 
 - [`presets/README.md`](../../../presets/README.md) —— dsh-gui preset 源目录与安装约定。
-- [`presets/review/`](../../../presets/review) —— 内嵌源 + 逐文件安装范例。
-- [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— 构建时安装 preset 的入口。
+- [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— 构建时安装 preset 与
+  global_template.agents 的入口（`installPresets()` / `installGlobalTemplate()`）。
+- [`global_template.agents/`](../../../global_template.agents) —— 用户级 skill 与
+  常驻文档的源目录（安装到 `.dsh/.agents/`，见 2.3）。
 - [`.agents/skills/dsh-gui-plugin-dev/SKILL.md`](../../../.agents/skills/dsh-gui-plugin-dev/SKILL.md) —— 插件开发 skill；preset 常引用插件行。
 
 **deepseek-harness 侧**

@@ -115,9 +115,6 @@ browser.
   reconnect replay; optional `terminal_*` model tools, off by default), Git
   panel, embedded browser, and background-job page (see
   `plugins/better-sidebar/DSH-better-sidebar/README.md`).
-- **`dsh-review`** — `/review` slash command for code review of uncommitted
-  changes, a commit, a branch diff, a PR URL/number, or a custom request (see
-  `plugins/review/dsh-review/README.md`).
 - **`dsh-ai-update`** — browser-half bridge behind the update dialog's AI
   update buttons: receives the shell's `dsh-gui:ai-update` message, returns
   to the new-session home, selects the dsh-gui workspace, and prefills the
@@ -126,11 +123,6 @@ browser.
 - **`dsh-deep-whale`** — whale-girl skin series; currently ships the
   hot-pluggable `maid-atelier` skin (light/dark palace backgrounds, navy lace
   UI overlay, Q-version sidebar, embedded assets).
-
-### Agent presets
-
-- **`review`（审阅模式）** — review-focused coding agent built from the opencode
-  review prompt; reviews changes and replies in the user's language.
 
 ![dsh-gui with the plugin features expanded](docs/dsh-gui/images/dsh-gui-features.png)
 
@@ -181,6 +173,11 @@ dsh-gui/
 │                      #   dsh-plugin-manager + dsh-skill-explorer +
 │                      #   dsh-task-board from npm;
 │                      #   see plugins/README.md)
+├─ global_template.agents/  # versioned agent-config template: the always-loaded
+│                      #   docs and the user-level skills (the `review` skill
+│                      #   among them); the build fills missing files into
+│                      #   .dsh/.agents/ and never overwrites an existing one,
+│                      #   the agent-config home the shell pins DSH_AGENTS_HOME to
 ├─ .staging/           # (gitignored) upgrade staging clone: this repository plus
 │                      #   every submodule, where a plugin/harness upgrade is
 │                      #   validated before it is applied here (scripts/staging.mjs)
@@ -213,6 +210,12 @@ This is idempotent and fully repo-internal:
 - Runs every agent-preset install script under `presets/` — each
   `presets/<id>/` directory lands in `.dsh\.agent-presets\<id>\` and appears on
   the preset roster (see `presets/README.md` for the pattern).
+- Fills in the **global agent template** — `global_template.agents/` is merged
+  into `.dsh\.agents\`, the agent-config home the desktop shell pins
+  `DSH_AGENTS_HOME` to, so its always-loaded docs and user-level skills (the
+  `review` skill among them) reach every session. Only missing files are
+  written: an already-installed doc or skill is never overwritten, so your edits
+  to the installed copy survive every build.
 
 The result is the entry binary at the repository root (cargo keeps its own
 output at `src-tauri\target\release\` or `target\debug\`).
@@ -350,7 +353,7 @@ installPlugin({
    to the package name without a leading `dsh-`.
 
 A plugin that declares `dsh.bundle.patch` (its own `cordis.patch.yml` bundle
-layer, e.g. `dsh-review`) mounts itself: `dsh plugin add` reconciles it
+layer, e.g. `dsh-ai-update`) mounts itself: `dsh plugin add` reconciles it
 into the profile's `dsh.profile.bundles` list and its patch inserts the entry
 as a bundle layer — no `cordis.patch.yml` insert is written for it. When a
 previous version was mounted manually before gaining a bundle declaration, the

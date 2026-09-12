@@ -14,9 +14,11 @@ harness 在运行期从 harness home 的 `.agent-presets/<id>/` 发现预设（�
 
 所以本目录把预设做成**可复现的源**：
 
-1. **源即目录**：`presets/<id>/` 持有该预设的安装脚本与源。源有两种形态：
-   - **内嵌源**（如 `review`）：组合与元数据直接存放在 `presets/<id>/`
-     下，随 dsh-gui 仓库版本管理；
+1. **源即目录**：`presets/` 下除本说明外，每个 `presets/<id>/` 目录即一个
+   预设的源，持有该预设的安装脚本与组合。源有两种形态：
+   - **内嵌源**：组合 `presets/<id>/agent.cordis.yml`、可选元数据
+     `presets/<id>/preset.yml` 与安装脚本 `presets/<id>/install.mjs` 同在
+     源目录下，逐文件复制即可落地，随 dsh-gui 仓库版本管理；
    - **外置源**：组合与元数据在第三方仓库里，该仓库以 git submodule 形式
      clone 在 `presets/<id>/` 下，更新走
      `git submodule update --remote`，dsh-gui 只跟踪 submodule 指针。
@@ -31,20 +33,11 @@ harness 在运行期从 harness home 的 `.agent-presets/<id>/` 发现预设（�
    （`scripts/dsh-gui.mjs` 的 `installPresets()`）。新增预设 = 新增一个
    目录 + 安装脚本，构建自动带上它，无需改任何 npm script。
 
-```
-presets/
-├─ README.md                       # 本说明
-└─ review/                         # 内嵌源：审阅型编码 Agent
-   ├─ agent.cordis.yml             #   组合（persona 为 review 系统提示词）
-   ├─ preset.yml                   #   显示元数据（name: 审阅模式）
-   └─ install.mjs                  #   逐文件复制到 .dsh/.agent-presets/review/
-```
-
 ## 约定
 
 - **目录名 = preset id**，即运行期 roster 里的 id，也必须是合法路径段
   （小写字母/数字/连字符）。改名目录 = 改名预设，旧 id 会从 roster 消失。
-- **安装脚本必须幂等**：重复执行结果一致（当前实现为覆盖复制 + 幂等落地补丁）。
+- **安装脚本必须幂等**：重复执行结果一致（覆盖复制与落地补丁都必须可重复执行）。
 - **安装脚本必须仓库内自托管**：只写 `$DSH_HOME`（构建时传入、缺省为
   `<repo>/.dsh`），不碰系统全局位置。
 - 预设源文件本身**必须保持直接可挂载**：源（内嵌文件或 submodule 检出）里的
@@ -60,9 +53,10 @@ presets/
 ```powershell
 New-Item -ItemType Directory presets\my-agent
 # 1. 编写 presets\my-agent\agent.cordis.yml（组合）与 preset.yml（可选元数据）
-# 2. 复制 presets\review\install.mjs，把 PRESET_ID 改成 my-agent
-#    外置源：clone/submodule 上游仓库到 presets\my-agent\ 下，
-#    编写整目录复制的 install.mjs（组合里的相对路径要求整目录落地）
+# 2. 编写 presets\my-agent\install.mjs：内嵌源逐文件复制到
+#    .dsh\.agent-presets\my-agent\；外置源先把上游仓库
+#    clone/submodule 到 presets\my-agent\ 下，再整目录复制
+#    （组合里的相对路径要求整目录落地）
 # 3. 重新构建（preset 安装是 build/setup 的一步）
 npm run build -- --skip-harness --skip-exe
 ```
@@ -80,6 +74,8 @@ installed agent preset 'my-agent' -> E:\Git\dsh-gui\.dsh\.agent-presets\my-agent
 
 ## 现有预设
 
-| id | 名称 | 说明 |
-| --- | --- | --- |
-| `review` | 审阅模式 | 审查型编码 Agent：参照 opencode 的 review 系统提示词，先注入审查提示词再接收用户请求，并用用户所用的语言回复 |
+本仓库当前没有预设实例：`presets/` 下只有本说明，新增按上一节的步骤进行。
+
+预设里若需要面向用户的指令或提示词（例如 `/review`），做成用户级 skill：源文件
+放 `global_template.agents/skills/<name>/SKILL.md`，构建安装到 `.dsh/.agents/`
+（见 [`AGENTS.md`](../AGENTS.md) 的目录结构一节）。

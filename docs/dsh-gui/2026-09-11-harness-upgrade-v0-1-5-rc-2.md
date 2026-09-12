@@ -8,6 +8,10 @@
 
 ## 需要的适配
 
+> **注（后续变更）**：本节涉及的 `presets/review/` 及其配套插件 `dsh-review` 已随
+> 后续变更移除，本节只记录 `dsh-v0.1.5-rc.2` 当时的修订；`/review` 能力现由
+> `global_template.agents/skills/review/SKILL.md` 的 `review` skill 承载。
+
 `presets/review/agent.cordis.yml` 的 persona 行配置键由 `text` 改为 `prefix`。
 
 `@deepseek-ai/dsh-persona` 的配置在 `0.1.5` 系列拆分为前缀与后缀两个 prompt 区段（`deployment:persona-prefix`、`deployment:persona-suffix`），`prefix` 为必填，`suffix` 默认空串。旧键 `text` 既不再是识别字段，也使必填的 `prefix` 缺失，该 preset 组合无法加载。新 `prefix` 区段的排序值与原 `deployment:persona` 区段同为 `0`，因此把整段审阅提示词放入 `prefix` 与升级前的呈现位置一致，无需拆分为 `suffix`。
@@ -49,6 +53,10 @@ Web 端 slot 树在 `0.1.5` 系列重组：根级 `conversation` 变为 `main.co
 | `dsh-web-ui` 四包 | 兼容 | 只请求基线条目 `@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-client-ui-primitives` |
 | `deep-whale` 三皮肤 | 兼容 | 只请求 `react` 与 `react/jsx-runtime` |
 
+> **注（后续变更）**：表中 `review`（`dsh-review`）一行只对应本次升级当时的插件
+> 集合；该插件已随后续变更移除，`/review` 能力现由
+> `global_template.agents/skills/review/SKILL.md` 的 `review` skill 承载。
+
 因此本次升级不需要屏蔽任何插件，`scripts/plugin-install.mjs` 与各 wrapper 的跳过声明均未改动。
 
 ## 运行期注意事项
@@ -63,7 +71,7 @@ Web 端 slot 树在 `0.1.5` 系列重组：根级 `conversation` 变为 `main.co
 
 ## 相关文件
 
-- `presets/review/agent.cordis.yml` —— persona 配置键的适配
+- `presets/review/agent.cordis.yml` —— persona 配置键的适配（该 preset 与插件已随后续变更移除，`/review` 能力见上文注）
 - `AGENTS.md`、`docs/official/package-manifest-types.ts` —— `DshBundleManifest` 的新位置
 - `README.md` —— Node 版本下限
 - `.agents/skills/dsh-gui-update/SKILL.md` —— 两阶段升级流程

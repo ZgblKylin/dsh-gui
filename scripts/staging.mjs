@@ -198,8 +198,10 @@ function submoduleEntries() {
 }
 
 /**
- * Resolve a `.gitmodules` URL that is relative to the superproject's origin,
- * which is how `plugins/review/dsh-review` records its source.
+ * Resolve a `.gitmodules` URL that is relative to the superproject's origin
+ * (a submodule that records its source as `../<repo>` rather than an absolute
+ * URL). No in-tree submodule uses that form today; the branch is kept because
+ * `.gitmodules` is editable by hand.
  * @returns {string|null} absolute URL, or null when the base cannot be parsed.
  */
 function resolveRelativeUrl(url, base) {

@@ -1082,8 +1082,8 @@ mod tests {
             .any(|(name, path)| name == "deepseek-harness" && path.ends_with("deepseek-harness")));
         assert!(entries
             .iter()
-            .any(|(name, path)| name == "plugins/review/dsh-review"
-                && path.ends_with("dsh-review")));
+            .any(|(name, path)| name == "plugins/dsh-web-ui/dsh-web-ui"
+                && path.ends_with("dsh-web-ui")));
     }
 
     #[test]

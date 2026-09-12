@@ -62,9 +62,12 @@ plugins/
 | wrapper | 包路径 | 来源形态 | 特殊处理 |
 |---|---|---|---|
 | `plugins/remote` | `remote/dsh-remote` | 内嵌源码 | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
-| `plugins/review` | `review/dsh-review` | git submodule（`../dsh-review`） | 无 `build` 脚本；`dsh.bundle.patch` 自挂载；`sourceHint` 提示如何初始化子模块 |
 | `plugins/ai-update` | `ai-update/dsh-ai-update` | 内嵌源码 | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
 | `plugins/deep-whale` | `deep-whale/dsh-deep-whale/maid-atelier` | git submodule（多包仓库） | `build: false` 使用预构建产物；`dsh.bundle.patch` 自挂载 |
+
+靠提示词与现有工具完成的用户级指令（例如 `/review`）做成 skill，不要建 wrapper：
+源文件放 `global_template.agents/skills/<name>/SKILL.md`，构建安装到
+`.dsh/.agents/`；只有需要注册 service、工具或命令的能力才写成插件。
 
 ### 1.2 两种来源
 

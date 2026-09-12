@@ -3,7 +3,8 @@
 //! It does three things:
 //!   1. spawn the self-hosted harness web server (`dsh web`) from the
 //!      `deepseek-harness` submodule checkout, with `DSH_HOME` pinned inside
-//!      the repository;
+//!      the repository and `DSH_AGENTS_HOME` pointing at the agent-config home
+//!      the build installs `global_template.agents/` into;
 //!   2. wait until that server answers HTTP on the loopback port;
 //!   3. open a single frameless window: the shell page (served from the app
 //!      origin, `frontendDist: ui`) renders the custom title bar and dialogs,
@@ -446,6 +447,10 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
     ensure_loopback_port_available(port)?;
 
     let home = root.join(".dsh");
+    // The agent-config home the build installs `global_template.agents/` into:
+    // the harness scans it for user-level skills and always-loaded docs, and it
+    // must be set here because its default is the machine-wide `~/.agents`.
+    let agents_home = home.join(".agents");
     let log_dir = home.join("gui");
     fs::create_dir_all(&log_dir)?;
     let log_path = log_dir.join("harness.log");
@@ -461,6 +466,7 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
         .arg("--no-open")
         .current_dir(root.join(HARNESS_DIR))
         .env("DSH_HOME", &home)
+        .env("DSH_AGENTS_HOME", &agents_home)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]

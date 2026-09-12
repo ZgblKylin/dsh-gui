@@ -23,7 +23,7 @@
 
 顶层工程的 `origin` 指向本工程的工作区路径，`sync` 因此能把本工程已提交的修订（含未推送的提交）带入副本。副本的 `upstream` 指向本工程 origin 的真实 URL，用于验证顶层仓库自身的远端更新。
 
-子模块 URL 取自本仓库 `.git/config` 中已解析的值。`.gitmodules` 里的相对 URL（例如 `plugins/review/dsh-review` 的 `../dsh-review`）按 origin URL 解析后再写入副本，因此副本不依赖本工程目录的相对位置。
+子模块 URL 取自本仓库 `.git/config` 中已解析的值。`.gitmodules` 里若出现相对 URL，按 origin URL 解析后再写入副本，因此副本不依赖本工程目录的相对位置（当前在册子模块都写绝对 URL，相对形式只是保留的支持路径）。
 
 `sync` 只带入已提交的修订。本工程的未提交改动需要你在副本中重做同样的编辑，或导出为 patch 应用到副本，否则验证的不是即将实装的状态。
 

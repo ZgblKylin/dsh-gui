@@ -67,7 +67,7 @@ node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove <package>
 | `.dsh/<plugin-id>/` | 插件状态（`dsh-pet/` 的 `main-config.json`+`memory.json`、`task-board/` 的 ledger/scheduler、`llm-deepseek/files-v3.json`、`pet-install/` 安装日志…） | 插件私有数据；确认不再需要后删 |
 | `.dsh/plugins/<id>/` | wrapper 自己的运行期状态目录（如 `deep-whale/maid-atelier`） | 与插件 id 同名，删插件时一并删 |
 | `.dsh/storages/` | storage domain 落盘（`<domain>.json` 或目录） | 插件自建 domain 的持久数据，按 domain 判断 |
-| `.dsh/skills/<name>`、`.dsh/AGENTS.md` | 插件附带的技能目录、插件追加的用户级指令段 | 插件作者可能写在这两处，删插件时检查一次 |
+| `.dsh/skills/<name>`、`.dsh/.agents/`、`.dsh/AGENTS.md` | 插件附带的技能目录、agents home（`DSH_AGENTS_HOME` 指向它，构建从 `global_template.agents/` 装入）、插件追加的用户级指令段 | 插件作者可能写在这两处，删插件时检查一次；`global_template.agents/` 的内容由构建重新安装，别把它的源文件当残留删掉 |
 | `.dsh/gui/npm-installs.json` | `installNpmPlugin` 记录的 npm 包名数组（桌面壳 update checker 读它判定「npm 安装 vs 源码安装」） | 不删则永远为已删包查版本，清掉该包名 |
 | `.dsh/gui/pending-updates.json` | 更新检查缓存，含 `path`/`current`/`latest` 行 | 每次检查按 `.gitmodules` 重建，**会自动消失**，一般无需手工清 |
 | `.dsh/profiles/web/.dsh-market/state.json` | 市场状态（`disabled`、`groups`、`groupOrder`、`region`） | 插件在市场里被禁用/分组过时，清对应 id |
@@ -289,6 +289,6 @@ wrapper 目录里的独立 `.git`，就是完整的「五处」。
 
 `.git/` 内部全量核对（对上述四个案例复查过）：`.git/config` 段集合与 `.gitmodules` 段集合
 一致，`.git/modules` 下 8 个 module git dir 全部对应在册子模块、无孤儿、无空壳父目录；
-`plugins/review/dsh-review` 与 `plugins/dsh-web-ui/dsh-web-ui` 是独立 clone（本就没有 module
-条目，`.git` 随检出目录删除即可）；四个已删模块在 `.git/config`、`.git/info/exclude`、
+`plugins/dsh-web-ui/dsh-web-ui` 是独立 clone（本就没有 module 条目，`.git` 随检出目录
+删除即可，`.git/modules` 无对应条目）；四个已删模块在 `.git/config`、`.git/info/exclude`、
 `.git/packed-refs` 与 `.git` 下的目录名中均已无痕。
