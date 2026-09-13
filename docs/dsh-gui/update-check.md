@@ -40,8 +40,8 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 ## 检测与标注
 
 - **安装记录**：共享流水线 `scripts/plugin-install.mjs` 的 `installNpmPlugin`
-  把每个 npm 包名（含 wrapper 通过 `skip` 选项默认跳过的包，如
-  `dsh-pet`）追加写入
+  把每个 npm 包名（含被 `DSH_PLUGIN_SKIP` / wrapper `skip` 默认跳过的包——记录
+  先于安装判定写入，跳过与否都留档）追加写入
   `.dsh/gui/npm-installs.json`（运行时缓存、gitignored）。
 - **归属判定**：`src-tauri/src/update.rs` 扫描每个 submodule 的 `package.json`
   （根 manifest + `packages/**`），与上述 registry 求交集，得到该行所属的 npm

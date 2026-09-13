@@ -9,38 +9,42 @@
 
 ```text
 plugins/dsh-pet/
-├─ install.mjs                   # npm 安装 dsh-pet@0.2.6 + 注入桌面屏蔽配置
+├─ install.mjs                   # npm 安装 dsh-pet@0.2.8 + 注入桌面屏蔽配置
 ├─ inject-config.mjs             # 用户配置注入（纯函数，可单测）
 ├─ README.md                     # 本说明
-└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.2.6）
+└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.2.8）
    ├─ dsh-pet/                   # 真正的 npm 包源码（package.json / cordis.patch.yml / src/…）
    └─ …                          # 仓库其余部分（scripts / tools / prompts 等，仅源码参考）
 ```
 
 来源形态：git submodule（整仓库，源码参考；npm 发布包在仓库内 `dsh-pet/`
 子目录），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
-`dsh-pet@0.2.6`），不参与构建。
+`dsh-pet@0.2.8`），不参与构建。
 
 ## 兼容性状态
 
-`dsh-pet` v0.2.6 在本仓库 pin 的 harness（dsh-v0.1.2-rc.1）下**可正常安装运行**：
+`dsh-pet` v0.2.8 在本仓库 pin 的 harness（dsh-v0.1.5-rc.2）下**可正常安装运行**：
 
 - host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm',
-  'commands']`——`agentDefaultModel` 服务现已由 base bundle 的
+  'commands']`——与 0.2.6 相同；`agentDefaultModel` 服务由 base bundle 的
   `@deepseek-ai/dsh-agent-default-model` 提供，host 半可正常激活；
-- client 半 `dsh.client.inject` 原依赖 `@deepseek-ai/dsh-client-runtime`
+- client 半**本地** inject 自 0.2.8 起加入 `commandUi`（官方
+  `dsh-client-ui-commands` 提供的「/」命令服务，随 web-app bundle 挂载），
+  `/pet` 选择框只在命令服务就绪后注册——本 harness 提供该服务；
+- client 半声明层 `dsh.client.inject` 仍列出 `@deepseek-ai/dsh-client-runtime`
   （该旧运行时在本 harness 中已由 `dsh-client-connection / dsh-client-store /
-  dsh-client-modules` 取代），但经实测 dsh-pet 的浏览器半可正常加载运行；其
-  「系统通知」所需的浏览器通知权限由 dsh-gui 壳层的 WebView2 授权处理（见
-  `src-tauri/src/views.rs` 与 `src-tauri/ui/view-bridge.js`）支持，不再依赖
-  浏览器的「网站设置→通知」。
+  dsh-client-modules` 取代）。`dsh.client.inject` 只是模块图排序信息
+  （client-modules 的 `orderByModuleGraph` 只解析 `dsh.client.external` 边），
+  缺失不影响加载；其「系统通知」所需的浏览器通知权限由 dsh-gui 壳层的 WebView2
+  授权处理（见 `src-tauri/src/views.rs` 与 `src-tauri/ui/view-bridge.js`）支持，
+  不再依赖浏览器的「网站设置→通知」。
 
-因此 `plugins/dsh-pet/install.mjs` 不再向 `installNpmPlugin` 传 `skip`，
+因此 `plugins/dsh-pet/install.mjs` 不向 `installNpmPlugin` 传 `skip`，
 `npm run install:plugins` / `npm run build` 默认安装（不会破坏 profile 启动）。
 
 > 插件名冲突（issue
 > [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)）：上游已把 webserver
-> 路由前缀 `/pet` 改为 `/dsh-pet-7340`（0.1.8 起，v0.2.6 已含），不再与其它插件的
+> 路由前缀 `/pet` 改为 `/dsh-pet-7340`（0.1.8 起，v0.2.8 已含），不再与其它插件的
 > `/pet` 路由撞车。残留风险是 Loader entry id `pet` 与其它同样用 `pet` 的插件
 > 同 profile 共存会 `duplicate loader entry id`——本仓库已移除 `dsh-web-ui` 对
 > `@linxin666/dsh-pet`（同为 entry `pet`）的安装，默认 profile 不会双挂。

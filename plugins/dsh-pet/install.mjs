@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 // plugins/dsh-pet/install.mjs — PC2005-cloud/dsh-pet（npm 包名 dsh-pet）wrapper。
 //
-// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 最新版本 tag v0.2.6，
+// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 最新版本 tag v0.2.8，
 //   仅作源码参考，不参与构建）；安装走 npm（installNpmPlugin，精确版本
-//   dsh-pet@0.2.6），与 dsh-web-ui 等 npm 型 wrapper 同一通道。
+//   dsh-pet@0.2.8），与 dsh-web-ui 等 npm 型 wrapper 同一通道。
 //
-// 兼容性：v0.2.6 的 host 半 inject `webServer / agentDefaultModel / credentials /
-//   llm / commands`，其中 `agentDefaultModel` 服务在本仓库 pin 的
-//   dsh-v0.1.2-rc.1 已由 base bundle（@deepseek-ai/dsh-agent-default-model）
-//   提供，host 半可正常激活；浏览器半原依赖的 `@deepseek-ai/dsh-client-runtime`
-//   在本 harness 中已被 dsh-client-connection / dsh-client-store /
-//   dsh-client-modules 取代，但经实测 dsh-pet 的浏览器半可正常加载运行（系统
-//   通知权限由 dsh-gui 壳层的 WebView2 授权弹窗支持，见 src-tauri）。故本
-//   wrapper 不再默认跳过。
+// 兼容性：v0.2.8 的 host 半 inject `webServer / agentDefaultModel / credentials /
+//   llm / commands` 与 0.2.6 相同，其中 `agentDefaultModel` 服务由本仓库 pin 的
+//   base bundle（@deepseek-ai/dsh-agent-default-model）提供，host 半可正常激活；
+//   浏览器半自 0.2.8 起把 `commandUi`（官方 dsh-client-ui-commands 的「/」命令
+//   服务）加进本地 inject，该服务随 web-app bundle 挂载，因此 /pet 选择框注册
+//   有保障。声明层的 `@deepseek-ai/dsh-client-runtime` 是模块图排序信息
+//   （client-modules 只解析 `dsh.client.external` 边，缺失不影响加载），系统通知
+//   权限由 dsh-gui 壳层的 WebView2 授权弹窗支持（见 src-tauri）。故本 wrapper
+//   不默认跳过。
 //
 // 桌面屏蔽：插件真正装入 profile 后，向 $DSH_HOME/dsh-pet/main-config.json
 //   注入 display:"web" 的默认宠物（见 inject-config.mjs），使任何宠物都不
@@ -29,7 +30,7 @@ import { injectPetConfig, petConfigPath } from './inject-config.mjs'
 
 const ID = 'dsh-pet'
 // 精确稳定 SemVer（Market 约束：不用 latest / 版本范围 / prerelease 作安装目标）。
-const PACKAGE_SPEC = 'dsh-pet@0.2.6'
+const PACKAGE_SPEC = 'dsh-pet@0.2.8'
 
 installNpmPlugin({ id: ID, packageSpec: PACKAGE_SPEC })
 

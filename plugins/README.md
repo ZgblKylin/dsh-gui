@@ -97,14 +97,15 @@ would double-mount it and fail the plugin tree with
   - [@linxin666/dsh-client-ui-skill-explorer@0.3.14](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-task-board@0.3.14](dsh-web-ui/packages/dsh-task-board/README.zh.md) npm包
 - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2`，另按上游 preset 生成 `<id>-team`；见 [agent-team/README.md](agent-team/README.md)
-- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.5；子模块
-  checkout 仅作源码参考）。**默认跳过**（跳过声明在 wrapper 的 `install.mjs`，
-  不硬编码于共享流水线）：v0.2.5 的 host 半已兼容（`agentDefaultModel` 服务
-  现由 rc.1 的 base bundle 提供），但 client 半仍依赖已被本 harness
-  （dsh-v0.1.2-rc.1）移除的 `@deepseek-ai/dsh-client-runtime`，浏览器侧
-  miss module table——需 `DSH_PLUGIN_FORCE_INSTALL=1` 强制安装（见
-  [dsh-pet/README.md](dsh-pet/README.md)）。安装后自动向用户配置注入
-  `display:"web"` 屏蔽桌面 Electron 模式
+- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.8；子模块
+  checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 相同，
+  `agentDefaultModel` 由 base bundle 提供；client 半自 0.2.8 起把 `commandUi`
+  （官方 dsh-client-ui-commands 的「/」命令服务，随 web-app bundle 挂载）加进
+  本地 inject，本 harness 提供该服务，`/pet` 选择框注册有保障；声明层的
+  `@deepseek-ai/dsh-client-runtime` 只是模块图排序信息（client-modules 只解析
+  `dsh.client.external` 边），缺失不影响加载。安装后自动向用户配置注入
+  `display:"web"` 屏蔽桌面 Electron 模式（见
+  [dsh-pet/README.md](dsh-pet/README.md)）
 
 ## Current plugins
 
@@ -200,19 +201,20 @@ would double-mount it and fail the plugin tree with
   `dsh-task-board` (`@linxin666/dsh-client-ui-task-board`) — each mounts
   through its own `dsh.bundle.patch` layer; it does not install agent presets
   or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
-- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.5)
+- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.8)
   at `dsh-pet/dsh-pet`: a floating desktop pet whose host half runs inside
   DSH and whose optional desktop mode spawns per-pet transparent Electron
-  windows. The wrapper installs the package from npm as `dsh-pet@0.2.5`, then
+  windows. The wrapper installs the package from npm as `dsh-pet@0.2.8`, then
   injects a user-layer default pet with `display:"web"` into
   `$DSH_HOME/dsh-pet/main-config.json` (unless a `display` is already
   configured) — so no pet resolves to `desktop`/`both` and no Electron helper
-  process is launched or downloaded. It defaults to **skipped** because dsh-pet
-  0.2.5's client half is still not runnable on the pinned harness
-  (`@deepseek-ai/dsh-client-runtime` removed; the host half is compatible now —
-  `agentDefaultModel` is provided by the base bundle); set
-  `DSH_PLUGIN_FORCE_INSTALL=1` to install.
-  See `dsh-pet/README.md`.
+  process is launched or downloaded. It installs by default: the host half's
+  injection is unchanged from 0.2.6 (`agentDefaultModel` is provided by the base
+  bundle), and 0.2.8's client half adds `commandUi` to its own inject — the `/`
+  command service `dsh-client-ui-commands` mounts with the web-app bundle, so
+  the `/pet` selector registers; the declared `@deepseek-ai/dsh-client-runtime`
+  edge is module-graph ordering metadata only and its absence does not block
+  loading. See `dsh-pet/README.md`.
 - `agent-team` — no plugin package of its own: the wrapper installs two
   official experimental Agent Teams bundles from npm
   (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` and
