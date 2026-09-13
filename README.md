@@ -370,7 +370,7 @@ submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
 (`build: false`, no copy, no patch).
 
 `plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
-four npm bundles pinned to the submodule tag (`0.3.14`) through
+four npm bundles pinned to the submodule tag (`0.3.22`) through
 `installNpmPlugin` — `@linxin666/dsh-client-ui-web-ui-settings` (ordered
 first), `@linxin666/dsh-client-ui-plugin-manager`,
 `@linxin666/dsh-client-ui-skill-explorer` and

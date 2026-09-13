@@ -29,7 +29,7 @@
 | 加载 plugin `dsh-pet` 报 `missed the module table` / client 失败 | 早期记录（v0.1.2-rc.1 harness）下，发布包声明层 `dsh.client.inject` 里的 `@deepseek-ai/dsh-client-runtime` 边 | 当前 pinned harness（dsh-v0.1.5-rc.2）下默认安装即可：该边只是模块图排序信息，client 半的本地 inject 不含该运行时（§4.2） |
 | `pet` 插件行停在 PENDING / 不激活 | 本 harness（dsh-v0.1.5-rc.2）中 `agentDefaultModel` 服务由 base bundle 提供，host 半可激活 | 若仍 PENDING，按 `dsh --dump-config` 核对其余 inject 服务（webServer/credentials/llm/commands）；注意 v0.2.8 起 client 半本地 inject 增加了 `commandUi`（§4.2） |
 | 意外出现独立 Electron 小窗 / 自动下载 Electron 到 `$DSH_HOME/electron/` | 某宠物 `display` 为 `desktop`/`both`（内置默认是 `both`） | §3.2 注入 `display:"web"`；已有窗口需重启或保存一次设置页才停 |
-| 设置卡提示"命名空间未暴露" | 只有鲸鱼娘 family 插件依赖 `webUiSettings` 桥；PC2005 `dsh-pet` 用自己的 `/dsh-pet-7340/config`，不依赖该桥 | 与 `dsh-pet` 无关；若要鲸鱼娘设置卡需装 `@linxin666/dsh-client-ui-web-ui-settings`（由 `plugins/dsh-web-ui` wrapper 默认安装 `0.3.14`） |
+| 设置卡提示"命名空间未暴露" | 只有鲸鱼娘 family 插件依赖 `webUiSettings` 桥；PC2005 `dsh-pet` 用自己的 `/dsh-pet-7340/config`，不依赖该桥 | 与 `dsh-pet` 无关；若要鲸鱼娘设置卡需装 `@linxin666/dsh-client-ui-web-ui-settings`（由 `plugins/dsh-web-ui` wrapper 默认安装 `0.3.22`） |
 
 ## 3. 快速排查命令
 

@@ -70,7 +70,7 @@ would double-mount it and fail the plugin tree with
 
 - **Multiple npm bundles wrapper** — `dsh-web-ui` installs four plugin
   packages of its distribution repo, pinned to exact versions matching the
-  git tag (`0.3.14`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
+  git tag (`0.3.22`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
   gate, which would otherwise silently fall back to an older version for
   `@latest`): `@linxin666/dsh-client-ui-web-ui-settings`,
   `@linxin666/dsh-client-ui-plugin-manager`,
@@ -92,10 +92,10 @@ would double-mount it and fail the plugin tree with
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `0.5.0`）
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（pin 子模块 tag `v0.1.2`；skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
-  - [@linxin666/dsh-client-ui-web-ui-settings@0.3.14](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
-  - [@linxin666/dsh-client-ui-plugin-manager@0.3.14](dsh-web-ui/packages/dsh-plugin-manager/README.zh.md) npm包
-  - [@linxin666/dsh-client-ui-skill-explorer@0.3.14](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
-  - [@linxin666/dsh-client-ui-task-board@0.3.14](dsh-web-ui/packages/dsh-task-board/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-web-ui-settings@0.3.22](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-plugin-manager@0.3.22](dsh-web-ui/packages/dsh-plugin-manager/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-skill-explorer@0.3.22](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-task-board@0.3.22](dsh-web-ui/packages/dsh-task-board/README.zh.md) npm包
 - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2`，另按上游 preset 生成 `<id>-team`；见 [agent-team/README.md](agent-team/README.md)
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.8；子模块
   checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 相同，
@@ -193,7 +193,7 @@ would double-mount it and fail the plugin tree with
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
   `dsh-web-ui/dsh-web-ui`. Installs four plugin packages of the distribution
-  repo pinned to exact versions matching the git tag (`0.3.14`) (per the
+  repo pinned to exact versions matching the git tag (`0.3.22`) (per the
   安装方式 section above): the `dsh-web-ui-settings` compatibility bundle
   (`@linxin666/dsh-client-ui-web-ui-settings`, ordered first),
   `dsh-plugin-manager` (`@linxin666/dsh-client-ui-plugin-manager`),

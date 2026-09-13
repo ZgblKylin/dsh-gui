@@ -2,20 +2,22 @@
 
 `dsh-web-ui` 的 git submodule wrapper。这个 wrapper 安装该仓库中的**插件本体**，
 全部以 npm 包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的
-「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.3.14`）：
+「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.3.22`）：
 
 1. **`dsh-web-ui-settings` 兼容设置桥**
-   （`@linxin666/dsh-client-ui-web-ui-settings@0.3.14`，排在最前）；
+   （`@linxin666/dsh-client-ui-web-ui-settings@0.3.22`，排在最前）；
 2. **`dsh-plugin-manager` 插件管理器 Tab**
-   （`@linxin666/dsh-client-ui-plugin-manager@0.3.14`）；
+   （`@linxin666/dsh-client-ui-plugin-manager@0.3.22`）；
 3. **`dsh-skill-explorer` 技能中心面板**
-   （`@linxin666/dsh-client-ui-skill-explorer@0.3.14`）；
+   （`@linxin666/dsh-client-ui-skill-explorer@0.3.22`）；
 4. **`dsh-task-board` 任务板**
-   （`@linxin666/dsh-client-ui-task-board@0.3.14`）。
+   （`@linxin666/dsh-client-ui-task-board@0.3.22`）。
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
 保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 版本号。
+
+四个包要求 `dsh >= 0.1.5-rc.1`，本工程 pinned 的 `dsh-v0.1.5-rc.2` 满足该声明。
 
 不安装 dsh-web-ui 的其他任何包、插件、皮肤，也不安装其 agent preset（agent
 preset 属于 `presets/` 流程，不在本 wrapper）。`dsh-liangshen`（梁神模式）与其
@@ -55,23 +57,29 @@ binder 注入给声明它的家族插件；没有它时，依赖 `webUiSettings`
 loopback HTTP 网关（`/api/plugin-manager/*`）spawn 官方 `dsh plugin` CLI——
 两种通道最终都由官方写入器落盘。提供插件列表 / 启停开关 / npm·git 安装 /
 更新·卸载 / 安装冲突对账 / 失败修复会话（seed 不含任何密钥/token）。
+聚合包（如 `dsh-web-all`）携带的子行默认折叠为「N/M child plugins on」摘要，
+可逐行启用/禁用（只写单行 `disabled` 覆盖，不动兄弟行），列出的启停值反映
+下一次启动的有效状态。
 
 `dsh-skill-explorer` 是 DSH 技能中心：按来源（bundled / project / user /
 custom / runtime）浏览已加载技能、启停、创建与删除；仅依赖官方 locale /
-renderer 服务，作为独立 bundle 层自挂载。
+renderer 服务，作为独立 bundle 层自挂载。面板提供搜索框（按名称或描述过滤，
+名称命中优先，与工作区选择器叠加），并支持多工作区展示。
 
 `dsh-task-board` 是 host 权威任务板：真实会话执行（非 mock）、Host cron
 定时调度、可选跨平台闲置防睡眠；host 半区挂载系统提示词公告 section（受
 `announceToAgent` 开关控制，默认关），浏览器半区渲染任务板 UI，无需改 DSH
-源码。
+源码。任务可选复用上一次执行的会话（仅当该会话空闲且仍在运行名册中才复用，
+否则照旧新建）；任务可带最多 8 个标签，标签的「执行提示」随任务提示注入，
+板头另有标签筛选、搜索也匹配标签名。
 
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
-dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.3.14
-dsh plugin --profile web add @linxin666/dsh-client-ui-plugin-manager@0.3.14
-dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.3.14
-dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@0.3.14
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.3.22
+dsh plugin --profile web add @linxin666/dsh-client-ui-plugin-manager@0.3.22
+dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.3.22
+dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@0.3.22
 ```
 
 四个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
@@ -108,19 +116,19 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-task-board@0.3.14
 ```text
 --- E:\Git\dsh-gui\plugins\dsh-web-ui\install.mjs
 
-==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.3.14 from npm)
+==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.3.22 from npm)
   ...
 installed plugin 'dsh-web-ui-settings' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-plugin-manager' (@linxin666/dsh-client-ui-plugin-manager@0.3.14 from npm)
+==> install plugin 'dsh-plugin-manager' (@linxin666/dsh-client-ui-plugin-manager@0.3.22 from npm)
   ...
 installed plugin 'dsh-plugin-manager' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.3.14 from npm)
+==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.3.22 from npm)
   ...
 installed plugin 'dsh-skill-explorer' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-task-board' (@linxin666/dsh-client-ui-task-board@0.3.14 from npm)
+==> install plugin 'dsh-task-board' (@linxin666/dsh-client-ui-task-board@0.3.22 from npm)
   ...
 installed plugin 'dsh-task-board' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
@@ -133,7 +141,7 @@ node plugins/dsh-web-ui/install.mjs
 
 ## 幂等性
 
-`dsh plugin add <pkg>@0.3.14`（npm，精确版本）可重复执行；bundle 层挂载由受管
+`dsh plugin add <pkg>@0.3.22`（npm，精确版本）可重复执行；bundle 层挂载由受管
 安装器 reconcile 保证幂等。
 
 ## 更新源
