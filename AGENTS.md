@@ -133,8 +133,8 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
 - 采用 Conventional Commits：`feat:` / `fix:` / `chore:` / `docs:` / `build:` / `refactor:`，正文按需使用。
 - 外层仓库与 `plugins/<id>/` 子模块各自独立提交；改动跨越两者时分别编写 commit message。
 - **不主动执行 `git commit`**：dsh 沙箱限制下由 dsh 生成的提交无法引用用户 GPG 签名，直接提交会绕过用户的签名配置。
-- 完成代码改动后，将变更添加到暂存区（`git add`），编写 commit message，并在回复中提醒用户手动执行 `git commit`（以便 GPG 签名与提交钩子生效）。
-- 提交前检查 `git status` 确认暂存范围正确；不要提交 `node_modules/`、`lib/` 等构建产物（已由 `.gitignore` 排除）。
+- 完成代码改动后，无需提交或者暂存，只需编写 commit message，并在回复中提醒用户手动执行 `git commit`（以便 GPG 签名与提交钩子生效）。
+- 用户要求暂存时，操作完成后检查 `git status` 确认暂存范围正确；不要添加 `node_modules/`、`lib/` 等构建产物和缓存目录（需由 `.gitignore` 排除）。
 
 ### 预提交 checklist（每次提交前逐项核对）
 
