@@ -13,6 +13,9 @@ node_modules/
 # submodule, where a plugin/harness upgrade is built and smoke-tested before it
 # is applied here. Maintained by scripts/staging.mjs; never a source of truth.
 .staging/
+# Desktop packaging download caches (Electron runtime, electron-builder tools)
+# kept in the workspace because the sandbox denies writing %LOCALAPPDATA%.
+.cache/
 
 # ── Tauri / Rust build output (entry exe lives here, but is never committed) ──
 src-tauri/target/
