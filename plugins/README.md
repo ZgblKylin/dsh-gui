@@ -5,16 +5,19 @@ Local DeepSeek Harness plugin packages, in the same preset-style layout as
 `install.mjs` plus the plugin package/repo checkout (for multi-package
 distribution repos such as `deep-whale`, the package path points one level
 deeper). A wrapper may own several checkouts and install several npm
-packages in one script. `dsh-web-ui` is the exception: it installs four npm
-bundles of its distribution repo — `dsh-web-ui-settings`,
-`dsh-plugin-manager`, `dsh-skill-explorer` and `dsh-task-board` — and
-nothing else.
+packages in one script. Two wrappers own no package checkout at all:
+`dsh-web-ui` installs four npm bundles of its distribution repo —
+`dsh-web-ui-settings`, `dsh-plugin-manager`, `dsh-skill-explorer` and
+`dsh-task-board` — and `agent-team` installs two official Agent Teams bundles
+and derives Team-aware agent presets from the shipped ones.
 
 ```
 plugins/
 ├─ <id>/
-│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: four npm bundles
-│  └─ <package>/         # the plugin package (in-tree, or a git submodule)
+│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: four npm
+│  │                     # bundles; agent-team: two npm bundles + derived presets
+│  └─ <package>/         # the plugin package (in-tree, or a git submodule); absent
+│                        # for npm-only wrappers
 └─ ...
 ```
 
@@ -93,6 +96,7 @@ would double-mount it and fail the plugin tree with
   - [@linxin666/dsh-client-ui-plugin-manager@0.3.14](dsh-web-ui/packages/dsh-plugin-manager/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-skill-explorer@0.3.14](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-task-board@0.3.14](dsh-web-ui/packages/dsh-task-board/README.zh.md) npm包
+- Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2`，另按上游 preset 生成 `<id>-team`；见 [agent-team/README.md](agent-team/README.md)
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.5；子模块
   checkout 仅作源码参考）。**默认跳过**（跳过声明在 wrapper 的 `install.mjs`，
   不硬编码于共享流水线）：v0.2.5 的 host 半已兼容（`agentDefaultModel` 服务
@@ -209,3 +213,17 @@ would double-mount it and fail the plugin tree with
   `agentDefaultModel` is provided by the base bundle); set
   `DSH_PLUGIN_FORCE_INSTALL=1` to install.
   See `dsh-pet/README.md`.
+- `agent-team` — no plugin package of its own: the wrapper installs two
+  official experimental Agent Teams bundles from npm
+  (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` and
+  `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2`; exact
+  prerelease pins, because npm `latest` still points at `0.1.5-alpha.2` and the
+  Community Market cannot carry a prerelease), then derives a Team-aware sibling
+  `<id>-team` for every shipped agent preset that carries delegation rows.
+  Those siblings exist because the experimental bundle's own patch layer
+  disables the continuable-child control tools and switches delegation to
+  `one-shot` at the PROFILE level, which never reaches the preset rows that
+  actually supply those tools — leaving `send_message` Team-addressed (roster
+  names only) while `subagent` still created continuable children the parent
+  could no longer address. No shipped profile enables Agent Teams. See
+  `agent-team/README.md`.
