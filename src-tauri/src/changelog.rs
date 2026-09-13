@@ -44,10 +44,16 @@ use crate::update::{git_output, remote_default_branch, submodule_entries};
 /// Distinguishes concurrent temp capture files within one process.
 static CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Embedded node script that fetches one GitHub release by tag and prints a
-/// one-line JSON summary for the Rust side to parse. Written to a temp file at
+/// Embedded node script that fetches the GitHub releases for a set of tags and
+/// prints one JSON line for the Rust side to parse. Written to a temp file at
 /// call time; the harness requires Node ≥ 22, so global `fetch` + timeouts are
 /// available.
+///
+/// argv: `[baseUrl, wantedTagsJson]`, where `baseUrl` is the paginated release
+/// list endpoint (`…/releases?per_page=100`) and `wantedTagsJson` is the array
+/// of tags the update brings in. The endpoint is queried newest-first and pages
+/// are followed (bounded) only until every wanted tag is accounted for, so an
+/// update that spans several releases costs one request in the common case.
 ///
 /// The script must never call `process.exit()`. On Windows that aborts node
 /// while undici is still draining the fetch's async handles, and libuv then
@@ -61,31 +67,72 @@ static CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 const RELEASE_FETCH_SCRIPT: &str = r#"
 import { writeSync } from 'node:fs';
 
-const url = process.argv[2];
-let result;
+const base = process.argv[2];
+const wanted = new Set(JSON.parse(process.argv[3] || '[]'));
+const releases = [];
+const PER_PAGE = 100;
+const MAX_PAGES = 3;
+let failure = null;
+// True once the API list ran out (a page shorter than PER_PAGE): only then is a
+// wanted tag that was never seen *proven* to have no release. If the page cap
+// is reached instead, the remaining tags stay unresolved rather than being
+// reported as release-less.
+let exhausted = false;
 try {
-  const response = await fetch(url, {
-    headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-gui-changelog' },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (response.status === 404) {
-    await response.body?.cancel();
-    result = { ok: false, status: 404 };
-  } else if (response.status < 200 || response.status >= 300) {
-    await response.body?.cancel();
-    result = { ok: false, status: response.status };
-  } else {
-    const json = await response.json();
-    result = {
-      ok: true,
-      name: typeof json.name === 'string' ? json.name : '',
-      body: typeof json.body === 'string' ? json.body : '',
-      tagName: typeof json.tag_name === 'string' ? json.tag_name : '',
-      publishedAt: typeof json.published_at === 'string' ? json.published_at : '',
-    };
+  for (let page = 1; page <= MAX_PAGES && wanted.size > 0; page += 1) {
+    const response = await fetch(base + '&page=' + page, {
+      headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-gui-changelog' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.status < 200 || response.status >= 300) {
+      await response.body?.cancel();
+      failure = { status: response.status };
+      break;
+    }
+    const items = await response.json();
+    const list = Array.isArray(items) ? items : [];
+    for (const item of list) {
+      const tag = item && typeof item.tag_name === 'string' ? item.tag_name : '';
+      if (!tag || !wanted.has(tag)) continue;
+      wanted.delete(tag);
+      releases.push({
+        tag,
+        name: typeof item.name === 'string' ? item.name : '',
+        body: typeof item.body === 'string' ? item.body : '',
+        publishedAt: typeof item.published_at === 'string' ? item.published_at : '',
+        prerelease: item.prerelease === true,
+      });
+    }
+    if (list.length < PER_PAGE) {
+      exhausted = true;
+      break;
+    }
   }
 } catch (error) {
-  result = { ok: false, network: String((error && error.message) || error) };
+  failure = { network: String((error && error.message) || error) };
+}
+const unresolved = [...wanted];
+const capped = !exhausted && unresolved.length > 0;
+const incomplete = failure
+  ? (failure.status === undefined ? failure.network : 'GitHub API 返回 ' + failure.status)
+  : (capped ? '只读取了 Release 列表的前 ' + MAX_PAGES * PER_PAGE + ' 个' : '');
+let result;
+if (releases.length > 0) {
+  // A failure or the page cap part-way through keeps the releases already
+  // collected and flags the list as possibly incomplete instead of dropping a
+  // partial answer.
+  result = { ok: true, releases, missing: exhausted ? unresolved : [] };
+  if (incomplete) result.partial = incomplete;
+} else if (failure) {
+  result = failure.status === undefined
+    ? { ok: false, network: failure.network }
+    : { ok: false, status: failure.status };
+} else if (capped) {
+  // Nothing matched and the list was never exhausted: absence is unproven, so
+  // report "cannot determine" instead of "no release".
+  result = { ok: false, error: '无法确定范围内的 GitHub Release（' + incomplete + '）' };
+} else {
+  result = { ok: true, releases: [], missing: unresolved };
 }
 writeSync(1, JSON.stringify(result) + '\n');
 "#;
@@ -175,31 +222,37 @@ pub fn prepare(root: &Path, id: &str, mode: &str) -> Result<Prepared, String> {
         }));
     }
 
-    // Tag target: prefer the official GitHub Release notes.
+    // Tag target: prefer the official GitHub Release notes for every release
+    // the update brings in — a checkout several releases behind (or several
+    // tags inside one release) must show all of them, newest first, not just
+    // the target tag's notes.
     let mut note = None;
     if let Some(tag) = &tag {
-        match release_notes(&dir, tag) {
-            ReleaseLookup::Found(release) if !release.body.trim().is_empty() => {
-                let when = if release.published_at.is_empty() {
-                    String::new()
-                } else {
-                    format!("（发布于 {}）", release.published_at.chars().take(10).collect::<String>())
-                };
-                let shown = if release.name.is_empty() {
-                    tag.clone()
-                } else {
-                    format!("{}（{}）", release.name, tag)
-                };
+        let tags = release_range_tags(&dir, &from_sha, &to_sha, tag);
+        match release_notes(&dir, &tags) {
+            ReleaseLookup::Found(set) if set.releases.iter().any(|r| !r.body.trim().is_empty()) => {
                 return Ok(Prepared::Done(UpdateChangelog {
-                    subtitle: format!("GitHub Release「{shown}」官方说明{when}"),
-                    text: release.body,
+                    subtitle: release_subtitle(&set),
+                    text: render_releases(&set),
                 }));
             }
-            ReleaseLookup::Found(_) => {
-                note = Some(format!("tag「{tag}」的 GitHub Release 没有正文"));
+            ReleaseLookup::Found(set) => {
+                note = Some(format!(
+                    "{} 个 GitHub Release 都没有正文",
+                    set.releases.len()
+                ));
             }
             ReleaseLookup::Absent => {
-                note = Some(format!("tag「{tag}」没有对应的 GitHub Release"));
+                note = Some(if tags.len() == 1 {
+                    format!("tag「{tag}」没有对应的 GitHub Release")
+                } else {
+                    format!(
+                        "范围内的 {} 个 tag（{} … {}）都没有对应的 GitHub Release",
+                        tags.len(),
+                        tags.first().map(String::as_str).unwrap_or(""),
+                        tags.last().map(String::as_str).unwrap_or("")
+                    )
+                });
             }
             ReleaseLookup::NotGithub => {
                 note = Some("origin 不是 GitHub 仓库，无法获取 Release 说明".to_string());
@@ -520,37 +573,81 @@ fn build_prompt(request: &SummaryRequest) -> String {
 /// GitHub release lookup outcome, mapped to a provenance note by the caller.
 #[derive(Debug)]
 enum ReleaseLookup {
-    Found(ReleaseInfo),
-    /// The tag has no matching GitHub release (404).
+    /// At least one wanted tag has a release; `releases` may still be partial
+    /// when a later page of the list failed (see [`ReleaseSet::partial`]).
+    Found(ReleaseSet),
+    /// No wanted tag has a GitHub release.
     Absent,
     /// The origin remote is not a GitHub repository.
     NotGithub,
     Failed(String),
 }
 
+/// The releases an update brings in, newest first.
+#[derive(Debug)]
+struct ReleaseSet {
+    releases: Vec<ReleaseInfo>,
+    /// Wanted tags that have no GitHub release at all.
+    missing: Vec<String>,
+    /// A non-fatal error while paging the release list: the answer may be
+    /// incomplete, so the subtitle says so instead of hiding the releases.
+    partial: Option<String>,
+}
+
 #[derive(Debug)]
 struct ReleaseInfo {
+    tag: String,
     name: String,
     body: String,
     published_at: String,
+    prerelease: bool,
 }
 
-fn release_notes(dir: &Path, tag: &str) -> ReleaseLookup {
+/// The tags an update from `from_sha` to `to_sha` brings in: every tag
+/// reachable from the update target but not already reachable from the local
+/// HEAD (so a checkout sitting on `v0.2.0` yields `v0.3.0 … v0.5.0` for a
+/// `v0.5.0` target), plus the target tag itself. Local tags are enough because
+/// the update check fetches the remote first; `git tag --merged`/`--no-merged`
+/// keeps unrelated tags off other branches out of the list.
+fn release_range_tags(dir: &Path, from_sha: &str, to_sha: &str, target_tag: &str) -> Vec<String> {
+    let mut tags: Vec<String> = git_output(dir, &["tag", "--merged", to_sha, "--no-merged", from_sha])
+        .map(|text| {
+            text.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !tags.iter().any(|tag| tag == target_tag) {
+        tags.push(target_tag.to_string());
+    }
+    // Sorted for a stable argv/URL; the display order is by publish time.
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
+/// Look up the GitHub releases for `tags` (one paginated list request, see
+/// [`RELEASE_FETCH_SCRIPT`]).
+fn release_notes(dir: &Path, tags: &[String]) -> ReleaseLookup {
     let origin = git_output(dir, &["remote", "get-url", "origin"]);
     let Some((owner, repo)) = github_repo(origin.as_deref()) else {
         return ReleaseLookup::NotGithub;
     };
-    let url = format!(
-        "https://api.github.com/repos/{owner}/{repo}/releases/tags/{}",
-        percent_encode(tag)
-    );
+    let base = format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=100");
+    let wanted = match serde_json::to_string(tags) {
+        Ok(json) => json,
+        Err(error) => return ReleaseLookup::Failed(format!("无法序列化 tag 列表：{error}")),
+    };
     let script_path = match write_temp_script(RELEASE_FETCH_SCRIPT) {
         Ok(path) => path,
         Err(error) => return ReleaseLookup::Failed(error),
     };
     let mut args: Vec<std::ffi::OsString> = Vec::new();
     args.push(script_path.as_os_str().to_os_string());
-    args.push(url.into());
+    args.push(base.into());
+    args.push(wanted.into());
     let output = run_node_captured(Path::new("node"), &args, dir, &[], RELEASE_FETCH_TIMEOUT);
     let _ = fs::remove_file(&script_path);
     match output {
@@ -565,26 +662,55 @@ fn release_notes(dir: &Path, tag: &str) -> ReleaseLookup {
 /// exited non-zero: node can abort *after* the line reached stdout (the libuv
 /// teardown assertion the script must never trigger, but a future crash must
 /// not regress this), and discarding a complete answer would drop the official
-/// release notes for a tag that has them. Only a missing or unparseable line
+/// release notes for tags that have them. Only a missing or unparseable line
 /// falls back to the exit status and the stderr diagnostic.
 fn parse_release_capture(stdout: &str, success: bool, stderr: &str) -> ReleaseLookup {
     let line = stdout.lines().last().unwrap_or("").trim();
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
         if json["ok"] == serde_json::Value::Bool(true) {
-            return ReleaseLookup::Found(ReleaseInfo {
-                name: json["name"].as_str().unwrap_or("").to_string(),
-                body: json["body"].as_str().unwrap_or("").to_string(),
-                published_at: json["publishedAt"].as_str().unwrap_or("").to_string(),
+            let mut releases: Vec<ReleaseInfo> = json["releases"]
+                .as_array()
+                .map(|items| items.iter().filter_map(parse_release_item).collect())
+                .unwrap_or_default();
+            // Newest first, regardless of the order the API happened to return.
+            // GitHub publishes fixed-width UTC timestamps
+            // (`2026-09-13T14:30:35Z`), whose byte order matches chronological
+            // order; an empty date sorts last.
+            releases.sort_by(|a, b| b.published_at.cmp(&a.published_at));
+            if releases.is_empty() {
+                return ReleaseLookup::Absent;
+            }
+            let missing = json["missing"]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .filter(|tag| !tag.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let partial = json["partial"].as_str().map(str::to_string);
+            return ReleaseLookup::Found(ReleaseSet {
+                releases,
+                missing,
+                partial,
             });
         }
         if let Some(status) = json["status"].as_u64() {
-            return if status == 404 {
-                ReleaseLookup::Absent
-            } else {
-                ReleaseLookup::Failed(format!("GitHub API 返回 {status}"))
-            };
+            // The list endpoint answers 200 with an empty array when a
+            // repository simply has no releases, so a 404 means the repository
+            // itself is unreachable (private, renamed, or deleted) — a fetch
+            // failure, not "these tags have no release".
+            return ReleaseLookup::Failed(format!("GitHub API 返回 {status}"));
         }
         if let Some(detail) = json["network"].as_str() {
+            return ReleaseLookup::Failed(detail.to_string());
+        }
+        // "Cannot determine" (the list was capped before the wanted tags were
+        // reached): surfaced as a failure so no tag is misreported as missing.
+        if let Some(detail) = json["error"].as_str() {
             return ReleaseLookup::Failed(detail.to_string());
         }
     }
@@ -597,6 +723,106 @@ fn parse_release_capture(stdout: &str, success: bool, stderr: &str) -> ReleaseLo
         });
     }
     ReleaseLookup::Failed("无法解析 GitHub API 响应".to_string())
+}
+
+/// One release entry of the script's answer; an entry without a tag carries no
+/// usable identity and is dropped.
+fn parse_release_item(item: &serde_json::Value) -> Option<ReleaseInfo> {
+    let tag = item["tag"].as_str().unwrap_or("").trim();
+    if tag.is_empty() {
+        return None;
+    }
+    Some(ReleaseInfo {
+        tag: tag.to_string(),
+        name: item["name"].as_str().unwrap_or("").to_string(),
+        body: item["body"].as_str().unwrap_or("").to_string(),
+        published_at: item["publishedAt"].as_str().unwrap_or("").to_string(),
+        prerelease: item["prerelease"] == serde_json::Value::Bool(true),
+    })
+}
+
+/// The provenance line for a release-backed changelog: the familiar single-tag
+/// wording stays for one release, several releases report the span and the
+/// newest-first order.
+fn release_subtitle(set: &ReleaseSet) -> String {
+    let mut subtitle = if set.releases.len() == 1 {
+        let release = &set.releases[0];
+        let when = if release.published_at.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "（发布于 {}）",
+                release.published_at.chars().take(10).collect::<String>()
+            )
+        };
+        let shown = if release.name.trim().is_empty() {
+            release.tag.clone()
+        } else {
+            format!("{}（{}）", release.name.trim(), release.tag)
+        };
+        format!("GitHub Release「{shown}」官方说明{when}")
+    } else {
+        format!(
+            "GitHub Release 官方说明 · {} 个版本（{} → {}，最新在上）",
+            set.releases.len(),
+            set.releases.last().map(|r| r.tag.as_str()).unwrap_or(""),
+            set.releases.first().map(|r| r.tag.as_str()).unwrap_or("")
+        )
+    };
+    if !set.missing.is_empty() {
+        subtitle.push_str(&format!(" · {} 个 tag 无 Release", set.missing.len()));
+    }
+    if let Some(partial) = &set.partial {
+        subtitle.push_str(&format!(" · Release 列表可能不完整（{partial}）"));
+    }
+    subtitle
+}
+
+/// Render the release set as one markdown document: one `## <tag> · <name>`
+/// section per release, newest first, separated by rules, with the release body
+/// underneath. Releases without a body stay listed (their version still tells
+/// the reader what the update contains) and tags with no release at all are
+/// listed in a trailing note.
+fn render_releases(set: &ReleaseSet) -> String {
+    let mut out = String::new();
+    for (index, release) in set.releases.iter().enumerate() {
+        if index > 0 {
+            out.push_str("\n\n---\n\n");
+        }
+        let name = release.name.trim();
+        if name.is_empty() {
+            out.push_str(&format!("## {}\n", release.tag));
+        } else {
+            out.push_str(&format!("## {} · {name}\n", release.tag));
+        }
+        let mut facts: Vec<String> = Vec::new();
+        if !release.published_at.is_empty() {
+            facts.push(format!(
+                "发布于 {}",
+                release.published_at.chars().take(10).collect::<String>()
+            ));
+        }
+        if release.prerelease {
+            facts.push("预发布".to_string());
+        }
+        out.push('\n');
+        if !facts.is_empty() {
+            out.push_str(&format!("*{}*\n\n", facts.join(" · ")));
+        }
+        let body = release.body.trim();
+        if body.is_empty() {
+            out.push_str("（该 Release 没有正文）\n");
+        } else {
+            out.push_str(body);
+            out.push('\n');
+        }
+    }
+    if !set.missing.is_empty() {
+        out.push_str("\n---\n\n> 以下 tag 没有对应的 GitHub Release：");
+        out.push_str(&set.missing.join("、"));
+        out.push('\n');
+    }
+    out
 }
 
 /// Extract `owner/repo` from a GitHub `origin` URL (https, git@, or ssh forms);
@@ -622,20 +848,6 @@ fn github_repo(url: Option<&str>) -> Option<(String, String)> {
         return None;
     }
     Some((owner, repo))
-}
-
-/// Percent-encode a tag for a URL path segment (unreserved chars kept).
-fn percent_encode(input: &str) -> String {
-    let mut out = String::new();
-    for byte in input.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                out.push(byte as char)
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
 }
 
 pub(crate) fn write_temp_script(contents: &str) -> Result<PathBuf, String> {
@@ -862,24 +1074,58 @@ mod tests {
         // A node abort *after* the JSON line reached stdout (the Windows libuv
         // teardown assertion the script must never trigger, but a future crash
         // cannot be allowed to regress this) must not throw the answer away:
-        // the tag keeps its official release notes instead of degrading to the
-        // slow AI fallback.
-        let stdout = r##"{"ok":true,"name":"v1.2.3","body":"# 说明","tagName":"v1.2.3","publishedAt":"2026-01-02T03:04:05Z"}"##;
+        // the tags keep their official release notes instead of degrading to
+        // the slow AI fallback.
+        let stdout = r##"{"ok":true,"releases":[{"tag":"v1.2.3","name":"v1.2.3","body":"# 说明","publishedAt":"2026-01-02T03:04:05Z","prerelease":false}],"missing":[]}"##;
         let assertion = r"Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94";
         match parse_release_capture(stdout, false, assertion) {
-            ReleaseLookup::Found(release) => {
-                assert_eq!(release.name, "v1.2.3");
-                assert_eq!(release.body, "# 说明");
-                assert_eq!(release.published_at, "2026-01-02T03:04:05Z");
+            ReleaseLookup::Found(set) => {
+                assert_eq!(set.releases.len(), 1);
+                assert_eq!(set.releases[0].tag, "v1.2.3");
+                assert_eq!(set.releases[0].body, "# 说明");
+                assert!(set.missing.is_empty());
+                assert!(set.partial.is_none());
             }
             other => panic!("expected Found, got {other:?}"),
         }
     }
 
     #[test]
+    fn release_capture_lists_every_release_newest_first() {
+        // The whole point of the list endpoint: an update spanning several
+        // releases shows all of them, ordered by publish time even when the
+        // API (or a future script change) returns them in another order.
+        // One line, exactly like the script's output (`parse_release_capture`
+        // reads the last stdout line).
+        let stdout = r##"{"ok":true,"releases":[{"tag":"v1.2.0","name":"one-two","body":"b2","publishedAt":"2026-02-01T00:00:00Z","prerelease":false},{"tag":"v1.3.0","name":"","body":"b3","publishedAt":"2026-03-01T00:00:00Z","prerelease":false},{"tag":"v1.1.0","name":"one-one","body":"b1","publishedAt":"","prerelease":true},{"tag":"","name":"junky","body":"x","publishedAt":"2026-04-01T00:00:00Z"}],"missing":["v1.1.5"],"partial":"GitHub API 返回 502"}"##;
+        let ReleaseLookup::Found(set) = parse_release_capture(stdout, true, "") else {
+            panic!("expected Found")
+        };
+        let tags: Vec<&str> = set.releases.iter().map(|r| r.tag.as_str()).collect();
+        // Newest first; the dateless release sorts last, the tagless entry is
+        // dropped instead of being rendered without an identity.
+        assert_eq!(tags, vec!["v1.3.0", "v1.2.0", "v1.1.0"]);
+        assert_eq!(set.missing, vec!["v1.1.5".to_string()]);
+        assert_eq!(set.partial.as_deref(), Some("GitHub API 返回 502"));
+        assert!(set.releases[2].prerelease);
+    }
+
+    #[test]
     fn release_capture_maps_status_and_network_answers() {
+        // The list endpoint only answers 404 when the repository is not
+        // reachable (private/renamed): that is a fetch failure, not an
+        // "no release" answer.
         assert!(matches!(
             parse_release_capture(r#"{"ok":false,"status":404}"#, true, ""),
+            ReleaseLookup::Failed(ref detail) if detail == "GitHub API 返回 404"
+        ));
+        // No wanted tag has a release lists an empty array, not an error.
+        assert!(matches!(
+            parse_release_capture(
+                r#"{"ok":true,"releases":[],"missing":["v1.0.0","v1.1.0"]}"#,
+                true,
+                ""
+            ),
             ReleaseLookup::Absent
         ));
         assert!(matches!(
@@ -889,6 +1135,28 @@ mod tests {
         assert!(matches!(
             parse_release_capture(r#"{"ok":false,"network":"fetch failed"}"#, true, ""),
             ReleaseLookup::Failed(ref detail) if detail == "fetch failed"
+        ));
+    }
+
+    #[test]
+    fn release_capture_flags_an_incomplete_list_instead_of_inventing_absence() {
+        // A page failure or the page cap keeps the collected releases and says
+        // the list may be short.
+        let partial = r#"{"ok":true,"releases":[{"tag":"v1.0.0","name":"","body":"b","publishedAt":"","prerelease":false}],"missing":[],"partial":"只读取了 Release 列表的前 300 个"}"#;
+        let ReleaseLookup::Found(set) = parse_release_capture(partial, true, "") else {
+            panic!("expected Found")
+        };
+        assert_eq!(set.releases.len(), 1);
+        assert_eq!(set.partial.as_deref(), Some("只读取了 Release 列表的前 300 个"));
+        // Nothing collected and the list never ran out: "cannot determine", not
+        // "no release" (the wanted tag may live beyond the page cap).
+        assert!(matches!(
+            parse_release_capture(
+                r#"{"ok":false,"error":"无法确定范围内的 GitHub Release（只读取了 Release 列表的前 300 个）"}"#,
+                true,
+                ""
+            ),
+            ReleaseLookup::Failed(ref detail) if detail.contains("无法确定")
         ));
     }
 
@@ -912,9 +1180,128 @@ mod tests {
     }
 
     #[test]
-    fn percent_encode_keeps_unreserved_and_encodes_rest() {
-        assert_eq!(percent_encode("v1.2.3"), "v1.2.3");
-        assert_eq!(percent_encode("release/v1.0+hotfix"), "release%2Fv1.0%2Bhotfix");
+    fn release_subtitle_and_body_cover_a_multi_release_update() {
+        // Oldest → newest update: the subtitle names the span and the body
+        // carries one section per release, newest first, separated by rules.
+        let set = ReleaseSet {
+            releases: vec![
+                ReleaseInfo {
+                    tag: "v0.5.0".to_string(),
+                    name: "第五版".to_string(),
+                    body: "notes-five".to_string(),
+                    published_at: "2026-05-05T10:00:00Z".to_string(),
+                    prerelease: false,
+                },
+                ReleaseInfo {
+                    tag: "v0.3.0".to_string(),
+                    name: String::new(),
+                    body: String::new(),
+                    published_at: "2026-03-03T10:00:00Z".to_string(),
+                    prerelease: true,
+                },
+            ],
+            missing: vec!["v0.4.0".to_string()],
+            partial: None,
+        };
+        let subtitle = release_subtitle(&set);
+        assert!(subtitle.contains("2 个版本"), "unexpected subtitle: {subtitle}");
+        assert!(subtitle.contains("v0.3.0 → v0.5.0"), "unexpected subtitle: {subtitle}");
+        assert!(subtitle.contains("最新在上"));
+        assert!(subtitle.contains("1 个 tag 无 Release"));
+
+        let text = render_releases(&set);
+        assert!(text.contains("## v0.5.0 · 第五版"));
+        assert!(text.contains("*发布于 2026-05-05*"));
+        // A release without notes keeps its version heading and says so, and a
+        // prerelease is labelled.
+        assert!(text.contains("## v0.3.0\n"));
+        assert!(text.contains("（该 Release 没有正文）"));
+        assert!(text.contains("预发布"));
+        assert!(text.contains("\n---\n"), "releases must be separated by a rule");
+        assert!(text.contains("> 以下 tag 没有对应的 GitHub Release：v0.4.0"));
+        // Newest release first.
+        let five = text.find("v0.5.0").unwrap();
+        let three = text.find("v0.3.0").unwrap();
+        assert!(five < three, "newest release must come first");
+
+        // A single release keeps the familiar one-line subtitle.
+        let single = ReleaseSet {
+            releases: vec![ReleaseInfo {
+                tag: "v1.2.3".to_string(),
+                name: "说明".to_string(),
+                body: "b".to_string(),
+                published_at: "2026-01-02T03:04:05Z".to_string(),
+                prerelease: false,
+            }],
+            missing: Vec::new(),
+            partial: None,
+        };
+        assert_eq!(
+            release_subtitle(&single),
+            "GitHub Release「说明（v1.2.3）」官方说明（发布于 2026-01-02）"
+        );
+    }
+
+    #[test]
+    fn release_range_tags_covers_every_tag_the_update_brings_in() {
+        // A checkout on v1.0.0 updating to v1.3.0 must yield the three tags in
+        // between (plus nothing older), so all three releases are shown.
+        let root = std::env::temp_dir().join(format!("dsh-gui-range-tags-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let git = |args: &[&str]| {
+            assert!(
+                Command::new("git")
+                    .current_dir(&root)
+                    .args(args)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .expect("git must run")
+                    .success(),
+                "git {args:?} failed"
+            );
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.name", "test"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        git(&["config", "tag.gpgsign", "false"]);
+
+        let mut shas = Vec::new();
+        for (index, name) in ["v1.0.0", "v1.1.0", "v1.2.0", "v1.3.0"].iter().enumerate() {
+            fs::write(root.join(format!("{index}.txt")), name).unwrap();
+            let file = format!("{index}.txt");
+            git(&["add", &file]);
+            git(&["commit", "-q", "-m", name]);
+            let sha = git_output(&root, &["rev-parse", "HEAD"]).unwrap();
+            git(&["tag", name, &sha]);
+            shas.push(sha);
+        }
+        // A tag on an unrelated branch must not be pulled in.
+        git(&["checkout", "-q", "-b", "side", &shas[0]]);
+        fs::write(root.join("side.txt"), "side").unwrap();
+        git(&["add", "side.txt"]);
+        git(&["commit", "-q", "-m", "side"]);
+        git(&["tag", "v9.9.9"]);
+        git(&["checkout", "-q", "main"]);
+        git(&["checkout", "-q", &shas[0]]); // local HEAD sits on v1.0.0
+
+        let tags = release_range_tags(&root, &shas[0], &shas[3], "v1.3.0");
+        assert_eq!(
+            tags,
+            vec![
+                "v1.1.0".to_string(),
+                "v1.2.0".to_string(),
+                "v1.3.0".to_string()
+            ],
+            "only the tags the update brings in, oldest-first for stable argv"
+        );
+
+        // A target tag that is not in the local range (e.g. tags not fetched)
+        // is still queried rather than silently dropped.
+        let tags = release_range_tags(&root, &shas[0], &shas[3], "v1.4.0");
+        assert!(tags.iter().any(|tag| tag == "v1.4.0"));
     }
 
     #[test]

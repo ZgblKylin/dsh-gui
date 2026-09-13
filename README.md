@@ -80,8 +80,11 @@ browser.
   submodule(s) to the chosen target and run the install scripts (the bottom
   button lists every updatable module with its combo choice). The agent preset
   is left for you to pick. Each behind row also has an **更新日志** button:
-  for a tag target it shows the official GitHub Release notes when the remote
-  is a GitHub repository and a release exists, otherwise it asks the dsh AI to
+  for a tag target it shows the official GitHub Release notes for **every**
+  release the update brings in — all tags between the current checkout and the
+  update target, newest first, so a checkout several releases behind sees the
+  whole span instead of just the target tag's notes — when the remote is a
+  GitHub repository and releases exist, otherwise it asks the dsh AI to
   summarize the commits between the current checkout and the update target —
   through the running harness's raw-LLM route (the dsh-ai-update plugin,
   default model from the Models page), which creates no session, so the run

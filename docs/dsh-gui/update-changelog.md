@@ -3,13 +3,34 @@
 ## 功能
 
 更新对话框每行只要落后于远端就有「更新日志」按钮，用于预览本次更新会带来的
-变更：tag 目标优先读取该 tag 的 **官方 GitHub Release 说明**；提交目标、非
-GitHub 远端、没有 Release、或 Release 没有正文时，改由 dsh AI 在
-「本地 HEAD → 更新目标」的提交区间上汇总（见
+变更。tag 目标优先读取 **官方 GitHub Release 说明**，并且覆盖本次更新引入的
+**全部** Release，而不只是更新目标那一个：候选范围按 git 可达性判定——「可以从
+更新目标到达、但不能从本地 HEAD 到达」的 tag（`git tag --merged <目标>
+--no-merged <HEAD>`）再加上目标 tag 本身，也就是这次更新引入的 tag；例如本地停在
+`v0.3.14`、目标是 `v0.3.22` 时会列出 8 个版本（`v0.3.15` → `v0.3.22`）。请求走
+GitHub 的分页 Release 列表接口（`/releases?per_page=100`，最多 3 页，取齐候选
+tag 即提前停止），按 `published_at` **时间逆序**渲染，每个版本一节
+（`## <tag> · <名称>` + 发布日期 + 正文），节间用 `---` 分隔；没有正文的
+Release 仍然保留版本标题并标注「（该 Release 没有正文）」，范围内没有任何
+Release 的 tag 会在文末以引用块列出，标题栏也会写明「N 个 tag 无 Release」。
+
+可达性判定的两点已知取舍：
+
+- **会漏**：squash / rebase 合并进主分支的分支上的 tag 不在可达范围内，因此不会
+  列出——这类版本的说明需要人工去 GitHub 看；
+- **可能多**：在本次新增提交上打的非版本 tag（如 nightly / build tag）也在候选
+  范围内，没有对应 Release 时会出现在文末的「没有对应的 GitHub Release」列表里。
+  dsh-gui 自己这套仓库的 tag 都是版本号，因此实际只会列出真正缺 Release 的版本。
+  另外 GitHub 对未认证请求不返回 draft Release，只有 draft 的 tag 也会被算作缺
+  Release。
+
+提交目标、非 GitHub 远端、范围内没有 Release、或所有 Release 都没有正文时，改由
+dsh AI 在「本地 HEAD → 更新目标」的提交区间上汇总（见
 `src-tauri/src/changelog.rs` 的 `prepare` / `finish`）。AI 路径优先走运行中
 harness 的 raw-LLM 路由（dsh-ai-update 插件的 `/dsh-gui-api/changelog`，不建
 Agent/Session），不可用时回退到一次性 headless 运行（会话存储重定向到临时目录，
-用完删除）。
+用完删除）。单个版本的更新保留原有的
+`GitHub Release「<名称>（<tag>）」官方说明（发布于 …）` 标题格式。
 
 ## 曾出现的故障：已写出的结果被误判为获取失败
 
@@ -70,10 +91,30 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
 
 - `changelog.rs`：`embedded_release_script_never_calls_process_exit`、
   `release_capture_prefers_the_emitted_line_over_a_crashed_child`、
+  `release_capture_lists_every_release_newest_first`、
   `release_capture_maps_status_and_network_answers`、
-  `release_capture_reports_the_crash_when_nothing_was_emitted`；
+  `release_capture_reports_the_crash_when_nothing_was_emitted`、
+  `release_range_tags_covers_every_tag_the_update_brings_in`、
+  `release_subtitle_and_body_cover_a_multi_release_update`；
 - `update.rs`：`embedded_npm_script_never_calls_process_exit`、
   `npm_answer_is_used_even_when_the_child_aborted`。
+
+## 多 Release 逻辑的实测
+
+用真实数据端到端跑过 `prepare`（当时 `plugins/dsh-web-ui/dsh-web-ui` 本地停在
+`v0.3.14`、远端最新 tag `v0.3.22`）：输出 8 节、标题为
+`GitHub Release 官方说明 · 8 个版本（v0.3.15 → v0.3.22，最新在上）`，
+发布日期严格递减（2026-09-13 → 2026-09-05），正文长度 5850/11829/… 字符；把该
+文档再喂给 `ui/app.js` 的 `renderChangelogMarkdown`（从源码切片、原样加载）得到
+8 个 `<h2>`、日期 `<em>`、正文列表与引用块均正常。脚本侧的边界情况同样实测：
+单个 tag → 1 个 Release；真实 tag + 不存在的 tag → `missing` 只含后者；只有不
+存在的 tag / 空候选列表 → 0 个 Release，Rust 侧落到「没有对应的 GitHub
+Release」备注；分页未取齐（超过 3 页）时不把剩余 tag 报成「没有 Release」，而是
+`partial` / 「无法确定」并交回 AI 汇总兜底。注意 404 的语义随接口改变：列表接口
+只有仓库不可访问（私有、改名、删除）才返回 404，因此现在按获取失败处理；旧脚本
+用的 `/releases/tags/<tag>` 里 404 才表示「该 tag 没有 Release」。已知既有行为：
+Release 正文里的原生 HTML（例如 dsh-web-ui 用的 `<details>` 英文镜像）会被转义为
+文本显示，这与本次改动无关。
 
 ## 弹窗提示文本可选中
 
