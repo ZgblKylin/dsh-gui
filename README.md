@@ -421,6 +421,14 @@ and install just the harness + plugins.
   kill the harness via a Windows job object; kill strays once with
   `taskkill /IM node.exe /F` (check nothing else needs them first).
 - **WebView2 error** — install the WebView2 Evergreen runtime.
+- **A storm of flashing console windows while `cargo test` (or a dev build)
+  runs** — some spawn used a bare `Command::new(...)`: when the process has no
+  console of its own (the shell is a `windows_subsystem = "windows"` binary, and
+  a test run started from a console-less host has none either), Windows gives
+  every console child — `git` above all — its own window, which flashes and
+  steals the foreground. Every spawn goes through `console::hidden_command`
+  (`CREATE_NO_WINDOW`); only the update launcher is deliberately visible, and the
+  `spawns_go_through_hidden_command` unit test fails on any new bare spawn.
 
 ## License
 

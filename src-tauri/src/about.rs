@@ -8,7 +8,6 @@
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -54,21 +53,16 @@ pub fn collect(root: &Path) -> AboutInfo {
 
 /// Run `git <args>` in `dir`, returning trimmed stdout on success.
 ///
-/// On Windows the git console app is spawned with CREATE_NO_WINDOW so a
-/// dialog-fetch never flashes a console window next to the frameless shell.
+/// The spawn goes through [`crate::console::hidden_command`] so a dialog fetch
+/// never flashes a console window next to the frameless shell.
 fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
-    let mut command = Command::new("git");
+    let mut command = crate::console::hidden_command("git");
     command
         .arg("-C")
         .arg(dir)
         .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
     let output = command.output().ok()?;
     if !output.status.success() {
         return None;

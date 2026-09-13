@@ -35,7 +35,7 @@
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -900,7 +900,7 @@ pub(crate) fn run_node_captured(
         .open(&err_path)
         .map_err(|e| format!("无法创建输出文件 {err_path:?}：{e}"))?;
 
-    let mut command = Command::new(program);
+    let mut command = crate::console::hidden_command(program);
     command
         .args(args)
         .current_dir(cwd)
@@ -910,11 +910,6 @@ pub(crate) fn run_node_captured(
         .stderr(Stdio::from(stderr_file));
     for (key, value) in envs {
         command.env(key, value);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
 
     let mut child = command
@@ -1251,7 +1246,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let git = |args: &[&str]| {
             assert!(
-                Command::new("git")
+                crate::console::hidden_command("git")
                     .current_dir(&root)
                     .args(args)
                     .stdout(Stdio::null())
@@ -1343,7 +1338,7 @@ mod tests {
         let repo = root.join("repo");
         fs::create_dir_all(&repo).unwrap();
         let git = |args: &[&str]| {
-            Command::new("git")
+            crate::console::hidden_command("git")
                 .current_dir(&repo)
                 .args(args)
                 .stdout(Stdio::null())

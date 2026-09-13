@@ -24,6 +24,7 @@
 
 mod about;
 mod changelog;
+mod console;
 mod dialog_sizes;
 mod dialogs;
 #[cfg(windows)]
@@ -36,12 +37,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::{Emitter, Manager, State};
@@ -457,7 +455,10 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
     // Truncate the previous run, then let both reader threads append below.
     File::create(&log_path)?;
 
-    let mut command = Command::new("node");
+    // The harness runs headless in the background; its output already goes to
+    // `.dsh\gui\harness.log`, so the spawn must not allocate a console window
+    // (see `console::hidden_command`).
+    let mut command = console::hidden_command("node");
     command
         .arg(&bin)
         .arg("web")
@@ -469,16 +470,6 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
         .env("DSH_AGENTS_HOME", &agents_home)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: `node.exe` is a console-subsystem executable, so
-        // without this flag Windows allocates a brand-new console window for
-        // it whenever dsh-gui is launched from Explorer. The harness runs
-        // fully in the background; its output already goes to
-        // `.dsh\gui\harness.log`.
-        command.creation_flags(0x0800_0000);
-    }
     let mut child = command
         .spawn()
         .map_err(|e| format!("failed to spawn harness (is `node` on PATH?): {e}"))?;
@@ -773,9 +764,8 @@ impl Drop for ChildGuard {
         if self.job.is_none() {
             // Without a job (creation or assignment failed), terminate the
             // tree with taskkill, no console flash.
-            let _ = Command::new("taskkill")
+            let _ = console::hidden_command("taskkill")
                 .args(["/PID", &child.id().to_string(), "/T", "/F"])
-                .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
                 .status();
         }
         #[cfg(not(windows))]
@@ -1620,7 +1610,6 @@ mod tests {
         parse_launch_token,
     };
     use std::net::TcpListener;
-    use std::process::Command;
     use std::time::Duration;
 
     #[test]
@@ -1656,9 +1645,10 @@ mod tests {
         }
     }
 
-    /// Spawn a long-lived node helper to stand in for the harness.
+    /// Spawn a long-lived node helper to stand in for the harness. Hidden like
+    /// the real harness: a visible console here would flash once per test.
     fn spawn_worker() -> std::process::Child {
-        Command::new("node")
+        crate::console::hidden_command("node")
             .args(["-e", "setInterval(() => {}, 1000)"])
             .spawn()
             .expect("node must be on PATH to run dsh-gui tests")

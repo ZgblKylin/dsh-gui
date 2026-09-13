@@ -216,7 +216,7 @@ fn run_git_captured(dir: &Path, args: &[&str]) -> Option<GitCapture> {
         .open(&err_path)
         .ok()?;
 
-    let mut command = Command::new("git");
+    let mut command = crate::console::hidden_command("git");
     command
         .arg("-C")
         .arg(dir)
@@ -224,11 +224,6 @@ fn run_git_captured(dir: &Path, args: &[&str]) -> Option<GitCapture> {
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdout(Stdio::from(stdout_file))
         .stderr(Stdio::from(stderr_file));
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
     let status = command.status().ok()?;
     let capture = GitCapture {
         success: status.success(),
@@ -900,14 +895,12 @@ fn write_windows_console_launcher(
 /// PowerShell 5.1 (`powershell.exe`, present on every Windows).
 #[cfg(windows)]
 fn windows_powershell_program() -> &'static str {
-    let mut probe = Command::new("pwsh.exe");
+    let mut probe = crate::console::hidden_command("pwsh.exe");
     probe
         .args(["-NoLogo", "-NoProfile", "-Command", "exit 0"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    use std::os::windows::process::CommandExt;
-    probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW, probe only
     if probe.status().is_ok_and(|status| status.success()) {
         "pwsh.exe"
     } else {
@@ -921,7 +914,11 @@ fn windows_powershell_program() -> &'static str {
 /// window open so success/failure is always readable.
 #[cfg(windows)]
 fn spawn_windows_update_console(root: &Path, launcher: &Path) -> Result<(), String> {
-    let mut command = Command::new(windows_powershell_program());
+    // The one spawn that must stay visible: the update runs in a console window
+    // the user watches (see the CREATE_NEW_CONSOLE flag below), so this call is
+    // exempt from `console::hidden_command` — and marked accordingly for
+    // `spawns_go_through_hidden_command`.
+    let mut command = Command::new(windows_powershell_program()); // CREATE_NEW_CONSOLE
     command
         .arg("-NoLogo")
         .arg("-NoProfile")
@@ -955,7 +952,7 @@ fn spawn_unix_update_node(
         .open(gui_dir(root).join("update.log"))
         .map_err(|e| format!("cannot open update.log: {e}"))?;
 
-    let mut command = Command::new("node");
+    let mut command = crate::console::hidden_command("node");
     command
         .arg(script)
         .current_dir(root)
@@ -1117,7 +1114,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let git = |args: &[&str]| {
-            Command::new("git")
+            crate::console::hidden_command("git")
                 .current_dir(&dir)
                 .args(args)
                 .stdout(Stdio::null())
@@ -1162,7 +1159,7 @@ mod tests {
         let root = dir.join("root");
         let origin = dir.join("origin.git");
         let git = |cwd: &Path, args: &[&str]| -> bool {
-            let output = Command::new("git")
+            let output = crate::console::hidden_command("git")
                 .current_dir(cwd)
                 .args(args)
                 .output()
@@ -1259,7 +1256,7 @@ mod tests {
         let sub_origin = dir.join("sub-origin.git");
 
         let git = |cwd: &Path, args: &[&str]| -> bool {
-            let output = Command::new("git")
+            let output = crate::console::hidden_command("git")
                 .current_dir(cwd)
                 .args(args)
                 .output()
