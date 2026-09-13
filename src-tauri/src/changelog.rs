@@ -28,6 +28,9 @@
 //! Both steps shell out through file-redirected stdio (dsh's Windows sandbox
 //! rejects piped child stdio with EPERM) and never add a Rust HTTP client:
 //! `node` is guaranteed present because the shell spawns the harness on it.
+//! The embedded scripts flush their answer and let the event loop drain instead
+//! of calling `process.exit()` — see [`RELEASE_FETCH_SCRIPT`] for why that exit
+//! used to surface as a "Release 获取失败" note on Windows.
 
 use serde::Serialize;
 use std::fs;
@@ -45,33 +48,46 @@ static CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 /// one-line JSON summary for the Rust side to parse. Written to a temp file at
 /// call time; the harness requires Node ≥ 22, so global `fetch` + timeouts are
 /// available.
+///
+/// The script must never call `process.exit()`. On Windows that aborts node
+/// while undici is still draining the fetch's async handles, and libuv then
+/// trips `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING) … src\win\async.c`
+/// — the abort used to surface as a bogus "GitHub Release 获取失败" note and
+/// pushed every tag target onto the slow AI fallback even though the release
+/// had been fetched. Instead the answer is written with `writeSync(1, …)` (file
+/// stdio: guaranteed to be flushed before the process ends) and the event loop
+/// is left to drain; the response body is always consumed or cancelled so no
+/// half-read socket survives the exit.
 const RELEASE_FETCH_SCRIPT: &str = r#"
+import { writeSync } from 'node:fs';
+
 const url = process.argv[2];
+let result;
 try {
   const response = await fetch(url, {
     headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-gui-changelog' },
     signal: AbortSignal.timeout(15000),
   });
   if (response.status === 404) {
-    console.log(JSON.stringify({ ok: false, status: 404 }));
-    process.exit(0);
+    await response.body?.cancel();
+    result = { ok: false, status: 404 };
+  } else if (response.status < 200 || response.status >= 300) {
+    await response.body?.cancel();
+    result = { ok: false, status: response.status };
+  } else {
+    const json = await response.json();
+    result = {
+      ok: true,
+      name: typeof json.name === 'string' ? json.name : '',
+      body: typeof json.body === 'string' ? json.body : '',
+      tagName: typeof json.tag_name === 'string' ? json.tag_name : '',
+      publishedAt: typeof json.published_at === 'string' ? json.published_at : '',
+    };
   }
-  if (response.status < 200 || response.status >= 300) {
-    console.log(JSON.stringify({ ok: false, status: response.status }));
-    process.exit(0);
-  }
-  const json = await response.json();
-  console.log(JSON.stringify({
-    ok: true,
-    name: typeof json.name === 'string' ? json.name : '',
-    body: typeof json.body === 'string' ? json.body : '',
-    tagName: typeof json.tag_name === 'string' ? json.tag_name : '',
-    publishedAt: typeof json.published_at === 'string' ? json.published_at : '',
-  }));
 } catch (error) {
-  console.log(JSON.stringify({ ok: false, network: String((error && error.message) || error) }));
+  result = { ok: false, network: String((error && error.message) || error) };
 }
-process.exit(0);
+writeSync(1, JSON.stringify(result) + '\n');
 "#;
 
 /// Wait ceiling for a dsh AI summary (one-shot agent run: profile boot, model
@@ -502,6 +518,7 @@ fn build_prompt(request: &SummaryRequest) -> String {
 }
 
 /// GitHub release lookup outcome, mapped to a provenance note by the caller.
+#[derive(Debug)]
 enum ReleaseLookup {
     Found(ReleaseInfo),
     /// The tag has no matching GitHub release (404).
@@ -511,6 +528,7 @@ enum ReleaseLookup {
     Failed(String),
 }
 
+#[derive(Debug)]
 struct ReleaseInfo {
     name: String,
     body: String,
@@ -535,39 +553,50 @@ fn release_notes(dir: &Path, tag: &str) -> ReleaseLookup {
     args.push(url.into());
     let output = run_node_captured(Path::new("node"), &args, dir, &[], RELEASE_FETCH_TIMEOUT);
     let _ = fs::remove_file(&script_path);
-    let output = match output {
-        Ok(output) => output,
-        Err(error) => return ReleaseLookup::Failed(error),
-    };
-    if !output.success {
-        return ReleaseLookup::Failed(
-            output
-                .stderr
-                .trim()
-                .chars()
-                .take(120)
-                .collect::<String>(),
-        );
+    match output {
+        Ok(output) => parse_release_capture(&output.stdout, output.success, &output.stderr),
+        Err(error) => ReleaseLookup::Failed(error),
     }
-    let line = output.stdout.lines().last().unwrap_or("").trim();
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(line) else {
-        return ReleaseLookup::Failed("无法解析 GitHub API 响应".to_string());
-    };
-    if json["ok"] == serde_json::Value::Bool(true) {
-        return ReleaseLookup::Found(ReleaseInfo {
-            name: json["name"].as_str().unwrap_or("").to_string(),
-            body: json["body"].as_str().unwrap_or("").to_string(),
-            published_at: json["publishedAt"].as_str().unwrap_or("").to_string(),
+}
+
+/// Map one capture of [`RELEASE_FETCH_SCRIPT`] to a lookup.
+///
+/// The JSON line the script emitted is authoritative even when the child
+/// exited non-zero: node can abort *after* the line reached stdout (the libuv
+/// teardown assertion the script must never trigger, but a future crash must
+/// not regress this), and discarding a complete answer would drop the official
+/// release notes for a tag that has them. Only a missing or unparseable line
+/// falls back to the exit status and the stderr diagnostic.
+fn parse_release_capture(stdout: &str, success: bool, stderr: &str) -> ReleaseLookup {
+    let line = stdout.lines().last().unwrap_or("").trim();
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+        if json["ok"] == serde_json::Value::Bool(true) {
+            return ReleaseLookup::Found(ReleaseInfo {
+                name: json["name"].as_str().unwrap_or("").to_string(),
+                body: json["body"].as_str().unwrap_or("").to_string(),
+                published_at: json["publishedAt"].as_str().unwrap_or("").to_string(),
+            });
+        }
+        if let Some(status) = json["status"].as_u64() {
+            return if status == 404 {
+                ReleaseLookup::Absent
+            } else {
+                ReleaseLookup::Failed(format!("GitHub API 返回 {status}"))
+            };
+        }
+        if let Some(detail) = json["network"].as_str() {
+            return ReleaseLookup::Failed(detail.to_string());
+        }
+    }
+    if !success {
+        let detail: String = stderr.trim().chars().take(120).collect();
+        return ReleaseLookup::Failed(if detail.is_empty() {
+            "node 进程异常退出（没有错误输出）".to_string()
+        } else {
+            detail
         });
     }
-    if let Some(status) = json["status"].as_u64() {
-        if status == 404 {
-            return ReleaseLookup::Absent;
-        }
-        return ReleaseLookup::Failed(format!("GitHub API 返回 {status}"));
-    }
-    let detail = json["network"].as_str().unwrap_or("未知网络错误");
-    ReleaseLookup::Failed(detail.to_string())
+    ReleaseLookup::Failed("无法解析 GitHub API 响应".to_string())
 }
 
 /// Extract `owner/repo` from a GitHub `origin` URL (https, git@, or ssh forms);
@@ -816,6 +845,70 @@ mod tests {
         assert_eq!(github_repo(Some("https://gitlab.com/x/y.git")), None);
         assert_eq!(github_repo(Some("https://github.com/only-owner")), None);
         assert_eq!(github_repo(None), None);
+    }
+
+    #[test]
+    fn embedded_release_script_never_calls_process_exit() {
+        // Regression guard for the Windows libuv abort: `process.exit()` while
+        // undici still drains the fetch's async handles fails the child (and
+        // used to turn a successful fetch into a bogus 「获取失败」 note), so
+        // the script must flush its answer and let the loop drain instead.
+        assert!(!RELEASE_FETCH_SCRIPT.contains("process.exit"));
+        assert!(RELEASE_FETCH_SCRIPT.contains("writeSync(1"));
+    }
+
+    #[test]
+    fn release_capture_prefers_the_emitted_line_over_a_crashed_child() {
+        // A node abort *after* the JSON line reached stdout (the Windows libuv
+        // teardown assertion the script must never trigger, but a future crash
+        // cannot be allowed to regress this) must not throw the answer away:
+        // the tag keeps its official release notes instead of degrading to the
+        // slow AI fallback.
+        let stdout = r##"{"ok":true,"name":"v1.2.3","body":"# 说明","tagName":"v1.2.3","publishedAt":"2026-01-02T03:04:05Z"}"##;
+        let assertion = r"Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94";
+        match parse_release_capture(stdout, false, assertion) {
+            ReleaseLookup::Found(release) => {
+                assert_eq!(release.name, "v1.2.3");
+                assert_eq!(release.body, "# 说明");
+                assert_eq!(release.published_at, "2026-01-02T03:04:05Z");
+            }
+            other => panic!("expected Found, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn release_capture_maps_status_and_network_answers() {
+        assert!(matches!(
+            parse_release_capture(r#"{"ok":false,"status":404}"#, true, ""),
+            ReleaseLookup::Absent
+        ));
+        assert!(matches!(
+            parse_release_capture(r#"{"ok":false,"status":403}"#, true, ""),
+            ReleaseLookup::Failed(ref detail) if detail == "GitHub API 返回 403"
+        ));
+        assert!(matches!(
+            parse_release_capture(r#"{"ok":false,"network":"fetch failed"}"#, true, ""),
+            ReleaseLookup::Failed(ref detail) if detail == "fetch failed"
+        ));
+    }
+
+    #[test]
+    fn release_capture_reports_the_crash_when_nothing_was_emitted() {
+        // No parseable line: the exit status decides, so a real crash still
+        // reaches the note as its (truncated) stderr diagnostic.
+        let assertion = r"Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94";
+        assert!(matches!(
+            parse_release_capture("", false, assertion),
+            ReleaseLookup::Failed(ref detail) if detail == assertion
+        ));
+        assert!(matches!(
+            parse_release_capture("", false, ""),
+            ReleaseLookup::Failed(ref detail) if detail.contains("异常退出")
+        ));
+        assert!(matches!(
+            parse_release_capture("not json", true, ""),
+            ReleaseLookup::Failed(ref detail) if detail == "无法解析 GitHub API 响应"
+        ));
     }
 
     #[test]

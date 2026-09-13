@@ -27,7 +27,19 @@ const UPDATE_PLAN: &str = "pending-updates.json";
 const UPDATE_CONSOLE_PS1: &str = "run-update.ps1";
 const NPM_INSTALLS_FILE: &str = "npm-installs.json";
 const NPM_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Embedded node script that queries the npm registry for a batch of packages
+/// and prints one JSON array for the Rust side to parse.
+///
+/// Like [`crate::changelog`]'s release-fetch script it must never call
+/// `process.exit()`: on Windows that aborts node while undici is still draining
+/// the fetches' async handles, and libuv then trips
+/// `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING) … src\win\async.c`.
+/// The answer is written with `writeSync(1, …)` (file stdio: flushed before the
+/// process ends) and the event loop drains on its own; every body is consumed
+/// or cancelled so no half-read socket survives the exit.
 const NPM_FETCH_SCRIPT: &str = r#"
+import { writeSync } from 'node:fs';
+
 const packages = JSON.parse(process.argv[2] || '[]');
 const target = process.argv[3] || '';
 const results = await Promise.all(packages.map(async (name) => {
@@ -38,6 +50,7 @@ const results = await Promise.all(packages.map(async (name) => {
       signal: AbortSignal.timeout(15000),
     });
     if (response.status < 200 || response.status >= 300) {
+      await response.body?.cancel();
       return { name, error: 'HTTP ' + response.status };
     }
     const json = await response.json();
@@ -50,8 +63,7 @@ const results = await Promise.all(packages.map(async (name) => {
     return { name, error: String((error && error.message) || error) };
   }
 }));
-console.log(JSON.stringify(results));
-process.exit(0);
+writeSync(1, JSON.stringify(results) + '\n');
 "#;
 
 /// Distinguishes concurrent capture files within one process. The process id
@@ -466,6 +478,17 @@ fn parse_npm_results(text: &str, packages: &[String]) -> NpmUpdateInfo {
     }
 }
 
+/// Whether a capture emitted the npm script's complete JSON array, regardless
+/// of the child's exit status: node can abort after flushing the array (see the
+/// `NPM_FETCH_SCRIPT` note), and such a complete answer must still be used.
+/// `parse_npm_results` reports its own "unparseable response" error when nothing
+/// usable was emitted, so a partial write can never be mistaken for a result.
+fn emitted_npm_json(stdout: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(stdout.trim())
+        .map(|value| value.is_array())
+        .unwrap_or(false)
+}
+
 /// Query the npm registry for `packages` at `tag`'s version; one node fetch
 /// covers every package. Failure is reported inside `NpmUpdateInfo.error`
 /// instead of failing the row (git update state stays authoritative).
@@ -481,7 +504,9 @@ fn npm_update_check(path: &Path, packages: Vec<String>, tag: &str) -> Option<Npm
     let output = run_node_captured(Path::new("node"), &args, path, &[], NPM_FETCH_TIMEOUT);
     let _ = fs::remove_file(&script);
     match output {
-        Ok(output) if output.success => Some(parse_npm_results(&output.stdout, &packages)),
+        Ok(output) if output.success || emitted_npm_json(&output.stdout) => {
+            Some(parse_npm_results(&output.stdout, &packages))
+        }
         Ok(output) => {
             let detail = output.stderr.trim().chars().take(200).collect::<String>();
             Some(NpmUpdateInfo {
@@ -1448,6 +1473,26 @@ mod tests {
             info.latest.get("@linxin666/dsh-pet").map(String::as_str),
             Some("0.3.8")
         );
+    }
+
+    #[test]
+    fn embedded_npm_script_never_calls_process_exit() {
+        // Same Windows libuv guard as the release-fetch script (see
+        // changelog.rs): flush the array and let the event loop drain.
+        assert!(!NPM_FETCH_SCRIPT.contains("process.exit"));
+        assert!(NPM_FETCH_SCRIPT.contains("writeSync(1"));
+    }
+
+    #[test]
+    fn npm_answer_is_used_even_when_the_child_aborted() {
+        // A complete array on stdout is authoritative; a crash after flushing it
+        // (the Windows libuv teardown assertion) must not turn the whole npm
+        // check into an error row.
+        assert!(emitted_npm_json(r#"[{"name":"x","latest":"1.0.0","hasTarget":true}]"#));
+        assert!(!emitted_npm_json(""));
+        assert!(!emitted_npm_json("Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)"));
+        assert!(!emitted_npm_json(r#"[{"name":"x","latest":"#));
+        assert!(!emitted_npm_json(r#"{"name":"x"}"#));
     }
 
     #[test]

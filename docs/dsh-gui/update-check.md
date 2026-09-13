@@ -65,6 +65,19 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
    `node plugins/<id>/install.mjs` 或 `npm run install:plugins`；首次安装后
    更新检查才能确认 npm 版本，因此新克隆环境建议先执行一次插件安装。
 
+## 一次性 node 脚本的退出约定
+
+更新检查的 npm 版本核对与「更新日志」都靠 Rust 侧写出临时 `.mjs`、再以文件重定向
+stdio 启动 `node` 执行。这类脚本**不得调用 `process.exit()`**：在 Windows 上
+`fetch`（undici）的连接池仍持有待处理的 async 句柄，此时退出会让 libuv 断言
+
+```
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94
+```
+
+并把进程判为异常退出。这条约定、根因与回归测试见
+[update-changelog.md](update-changelog.md)。
+
 ## 相关文件
 
 - `scripts/plugin-install.mjs` —— 安装期记录 npm 包名

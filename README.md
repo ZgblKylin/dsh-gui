@@ -90,9 +90,11 @@ browser.
   (`dsh --profile headless`), whose session store is redirected to a temp
   directory — neither path persists a session. The markdown result renders
   in a scrollable, selectable dialog whose copy button copies the raw source
-  text; **Ctrl+click** on a link in it opens the URL in the system default
-  browser (a plain click stays a text-selection gesture, since a webview link
-  cannot spawn a popup on its own).
+  text; the provenance line and any failure message (for example a
+  GitHub-Release fetch error) are selectable as well, so a problem can be
+  copied out verbatim into a report. **Ctrl+click** on a link in it opens the
+  URL in the system default browser (a plain click stays a text-selection
+  gesture, since a webview link cannot spawn a popup on its own).
 
 ### Plugins
 

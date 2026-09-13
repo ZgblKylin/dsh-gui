@@ -615,17 +615,27 @@ button.update-run.pending:hover {
   font-weight: 600;
 }
 
+/* The dialog's provenance/failure lines are diagnostics the user may need to
+   copy out (e.g. a "GitHub Release 获取失败（…）" note), so — unlike the rest of
+   the shell body — they re-enable text selection. */
 .changelog-sub {
   color: var(--muted);
   font-size: 12px;
   margin-bottom: 12px;
   overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .changelog-loading {
   color: var(--muted);
   font-size: 13px;
   padding: 10px 2px;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  overflow-wrap: anywhere;
 }
 
 .changelog-loading.error {
