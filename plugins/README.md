@@ -6,15 +6,16 @@ Local DeepSeek Harness plugin packages, in the same preset-style layout as
 distribution repos such as `deep-whale`, the package path points one level
 deeper). A wrapper may own several checkouts and install several npm
 packages in one script. Two wrappers own no package checkout at all:
-`dsh-web-ui` installs four npm bundles of its distribution repo —
-`dsh-web-ui-settings`, `dsh-plugin-manager`, `dsh-skill-explorer` and
-`dsh-task-board` — and `agent-team` installs two official Agent Teams bundles
-and derives Team-aware agent presets from the shipped ones.
+`dsh-web-ui` installs five npm bundles of its distribution repo —
+`dsh-web-ui-settings`, `dsh-plugin-manager`, `dsh-skill-explorer`,
+`dsh-usage` and `dsh-model-capabilities` — and `agent-team` installs two
+official Agent Teams bundles and derives Team-aware agent presets from the
+shipped ones.
 
 ```
 plugins/
 ├─ <id>/
-│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: four npm
+│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: five npm
 │  │                     # bundles; agent-team: two npm bundles + derived presets
 │  └─ <package>/         # the plugin package (in-tree, or a git submodule); absent
 │                        # for npm-only wrappers
@@ -68,18 +69,18 @@ its own bundle layer. A manual profile insert for a bundle-declared plugin
 would double-mount it and fail the plugin tree with
 `duplicate loader entry id`.
 
-- **Multiple npm bundles wrapper** — `dsh-web-ui` installs four plugin
+- **Multiple npm bundles wrapper** — `dsh-web-ui` installs five plugin
   packages of its distribution repo, pinned to exact versions matching the
   git tag (`0.3.22`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
   gate, which would otherwise silently fall back to an older version for
   `@latest`): `@linxin666/dsh-client-ui-web-ui-settings`,
   `@linxin666/dsh-client-ui-plugin-manager`,
-  `@linxin666/dsh-client-ui-skill-explorer` and
-  `@linxin666/dsh-client-ui-task-board` (the settings bridge is ordered
-  first; per the 安装方式 section below: not marked as source installs). All
-  four declare `dsh.bundle.patch`, so each mounts through its own bundle
-  layer (no manual cordis inserts). It does not install agent presets or any
-  other dsh-web-ui package. See `dsh-web-ui/README.md`.
+  `@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
+  `@linxin666/dsh-client-ui-model-capabilities` (the settings bridge is
+  ordered first; per the 安装方式 section below: not marked as source
+  installs). All five declare `dsh.bundle.patch`, so each mounts through its
+  own bundle layer (no manual cordis inserts). It does not install agent
+  presets or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
 
 ## 安装方式
 
@@ -95,7 +96,8 @@ would double-mount it and fail the plugin tree with
   - [@linxin666/dsh-client-ui-web-ui-settings@0.3.22](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-plugin-manager@0.3.22](dsh-web-ui/packages/dsh-plugin-manager/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-skill-explorer@0.3.22](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
-  - [@linxin666/dsh-client-ui-task-board@0.3.22](dsh-web-ui/packages/dsh-task-board/README.zh.md) npm包
+  - [@linxin666/dsh-usage@0.3.22](dsh-web-ui/packages/dsh-usage/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-model-capabilities@0.3.22](dsh-web-ui/packages/dsh-model-capabilities/README.zh.md) npm包
 - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2`，另按上游 preset 生成 `<id>-team`；见 [agent-team/README.md](agent-team/README.md)
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.8；子模块
   checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 相同，
@@ -192,15 +194,18 @@ would double-mount it and fail the plugin tree with
   out of any right/bottom panels generically. See
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
-  `dsh-web-ui/dsh-web-ui`. Installs four plugin packages of the distribution
+  `dsh-web-ui/dsh-web-ui`. Installs five plugin packages of the distribution
   repo pinned to exact versions matching the git tag (`0.3.22`) (per the
   安装方式 section above): the `dsh-web-ui-settings` compatibility bundle
   (`@linxin666/dsh-client-ui-web-ui-settings`, ordered first),
   `dsh-plugin-manager` (`@linxin666/dsh-client-ui-plugin-manager`),
-  `dsh-skill-explorer` (`@linxin666/dsh-client-ui-skill-explorer`) and
-  `dsh-task-board` (`@linxin666/dsh-client-ui-task-board`) — each mounts
-  through its own `dsh.bundle.patch` layer; it does not install agent presets
-  or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
+  `dsh-skill-explorer` (`@linxin666/dsh-client-ui-skill-explorer`),
+  `dsh-usage` (`@linxin666/dsh-usage`) and `dsh-model-capabilities`
+  (`@linxin666/dsh-client-ui-model-capabilities`) — each mounts through its
+  own `dsh.bundle.patch` layer; the task board
+  (`@linxin666/dsh-client-ui-task-board`) is not installed. It does not
+  install agent presets or any other dsh-web-ui package. See
+  `dsh-web-ui/README.md`.
 - `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.8)
   at `dsh-pet/dsh-pet`: a floating desktop pet whose host half runs inside
   DSH and whose optional desktop mode spawns per-pet transparent Electron

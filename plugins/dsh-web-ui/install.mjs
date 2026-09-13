@@ -3,7 +3,7 @@
  * install.mjs — install the dsh-web-ui plugin bodies into the web profile
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
- * Four plugin packages of the dsh-web-ui distribution repo are installed,
+ * Five plugin packages of the dsh-web-ui distribution repo are installed,
  * pinned to exact versions matching the upstream git tag (`v0.3.22`), not
  * `@latest` — exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (the
  * gate silently falls back to an older version for `@latest`/ranges, while a
@@ -23,12 +23,15 @@
  *    (`@linxin666/dsh-client-ui-skill-explorer@0.3.22`): browse loaded skills
  *    by source (bundled / project / user / custom / runtime), enable/disable,
  *    create and delete, in a web GUI panel;
- * 4. the `dsh-task-board` host-authoritative task board
- *    (`@linxin666/dsh-client-ui-task-board@0.3.22`): real session execution,
- *    Host cron scheduling, and optional cross-platform idle-sleep protection,
- *    mounted without DSH source changes.
+ * 4. the `dsh-usage` usage-statistics plugin (`@linxin666/dsh-usage@0.3.22`):
+ *    per-provider balance and coding-plan quota probes plus a live token
+ *    ledger, rendered as a first-level "Usage statistics" settings section;
+ * 5. the `dsh-model-capabilities` plugin
+ *    (`@linxin666/dsh-client-ui-model-capabilities@0.3.22`): per-model image
+ *    input and reasoning-effort declarations edited on the models settings
+ *    cards, writing the official `llm-pi-ai` namespace.
  *
- * All four declare their own `dsh.bundle.patch`, so `dsh plugin add`
+ * All five declare their own `dsh.bundle.patch`, so `dsh plugin add`
  * reconciles them into `dsh.profile.bundles` and each mounts through its own
  * bundle layer — no manual cordis mount is written (that would double-mount).
  * The settings bridge exposes the `webUiSettings` compatibility binder to
@@ -74,10 +77,20 @@ installNpmPlugin({
   packageSpec: '@linxin666/dsh-client-ui-skill-explorer@0.3.22',
 })
 
-// task-board：host 权威任务板（真实会话执行 + Host cron 调度 + 可选跨平台
-// 闲置防睡眠），host 半区挂系统提示词公告 section、浏览器半区渲染任务板 UI。
-// 双半区都经 dsh.bundle.patch 自挂载；版本对齐子模块 tag v0.3.22。
+// dsh-usage：使用统计（多 provider 余额与编程套餐探测 + 实时 token 台账 +
+// 设置页一级分区「使用统计」）。宠物公告气泡读取可选的 `pet` 服务，本工程安装的
+// PC2005-cloud dsh-pet 不提供该服务，气泡静默，其余功能不受影响。版本对齐
+// 子模块 tag v0.3.22。
 installNpmPlugin({
-  id: 'dsh-task-board',
-  packageSpec: '@linxin666/dsh-client-ui-task-board@0.3.22',
+  id: 'dsh-usage',
+  packageSpec: '@linxin666/dsh-usage@0.3.22',
+})
+
+// dsh-model-capabilities：Models 设置页自定义提供方卡片上的「模型能力」扩展区
+// （逐模型声明图片输入与推理档位，写官方 llm-pi-ai 命名空间），另提供提供方
+// 禁用/启用（先存档再 unset 路由）。经 dsh.bundle.patch 自挂载；版本对齐
+// 子模块 tag v0.3.22。
+installNpmPlugin({
+  id: 'dsh-model-capabilities',
+  packageSpec: '@linxin666/dsh-client-ui-model-capabilities@0.3.22',
 })

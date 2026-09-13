@@ -176,7 +176,7 @@ dsh-gui/
 │                      #   dsh-web-ui/dsh-web-ui are git submodules;
 │                      #   dsh-web-ui installs dsh-web-ui-settings +
 │                      #   dsh-plugin-manager + dsh-skill-explorer +
-│                      #   dsh-task-board from npm;
+│                      #   dsh-usage + dsh-model-capabilities from npm;
 │                      #   see plugins/README.md)
 ├─ global_template.agents/  # versioned agent-config template: the always-loaded
 │                      #   docs and the user-level skills (the `review` skill
@@ -370,13 +370,16 @@ submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
 (`build: false`, no copy, no patch).
 
 `plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
-four npm bundles pinned to the submodule tag (`0.3.22`) through
+five npm bundles pinned to the submodule tag (`0.3.22`) through
 `installNpmPlugin` — `@linxin666/dsh-client-ui-web-ui-settings` (ordered
 first), `@linxin666/dsh-client-ui-plugin-manager`,
-`@linxin666/dsh-client-ui-skill-explorer` and
-`@linxin666/dsh-client-ui-task-board`; all four declare `dsh.bundle.patch`,
-so `dsh plugin add` reconciles each into `dsh.profile.bundles` (no manual
-cordis insert). The bridge is required because
+`@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
+`@linxin666/dsh-client-ui-model-capabilities`; all five declare
+`dsh.bundle.patch`, so `dsh plugin add` reconciles each into
+`dsh.profile.bundles` (no manual cordis insert). The task board
+(`@linxin666/dsh-client-ui-task-board`) is no longer installed: a profile
+that already has it keeps loading it until the package is removed there (see
+`dsh-web-ui/README.md`). The bridge is required because
 dsh-host-apiproxy's hard-coded settings allowlist does not expose third-party
 namespaces, so without it a `webUiSettings`-dependent plugin's configuration
 form is read-only. `dsh-web-ui/` stays as the source reference only (v0.3.x layout:
