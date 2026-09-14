@@ -22,7 +22,6 @@ export const PLUGINS = join(ROOT, 'plugins')
 export const WEB_HOME = join(ROOT, '.dsh')
 /** Global agent-config template copied into `<WEB_HOME>/.agents/` on every build. */
 export const GLOBAL_AGENTS_TEMPLATE = join(ROOT, 'global_template.agents')
-export const HARNESS_BIN = join(HARNESS, 'apps', 'cli', 'lib', 'bin.js')
 export const IS_WINDOWS = process.platform === 'win32'
 export const BIN_NAME = IS_WINDOWS ? 'dsh-gui.exe' : 'dsh-gui'
 export const PNPM_VERSION = '11.7.0'

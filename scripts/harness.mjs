@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * Start the same deepseek-harness web backend used by the Tauri shell, but keep
- * it attached to this terminal. The launch contract intentionally mirrors
- * `spawn_harness` in `src-tauri/src/main.rs`: web profile, DSH_GUI_PORT (or
- * 3080), no browser handoff, the harness checkout as cwd, and the repo-local
- * `.dsh` as DSH_HOME.
+ * Start the same dsh web backend the Tauri shell starts, but keep it attached
+ * to this terminal. The launch contract mirrors `spawn_harness` in
+ * `src-tauri/src/main.rs`: web profile, DSH_GUI_PORT (or 3080), no browser
+ * handoff, the resolved runtime's working directory, and the repo-local `.dsh`
+ * as DSH_HOME (`harness.json` selects the npm or the source runtime).
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { constants as osConstants } from 'node:os'
-import { HARNESS, HARNESS_BIN, WEB_HOME } from './toolchain.mjs'
+import { requireHarnessRuntime } from './harness-runtime.mjs'
+import { ROOT, WEB_HOME } from './toolchain.mjs'
 
 const DEFAULT_PORT = 3080
 
@@ -21,15 +21,18 @@ function resolvePort() {
   return Number.isInteger(port) && port <= 65535 ? port : DEFAULT_PORT
 }
 
-if (!existsSync(HARNESS_BIN)) {
-  console.error(`harness is not built: ${HARNESS_BIN} is missing — run "npm run setup" first`)
+let cli
+try {
+  cli = requireHarnessRuntime(ROOT)
+} catch (error) {
+  console.error(error.message)
   process.exit(1)
 }
 
 const port = resolvePort()
 
-const child = spawn('node', [HARNESS_BIN, 'web', '--port', String(port), '--no-open'], {
-  cwd: HARNESS,
+const child = spawn('node', [cli.bin, 'web', '--port', String(port), '--no-open'], {
+  cwd: cli.cwd,
   env: { ...process.env, DSH_HOME: WEB_HOME },
   stdio: 'inherit',
 })

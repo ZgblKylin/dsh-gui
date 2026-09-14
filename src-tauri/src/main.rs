@@ -1,9 +1,11 @@
 //! dsh-gui — a thin desktop shell for the DeepSeek Harness web UI.
 //!
 //! It does three things:
-//!   1. spawn the self-hosted harness web server (`dsh web`) from the
-//!      `deepseek-harness` submodule checkout, with `DSH_HOME` pinned inside
-//!      the repository and `DSH_AGENTS_HOME` pointing at the agent-config home
+//!   1. spawn the self-hosted dsh web server (`dsh web`) from the runtime
+//!      `harness.json` selects — the registry-installed
+//!      `@deepseek-ai/dsh@<version>` in `.harness/`, or the built
+//!      `deepseek-harness` submodule — with `DSH_HOME` pinned inside the
+//!      repository and `DSH_AGENTS_HOME` pointing at the agent-config home
 //!      the build installs `global_template.agents/` into;
 //!   2. wait until that server answers HTTP on the loopback port;
 //!   3. open a single frameless window: the shell page (served from the app
@@ -27,6 +29,7 @@ mod changelog;
 mod console;
 mod dialog_sizes;
 mod dialogs;
+mod harness;
 #[cfg(windows)]
 mod native_window;
 mod update;
@@ -181,18 +184,15 @@ mod job {
     }
 }
 
-/// Submodule directory name.
-const HARNESS_DIR: &str = "deepseek-harness";
-/// Built `dsh` entry, relative to the repository root.
-const HARNESS_BIN: &str = "deepseek-harness/apps/cli/lib/bin.js";
-/// Default loopback port (matches the harness `web` profile default; override
-/// with the `DSH_GUI_PORT` environment variable).
+/// Default loopback port (matches the dsh `web` profile default; override with
+/// the `DSH_GUI_PORT` environment variable).
 const DEFAULT_PORT: u16 = 3080;
 
 /// Walk up from the executable until the repository root (the directory that
-/// holds both `deepseek-harness/` and `src-tauri/`) is found. The exe sits
-/// either in `src-tauri/target/<profile>/` or at the repository root itself
-/// (the build scripts copy it there), and both resolve on the first hop.
+/// holds the runtime manifest or the `deepseek-harness` submodule and
+/// `src-tauri/`) is found. The exe sits either in
+/// `src-tauri/target/<profile>/` or at the repository root itself (the build
+/// scripts copy it there), and both resolve on the first hop.
 fn repo_root() -> Result<PathBuf, String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("could not resolve the executable path: {e}"))?;
@@ -201,9 +201,12 @@ fn repo_root() -> Result<PathBuf, String> {
         .map(Path::to_path_buf)
         .ok_or_else(|| format!("executable has no parent directory: {exe:?}"))?;
     for _ in 0..8 {
-        if dir.join(HARNESS_DIR).join("package.json").is_file()
-            && dir.join("src-tauri").join("tauri.conf.json").is_file()
-        {
+        let runtime_marker = dir.join(harness::CONFIG_FILE).is_file()
+            || dir
+                .join(harness::SUBMODULE_DIR)
+                .join("package.json")
+                .is_file();
+        if runtime_marker && dir.join("src-tauri").join("tauri.conf.json").is_file() {
             return Ok(dir);
         }
         if !dir.pop() {
@@ -426,18 +429,21 @@ struct HarnessAuth {
     cookie: Option<String>,
 }
 
-/// Spawn `node <root>/deepseek-harness/apps/cli/lib/bin.js web --port <port> --no-open`
-/// with `DSH_HOME` pinned to `<root>/.dsh`. The harness's stdout is captured
-/// (the launch URL line carries its one-time token) and mirrored to
+/// Spawn `node <resolved dsh CLI> web --port <port> --no-open` with `DSH_HOME`
+/// pinned to `<root>/.dsh`; `harness.json` decides whether that CLI is the
+/// registry-installed package or the built submodule. The CLI's stdout is
+/// captured (the launch URL line carries its one-time token) and mirrored to
 /// `.dsh\gui\harness.log`; stderr goes to the same log file. `--no-open` stops
-/// the harness web bundle from handing the page to the default browser: the
-/// shell opens its own window, and the harness runs embedded in it.
+/// the web bundle from handing the page to the default browser: the shell opens
+/// its own window, and dsh runs embedded in it.
 fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::error::Error>> {
-    let bin = root.join(HARNESS_BIN);
+    let runtime = harness::resolve(root)?;
+    let bin = runtime.bin.clone();
     if !bin.is_file() {
         return Err(format!(
-            "harness is not built: {} is missing — run `npm run setup` first",
-            bin.display()
+            "dsh CLI is not installed: {} is missing — {}",
+            bin.display(),
+            runtime.missing_hint()
         )
         .into());
     }
@@ -465,7 +471,7 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
         .arg("--port")
         .arg(port.to_string())
         .arg("--no-open")
-        .current_dir(root.join(HARNESS_DIR))
+        .current_dir(&runtime.cwd)
         .env("DSH_HOME", &home)
         .env("DSH_AGENTS_HOME", &agents_home)
         .stdout(Stdio::piped())
@@ -1115,7 +1121,22 @@ async fn update_changelog(
 ) -> Result<changelog::UpdateChangelog, String> {
     views::ensure_shell_or_dialog(&webview)?;
     let root = state.root.clone();
-    let harness_cli = root.join(HARNESS_BIN);
+    let harness_cli = match harness::resolve(&root) {
+        Ok(runtime) => runtime.bin,
+        Err(error) => {
+            // The launch already reported this; the changelog only needs a CLI,
+            // so a broken manifest degrades to the source build's entry.
+            log_status(
+                &root,
+                &format!("cannot resolve the dsh runtime ({error}); using the source build"),
+            );
+            root.join(harness::SUBMODULE_DIR)
+                .join("apps")
+                .join("cli")
+                .join("lib")
+                .join("bin.js")
+        }
+    };
     let port = state.port;
     let cookie = state.cookie.clone();
     let lock = Arc::clone(&state.update_lock);

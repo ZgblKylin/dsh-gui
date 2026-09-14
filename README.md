@@ -1,16 +1,17 @@
 # dsh-gui
 
 A thin desktop shell for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
-web UI. It is **not** a repackaged harness — it runs the harness in place from
-the `deepseek-harness` git submodule, hosts the web server itself, and shows the
-full harness UI in a single webview window. Nothing else is drawn: just the OS
-title bar and border.
+web UI. It is **not** a repackaged harness — it runs the dsh CLI that
+`harness.json` selects (the `@deepseek-ai/dsh` registry package in the default
+`npm` runtime, or the built `deepseek-harness` git submodule in `source`),
+hosts the web server itself, and shows the full harness UI in a single webview
+window. Nothing else is drawn: just the OS title bar and border.
 
 ## What it does
 
 On launch the entry exe:
 
-1. Spawns `node deepseek-harness/apps/cli/lib/bin.js` with
+1. Spawns the dsh CLI selected by `harness.json` — that runtime's `bin.js` — with
    `web --port <port> --no-open`, and pins `DSH_HOME` to `./.dsh` inside this
    repository.
 2. Waits until the harness answers `GET /` with `200` on `127.0.0.1:<port>`.
@@ -154,7 +155,10 @@ through npm scripts, so the same commands work on Windows, macOS, and Linux
 
 ```
 dsh-gui/
-├─ deepseek-harness/   # git submodule: the harness checkout (built in place)
+├─ harness.json        # selects the dsh runtime (npm registry or source build)
+├─ deepseek-harness/   # git submodule: the pinned harness checkout — version
+│                      #   source, built in place only in `source` mode
+├─ .harness/           # (gitignored) npm-runtime install of @deepseek-ai/dsh
 ├─ package.json        # npm scripts: setup / build / install:plugins / start / ...
 ├─ dsh-gui.exe         # the Tauri shell entry binary (Windows; `dsh-gui` on
 │                      #   Linux/macOS — build scripts copy it here)
@@ -199,11 +203,17 @@ This is idempotent and fully repo-internal:
 
 - Bootstraps **pnpm 11.7.0** into `.toolchain/` (the exact version the harness
   pins), so a system pnpm is not required.
-- Runs `pnpm install --store-dir .pnpm-store --frozen-lockfile` inside
-  `deepseek-harness/`, so the package cache lives at `.pnpm-store/` in this
-  repository — not in a global store. Both `.toolchain/` and `.pnpm-store/` are
-  gitignored.
-- Builds the harness (`pnpm run build`: host lib + web `dist/`).
+- Brings the dsh runtime selected by `harness.json` up to date (contract and
+  limits: [docs/dsh-gui/harness-runtime.md](docs/dsh-gui/harness-runtime.md)):
+  - `npm` (the checked-in runtime): installs `@deepseek-ai/dsh@<version>` into
+    `.harness/` from the registry, where `<version>` is read from the
+    submodule's `apps/cli/package.json`. Nothing under `deepseek-harness/` is
+    compiled.
+  - `source`: runs `pnpm install --store-dir .pnpm-store --frozen-lockfile` and
+    `pnpm run build` (host lib + web `dist/`) inside `deepseek-harness/`.
+- Whichever runtime is selected, the package cache lives at `.pnpm-store/` in
+  this repository — not in a global store; `.toolchain/`, `.pnpm-store/`, and
+  `.harness/` are gitignored.
 - Compiles the entry exe with `cargo build --release` (**release by default**)
   and copies it to the repository root (`dsh-gui.exe` on Windows, `dsh-gui`
   elsewhere).
@@ -226,8 +236,10 @@ The result is the entry binary at the repository root (cargo keeps its own
 output at `src-tauri\target\release\` or `target\debug\`).
 
 Flags (pass after `--`): `--debug` for a `cargo build` debug build,
-`--skip-harness` to skip the harness install+build, `--skip-exe` to skip cargo
-entirely (harness/plugins only — useful on Linux without Tauri system deps).
+`--skip-harness` to skip the dsh runtime install/build, `--skip-exe` to skip
+cargo entirely (runtime/plugins only — useful on Linux without Tauri system
+deps), and `--force-harness` to reinstall or rebuild the runtime even when it is
+current (the same as `DSH_HARNESS_REBUILD=1`).
 Example: `npm run build -- --debug`.
 
 > Packaging/installer generation is intentionally disabled (`bundle.active:
@@ -256,9 +268,10 @@ Tauri shell or opening a browser, use:
 npm run harness
 ```
 
-It uses the same `web --port <port> --no-open` arguments, starts from the
-`deepseek-harness/` checkout, and pins `DSH_HOME` to this repository's `.dsh`.
-Its output stays in the terminal; press Ctrl+C to stop it.
+It uses the same `web --port <port> --no-open` arguments, starts the resolved
+runtime's CLI from that runtime's working directory (`.harness/` in `npm` mode,
+`deepseek-harness/` in `source` mode), and pins `DSH_HOME` to this repository's
+`.dsh`. Its output stays in the terminal; press Ctrl+C to stop it.
 
 Both launch paths honor `$env:DSH_GUI_PORT` (default `3080`). Under `npm start`,
 harness output is logged to `.dsh\gui\harness.log`; dsh-gui's own status lines
@@ -290,8 +303,13 @@ npm run build
 
 ```powershell
 git submodule update --remote deepseek-harness
-npm run build             # reinstall + rebuild harness, then rebuild exe + plugins
+npm run build             # install the submodule's version, then rebuild exe + plugins
 ```
+
+The submodule stays the pinned version source: in the default `npm` runtime the
+build installs `@deepseek-ai/dsh` at the version the submodule's
+`apps/cli/package.json` records, and in `source` it compiles the checkout in
+place — see [docs/dsh-gui/harness-runtime.md](docs/dsh-gui/harness-runtime.md).
 
 ## Validating an upgrade in the staging clone
 
@@ -304,7 +322,7 @@ reaches the installation this checkout serves:
 npm run staging -- ensure        # first time only: create the clone
 npm run staging -- sync          # move the clone onto this checkout's revision
 cd .staging\dsh-gui
-npm run build -- --skip-exe      # harness install+build -> plugin installs -> presets
+npm run build -- --skip-exe      # dsh runtime install/build -> plugin installs -> presets
 ```
 
 `npm run staging -- status` reports both revisions, submodule drift, and how far
@@ -397,12 +415,14 @@ The tooling is pure Node and runs on Linux (e.g. inside WSL): `npm run setup`,
 harness, the plugins, and the `dsh web` server are all cross-platform. Building
 the Tauri shell on Linux additionally needs the Tauri system libraries
 (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, ...)
-and a display to run; without them, use `npm run build -- --skip-exe` to build
-and install just the harness + plugins.
+and a display to run; without them, use `npm run build -- --skip-exe` to install
+the dsh runtime and the plugins only.
 
 ## Troubleshooting
 
-- **"harness is not built"** — run `npm run setup`.
+- **"dsh CLI is not installed"** (the `npm run harness` path prints
+  `@deepseek-ai/dsh CLI not found at ...`) — run `npm run setup`; the message
+  names the resolved runtime, the entry path, and the expected version.
 - **`ERR_PNPM_UNEXPECTED_STORE` when installing plugins** — the profile's
   pnpm store was not pinned (an install ran from a context whose home
   variables resolve a different default store than the one used before). Run

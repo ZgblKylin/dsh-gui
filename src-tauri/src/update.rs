@@ -395,15 +395,22 @@ fn collect_manifest_names(dir: &Path, names: &mut Vec<String>) {
     }
 }
 
-/// Package names this submodule provides (root manifest plus `packages/**`).
+/// Package names this submodule provides (root manifest, `apps/*`, and
+/// `packages/**`).
+///
+/// `apps/*` matters for the dsh runtime: `@deepseek-ai/dsh` lives in
+/// `apps/cli`, and the npm runtime installs exactly that package, so the row's
+/// npm publish state depends on the name being discovered here.
 fn submodule_package_names(path: &Path) -> Vec<String> {
     let mut names = Vec::new();
     if let Some(name) = package_name(path) {
         names.push(name);
     }
-    let packages = path.join("packages");
-    if packages.is_dir() {
-        collect_manifest_names(&packages, &mut names);
+    for group in ["apps", "packages"] {
+        let dir = path.join(group);
+        if dir.is_dir() {
+            collect_manifest_names(&dir, &mut names);
+        }
     }
     names
 }

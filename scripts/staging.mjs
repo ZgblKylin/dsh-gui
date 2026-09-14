@@ -362,6 +362,24 @@ function present(...parts) {
   return existsSync(join(CLONE, ...parts))
 }
 
+/**
+ * The runtime the clone is configured for, read from its own `harness.json`.
+ * A clone that predates the manifest keeps the source runtime, matching both
+ * resolvers' default.
+ * @returns {{ runtime: 'npm' | 'source', version: string | null }}
+ */
+function cloneRuntime() {
+  try {
+    const config = JSON.parse(readFileSync(join(CLONE, 'harness.json'), 'utf8'))
+    return {
+      runtime: config?.runtime === 'npm' ? 'npm' : 'source',
+      version: typeof config?.version === 'string' && config.version !== '' ? config.version : null,
+    }
+  } catch {
+    return { runtime: 'source', version: null }
+  }
+}
+
 function report() {
   const sourceHead = git(['rev-parse', 'HEAD'])
   const cloneHead = git(['rev-parse', 'HEAD'], CLONE)
@@ -390,8 +408,15 @@ function report() {
   lines.push('  clone build stages:')
   lines.push(`    toolchain        : ${present('.toolchain', 'node_modules', 'pnpm') ? 'bootstrapped' : 'missing'} (.toolchain/node_modules/pnpm/)`)
   lines.push(`    pnpm store       : ${present('.pnpm-store') ? 'present' : 'missing'} (.pnpm-store/)`)
-  lines.push(`    harness deps     : ${present(HARNESS, 'node_modules') ? 'installed' : 'missing'} (${HARNESS}/node_modules/)`)
-  lines.push(`    harness build    : ${present(HARNESS, 'apps', 'cli', 'lib', 'bin.js') ? 'built' : 'missing'} (${HARNESS}/apps/cli/lib/bin.js)`)
+  const runtime = cloneRuntime()
+  if (runtime.runtime === 'npm') {
+    const version = runtime.version ?? 'version from the submodule manifest'
+    lines.push(`    dsh runtime      : npm (${version}) — ${present('.harness', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js') ? 'installed' : 'missing'} (.harness/node_modules/@deepseek-ai/dsh/lib/bin.js)`)
+    lines.push(`    harness submodule: not compiled (npm runtime); ${present(HARNESS, 'apps', 'cli', 'package.json') ? 'checkout present' : 'checkout missing'} (${HARNESS}/)`)
+  } else {
+    lines.push(`    dsh runtime      : source — ${present(HARNESS, 'apps', 'cli', 'lib', 'bin.js') ? 'built' : 'missing'} (${HARNESS}/apps/cli/lib/bin.js)`)
+    lines.push(`    harness deps     : ${present(HARNESS, 'node_modules') ? 'installed' : 'missing'} (${HARNESS}/node_modules/)`)
+  }
   lines.push(`    entry exe        : ${present('dsh-gui.exe') || present('dsh-gui') ? 'built' : 'not built'}`)
   lines.push(`    installed profile: ${present('.dsh', 'profiles', 'web', 'cordis.patch.yml') ? 'present' : 'absent'} (.dsh/profiles/web/)`)
   lines.push(`    agent presets    : ${present('.dsh', '.agent-presets') ? 'installed' : 'absent'} (.dsh/.agent-presets/)`)

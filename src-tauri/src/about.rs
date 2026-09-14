@@ -1,15 +1,20 @@
 //! About-dialog data: version, license, and repository link for the shell
-//! itself, the harness submodule, the app-icon submodule (`src-tauri/whale-icon`),
-//! and every plugin package under `plugins/`.
+//! itself, the dsh runtime the shell launches, the app-icon submodule
+//! (`src-tauri/whale-icon`), and every plugin package under `plugins/`.
 //!
 //! Version display follows one rule everywhere: the exact tag of `HEAD` when
 //! one exists, otherwise the short commit hash. Repo links come from each
-//! repository's `origin` remote, normalized to an https GitHub URL.
+//! repository's `origin` remote, normalized to an https GitHub URL. The dsh row
+//! is the exception: it reports the runtime `harness.json` selects, so an
+//! npm-installed CLI shows the installed package version rather than a checkout
+//! tag.
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+use crate::harness;
 
 /// One row of the About dialog.
 #[derive(Serialize, Clone)]
@@ -152,14 +157,33 @@ fn item(dir: &Path, fallback_name: &str) -> AboutItem {
     }
 }
 
-/// Collect the About rows for the shell, the harness submodule, the app-icon
+/// One About row for the dsh runtime the shell launches.
+///
+/// The npm runtime reports the installed package's version; the source runtime
+/// keeps the checkout row (exact tag, else the short commit). Both keep the
+/// submodule's license and repository link, because the npm package is built
+/// from that repository.
+fn harness_item(root: &Path) -> AboutItem {
+    let source = root.join(harness::SUBMODULE_DIR);
+    match harness::resolve(root) {
+        Ok(runtime) if runtime.runtime == harness::Runtime::Npm => AboutItem {
+            name: harness::NPM_PACKAGE.to_string(),
+            version: runtime.version.unwrap_or_else(|| "unknown".to_string()),
+            license: license_name(&source),
+            repo: repo_url(&source),
+        },
+        _ => item(&source, "deepseek-harness"),
+    }
+}
+
+/// Collect the About rows for the shell, the dsh runtime, the app-icon
 /// submodule, and every plugin package. The preset-style `plugins/` layout has
 /// one wrapper directory per plugin (`plugins/<id>/install.mjs`) holding the
 /// package/repo in a second-level directory; multi-package distribution repos
 /// (e.g. `deep-whale/dsh-deep-whale`) hold their package one level deeper.
 fn collect_fresh(root: &Path) -> AboutInfo {
     let shell = item(root, "dsh-gui");
-    let harness = item(&root.join("deepseek-harness"), "deepseek-harness");
+    let harness = harness_item(root);
     let icon = item(
         &root.join("src-tauri").join("whale-icon"),
         "whale-girl-icon",

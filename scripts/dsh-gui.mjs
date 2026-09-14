@@ -6,28 +6,49 @@
  * Every path resolves from the repository root regardless of the invoking cwd.
  *
  * Commands:
- *   setup    one-shot bootstrap: pinned pnpm -> harness clean+install+build ->
+ *   setup    one-shot bootstrap: pinned pnpm -> dsh runtime (see below) ->
  *            entry exe (release unless --debug) -> plugins (each
  *            plugins/<id>/install.mjs) -> install agent presets -> install the
  *            global agent template (global_template.agents/ -> .dsh/.agents/)
- *   build    harness clean+install+build (unless --skip-harness) -> entry exe ->
- *            plugins (each plugins/<id>/install.mjs) -> install agent presets ->
- *            install the global agent template
+ *   build    dsh runtime (unless --skip-harness) -> entry exe -> plugins (each
+ *            plugins/<id>/install.mjs) -> install agent presets -> install the
+ *            global agent template
  *   install  run every plugins/<id>/install.mjs (alias: plugins)
  *   run      launch the entry exe detached; the invoking terminal returns at
- *            once and closing it never kills dsh-gui (or its harness child)
+ *            once and closing it never kills dsh-gui (or its dsh child)
  *   shortcut create a Windows desktop shortcut to the entry exe (Windows only)
  *
+ * The dsh runtime is selected by `harness.json` (environment overrides win;
+ * see scripts/harness-runtime.mjs for the full contract):
+ *   npm     install `@deepseek-ai/dsh@<version>` into `<repo>/.harness/` from
+ *           the registry and launch that CLI. Nothing under
+ *           `deepseek-harness/` is compiled; the pinned submodule supplies the
+ *           release tag the version is derived from.
+ *   source  `pnpm install` + `pnpm run clean` + `pnpm run build` inside the
+ *           `deepseek-harness` submodule and launch its built CLI. A build whose
+ *           submodule revision already matches `.dsh/gui/harness-build.json` is
+ *           skipped, so an unchanged pinned revision costs no rebuild.
+ *
  * Flags (after the command):
- *   --debug         cargo debug build instead of release (release is default)
- *   --skip-harness  build: skip the harness pnpm install + build
- *   --skip-exe      skip the cargo build + exe copy (harness/plugins only —
- *                   useful on Linux without Tauri system deps)
+ *   --debug          cargo debug build instead of release (release is default)
+ *   --skip-harness   build: skip the dsh runtime install/build
+ *   --skip-exe       skip the cargo build + exe copy (runtime/plugins only —
+ *                    useful on Linux without Tauri system deps)
+ *   --force-harness  rebuild/reinstall the dsh runtime even when it is current
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, readdirSync, statSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join, resolve, sep } from 'node:path'
+import {
+  HARNESS_BUILD_STATE_FILE,
+  HARNESS_NPM_PACKAGE,
+  ensureHarnessProject,
+  requireHarnessRuntime,
+  resolveHarnessRuntime,
+  submoduleRevision,
+  submoduleVersion,
+} from './harness-runtime.mjs'
 import {
   BIN_NAME,
   GLOBAL_AGENTS_TEMPLATE,
@@ -42,6 +63,7 @@ import {
   pnpm,
   run,
 } from './toolchain.mjs'
+import { recordNpmInstall } from './plugin-install.mjs'
 
 const SRC_TAURI = join(ROOT, 'src-tauri')
 
@@ -82,6 +104,168 @@ function harnessBuild() {
     // fails inside the submodule checkout.
     pnpm(['run', 'build'], { cwd: HARNESS, env: { CI: 'true' } })
   })
+}
+
+/** Where a completed source build records the submodule revision it built. */
+function harnessBuildStatePath() {
+  const dshHome = process.env.DSH_HOME ?? WEB_HOME
+  return join(dshHome, 'gui', HARNESS_BUILD_STATE_FILE)
+}
+
+/** @returns {{ runtime?: string, revision?: string, version?: string|null, builtAt?: string } | null} */
+function readHarnessBuildState() {
+  try {
+    const state = JSON.parse(readFileSync(harnessBuildStatePath(), 'utf8'))
+    return state !== null && typeof state === 'object' ? state : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether the source runtime already matches the pinned submodule revision.
+ *
+ * The submodule revision is the only input that changes its build outputs, so
+ * an unchanged revision reuses the existing `lib/` instead of paying the full
+ * clean + tsc + tsdown rebuild. The CLI artifact check keeps a deleted or
+ * partial build from being treated as current.
+ * @returns {boolean}
+ */
+function harnessSourceCurrent() {
+  const state = readHarnessBuildState()
+  const revision = submoduleRevision(ROOT)
+  if (state?.runtime !== 'source' || revision === null || state.revision !== revision) return false
+  return existsSync(join(HARNESS, 'apps', 'cli', 'lib', 'bin.js'))
+}
+
+/** Build the pinned submodule, or reuse the build its revision already has. */
+function harnessSourceRuntime(frozen, force) {
+  if (!force && harnessSourceCurrent()) {
+    const state = readHarnessBuildState()
+    step('Reuse the existing harness build', () => {
+      console.log(
+        `submodule revision ${String(state?.revision).slice(0, 12)} unchanged since ${state?.builtAt ?? 'the last build'}`
+        + ' — skipping install/clean/build (--force-harness or DSH_HARNESS_REBUILD=1 rebuilds anyway)',
+      )
+    })
+    return
+  }
+  harnessInstall(frozen)
+  harnessBuild()
+  const revision = submoduleRevision(ROOT)
+  mkdirSync(dirname(harnessBuildStatePath()), { recursive: true })
+  writeFileSync(
+    harnessBuildStatePath(),
+    `${JSON.stringify({
+      runtime: 'source',
+      revision,
+      version: submoduleVersion(ROOT),
+      builtAt: new Date().toISOString(),
+    }, null, 2)}\n`,
+  )
+}
+
+/** Version of the npm-installed CLI in `installDir`, or null. */
+function installedHarnessVersion(installDir) {
+  const manifestPath = join(installDir, 'node_modules', ...HARNESS_NPM_PACKAGE.split('/'), 'package.json')
+  try {
+    const version = JSON.parse(readFileSync(manifestPath, 'utf8')).version
+    return typeof version === 'string' && version !== '' ? version : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Remove profile-local fallback links that resolve into the source tree.
+ *
+ * `<profile>/.dsh-module-fallback/node_modules` holds one link per package the
+ * launcher projected while the source runtime was active. The launcher re-heals
+ * the directory at every boot, but a link into `deepseek-harness/` would
+ * outlive a switch to the npm runtime and resolve to an unbuilt source package,
+ * so those links are removed when the npm runtime is installed. Only links
+ * whose target sits inside the submodule are touched, and the shared
+ * `<DSH_HOME>/profiles/node_modules` fallback is left to the launcher.
+ * @param {string} dshHome - the harness home whose web profile is pruned.
+ * @returns {number} removed link count.
+ */
+function pruneSourceFallbackLinks(dshHome) {
+  const root = join(dshHome, 'profiles', 'web', '.dsh-module-fallback', 'node_modules')
+  if (!existsSync(root)) return 0
+  const sourcePrefix = HARNESS + sep
+  let removed = 0
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const candidates = entry.name.startsWith('@')
+      ? (() => {
+          const scope = join(root, entry.name)
+          try {
+            return readdirSync(scope).map((name) => join(scope, name))
+          } catch {
+            return []
+          }
+        })()
+      : [join(root, entry.name)]
+    for (const candidate of candidates) {
+      try {
+        if (!lstatSync(candidate).isSymbolicLink()) continue
+        const absolute = resolve(dirname(candidate), readlinkSync(candidate))
+        if (!absolute.startsWith(sourcePrefix)) continue
+        rmSync(candidate, { recursive: true, force: true })
+        removed += 1
+      } catch {
+        // A link that cannot be read is left for the launcher to heal.
+      }
+    }
+  }
+  return removed
+}
+
+/** Install the pinned dsh CLI from the registry and prune source-era links. */
+function harnessNpmRuntime(runtime, force) {
+  const installed = installedHarnessVersion(runtime.installDir)
+  const current = installed === runtime.version
+  step(`Install ${HARNESS_NPM_PACKAGE}@${runtime.version} (npm runtime, repo-local store)`, () => {
+    ensureHarnessProject(runtime.installDir, STORE)
+    if (!force && current) {
+      console.log(`already installed: ${HARNESS_NPM_PACKAGE}@${installed}`)
+      return
+    }
+    // `add` always reconciles the lockfile, so no frozen-lockfile flag: it must
+    // be able to adopt a version bump and the generated pnpm settings.
+    pnpm(['add', `${HARNESS_NPM_PACKAGE}@${runtime.version}`], {
+      cwd: runtime.installDir,
+      env: { CI: 'true' },
+    })
+  })
+  const cli = requireHarnessRuntime(ROOT)
+  const after = installedHarnessVersion(runtime.installDir)
+  if (after !== runtime.version) {
+    throw new Error(`expected ${HARNESS_NPM_PACKAGE}@${runtime.version} in ${runtime.installDir}, found ${after ?? 'nothing'}`)
+  }
+  if (!force && current) return
+  step('Prune source-runtime module fallback links', () => {
+    const removed = pruneSourceFallbackLinks(process.env.DSH_HOME ?? WEB_HOME)
+    console.log(removed === 0 ? 'no source-tree fallback links to remove' : `removed ${removed} source-tree fallback link(s)`)
+  })
+  // The desktop-shell update checker reads this registry to tell npm installs
+  // apart from source ones, and to verify a new tag has an npm publish before
+  // announcing it.
+  recordNpmInstall(process.env.DSH_HOME ?? WEB_HOME, HARNESS_NPM_PACKAGE)
+  console.log(`dsh runtime installed: ${cli.bin} (cwd ${cli.cwd})`)
+}
+
+/**
+ * Bring the configured dsh runtime up to date.
+ *
+ * `harness.json` selects the runtime; both paths end with an installed CLI at
+ * `resolveHarnessRuntime(ROOT).bin`, which the shell, the plugin installer, and
+ * `scripts/harness.mjs` all resolve the same way.
+ */
+function harnessRuntime(options) {
+  const runtime = resolveHarnessRuntime(ROOT)
+  const force = options.forceHarness || process.env.DSH_HARNESS_REBUILD === '1'
+  if (runtime.runtime === 'npm') harnessNpmRuntime(runtime, force)
+  else harnessSourceRuntime(options.frozenHarness === true, force)
 }
 
 /**
@@ -236,26 +420,22 @@ function installGlobalTemplate() {
 
 function setup(options) {
   bootstrapPnpm()
-  harnessInstall(true)
-  harnessBuild()
+  harnessRuntime({ ...options, frozenHarness: true })
   if (!options.skipExe) buildExe(options.debug)
   plugins()
   installPresets()
   installGlobalTemplate()
-  console.log('\nDone. Entry exe at the repository root; plugins, agent presets, and the global agent template installed.')
+  console.log('\nDone. Entry exe at the repository root; dsh runtime, plugins, agent presets, and the global agent template installed.')
 }
 
 function build(options) {
   bootstrapPnpm()
-  if (!options.skipHarness) {
-    harnessInstall(false)
-    harnessBuild()
-  }
+  if (!options.skipHarness) harnessRuntime(options)
   if (!options.skipExe) buildExe(options.debug)
   plugins()
   installPresets()
   installGlobalTemplate()
-  console.log('\nDone. Entry exe at the repository root; plugins, agent presets, and the global agent template installed.')
+  console.log('\nDone. Entry exe at the repository root; dsh runtime, plugins, agent presets, and the global agent template installed.')
 }
 
 /** Launch the entry exe detached so the invoking terminal returns at once. */
@@ -311,31 +491,40 @@ Usage:
   npm run <command> -- [flags]        (from the repository root)
 
 Commands:
-  setup       one-shot bootstrap: pinned pnpm -> harness clean+install+build ->
+  setup       one-shot bootstrap: pinned pnpm -> dsh runtime (harness.json) ->
               entry exe (release unless --debug) -> plugins (each
               plugins/<id>/install.mjs) -> agent presets (each
               presets/<id>/install.mjs) -> global agent template
               (global_template.agents/ -> .dsh/.agents/)
-  build       harness clean+install+build (unless --skip-harness) -> entry exe ->
-              plugins (each plugins/<id>/install.mjs) -> agent presets ->
+  build       dsh runtime (unless --skip-harness) -> entry exe -> plugins
+              (each plugins/<id>/install.mjs) -> agent presets ->
               global agent template
   install     run every plugins/*/install.mjs (alias: plugins)
   run         launch the entry exe detached; the terminal returns immediately
   shortcut    create a Windows desktop shortcut (Windows only)
   help        show this help
 
+Runtime:
+  harness.json selects the dsh runtime. "npm" installs @deepseek-ai/dsh@<version>
+  into .harness/ from the registry and launches that CLI; "source" builds the
+  deepseek-harness submodule and launches its built CLI. Environment overrides:
+  DSH_HARNESS_RUNTIME, DSH_HARNESS_VERSION, DSH_HARNESS_INSTALL_DIR,
+  DSH_HARNESS_BIN, DSH_HARNESS_REBUILD=1.
+
 Flags:
-  --debug         cargo debug build instead of release (release is default)
-  --skip-harness  build: skip the harness pnpm install + build
-  --skip-exe      skip the cargo build + exe copy (harness/plugins only)
+  --debug          cargo debug build instead of release (release is default)
+  --skip-harness   build: skip the dsh runtime install/build
+  --skip-exe       skip the cargo build + exe copy (runtime/plugins only)
+  --force-harness  rebuild/reinstall the dsh runtime even when it is current
 
 Examples:
   npm run setup
   npm run build -- --debug
   npm run build -- --skip-harness
   npm run build -- --skip-exe
+  npm run build -- --force-harness
   npm run build:exe        (alias for build --skip-harness)
-  npm run build:webui      (alias for build --skip-exe; harness web UI only, no desktop exe)
+  npm run build:webui      (alias for build --skip-exe; runtime/plugins only, no desktop exe)
   npm run install:plugins
   npm start
   npm run shortcut -- "D:\\x.lnk"`)
@@ -349,6 +538,7 @@ function main() {
     debug: flags.has('--debug'),
     skipHarness: flags.has('--skip-harness'),
     skipExe: flags.has('--skip-exe'),
+    forceHarness: flags.has('--force-harness'),
   }
   switch (command) {
     case 'setup': setup(options); break

@@ -6,16 +6,19 @@
 ## 目录结构
 
 - .dsh: dsh配置目录
+- .harness: npm 运行时的 dsh CLI 安装目录（gitignored；由 `npm run build` 按 `harness.json` 生成）
 - .staging: 升级验证工作区（本仓库的持久化 clone 副本，gitignored；由 `scripts/staging.mjs` 维护，见 `dsh-gui-update` skill）
 - deepseek-harness: dsh框架本体
 - docs: 文档目录
 - global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把缺失文件装到 `.dsh/.agents/`，已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；外壳以 `DSH_AGENTS_HOME` 指向该目录）
+- harness.json: dsh 运行时清单（选择 npm 安装还是源码编译，并锁定版本）
 - plugins: 本地插件目录
 - presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到.dsh/.agent-presets/）
 - src-tauri: tauri源码目录
 - scripts: 启动脚本目录
 
-- `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范；不要编辑其中的任何文件，不要从该目录向插件源码复制代码。
+- `harness.json` 的 `runtime` 决定外壳与构建用哪个 dsh：`npm` 从 registry 安装 `@deepseek-ai/dsh@<version>` 到 `.harness/`（不再编译子模块），`source` 编译 `deepseek-harness` 子模块；契约见 `scripts/harness-runtime.mjs` 与 `src-tauri/src/harness.rs`，说明见 `docs/dsh-gui/harness-runtime.md`。
+- `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范与提供版本；不要编辑其中的任何文件，不要从该目录向插件源码复制代码。
 - 新增插件在 `plugins/<id>/<package>` 下创建（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）：wrapper `install.mjs` + 包（内嵌或 git submodule），包内 `package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`。
 
 ## 环境检查

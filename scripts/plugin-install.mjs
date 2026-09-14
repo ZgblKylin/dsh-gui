@@ -22,11 +22,12 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
+import { requireHarnessRuntime } from './harness-runtime.mjs'
 import {
   bootstrapPnpm,
-  HARNESS_BIN,
   pinnedPath,
   pnpm,
+  ROOT,
   run,
   STORE,
   WEB_HOME,
@@ -105,7 +106,8 @@ export function pinProfileStore(profileDir) {
  * @param {string} packageDir - absolute path to the plugin package.
  */
 function addDependency(dshHome, packageDir) {
-  run('node', [HARNESS_BIN, 'plugin', '--profile', 'web', 'add', `link:${packageDir}`], {
+  const cli = requireHarnessRuntime(ROOT)
+  run('node', [cli.bin, 'plugin', '--profile', 'web', 'add', `link:${packageDir}`], {
     env: {
       DSH_HOME: dshHome,
       // `dsh plugin` forwards to `pnpm` on PATH; prepend the pinned toolchain
@@ -298,9 +300,9 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null,
   const profileDir = join(dshHome, 'profiles', 'web')
   pinProfileStore(profileDir)
 
-  if (!existsSync(HARNESS_BIN)) {
-    throw new Error(`${id}: harness CLI not built at ${HARNESS_BIN} — run "npm run setup" once`)
-  }
+  // Fails loud when the pinned dsh CLI is not installed for the configured
+  // runtime (`harness.json`), with the runtime-specific remedy.
+  requireHarnessRuntime(ROOT)
   addDependency(dshHome, packageDir)
 
   if (manifest.dsh?.bundle?.patch !== undefined) {
@@ -343,8 +345,18 @@ function npmInstallsPath(dshHome) {
   return join(dshHome, 'gui', 'npm-installs.json')
 }
 
-/** Record one npm package name (best-effort; the registry is a runtime cache). */
-function recordNpmInstall(dshHome, packageName) {
+/**
+ * Record one npm package name (best-effort; the registry is a runtime cache).
+ *
+ * Exported because the dsh runtime install (`harness.json` runtime `npm`) also
+ * records the CLI package here: the desktop-shell update checker reads this file
+ * to tell npm installs apart from source ones and to verify a new upstream tag
+ * already has a matching npm publish.
+ *
+ * @param {string} dshHome - the harness home whose `gui/` holds the registry.
+ * @param {string} packageName - the npm package name.
+ */
+export function recordNpmInstall(dshHome, packageName) {
   try {
     const path = npmInstallsPath(dshHome)
     let packages = []
@@ -426,10 +438,10 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null })
   console.log(`\n==> install plugin '${id}' (${packageSpec} from npm)`)
   bootstrapPnpm()
   pinProfileStore(profileDir)
-  if (!existsSync(HARNESS_BIN)) {
-    throw new Error(`${id}: harness CLI not built at ${HARNESS_BIN} — run "npm run setup" once`)
-  }
-  run('node', [HARNESS_BIN, 'plugin', '--profile', 'web', 'add', packageSpec], {
+  // Fails loud when the pinned dsh CLI is not installed for the configured
+  // runtime (`harness.json`), with the runtime-specific remedy.
+  const cli = requireHarnessRuntime(ROOT)
+  run('node', [cli.bin, 'plugin', '--profile', 'web', 'add', packageSpec], {
     env: {
       DSH_HOME: dshHome,
       PATH: pinnedPath(),

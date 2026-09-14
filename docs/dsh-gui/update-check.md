@@ -7,6 +7,8 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 对 **npm 安装型** wrapper（`installNpmPlugin`，例如 `dsh-web-ui`、`better-sidebar`、
 `plugin-market`），仓库新 tag 可能只是源码发布，上游 npm 尚未发布对应版本——
 直接移动 submodule checkout 不会同步已安装的插件本体。
+`harness.json` 选择 `npm` 运行时后，dsh 运行时本身也是 npm 安装型：该行同样
+先核对最新 tag 是否已有 `@deepseek-ai/dsh` 的 npm 发布，再决定是否安装。
 
 ## AI 更新的 tag 保留规则
 
@@ -42,10 +44,11 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 - **安装记录**：共享流水线 `scripts/plugin-install.mjs` 的 `installNpmPlugin`
   把每个 npm 包名（含被 `DSH_PLUGIN_SKIP` / wrapper `skip` 默认跳过的包——记录
   先于安装判定写入，跳过与否都留档）追加写入
-  `.dsh/gui/npm-installs.json`（运行时缓存、gitignored）。
+  `.dsh/gui/npm-installs.json`（运行时缓存、gitignored）；`harness.json` 的
+  `npm` 运行时在（重）安装后由 `scripts/dsh-gui.mjs` 追加 `@deepseek-ai/dsh`。
 - **归属判定**：`src-tauri/src/update.rs` 扫描每个 submodule 的 `package.json`
-  （根 manifest + `packages/**`），与上述 registry 求交集，得到该行所属的 npm
-  包集合。
+  （根 manifest + `apps/*` + `packages/**`），与上述 registry 求交集，得到该行
+  所属的 npm 包集合。`apps/*` 覆盖 dsh 运行时所在的 `@deepseek-ai/dsh`。
 - **npm 发布状态**：当远端有更新的 tag（`latestTag` 可用）时，对每个 npm 包
   查询 `registry.npmjs.org`（经 node 临时脚本 fetch，沿用更新检查的
   文件重定向 stdio 模式），产出 `NpmUpdateInfo`：每个包当前发布的最新版本

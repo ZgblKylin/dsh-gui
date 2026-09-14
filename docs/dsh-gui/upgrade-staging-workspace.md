@@ -34,17 +34,17 @@ cd .staging\dsh-gui
 npm run build -- --skip-exe
 ```
 
-副本内 `npm run build` 解析的 `ROOT`、`.toolchain/`、`.pnpm-store/` 与 `DSH_HOME` 全部指向副本，harness 构建、各插件安装脚本与 agent preset 安装都落在副本内，不触碰本工程的 `.dsh/`。`--skip-exe` 跳过 cargo 与入口 exe 的复制，只验证 harness 与插件；需要一并验证入口 exe 时去掉该标记。
+副本内 `npm run build` 解析的 `ROOT`、`.toolchain/`、`.pnpm-store/` 与 `DSH_HOME` 全部指向副本，dsh 运行时的安装或构建、各插件安装脚本与 agent preset 安装都落在副本内，不触碰本工程的 `.dsh/`。副本的 `harness.json` 决定它安装 registry 的 CLI（产出落在副本的 `.harness/`）还是编译子模块，见 [harness-runtime.md](harness-runtime.md)。`--skip-exe` 跳过 cargo 与入口 exe 的复制，只验证 dsh 运行时与插件；需要一并验证入口 exe 时去掉该标记。
 
 副本内不要运行 `npm run staging`：该路径解析出的 `ROOT` 是副本自身，脚本会拒绝嵌套创建副本。
 
 ## 冒烟检查
 
-升级后先确认组合能否渲染。用 harness CLI 的配置 dump 检查，不监听端口（在仓库根目录执行）：
+升级后先确认组合能否渲染。用 `harness.json` 选定的 dsh CLI 做配置 dump，不监听端口（在仓库根目录执行；副本为 `source` 运行时则把入口换成副本内的 `.staging\dsh-gui\deepseek-harness\apps\cli\lib\bin.js`）：
 
 ```powershell
 $env:DSH_HOME = "$PWD\.staging\dsh-gui\.dsh"
-node .staging\dsh-gui\deepseek-harness\apps\cli\lib\bin.js --profile web --dump-config
+node .staging\dsh-gui\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --dump-config
 ```
 
 ## 与产品内「AI 更新」的关系
@@ -67,6 +67,7 @@ node .staging\dsh-gui\deepseek-harness\apps\cli\lib\bin.js --profile web --dump-
 ## 相关文件
 
 - `scripts/staging.mjs` —— 副本的创建、同步、状态与删除
+- `harness.json`、`docs/dsh-gui/harness-runtime.md` —— dsh 运行时的选择、解析契约与版本来源
 - `.gitignore` —— `.staging/` 条目
 - `src-tauri/ui/app.js` —— 更新对话框的 AI 更新提示词
 - `docs/dsh-gui/update-check.md` —— 更新检查与 npm 发布状态

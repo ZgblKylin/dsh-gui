@@ -1,6 +1,6 @@
 ---
 name: dsh-gui-update
-description: 'Use when updating a dsh-gui module to a newer upstream revision — the deepseek-harness engineering base or a plugin module under plugins/ — and when validating that upgrade before it reaches the working repository. Covers the persistent staging clone (.staging/dsh-gui via scripts/staging.mjs), the staging-first two-phase flow, the ban on building or installing inside the running checkout (phase two only syncs install scripts and submodule pins, then hands the rebuild back to the user), plugin masking, the post-upgrade install-script audit, the npm publish state of npm-installed wrappers, reporting and commit-message drafting, and the sandbox elevation rule.'
+description: 'Use when updating a dsh-gui module to a newer upstream revision — the deepseek-harness engineering base or a plugin module under plugins/ — and when validating that upgrade before it reaches the working repository. Covers the persistent staging clone (.staging/dsh-gui via scripts/staging.mjs), the staging-first two-phase flow, the ban on building or installing inside the running checkout (phase two only syncs install scripts and submodule pins, then hands the rebuild back to the user), plugin masking, the post-upgrade install-script audit, the npm publish state of npm-installed wrappers and of the dsh runtime, reporting and commit-message drafting, and the sandbox elevation rule.'
 whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上游修订（最新 tag 或最新提交）、需要在实装前先验证、需要在实装阶段避免改动正在运行的 dsh 实例、或更新对话框的「AI 更新」把升级提示词预填到会话后落地该流程时使用。
 ---
 
@@ -23,6 +23,7 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 | --- | --- |
 | [`src-tauri/ui/app.js`](../../../src-tauri/ui/app.js) | 更新对话框预填的提示词：`AI_UPDATE_SKILL`（手势常量 `/dsh-gui-update`）、`buildHarnessUpdatePrompt`（仅 harness）、`buildHarnessMergedPrompt`（harness 与插件批量）、`buildAiUpdatePrompt`（单模块与插件批量）。提示词只给出模块名、路径、当前版本与更新目标，流程由本 skill 承载 |
 | [`docs/dsh-gui/upgrade-staging-workspace.md`](../../../docs/dsh-gui/upgrade-staging-workspace.md) | 副本的位置、维护命令、远端语义、副本内构建与冒烟检查 |
+| [`harness.json`](../../../harness.json) 与 [`docs/dsh-gui/harness-runtime.md`](../../../docs/dsh-gui/harness-runtime.md) | dsh 运行时的选择与版本来源；harness 升级后由 build 按子模块 `apps/cli/package.json` 的版本安装 CLI |
 | [`docs/dsh-gui/update-check.md`](../../../docs/dsh-gui/update-check.md) | 更新检查的判定规则与 npm 发布状态 |
 | [`AGENTS.md`](../../../AGENTS.md) | 开发约定、插件开发规范、插件市场约束、bundle 加载注意事项、提交规范 |
 | [`plugins/README.md`](../../../plugins/README.md) | 各 wrapper 的安装方式标注与来源形态 |
@@ -44,7 +45,8 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 2. 在副本中把目标模块更新到目标修订，操作同第 2 节的两种目标。
 3. 分析该版本的影响：新增、变更或移除的功能、配置与依赖，以及本仓库插件需要跟进适配的点（组合方式、插件 API、bundle 契约）。以 `AGENTS.md` 与 [`docs/official/`](../../../docs/official) 为依据。
 4. 在副本中完成适配修改并验证：改动本仓库侧的插件源码、适配代码与安装脚本（不涉及 `deepseek-harness/` 内文件），然后运行副本内的 `npm run build -- --skip-exe`，必须全绿；需要一并验证入口 exe 时用 `npm run build`。
-5. 冒烟检查组合：用副本的 harness CLI 以 `--profile web --dump-config` 渲染配置树（命令见副本说明文档），确认没有 `duplicate loader entry id`、缺失插件或 patch 报错。
+   - `harness.json` 的 `runtime` 为 `npm`（仓库当前取值）时，本步按子模块 `apps/cli/package.json` 的版本从 registry 安装 dsh CLI，不编译子模块；子模块快进后必须重跑 build 才会换到新版本。
+5. 冒烟检查组合：用副本的 dsh CLI 以 `--profile web --dump-config` 渲染配置树（命令见副本说明文档），确认没有 `duplicate loader entry id`、缺失插件或 patch 报错。
 6. 屏蔽确认与新版不兼容且本次无法修复的插件，并从 profile 的挂载与依赖条目中移除，使其不参与本次验证的安装：
    - npm 安装型 wrapper：以 `DSH_PLUGIN_SKIP=<wrapper id>` 跳过本次安装，或把 wrapper 的 `skip` 声明改为默认跳过；[`scripts/plugin-install.mjs`](../../../scripts/plugin-install.mjs) 的 `skipInstall` 是唯一判定处，`DSH_PLUGIN_FORCE_INSTALL=1` 强制安装。
    - 源码构建与 link 安装型 wrapper：在其 `plugins/<id>/install.mjs` 顶部加 MASKED 守卫。
@@ -81,10 +83,10 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 
 全部满足才算完成：
 
-- 副本内 `npm run build` 全绿，含 harness 构建与各插件安装脚本；
+- 副本内 `npm run build` 全绿，含 dsh 运行时的安装或构建与各插件安装脚本；
 - 副本的 `--profile web --dump-config` 能渲染组合；
 - 不兼容插件已屏蔽，原因与恢复条件已记录；
-- npm 安装型 wrapper 的 npm 发布状态已核对（判据见 `docs/dsh-gui/update-check.md`）；
+- npm 安装型 wrapper 与 dsh 运行时的 npm 发布状态已核对（判据见 `docs/dsh-gui/update-check.md`）；
 - 本工程已更新到阶段一确认的修订，验证过的安装脚本与适配改动已逐文件同步；
 - 已通知用户重新构建，构建结果与重建后各插件、agent preset 的安装由用户确认。
 
@@ -115,7 +117,7 @@ git -C plugins\<id>\<package> checkout <旧修订>
 
 ## 9. 常见坑
 
-- **harness 子模块的残留构建产物**：升级后旧的 `lib/` 与 `node_modules/` 会被 tsdown 的 workspace glob 当成构建目标，报 `MISSING_EXPORT` 并中止构建。副本从干净检出安装，能提前暴露该问题；本工程的修复见事故复盘。
+- **`source` 运行时下 harness 子模块的残留构建产物**：升级后旧的 `lib/` 与 `node_modules/` 会被 tsdown 的 workspace glob 当成构建目标，报 `MISSING_EXPORT` 并中止构建。副本从干净检出安装，能提前暴露该问题；本工程的修复见事故复盘。
 - **子模块指针漂移**：本工程记录的修订与子模块工作区 HEAD 不一致时，`git status` 显示 ` M <path>`；实装要让两者一致，否则本工程处于半升级状态。
 - **移动了 checkout 却没有重跑安装**：`link:` 安装指向包目录，包需要重新构建才会生效，因此本工程检出阶段一确认的修订后，必须由用户重新构建才会生效。
 - **npm 安装型 wrapper 的发布滞后**：仓库 tag 可能早于 npm 发布，只移动 submodule checkout 不会更新已安装的插件本体。
