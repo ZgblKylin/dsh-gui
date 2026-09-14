@@ -180,7 +180,8 @@ dsh-gui/
 │                      #   dsh-web-ui/dsh-web-ui are git submodules;
 │                      #   dsh-web-ui installs dsh-web-ui-settings +
 │                      #   dsh-plugin-manager + dsh-skill-explorer +
-│                      #   dsh-usage + dsh-model-capabilities from npm;
+│                      #   dsh-usage + dsh-model-capabilities +
+│                      #   dsh-session-archive from npm;
 │                      #   see plugins/README.md)
 ├─ global_template.agents/  # versioned agent-config template: the always-loaded
 │                      #   docs and the user-level skills (the `review` skill
@@ -388,11 +389,12 @@ submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
 (`build: false`, no copy, no patch).
 
 `plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
-five npm bundles pinned to the submodule tag (`0.3.22`) through
+six npm bundles pinned to the submodule tag (`0.3.22`) through
 `installNpmPlugin` — `@linxin666/dsh-client-ui-web-ui-settings` (ordered
 first), `@linxin666/dsh-client-ui-plugin-manager`,
-`@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
-`@linxin666/dsh-client-ui-model-capabilities`; all five declare
+`@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage`,
+`@linxin666/dsh-client-ui-model-capabilities` and
+`@linxin666/dsh-session-archive`; all six declare
 `dsh.bundle.patch`, so `dsh plugin add` reconciles each into
 `dsh.profile.bundles` (no manual cordis insert). The task board
 (`@linxin666/dsh-client-ui-task-board`) is no longer installed: a profile

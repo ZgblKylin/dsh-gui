@@ -3,7 +3,7 @@
  * install.mjs — install the dsh-web-ui plugin bodies into the web profile
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
- * Five plugin packages of the dsh-web-ui distribution repo are installed,
+ * Six plugin packages of the dsh-web-ui distribution repo are installed,
  * pinned to exact versions matching the upstream git tag (`v0.3.22`), not
  * `@latest` — exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (the
  * gate silently falls back to an older version for `@latest`/ranges, while a
@@ -29,9 +29,14 @@
  * 5. the `dsh-model-capabilities` plugin
  *    (`@linxin666/dsh-client-ui-model-capabilities@0.3.22`): per-model image
  *    input and reasoning-effort declarations edited on the models settings
- *    cards, writing the official `llm-pi-ai` namespace.
+ *    cards, writing the official `llm-pi-ai` namespace;
+ * 6. the `dsh-session-archive` session-archive manager
+ *    (`@linxin666/dsh-session-archive@0.3.22`): a complete session inventory
+ *    with filter/search/sort, batch archive / unarchive, physical delete with
+ *    family cascade, and optional (default-off) auto-archive / auto-cleanup
+ *    policies, rendered as a first-level "Session archive" settings section.
  *
- * All five declare their own `dsh.bundle.patch`, so `dsh plugin add`
+ * All six declare their own `dsh.bundle.patch`, so `dsh plugin add`
  * reconciles them into `dsh.profile.bundles` and each mounts through its own
  * bundle layer — no manual cordis mount is written (that would double-mount).
  * The settings bridge exposes the `webUiSettings` compatibility binder to
@@ -93,4 +98,14 @@ installNpmPlugin({
 installNpmPlugin({
   id: 'dsh-model-capabilities',
   packageSpec: '@linxin666/dsh-client-ui-model-capabilities@0.3.22',
+})
+
+// dsh-session-archive：会话归档管理（全量会话清册 + 过滤/搜索/排序 + 批量归档与
+// 取消归档 + 会话族级联物理删除 + 可选（默认关闭）自动归档/自动清理策略；设置页
+// 一级分区「会话归档管理」）。删除管线与归档台账契约见包内 AGENTS.md；路由为
+// loopback-only，LAN/隧道客户端不可操作。经 dsh.bundle.patch 自挂载；版本对齐
+// 子模块 tag v0.3.22。
+installNpmPlugin({
+  id: 'dsh-session-archive',
+  packageSpec: '@linxin666/dsh-session-archive@0.3.22',
 })
