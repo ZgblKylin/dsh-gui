@@ -18,7 +18,10 @@
  * Which presets are derived is DISCOVERED, not listed: every shipped preset
  * that carries delegation rows gets a `<id>-team` sibling, so a preset added
  * upstream arrives with a Team-aware sibling on the next install and one
- * removed upstream has its sibling cleaned up.
+ * removed upstream has its sibling cleaned up. A preset that mounts the Cordis
+ * toolset is skipped: that toolset's inspect providers are process-global and
+ * register once, so a derived copy could never be seated next to the shipped
+ * preset it came from.
  *
  * Why the derived preset is a generated COPY and not a `cordis:include`:
  * an include with `patches` expresses the same delta in far fewer bytes, but a
@@ -77,6 +80,20 @@ const CONTROL_ROWS = [
 
 /** The row whose presence decides whether a shipped preset has delegation at all. */
 const DELEGATION_MARKER = '@deepseek-ai/dsh-tool-subagent'
+
+/**
+ * The row that makes a shipped preset unusable as a Team sibling.
+ *
+ * `@deepseek-ai/dsh-tool-cordis` registers four Host inspect providers
+ * (`Service` / `Event` / `Builtin` / `Tool`) into `ctx.cordisInspect`, a
+ * process-global registry whose ids may be registered once, and it takes no
+ * configuration that would let a mount reuse an existing registration. Standing
+ * preset mounts live for the whole process, so a derived copy of a preset that
+ * mounts this toolset cannot be seated while the shipped preset it came from is
+ * mounted — the second mount fails with
+ * `Host Cordis inspect provider "Service" is already registered`.
+ */
+const PROCESS_GLOBAL_TOOLSET = '@deepseek-ai/dsh-tool-cordis'
 
 const CONTINUABLE_ROW = /backgroundMode: continuable/g
 
@@ -224,7 +241,8 @@ function deriveComposition(text, source, sourceId) {
 }
 
 /**
- * Remove a derived preset whose shipped source no longer exists.
+ * Remove a derived preset this run no longer produces, because its shipped
+ * source is gone or it stopped qualifying for a sibling.
  *
  * Only directories carrying this script's marker are candidates, so a
  * hand-authored preset that happens to end in the suffix is never touched.
@@ -239,11 +257,18 @@ function removeStaleDerivedPresets(userRoot, expected) {
     if (!existsSync(metadataPath)) continue
     if (!readFileSync(metadataPath, 'utf8').includes(`generatedBy: ${GENERATED_BY}`)) continue
     rmSync(join(userRoot, entry.name), { recursive: true, force: true })
-    console.log(`  removed stale derived preset '${entry.name}' — its shipped source is gone`)
+    console.log(`  removed stale derived preset '${entry.name}' — this run produces no sibling for its source`)
   }
 }
 
-/** Generate and land a Team-aware sibling for every shipped delegation preset. */
+/**
+ * Generate and land a Team-aware sibling for every shipped delegation preset
+ * that can carry one.
+ *
+ * A shipped preset is skipped when it has no delegation rows (nothing to patch)
+ * or when it mounts a process-global toolset (a sibling could not be seated
+ * alongside it).
+ */
 function landDerivedPresets() {
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
   const presetsDir = shippedPresetsDir()
@@ -264,6 +289,13 @@ function landDerivedPresets() {
     // a subagent tool there would add capability the composition omits.
     if (!text.includes(DELEGATION_MARKER)) {
       console.log(`  ${sourceId}: no delegation rows — skipping`)
+      continue
+    }
+    // A derived sibling of a preset that mounts a process-global toolset can
+    // never be seated next to that preset; deriving it would ship a preset the
+    // roster offers and the host then refuses to mount.
+    if (text.includes(PROCESS_GLOBAL_TOOLSET)) {
+      console.log(`  ${sourceId}: mounts ${PROCESS_GLOBAL_TOOLSET} — skipping; one mount per process, so a sibling cannot coexist with the shipped preset`)
       continue
     }
     const id = `${sourceId}${DERIVED_SUFFIX}`

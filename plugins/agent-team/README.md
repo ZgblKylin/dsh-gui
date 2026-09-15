@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 |
 | `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2` | web profile | 浏览器 roster 与任务板面板 |
-| `<id>-team`，每个含 delegation 行的官方 preset 各一个 | `<DSH_HOME>/.agent-presets/` | 由官方同名 preset 生成的 Team-aware 组合。当前为 `standard-team` / `ptc-team` / `cordis-team` |
+| `<id>-team`，每个含 delegation 行且不挂进程级工具集的官方 preset 各一个 | `<DSH_HOME>/.agent-presets/` | 由官方同名 preset 生成的 Team-aware 组合。当前为 `standard-team` / `ptc-team`；官方 `cordis` 不派生，原因见「派生 preset 的规则」 |
 
 两个 npm 包都声明 `dsh.bundle.patch`，因此 `dsh plugin add` 会自动把它们 reconcile 进
 `dsh.profile.bundles`，由各自的 bundle 层挂载；**本脚本不写 `cordis.patch.yml` insert**（手工插入会 `duplicate loader entry id`）。
@@ -36,10 +36,11 @@
 1. `tool-subagent-control` 与 `tool-subagent-list-agents` 两行加 `disabled: true`；
 2. 两处 `backgroundMode: continuable` 改为 `one-shot`。
 
-**哪些 preset 会被派生是"发现"出来的，不是列出来的。** 脚本遍历官方 preset 根，凡是含
-delegation 行的就生成一个 `<id>-team` 兄弟目录，所以上游新增 preset 会在下次安装时自动带上
-兄弟；上游删除 preset 时其兄弟会被清理——清理只针对带本脚本 `generatedBy` 标记的目录，且只在
-本轮至少成功派生一个 preset 时才运行，以免查找失败时清空 roster。
+**哪些 preset 会被派生是"发现"出来的，不是列出来的。** 脚本遍历官方 preset 根，凡是含 delegation 行的就生成一个 `<id>-team` 兄弟目录，所以上游新增 preset 会在下次安装时自动带上兄弟；上游删除 preset、或某 preset 不再满足派生条件时，其兄弟会被清理——清理只针对带本脚本 `generatedBy` 标记的目录，且只在**本轮至少成功派生一个 preset** 时才运行，以免查找失败时清空 roster。
+
+**挂进程级工具集的 preset 不派生。** 官方 `cordis`（创造模式）挂 `@deepseek-ai/dsh-tool-cordis`，它把 `Service` / `Event` / `Builtin` / `Tool` 四个 Host inspect provider 注册进进程级注册表 `ctx.cordisInspect`：注册表按 id 唯一，且该工具集没有"复用已有注册"的配置；而 preset 的 standing mount 在进程内**常驻不回收**（`agent-presets` 每个 preset 只组一份，整棵树卸载时才释放）。所以含这个工具集的两份 composition 无法在同一进程内共存——后挂的那份会在 `tool-cordis` 行上失败，报 `Host Cordis inspect provider "Service" is already registered`，外层是 `failed to apply loader entry tool-cordis (@deepseek-ai/dsh-tool-cordis)`。
+
+`cordis-team` 正是这种组合，因此脚本跳过它，并把上一轮可能已生成的目录当作 stale 清理掉——roster 里留一个"可选但挂不上"的 preset，比不生成它更糟。
 
 `ptc` 同样适用：PTC 只改 **presentation**（`tool-presentation: mode: ptc`），工具注册表与
 `view()` 不变，而 SDK 正是从同一个 `view().visible` 投影出来的，所以 patch 生效方式与
@@ -82,6 +83,11 @@ npm run install:plugins        # 或 npm run build
 - **只为派生 preset 修复**。官方 `standard` / `cordis` / `ptc` 本身仍是原样，在那些 preset 下
   Agent Teams 的错配依旧存在（Team 工具会遮蔽三个控制工具，而 `subagent` 仍是 continuable）。
   要让所有会话都一致，需要把某个 `*-team` preset 设为默认（`agentPresets.default`），本 wrapper 不做这件事。
+- **创造模式无法 Team 化**。`cordis` 挂的 Cordis 工具集注册进程级 inspect provider，一个进程只能挂一份，
+  因此它没有 `-team` 兄弟（见「派生 preset 的规则」）。这不是本 wrapper 能补的缝：只要该进程里已经坐过官方
+  `cordis`——选过创造模式会话、跑过 AI 更新（`dsh-ai-update` 会为空白会话自动 `agentPresets.select` 到
+  `cordis`）、甚至冷读过历史创造模式会话的技能目录——含同一工具集的其它 preset 就挂不上，反之亦然。
+  要换用另一方，需要重启 DSH 进程。
 - **依赖上游文件形状**。四个锚点由 `install.mjs` 在安装时校验，上游重构会让安装**失败**而不是降级；
   届时需要更新脚本中的锚点常量。
 - **生成副本位于 `.agent-presets/`，由安装脚本拥有**：每次安装都会覆盖，不要手改，改脚本。

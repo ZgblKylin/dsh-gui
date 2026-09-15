@@ -18,5 +18,8 @@
     "harness": "node scripts/harness.mjs",
     "start": "node scripts/dsh-gui.mjs run",
     "shortcut": "node scripts/dsh-gui.mjs shortcut"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "^0.1.6-alpha.1"
   }
 }
