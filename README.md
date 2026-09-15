@@ -204,6 +204,24 @@ dsh-gui/
 └─ .dsh/               # (runtime, gitignored) harness home: profiles/plugins/sessions
 ```
 
+## npm scripts
+
+Every command below is a `package.json` entry that forwards to the
+cross-platform Node CLIs — `scripts/dsh-gui.mjs` for the main lifecycle, while
+`scripts/staging.mjs` and `scripts/harness.mjs` own their own commands. The
+detailed sections marked in the table are expanded further down.
+
+| npm script | Command | What it does |
+| --- | --- | --- |
+| `npm run setup` / `npm run build` | `node scripts/dsh-gui.mjs setup` / `node scripts/dsh-gui.mjs build` | one-shot build: toolchain, harness runtime, entry exe, plugins, presets, global agent template (see [Build (one shot)](#build-one-shot)) |
+| `npm run build:exe` | `node scripts/dsh-gui.mjs build --skip-harness` | build the entry exe only, skipping the harness runtime step |
+| `npm run build:webui` | `node scripts/dsh-gui.mjs build --skip-exe` | harness runtime + plugin/preset installs only, skipping cargo |
+| `npm run install:plugins` / `npm run plugins` | `node scripts/dsh-gui.mjs install` | run every plugin install script under `plugins/` (see [Adding plugins at runtime](#adding-plugins-at-runtime)) |
+| `npm run staging` | `node scripts/staging.mjs` | staging-clone workflow: `ensure`, `sync`, `status`, `clean --yes` (see [Validating an upgrade in the staging clone](#validating-an-upgrade-in-the-staging-clone)) |
+| `npm run harness` | `node scripts/harness.mjs` | foreground harness backend, no shell window or browser (see [Run](#run)) |
+| `npm start` | `node scripts/dsh-gui.mjs run` | detached desktop shell (see [Run](#run)) |
+| `npm run shortcut` | `node scripts/dsh-gui.mjs shortcut` | Windows desktop shortcut (see [System shortcut (Windows)](#system-shortcut-windows)) |
+
 ## Build (one shot)
 
 ```powershell
