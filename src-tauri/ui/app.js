@@ -210,7 +210,6 @@ let activeId = loadJSON(LS_ACTIVE, null);
 let savedConnections = loadJSON(LS_SAVED, []);
 let harnessUrl = "http://127.0.0.1:3080";
 let defaultPort = 3080;
-
 function persist() {
   saveJSON(LS_TABS, tabs);
   saveJSON(LS_ACTIVE, activeId);
@@ -220,14 +219,109 @@ function activeTab() {
   return tabs.find((t) => t.id === activeId) || tabs[0] || null;
 }
 
-/* ── Harness URL for the tab webviews ──────────────────────── */
+/* ── Harness lifecycle and boot gate ───────────────────────────
+   Rust creates this window before it spawns `dsh web` (that boot takes ~10 s
+   and is CPU-bound inside the harness), so the shell paints the loading card in
+   index.html and only builds the tab webviews once the lifecycle leaves
+   "starting". Rust publishes it as `harness-status`; dialog windows read the
+   same payload — they need host/port only, never a wait. */
+const HARNESS_STATUS_EVENT = "harness-status";
+let harnessState = "starting";
+let harnessError = "";
+
+/** Fold one status payload into the shared URL/port state. */
+function applyHarnessStatus(status) {
+  const next = status && typeof status === "object" ? status : {};
+  harnessState = typeof next.state === "string" ? next.state : "ready";
+  harnessError = typeof next.error === "string" ? next.error : "";
+  if (typeof next.url === "string" && next.url) harnessUrl = next.url.replace(/\/+$/, "");
+  const port = Number(next.port);
+  if (Number.isFinite(port) && port > 0) defaultPort = port;
+  return harnessState;
+}
+
+/** Read the current lifecycle without waiting for it. */
 async function setHarnessSource() {
-  harnessUrl = (tauri ? await invoke("harness_url") : "http://127.0.0.1:3080").replace(/\/+$/, "");
-  try {
-    defaultPort = Number(new URL(harnessUrl).port) || 3080;
-  } catch {
-    defaultPort = 3080;
+  const status = tauri
+    ? await invoke("harness_status")
+    : { state: "ready", url: "http://127.0.0.1:3080", port: 3080 };
+  return applyHarnessStatus(status);
+}
+
+function setBootDetail(text) {
+  const detail = $("boot-detail");
+  if (detail) detail.textContent = text;
+}
+
+function hideBootOverlay() {
+  const overlay = $("boot-overlay");
+  if (overlay) overlay.classList.add("hidden");
+}
+
+/** Turn the loading card into the failure report; the window stays open. */
+function showBootFailure(message) {
+  const title = $("boot-title");
+  if (title) title.textContent = "DeepSeek Harness 启动失败";
+  const spinner = document.querySelector(".boot-spinner");
+  if (spinner) spinner.classList.add("hidden");
+  setBootDetail("详见 .dsh/gui/gui.log 与 .dsh/gui/harness.log");
+  const error = $("boot-error");
+  if (error) {
+    error.textContent = message;
+    error.classList.remove("hidden");
   }
+  const exit = $("boot-exit");
+  if (exit && tauri) {
+    exit.classList.remove("hidden");
+    exit.addEventListener("click", () => invoke("close_window").catch(() => {}));
+  }
+}
+
+/** Resolve once the harness serves HTTP; show the failure card and throw when
+ *  it could not start. Subscribing before the status read covers a harness that
+ *  became ready while this page was still loading. */
+async function waitForHarness() {
+  if (!tauri) {
+    hideBootOverlay();
+    return;
+  }
+  const gateStarted = Date.now();
+  invoke("shell_log", { msg: "boot gate: waiting for the harness" }).catch(() => {});
+  let settle;
+  const reported = new Promise((resolve) => { settle = resolve; });
+  const unlisten = await tauri.event.listen(HARNESS_STATUS_EVENT, (event) => {
+    const status = event.payload || {};
+    if (status.state === "starting") return;
+    settle(status);
+  });
+  let status;
+  try {
+    status = await invoke("harness_status");
+  } catch (error) {
+    // A refused or unknown bridge command must not leave the loading card
+    // spinning forever: report it the same way as a harness failure.
+    const message = "无法读取 harness 状态：" + String((error && error.message) || error);
+    showBootFailure(message);
+    throw new Error(message);
+  }
+  if (applyHarnessStatus(status) === "starting") {
+    const tick = setInterval(() => {
+      setBootDetail(`正在启动本地服务（已等待 ${Math.round((Date.now() - gateStarted) / 1000)} 秒）`);
+    }, 500);
+    status = await reported;
+    clearInterval(tick);
+    applyHarnessStatus(status);
+  }
+  if (typeof unlisten === "function") unlisten();
+  if (harnessState === "failed") {
+    const message = harnessError || "harness 启动失败（详见 .dsh/gui/gui.log）";
+    showBootFailure(message);
+    throw new Error(message);
+  }
+  invoke("shell_log", {
+    msg: `boot gate: harness ready after ${Date.now() - gateStarted}ms`,
+  }).catch(() => {});
+  hideBootOverlay();
 }
 
 /* ── Tab webviews ─────────────────────────────────────────────
@@ -2730,7 +2824,20 @@ async function boot() {
   wireConfigMenuActions();
   wireConnectionAdded();
   wireAiUpdateRequests();
-  await setHarnessSource().catch(() => {});
+  // Window controls before the harness gate: the shell stays usable (drag,
+  // minimize, close) while the harness boots behind the loading card.
+  wireControls();
+  syncMaximizeIcon();
+  try {
+    await waitForHarness();
+  } catch (error) {
+    // The loading card reports the failure; nothing can be created against a
+    // harness that never answered.
+    invoke("shell_log", {
+      msg: "harness boot failed: " + String((error && error.message) || error),
+    }).catch(() => {});
+    return;
+  }
   // The tab webviews sit over #harness-frame; keep their bounds in sync with
   // the window content area (resize, maximize, DPI change) and with any title
   // bar layout change.
@@ -2763,8 +2870,6 @@ async function boot() {
   persist();
   renderTabs();
   syncViews();
-  syncMaximizeIcon();
-  wireControls();
   // First layout: the webviews report bounds in CSS pixels, which only exist
   // after the shell page painted; the ResizeObserver above covers later ones.
   scheduleLayout();

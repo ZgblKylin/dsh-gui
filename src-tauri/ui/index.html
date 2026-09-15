@@ -70,7 +70,21 @@
          the browser-auth token flow works like a browser tab. The shell
          (app.js) creates/repositions those webviews; this div only marks the
          layout area and renders the empty state when no tab is open. -->
-    <div id="harness-frame" class="harness-frame"></div>
+    <div id="harness-frame" class="harness-frame">
+      <!-- Loading page: the window is created before `dsh web` boots (its cold
+           start takes ~10 s), so the shell paints this card until the Rust side
+           reports the harness ready — or the failure that stopped it. app.js
+           hides it right before it creates the first tab webview. -->
+      <div id="boot-overlay" class="boot-overlay">
+        <div class="boot-card" role="status" aria-live="polite">
+          <div class="boot-spinner" aria-hidden="true"></div>
+          <div id="boot-title" class="boot-title">正在启动 DeepSeek Harness…</div>
+          <div id="boot-detail" class="boot-detail">正在启动本地服务</div>
+          <div id="boot-error" class="boot-error hidden"></div>
+          <button id="boot-exit" class="secondary boot-exit hidden">退出</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Empty state: shown when every connection tab has been closed. -->
     <div id="no-tabs" class="no-tabs hidden">

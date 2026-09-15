@@ -23,7 +23,7 @@
     "allow-start-window-drag",
     "allow-show-window-menu",
     "allow-show-config-menu",
-    "allow-harness-url",
+    "allow-harness-status",
     "allow-about-info",
     "allow-local-update-projects",
     "allow-cached-update-status",

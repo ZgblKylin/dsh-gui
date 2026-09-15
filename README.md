@@ -11,14 +11,19 @@ window. Nothing else is drawn: just the OS title bar and border.
 
 On launch the entry exe:
 
-1. Spawns the dsh CLI selected by `harness.json` — that runtime's `bin.js` — with
+1. Opens one **frameless** webview window immediately and shows a loading page
+   inside it. A harness cold start takes ~10 s (it is CPU-bound inside the
+   harness), so the window never waits for it.
+2. Spawns the dsh CLI selected by `harness.json` — that runtime's `bin.js` — with
    `web --port <port> --no-open`, and pins `DSH_HOME` to `./.dsh` inside this
    repository.
-2. Waits until the harness answers `GET /` with `200` on `127.0.0.1:<port>`.
-3. Opens one **frameless** webview window that renders a custom title bar and
-   embeds the harness web UI in an iframe. On exit it tears the harness
-   process tree down; the harness runs inside a kill-on-close Windows job
-   object, so the kernel enforces that teardown even when dsh-gui itself is
+3. Waits until the harness answers `GET /` with `200` on `127.0.0.1:<port>`,
+   then hands the tokenized URL to the shell page, which hosts the harness UI
+   in one **child webview per connection tab**. A harness that cannot be
+   spawned or never becomes ready is reported on the loading page (the window
+   stays open) instead of behind a message box. On exit dsh-gui tears the
+   harness process tree down; the harness runs inside a kill-on-close Windows
+   job object, so the kernel enforces that teardown even when dsh-gui itself is
    killed (Task Manager, closing the terminal it was launched from).
 
 The `ui/` page is a thin shell only: a drag-anywhere title bar with
@@ -51,6 +56,11 @@ browser.
 - **Frameless single-window shell** — a drag-anywhere custom title bar with
   native minimize / maximize / close controls; the title bar colors follow the
   light/dark theme reported by the embedded harness page.
+- **Window first, loading page while the harness boots** — the window appears
+  as soon as the process starts (WebView2 initialization only) and shows a
+  loading card with the elapsed wait; the tab webview replaces it the moment
+  the harness answers. Harness failures appear on that card, and the window
+  keeps working (drag, minimize, close) throughout.
 - **Native Windows 11 title-bar interactions** — hovering maximize shows the
   OS Snap Layouts flyout, double-clicking the title bar toggles
   maximize/restore, double-clicking the top border vertically fills/restores
@@ -433,13 +443,18 @@ the dsh runtime and the plugins only.
   its `link:` dependency.
 - **"failed to spawn harness (is `node` on PATH?)"** — install Node `^22.19` or
   `>=24.2` (see the requirements above; 24.0–24.1 cannot start the harness CLI).
-- **Blank window / connection refused** — read `.dsh\gui\harness.log`; the
-  harness failed to start (e.g. port already in use — set `DSH_GUI_PORT`).
+- **Blank window / connection refused** — a window that sits on the loading
+  card (or shows `DeepSeek Harness 启动失败`) means the harness did not come
+  up: read `.dsh\gui\harness.log` (e.g. port already in use — set
+  `DSH_GUI_PORT`). The card's elapsed counter keeps running until the harness
+  answers or the 90 s readiness timeout reports the failure there.
 - **"127.0.0.1:3080 is already in use"** — close the existing dsh-gui / `dsh
   web` process, or set a different `$env:DSH_GUI_PORT`. The shell deliberately
   refuses to attach to an existing server because it may use another
   `DSH_HOME`, which would look like a first-time setup with missing sessions.
-- **Nothing happens on launch** — a message box reports startup errors;
+- **Nothing happens on launch** — a failure before the window exists (no
+  repository root, e.g. a stray exe copy) reports through a message box;
+  everything after that is reported on the window's loading page.
   `.dsh\gui\gui.log` keeps the history, and a panic writes
   `dsh-gui-crash.log` next to the exe.
 - **A leftover `node` process after an old version crashed** — current builds

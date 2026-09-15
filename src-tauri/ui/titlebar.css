@@ -318,6 +318,79 @@ body {
   width: 100%;
 }
 
+/* ── Loading page (harness boot gate) ────────────────────────
+   The window exists before `dsh web` finishes booting, so the content slot
+   shows this card until the shell page receives the ready status; app.js hides
+   it right before the first tab webview is placed over the slot. */
+.boot-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  z-index: 5;
+}
+
+.boot-card {
+  width: min(560px, 88%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 28px;
+  text-align: center;
+  background: var(--titlebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.boot-spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: boot-spin 900ms linear infinite;
+}
+
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.boot-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.boot-detail {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.boot-error {
+  width: 100%;
+  max-height: 42vh;
+  overflow: auto;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #ffb4b4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  background: rgba(232, 17, 35, 0.08);
+  border: 1px solid rgba(232, 17, 35, 0.35);
+  border-radius: 8px;
+}
+
+.boot-exit {
+  margin-top: 4px;
+}
+
 /* ── Overlay / Update dialog ───────────────────────────────── */
 .update-dialog {
   width: min(880px, 94vw);

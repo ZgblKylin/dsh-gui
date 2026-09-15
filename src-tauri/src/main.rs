@@ -1,18 +1,23 @@
 //! dsh-gui — a thin desktop shell for the DeepSeek Harness web UI.
 //!
 //! It does three things:
-//!   1. spawn the self-hosted dsh web server (`dsh web`) from the runtime
+//!   1. open a single frameless window: the shell page (served from the app
+//!      origin, `frontendDist: ui`) renders the custom title bar and dialogs,
+//!      and **each connection tab is hosted by its own child webview**
+//!      (`views`) that loads the harness page as a real top-level document —
+//!      no iframe, no wrapper server, no browser-auth workaround;
+//!   2. spawn the self-hosted harness web server (`dsh web`) from the runtime
 //!      `harness.json` selects — the registry-installed
 //!      `@deepseek-ai/dsh@<version>` in `.harness/`, or the built
 //!      `deepseek-harness` submodule — with `DSH_HOME` pinned inside the
 //!      repository and `DSH_AGENTS_HOME` pointing at the agent-config home
-//!      the build installs `global_template.agents/` into;
-//!   2. wait until that server answers HTTP on the loopback port;
-//!   3. open a single frameless window: the shell page (served from the app
-//!      origin, `frontendDist: ui`) renders the custom title bar and dialogs,
-//!      and **each connection tab is hosted by its own child webview**
-//!      (`views`) that loads the harness page as a real top-level document —
-//!      no iframe, no wrapper server, no browser-auth workaround.
+//!      the build installs `global_template.agents/` into, and wait until it
+//!      answers HTTP on the loopback port;
+//!   3. publish that lifecycle to the shell page: the window paints a loading
+//!      page while the harness boots (its cold start takes ~10 s, most of it
+//!      CPU-bound inside the harness) and builds the tab webviews only once
+//!      the ready URL arrives. A boot failure is reported in that page instead
+//!      of behind a message box.
 //!
 //! The frontend lives in `src-tauri/ui/` (a plain HTML shell — no bundler). It
 //! has one small IPC surface: window controls, connection tabs, and an About
@@ -780,22 +785,78 @@ impl Drop for ChildGuard {
     }
 }
 
-/// App-global state handed to the window-control, About, and update commands.
-struct ShellState {
-    root: PathBuf,
+/// Event carrying [`HarnessStatus`] to the shell page; the loading page waits
+/// for any state other than `starting`.
+const HARNESS_STATUS_EVENT: &str = "harness-status";
+
+/// Harness lifecycle as the shell page reads it.
+#[derive(Clone, serde::Serialize)]
+struct HarnessStatus {
+    /// `starting` while `dsh web` boots, `ready` once it answers HTTP, or
+    /// `failed` (terminal) when it could not be started.
+    state: &'static str,
+    /// Loopback URL for tab webviews: the tokenized launch URL once the
+    /// harness minted one, the plain port URL before that (the loading page
+    /// and the connection dialog only need host and port).
+    url: String,
     port: u16,
-    /// URL the shell hands to tab webviews. Carries the harness launch
-    /// token (Web profiles ≥ dsh-v0.1.2-alpha.1 mint a one-time token and
-    /// answer every unauthenticated request with 401).
-    web_url: String,
+    /// Failure text for the loading page; absent unless `state` is `failed`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+impl HarnessStatus {
+    /// Before the harness answers HTTP.
+    fn starting(port: u16) -> Self {
+        Self { state: "starting", url: loopback_url(port), port, error: None }
+    }
+
+    /// The harness serves HTTP.
+    fn ready(port: u16, url: String) -> Self {
+        Self { state: "ready", url, port, error: None }
+    }
+
+    /// The harness could not be spawned or never became ready.
+    fn failed(port: u16, error: String) -> Self {
+        Self { state: "failed", url: loopback_url(port), port, error: Some(error) }
+    }
+}
+
+/// Plain loopback URL of the harness port, without the launch token.
+fn loopback_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/")
+}
+
+/// The harness child plus everything the shell page needs from it.
+struct HarnessSlot {
+    status: HarnessStatus,
+    /// Harness PID, known once it was spawned — the detached update launcher
+    /// waits for this shell and that child before touching the checkout.
+    pid: Option<u32>,
     /// Browser session cookie minted from the token, used by the shell's own
     /// HTTP calls (`remote_call`, changelog); ad-hoc TcpStream requests carry
     /// no browser cookie jar.
     cookie: Option<String>,
-    /// PIDs the detached update launcher must wait for before touching the
-    /// checkout: this shell and the harness child it owns.
+    /// Holds the child process for the app's lifetime: dropping it (app exit,
+    /// or `start_update`'s exit) terminates the harness tree.
+    _guard: Option<ChildGuard>,
+}
+
+/// Borrow the harness slot, recovering a poisoned mutex: the slot is a plain
+/// record, so a panic elsewhere cannot leave it inconsistent.
+fn harness_slot(slot: &Mutex<HarnessSlot>) -> std::sync::MutexGuard<'_, HarnessSlot> {
+    slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// App-global state handed to the window-control, About, and update commands.
+struct ShellState {
+    root: PathBuf,
+    port: u16,
+    /// Live harness process and lifecycle; shared with the background starter
+    /// thread that fills it in.
+    harness: Arc<Mutex<HarnessSlot>>,
+    /// PID of this shell, which the detached update launcher waits for.
     gui_pid: u32,
-    harness_pid: u32,
     /// Serializes update checks / launches (git fetch can take tens of
     /// seconds; two checks must never race each other's plan file).
     update_lock: Arc<Mutex<()>>,
@@ -957,13 +1018,17 @@ fn show_config_menu(
     Ok(())
 }
 
-/// The self-hosted harness UI URL, so the shell can point tab webviews at the
-/// right port without the port being baked into the assets. Carries the
-/// one-time launch token when the Web profile minted one.
+/// Current harness lifecycle for the shell page. The loading page reads it once
+/// after subscribing to [`HARNESS_STATUS_EVENT`] (which covers a harness that
+/// finished booting before that listener existed), and a dialog window reads
+/// host/port from the same payload without waiting for readiness.
 #[tauri::command]
-fn harness_url(webview: tauri::Webview, state: State<'_, ShellState>) -> Result<String, String> {
+fn harness_status(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<HarnessStatus, String> {
     views::ensure_shell_or_dialog(&webview)?;
-    Ok(state.web_url.clone())
+    Ok(harness_slot(&state.harness).status.clone())
 }
 
 /// Everything the About dialog needs: version/license/repository for the
@@ -1017,7 +1082,7 @@ async fn check_updates(
     views::ensure_shell_or_dialog(&webview)?;
     let root = state.root.clone();
     let gui_pid = state.gui_pid;
-    let harness_pid = state.harness_pid;
+    let harness_pid = ready_pid(&state)?;
     let lock = Arc::clone(&state.update_lock);
     let cache = Arc::clone(&state.update_cache);
     let status = tauri::async_runtime::spawn_blocking(move || {
@@ -1051,7 +1116,7 @@ fn start_update(
         .update_lock
         .lock()
         .map_err(|_| "an update check is already running".to_string())?;
-    update::start(&state.root, state.gui_pid, state.harness_pid, &ids, &modes)?;
+    update::start(&state.root, state.gui_pid, ready_pid(&state)?, &ids, &modes)?;
     log_status(
         &state.root,
         &format!(
@@ -1138,7 +1203,7 @@ async fn update_changelog(
         }
     };
     let port = state.port;
-    let cookie = state.cookie.clone();
+    let cookie = ready_cookie(&state)?;
     let lock = Arc::clone(&state.update_lock);
     tauri::async_runtime::spawn_blocking(move || {
         let prepared = {
@@ -1399,10 +1464,102 @@ async fn remote_call(
         return Err(format!("unknown op: {op}"));
     }
     let port = state.port;
-    let cookie = state.cookie.clone();
+    let cookie = ready_cookie(&state)?;
     tauri::async_runtime::spawn_blocking(move || http_post_json(port, &op, &body, cookie.as_deref()))
         .await
         .map_err(|e| format!("remote_call task failed: {e}"))?
+}
+
+/// Harness PID for the update launcher, refused while the harness is still
+/// booting (or after a failed boot): the launcher waits for that process to
+/// exit before it touches the checkout, so an unknown PID must not be guessed.
+fn ready_pid(state: &ShellState) -> Result<u32, String> {
+    harness_slot(&state.harness)
+        .pid
+        .ok_or_else(|| "harness 尚未就绪，请等待加载完成".to_string())
+}
+
+/// Harness session cookie for the shell's own HTTP calls, refused while the
+/// browser-auth gate is not up yet.
+fn ready_cookie(state: &ShellState) -> Result<Option<String>, String> {
+    let slot = harness_slot(&state.harness);
+    if slot.status.state == "ready" {
+        Ok(slot.cookie.clone())
+    } else {
+        Err("harness 尚未就绪，请等待加载完成".to_string())
+    }
+}
+
+/// Spawn the harness and publish its lifecycle, off the setup path so the
+/// window paints first. The shell page follows [`HARNESS_STATUS_EVENT`] until
+/// the ready URL or a terminal failure arrives.
+fn start_harness(app: tauri::AppHandle, root: PathBuf, port: u16, slot: Arc<Mutex<HarnessSlot>>) {
+    std::thread::spawn(move || {
+        let mut process = match spawn_harness(&root, port) {
+            Ok(process) => process,
+            Err(error) => {
+                fail_harness(
+                    &app,
+                    &root,
+                    &slot,
+                    port,
+                    format!("failed to spawn the harness: {error}"),
+                );
+                return;
+            }
+        };
+        // Read the PID before the readiness wait consumes the process handle.
+        let pid = process.child.id();
+        match wait_ready(&mut process, port, Duration::from_secs(90)) {
+            Ok(auth) => {
+                log_status(&root, &format!("harness ready at {}", auth.web_url));
+                let mut state = harness_slot(&slot);
+                state.pid = Some(pid);
+                state.cookie = auth.cookie;
+                state.status = HarnessStatus::ready(port, auth.web_url);
+                // Holds the child from here on: the app's exit terminates the
+                // harness tree through this guard's kill-on-close job.
+                state._guard = Some(ChildGuard::new(process.into_child()));
+                drop(state);
+                publish_harness_status(&app, &slot);
+            }
+            Err(error) => {
+                // The child is unusable: a throwaway guard terminates its tree
+                // (its `Drop` also waits for the process).
+                drop(ChildGuard::new(process.into_child()));
+                fail_harness(
+                    &app,
+                    &root,
+                    &slot,
+                    port,
+                    format!("failed to start the harness: {error}"),
+                );
+            }
+        }
+    });
+}
+
+/// Publish a terminal harness failure. The window stays open and shows the
+/// message on its loading page, so a failed launch is visible without a console
+/// and without the window disappearing behind a message box.
+fn fail_harness(
+    app: &tauri::AppHandle,
+    root: &Path,
+    slot: &Arc<Mutex<HarnessSlot>>,
+    port: u16,
+    message: String,
+) {
+    log_status(root, &message);
+    harness_slot(slot).status = HarnessStatus::failed(port, message);
+    publish_harness_status(app, slot);
+}
+
+/// Send the current harness lifecycle to the shell page.
+fn publish_harness_status(app: &tauri::AppHandle, slot: &Arc<Mutex<HarnessSlot>>) {
+    let status = harness_slot(slot).status.clone();
+    if let Ok(payload) = serde_json::to_value(status) {
+        let _ = app.emit_to("main", HARNESS_STATUS_EVENT, payload);
+    }
 }
 
 fn main() {
@@ -1414,27 +1571,13 @@ fn main() {
     };
     let port = resolve_port();
 
-    // Start the harness before the GUI so a startup failure reports clearly
-    // (log + message box) instead of silently behind a blank window. The
-    // ready wait also recovers the harness launch token (Web profiles ≥
-    // dsh-v0.1.2-alpha.1 authenticate via a one-time token) so the tab
-    // webviews and the shell's own HTTP calls can pass the browser-auth gate.
-    let mut harness = match spawn_harness(&root, port) {
-        Ok(h) => h,
-        Err(e) => fatal(Some(&root), &format!("failed to spawn the harness: {e}")),
-    };
-    let auth = match wait_ready(&mut harness, port, Duration::from_secs(90)) {
-        Ok(auth) => auth,
-        Err(e) => fatal(Some(&root), &format!("failed to start the harness: {e}")),
-    };
-    let child = harness.into_child();
-    log_status(&root, &format!("harness ready at {}", auth.web_url));
-
-    let harness_pid = child.id();
-    let child = ChildGuard::new(child);
+    // The window is created first and shows a loading page: a `dsh web` cold
+    // start takes ~10 s (the harness's own boot is CPU-bound), so waiting for
+    // it here would leave the user with no window at all for that long. The
+    // harness starts inside `setup` instead — see `start_harness`, which also
+    // recovers the launch token (Web profiles ≥ dsh-v0.1.2-alpha.1 authenticate
+    // via a one-time token) for the tab webviews and the shell's own HTTP calls.
     let setup_root = root.clone();
-    let web_url = auth.web_url;
-    let cookie = auth.cookie;
 
     tauri::Builder::default()
         .plugin(
@@ -1444,17 +1587,20 @@ fn main() {
                 .build(),
         )
         .setup(move |app| {
+            let harness = Arc::new(Mutex::new(HarnessSlot {
+                status: HarnessStatus::starting(port),
+                pid: None,
+                cookie: None,
+                _guard: None,
+            }));
             app.manage(ShellState {
-                root: setup_root,
+                root: setup_root.clone(),
                 port,
-                web_url,
-                cookie,
+                harness: Arc::clone(&harness),
                 gui_pid: std::process::id(),
-                harness_pid,
                 update_lock: Arc::new(Mutex::new(())),
                 update_cache: Arc::new(Mutex::new(None)),
             });
-            app.manage(child);
             // Connection-tab child webviews (created lazily by the shell page).
             app.manage(views::ViewRegistry::default());
             // WebView2 notification-permission consent registry (Windows).
@@ -1578,6 +1724,9 @@ fn main() {
             dialogs::create_all(app.handle(), &window)?;
 
             app.manage(WindowMenuState { menu });
+            // Last: the harness boot must not delay the window above, and the
+            // shell page is already listening for `harness-status`.
+            start_harness(app.handle().clone(), setup_root, port, harness);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1587,7 +1736,7 @@ fn main() {
             close_window,
             start_window_drag,
             show_window_menu,
-            harness_url,
+            harness_status,
             about_info,
             local_update_projects,
             cached_update_status,

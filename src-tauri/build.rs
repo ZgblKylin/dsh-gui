@@ -13,7 +13,7 @@ fn main() {
         "start_window_drag",
         "show_window_menu",
         "show_config_menu",
-        "harness_url",
+        "harness_status",
         "about_info",
         "local_update_projects",
         "cached_update_status",
