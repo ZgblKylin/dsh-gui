@@ -43,7 +43,7 @@ CLI 安装在 `<repo>/.harness/`，入口是 `.harness/node_modules/@deepseek-ai
 | `DSH_HARNESS_VERSION` | 覆盖 `version`，指定精确版本 |
 | `DSH_HARNESS_INSTALL_DIR` | npm 安装目录，相对仓库根或绝对路径，默认 `.harness` |
 | `DSH_HARNESS_BIN` | 覆盖 CLI 入口路径，优先级最高；工作目录仍由运行时决定 |
-| `DSH_HARNESS_REBUILD` | 取值为 `1` 时强制重建或重装运行时，等同 `--force-harness` |
+| `DSH_HARNESS_REBUILD` | 取值为 `1` 时强制干净重装运行时（删 `node_modules` + lockfile 后重解析），等同 `--force-harness` |
 | `DSH_HARNESS_ALLOW_BUILDS` | 逗号分隔的包名，把 `.harness/pnpm-workspace.yaml` 中对应的 `allowBuilds` 决策改为 `true` |
 
 表内前四项由 JS 与 Rust 两侧读取，最后两项只在构建 CLI 中生效。空白值按未设置处理。
@@ -52,12 +52,13 @@ CLI 安装在 `<repo>/.harness/`，入口是 `.harness/node_modules/@deepseek-ai
 
 `npm run build` 与 `npm run setup` 先解析运行时，再按运行时分支：
 
-- `npm`：不编译 harness。`pnpm add @deepseek-ai/dsh@<version>` 装入 `.harness/`，已装同版本时跳过安装，也跳过其后的清理与记录。实际发生（重）安装时，清理 `<DSH_HOME>/profiles/web/.dsh-module-fallback/node_modules` 下指向 `deepseek-harness/` 源码树的链接，并把 `@deepseek-ai/dsh` 记入 `<DSH_HOME>/gui/npm-installs.json`，供更新检查识别这个 npm 安装。
+- `npm`：不编译 harness。`pnpm add @deepseek-ai/dsh@<version>` 装入 `.harness/`，已装同版本且家族一致时跳过安装，也跳过其后的清理与记录。实际发生（重）安装时**一律干净重装**：先删除 `.harness/node_modules` 与 `.harness/pnpm-lock.yaml`，再 `pnpm add`，强制从 registry 全新解析整棵依赖树；随后清理 `<DSH_HOME>/profiles/web/.dsh-module-fallback/node_modules` 下指向 `deepseek-harness/` 源码树的链接，并把 `@deepseek-ai/dsh` 记入 `<DSH_HOME>/gui/npm-installs.json`，供更新检查识别这个 npm 安装。
+  - **家族一致性**：dsh 家族按同一版本一起发布，`@deepseek-ai/dsh` 与每个 `@deepseek-ai/dsh-*` 兄弟包应同版本。跳过判断同时核对全部已装 `dsh-*` 包的版本，任何一个是旧版本（混合树）即视为不当前、触发干净重装；重装后再次断言，仍不一致（如镜像元数据滞后）则构建报错而不是把坏树留给启动时爆炸。
 - `source`：在子模块内执行 `pnpm install --store-dir <repo>/.pnpm-store`（`setup` 额外带 `--frozen-lockfile`）、`pnpm run clean` 与 `pnpm run build`；完成后把子模块 revision 记入 `<DSH_HOME>/gui/harness-build.json`，内容为 `runtime`、`revision`、`version` 与 `builtAt`。
 
 source 模式以 revision 为增量判据：`harness-build.json` 记录的 revision 与当前子模块一致、且 `apps/cli/lib/bin.js` 存在时，跳过 `pnpm install`、`pnpm run clean` 与 `pnpm run build`。revision 从子模块 `.git` gitfile 指向的 gitdir 的 `HEAD` 读取；检出停留在分支而非游离 HEAD 时读不到 revision，该构建按过期处理并重建。
 
-`--force-harness`（`npm run build -- --force-harness`）或 `DSH_HARNESS_REBUILD=1` 强制重建或重装运行时；`--skip-harness` 跳过整个运行时步骤。
+`--force-harness`（`npm run build -- --force-harness`）或 `DSH_HARNESS_REBUILD=1` 强制重装运行时——`--force-harness` 同样走干净重装（删 `node_modules` + lockfile 后重解析）；`--skip-harness` 跳过整个运行时步骤。
 
 `<DSH_HOME>` 默认是仓库的 `.dsh`，可用 `DSH_HOME` 覆盖，上述状态文件随之改址。
 
@@ -84,9 +85,53 @@ harness 升级先由更新对话框把子模块 fast-forward 到新 tag，再运
 ## 限制与风险
 
 - `@deepseek-ai/dsh` 的 `latest` dist-tag 落后于预发布（`0.1.6-alpha.1` 发布在 `alpha`），因此只能按精确版本安装，不能依赖 `latest`。
-- 上游只验收 `dsh --version`；端到端启动仍由本仓库 `.staging` 副本的冒烟检查负责（`--profile web --dump-config`）。
+- 上游只验收 `dsh --version`；端到端组合渲染由构建期的冒烟检查兜底：build/setup 在插件安装后执行 `--profile web --dump-config`（见下节「故障排查」），`.staging` 副本的冒烟检查同样跑该命令。
 - `.harness/` 中带 install 或 postinstall 脚本的包需要 pinned pnpm 的 `allowBuilds` 决策，未决策会让后续安装失败。
 - npm 模式失去修改 harness 源码或以源码启动它的能力；按 `AGENTS.md`，子模块本来就不允许修改。
+
+## 故障排查：混合 dsh 家族版本树
+
+**症状**：启动时插件树加载失败，`harness.log` 报
+
+```
+Error: failed to import loader entry <name>: The requested module '@deepseek-ai/dsh-<x>' does not provide an export named '<symbol>'
+SyntaxError: The requested module '@deepseek-ai/dsh-sandbox' does not provide an export named 'classifyRunnerFailure'
+```
+
+典型是 harness 版本换代后顶层 `@deepseek-ai/dsh` 已更新，但某个兄弟包（如
+`dsh-sandbox`、`dsh-attachment`）仍停在旧版本：新包 peer 要求 `^新版本` 并 import
+了新导出，旧包没有，boot 时 `cordis-plugin-loader` 导入即失败。
+
+**成因**：dsh 家族按同一版本一起发布，任何版本漂移都是坏树。历史上出现过
+`pnpm add` 调和既有 lockfile 时把顶层包升了新版本、兄弟包留在旧版本的情况；
+只删 lockfile 不删 `node_modules` 也会让 pnpm 按现有安装状态重建锁文件，混树
+依旧。因此重装必须是干净重装（见「构建行为」）。
+
+**诊断**：
+
+```powershell
+Get-ChildItem .harness\node_modules\@deepseek-ai\dsh-* | % {
+  "{0} = {1}" -f $_.Name, (Get-Content "$($_.FullName)\package.json" | ConvertFrom-Json).version
+} | Sort-Object -Unique
+```
+
+出现多个版本即混合树。
+
+**恢复**：build 的 npm 运行时分支已自动处理——家族不一致即触发干净重装，重装后
+仍不一致则构建报错（此时多半是 registry/镜像元数据滞后，稍后重试或核对 npm 发布
+状态）。手工恢复方式：
+
+```powershell
+Remove-Item .harness\node_modules, .harness\pnpm-lock.yaml -Recurse -Force
+npm run build
+```
+
+`--force-harness` 等价于强制走一遍干净重装。
+
+**构建期冒烟**：build/setup 在插件安装后执行
+`node .harness/node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --dump-config`
+（`DSH_HOME=.dsh`），loader/bundle/import 报错会让构建失败，把这类问题挡在
+启动之前。`.dsh/profiles/web` 尚不存在时跳过该步。
 
 ## 相关文件
 

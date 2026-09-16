@@ -95,3 +95,61 @@ harness 家族存在预发布版本差；副本安装与组合渲染通过，属
 - `.agents/skills/dsh-gui-update/SKILL.md` —— 两阶段升级流程
 - `docs/dsh-gui/upgrade-staging-workspace.md` —— 副本的位置、维护与冒烟检查
 - `docs/dsh-gui/2026-09-11-harness-upgrade-v0-1-5-rc-2.md` —— 上一次 harness 升级记录
+
+---
+
+# 附：升级后实装仓库启动失败（混合 dsh 家族版本树，2026-09-16 修复）
+
+## 症状
+
+副本验证通过、实装到本工程并重跑 build 后，启动时插件树加载失败，
+`harness.log` 报：
+
+```
+Error: failed to import loader entry ptc-runtime (@deepseek-ai/dsh-ptc-runtime-node):
+The requested module '@deepseek-ai/dsh-sandbox' does not provide an export named 'classifyRunnerFailure'
+Error: failed to import loader entry llm-deepseek (@deepseek-ai/dsh-llm-deepseek):
+The requested module '@deepseek-ai/dsh-attachment' does not provide an export named 'longEdgeDimensions'
+```
+
+## 根因
+
+副本是全新安装，必然得到一致的 `0.1.6-alpha.1` 家族树，冒烟自然通过；而本工程的
+`.harness` 是**就地升级**：顶层 `@deepseek-ai/dsh` 已升到 `0.1.6-alpha.1`，但
+`dsh-sandbox` / `dsh-attachment` / `dsh-fs` / `dsh-shell` / `dsh-settings` 等兄弟包
+仍停在 `0.1.5-rc.2`（`pnpm add` 调和既有 lockfile 的结果）。`0.1.6-alpha.1` 的包
+peer 要求 `^0.1.6-alpha.1` 并 import 了旧版没有的导出，boot 时导入即失败。
+
+跳过安装的判断只看顶层 `dsh` 版本，此时顶层已是新版本 → 判定"已装当前版本"、
+不再重装，混合树被永久保留；即使重装，`pnpm add` 仍按现有 lockfile/node_modules
+调和，只删 lockfile 不删 node_modules 也会让 pnpm 按旧安装重建锁文件，混树依旧。
+只有 `node_modules` 与 `pnpm-lock.yaml` 都删、强制 registry 全新解析才能恢复。
+
+## 修复（脚本层，`scripts/dsh-gui.mjs`）
+
+1. `harnessFamilyConsistent`：核对所有已装 `@deepseek-ai/dsh-*` 包版本，任何与
+   pinned 版本不同即视为混合树。
+2. `harnessNpmRuntime` 的跳过判断加上家族一致性；不一致 → 触发重装。
+3. 重装一律干净重装：`pnpm add` 前删除 `.harness/node_modules` 与
+   `.harness/pnpm-lock.yaml`；重装后再次断言家族一致，仍不一致（如镜像元数据
+   滞后）则构建报错。
+4. `--force-harness` 同步变为干净重装。
+5. build/setup 新增构建期冒烟：插件安装后执行 `--profile web --dump-config`，
+   loader/bundle/import 报错即构建失败，把这类问题挡在启动之前。
+
+## 恢复与验证
+
+```powershell
+Remove-Item .harness\node_modules, .harness\pnpm-lock.yaml -Recurse -Force
+npm run build -- --skip-exe     # 干净重装 + dump-config 冒烟
+```
+
+- `.harness` 全家族 235 个 `@deepseek-ai/dsh-*` 包一致为 `0.1.6-alpha.1`；
+- `--profile web --dump-config` 正常渲染，无上述 import 错误。
+
+## 预防
+
+- harness 换代后实装仓库的 `.harness` 是就地升级，不能等同副本的全新安装；build
+  的家族一致性检查 + 干净重装 + dump-config 冒烟现在会在构建期自动兜底。
+- 相关记录：`docs/dsh-gui/harness-runtime.md`「故障排查」小节、skill
+  `dsh-gui-update` 常见坑条目。
