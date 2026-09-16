@@ -10,10 +10,16 @@
  * Both declare `dsh.bundle.patch`, so `dsh plugin add` reconciles them into
  * `dsh.profile.bundles` and they mount through their own bundle layers; this
  * script writes no `cordis.patch.yml` insert (a manual one would double-mount
- * them).
+ * them). This installer lives under `plugins/harness/` — the group of official
+ * dsh-family plugins — and is loaded by `plugins/harness/install.mjs`; it also
+ * runs standalone.
  *
  * The preset half lives in this wrapper rather than under `presets/` because
- * the derived composition is only meaningful together with those bundles.
+ * the derived composition is only meaningful together with those bundles. The
+ * derived per-preset delta closes direct delegation for Team mode: it disables
+ * the shipped delegation rows (`tool-subagent`, `tool-subagent-fork`) and the
+ * global continuable-child control rows, so teammates are created through
+ * `spawn_teammate` and messaging stays on the Team roster.
  *
  * Which presets are derived is DISCOVERED, not listed: every shipped preset
  * that carries delegation rows gets a `<id>-team` sibling, so a preset added
@@ -55,11 +61,13 @@ const ID = 'agent-team'
  * Pinned to the harness revision this repository builds against.
  * An exact version is required: the npm `latest` dist-tag of both packages
  * still points at `0.1.5-alpha.2` while the matching build is published under
- * `next`/`0.1.5-rc.2`, so an unversioned install would take the wrong one.
+ * `alpha`/`0.1.6-alpha.1` (the `0.1.5-rc.2` build is superseded by the harness
+ * revision this repository builds against), so an unversioned install would
+ * take the wrong one.
  * Both are prereleases, which is also why the Community Market cannot carry
  * them.
  */
-const TEAM_VERSION = '0.1.5-rc.2'
+const TEAM_VERSION = '0.1.6-alpha.1'
 const TEAM_PROFILE = '@deepseek-ai/dsh-experimental-agent-team-profile'
 const TEAM_WEB_PROFILE = '@deepseek-ai/dsh-experimental-agent-team-web-profile'
 
@@ -67,15 +75,17 @@ const TEAM_WEB_PROFILE = '@deepseek-ai/dsh-experimental-agent-team-web-profile'
 const DERIVED_SUFFIX = '-team'
 
 /** Marker written into a derived `preset.yml`; only this script's output carries it. */
-const GENERATED_BY = 'plugins/agent-team/install.mjs'
+const GENERATED_BY = 'plugins/harness/agent-team.mjs'
 
 /** Appended to a shipped preset's own description. */
-const TEAM_DESCRIPTION = 'Agent Teams 版：委派改为 one-shot，并启用具名 teammate、持久消息与共享任务板。'
+const TEAM_DESCRIPTION = 'Agent Teams 版：关闭 subagent / subagent_fork 直接委派，统一使用具名 teammate、持久消息与共享任务板。'
 
-/** Control rows Agent Teams replaces for Team members; disabled in every derived preset. */
-const CONTROL_ROWS = [
+/** Delegation rows Agent Teams replaces for Team members; each is disabled in every derived preset. */
+const TEAM_DISABLED_ROWS = [
   { id: 'tool-subagent-control', name: '@deepseek-ai/dsh-tool-subagent-control' },
   { id: 'tool-subagent-list-agents', name: '@deepseek-ai/dsh-tool-subagent-control/list-agents' },
+  { id: 'tool-subagent', name: '@deepseek-ai/dsh-tool-subagent' },
+  { id: 'tool-subagent-fork', name: '@deepseek-ai/dsh-tool-subagent' },
 ]
 
 /** The row whose presence decides whether a shipped preset has delegation at all. */
@@ -94,8 +104,6 @@ const DELEGATION_MARKER = '@deepseek-ai/dsh-tool-subagent'
  * `Host Cordis inspect provider "Service" is already registered`.
  */
 const PROCESS_GLOBAL_TOOLSET = '@deepseek-ai/dsh-tool-cordis'
-
-const CONTINUABLE_ROW = /backgroundMode: continuable/g
 
 /** Escape one literal for embedding in a RegExp. */
 function escapeRegExp(text) {
@@ -180,7 +188,7 @@ function matchOnce(text, pattern, label, source) {
   if (matches.length !== 1) {
     throw new Error(
       `${ID}: expected exactly one ${label} in ${source}, found ${matches.length}. `
-      + 'The shipped composition changed shape; update the anchors in plugins/agent-team/install.mjs.',
+      + 'The shipped composition changed shape; update the anchors in plugins/harness/agent-team.mjs.',
     )
   }
   return new RegExp(pattern.source, 'm').exec(text)
@@ -194,10 +202,10 @@ function matchOnce(text, pattern, label, source) {
  *   - the two global continuable-child control rows are disabled, because
  *     Agent Teams owns `send_message`, `list_agents` and `interrupt_agent` for
  *     Team members;
- *   - both delegation tools switch to `backgroundMode: one-shot`, because a
- *     continuable child cannot be addressed through the Team mailbox
- *     (`send_message` resolves targets against the Team roster by name, and a
- *     plain provider-managed subagent is not a member).
+ *   - the two direct delegation tools are disabled, because Team mode
+ *     delegates through `spawn_teammate` only; the model keeps no
+ *     `subagent`/`subagent_fork` route that could create continuable children
+ *     outside the Team roster.
  * @param {string} text - the shipped composition text.
  * @param {string} source - absolute path of the shipped composition.
  * @param {string} sourceId - the shipped preset id.
@@ -206,32 +214,24 @@ function matchOnce(text, pattern, label, source) {
 function deriveComposition(text, source, sourceId) {
   const newline = text.includes('\r\n') ? '\r\n' : '\n'
   let derived = text
-  for (const row of CONTROL_ROWS) {
+  for (const row of TEAM_DISABLED_ROWS) {
     const pattern = new RegExp(
       `^([ \\t]*)- id: ${escapeRegExp(row.id)}\\r?\\n([ \\t]*)name: '${escapeRegExp(row.name)}'[ \\t]*\\r?\\n`,
     )
-    const match = matchOnce(derived, pattern, `control row '${row.id}'`, source)
+    const match = matchOnce(derived, pattern, `delegation row '${row.id}'`, source)
     const [block, , nameIndent] = match
     derived = derived.replace(block, `${block}${nameIndent}disabled: true${newline}`)
   }
-  const continuableRows = derived.match(new RegExp(CONTINUABLE_ROW.source, 'gm')) ?? []
-  if (continuableRows.length !== 2) {
-    throw new Error(
-      `${ID}: expected exactly two "backgroundMode: continuable" rows in ${source}, found ${continuableRows.length}. `
-      + 'The shipped delegation rows changed shape; update plugins/agent-team/install.mjs.',
-    )
-  }
-  derived = derived.replace(new RegExp(CONTINUABLE_ROW.source, 'g'), 'backgroundMode: one-shot')
 
   const header = [
-    `# GENERATED by plugins/agent-team/install.mjs from the shipped '${sourceId}' composition.`,
+    `# GENERATED by plugins/harness/agent-team.mjs from the shipped '${sourceId}' composition.`,
     '# Do not edit: re-run "npm run install:plugins" (or "npm run build") to regenerate.',
     '#',
     '# Delta from the shipped composition:',
     '#   - tool-subagent-control / tool-subagent-list-agents disabled: Agent Teams',
     '#     owns send_message / list_agents / interrupt_agent for Team members.',
-    '#   - tool-subagent / tool-subagent-fork switched to backgroundMode: one-shot:',
-    '#     a continuable child cannot be addressed through the Team mailbox.',
+    '#   - tool-subagent / tool-subagent-fork disabled: direct delegation is closed;',
+    '#     Team mode delegates through spawn_teammate only.',
     '#',
     "# Upstream's own comments below describe the SHIPPED composition, so any comment",
     '# that states a delegation mode (for example "keeps fork continuable") describes',

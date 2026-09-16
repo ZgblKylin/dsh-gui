@@ -34,7 +34,9 @@
  *   --skip-harness   build: skip the dsh runtime install/build
  *   --skip-exe       skip the cargo build + exe copy (runtime/plugins only —
  *                    useful on Linux without Tauri system deps)
- *   --force-harness  rebuild/reinstall the dsh runtime even when it is current
+ *   --force-harness  clean-reinstall the dsh runtime even when it is current
+ *                    (removes .harness/node_modules + lockfile, re-resolves
+ *                    from the registry)
  */
 
 import { spawn, spawnSync } from 'node:child_process'
@@ -177,6 +179,61 @@ function installedHarnessVersion(installDir) {
 }
 
 /**
+ * Whether every installed `@deepseek-ai/dsh-*` package sits at `version`.
+ *
+ * The dsh family publishes as one release: the pinned runtime version appears in
+ * `@deepseek-ai/dsh` and in every sibling package at the same version. An install
+ * that mixed a new CLI with old family members (e.g. `pnpm add` reconciled an
+ * existing lockfile against a bumped top-level package and left `dsh-sandbox` /
+ * `dsh-attachment` on the previous release) fails at boot with import errors such
+ * as `does not provide an export named ...`. `installedHarnessVersion` alone
+ * cannot catch that — it only reads the top-level package — so the current check
+ * treats a mixed tree as stale and reinstalls from a clean state.
+ *
+ * A missing install (no `node_modules`) is "consistent" by this predicate; the
+ * caller combines it with `installedHarnessVersion` (null -> not current).
+ * @param {string} installDir - absolute npm-mode install directory.
+ * @param {string} version - the pinned runtime version.
+ * @returns {boolean}
+ */
+function harnessFamilyConsistent(installDir, version) {
+  const scope = join(installDir, 'node_modules', '@deepseek-ai')
+  let entries
+  try {
+    entries = readdirSync(scope, { withFileTypes: true })
+  } catch {
+    return true
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith('dsh-')) continue
+    const manifestPath = join(scope, entry.name, 'package.json')
+    try {
+      const installed = JSON.parse(readFileSync(manifestPath, 'utf8')).version
+      if (installed !== version) return false
+    } catch {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * Delete the npm runtime's `node_modules` and lockfile so the next `pnpm add`
+ * resolves the whole tree from the registry instead of reconciling the previous
+ * install. A version change can otherwise leave a mixed dsh family tree: `pnpm
+ * add` reconciles an existing lockfile, and even a deleted lockfile is rebuilt
+ * from the present `node_modules` state. The repo-local pnpm store
+ * (`<repo>/.pnpm-store`) is shared, so a clean reinstall re-links most packages
+ * and costs little.
+ * @param {string} installDir - absolute npm-mode install directory.
+ */
+function cleanHarnessInstall(installDir) {
+  for (const name of ['node_modules', 'pnpm-lock.yaml']) {
+    rmSync(join(installDir, name), { recursive: true, force: true })
+  }
+}
+
+/**
  * Remove profile-local fallback links that resolve into the source tree.
  *
  * `<profile>/.dsh-module-fallback/node_modules` holds one link per package the
@@ -223,15 +280,20 @@ function pruneSourceFallbackLinks(dshHome) {
 /** Install the pinned dsh CLI from the registry and prune source-era links. */
 function harnessNpmRuntime(runtime, force) {
   const installed = installedHarnessVersion(runtime.installDir)
-  const current = installed === runtime.version
+  // A top-level version match is not enough: the dsh family must all sit on the
+  // pinned version, or the CLI boots into import errors from stale siblings.
+  const current = installed === runtime.version && harnessFamilyConsistent(runtime.installDir, runtime.version)
   step(`Install ${HARNESS_NPM_PACKAGE}@${runtime.version} (npm runtime, repo-local store)`, () => {
     ensureHarnessProject(runtime.installDir, STORE)
     if (!force && current) {
       console.log(`already installed: ${HARNESS_NPM_PACKAGE}@${installed}`)
       return
     }
-    // `add` always reconciles the lockfile, so no frozen-lockfile flag: it must
-    // be able to adopt a version bump and the generated pnpm settings.
+    // Reinstalling is always a clean reinstall: reconcile-only `pnpm add` can
+    // keep a mixed dsh family tree across a version bump (top-level package
+    // upgraded, siblings left on the previous release). Deleting node_modules +
+    // lockfile forces pnpm to resolve the whole tree from the registry.
+    cleanHarnessInstall(runtime.installDir)
     pnpm(['add', `${HARNESS_NPM_PACKAGE}@${runtime.version}`], {
       cwd: runtime.installDir,
       env: { CI: 'true' },
@@ -241,6 +303,15 @@ function harnessNpmRuntime(runtime, force) {
   const after = installedHarnessVersion(runtime.installDir)
   if (after !== runtime.version) {
     throw new Error(`expected ${HARNESS_NPM_PACKAGE}@${runtime.version} in ${runtime.installDir}, found ${after ?? 'nothing'}`)
+  }
+  // A still-mixed family after a fresh resolve means the registry/mirror served
+  // an inconsistent tree (e.g. stale metadata for the new release) — fail the
+  // build now with a clear message instead of a boot-time import error.
+  if (!harnessFamilyConsistent(runtime.installDir, runtime.version)) {
+    throw new Error(
+      `${HARNESS_NPM_PACKAGE}@${runtime.version} installed, but some @deepseek-ai/dsh-* packages resolved to a different version in ${runtime.installDir}`
+      + ' — the registry/mirror may be serving stale metadata for this release; retry later or check npm publish state',
+    )
   }
   if (!force && current) return
   step('Prune source-runtime module fallback links', () => {
@@ -418,6 +489,29 @@ function installGlobalTemplate() {
   console.log(`Installed global_template.agents/ -> ${target} (${written} new file(s); existing files left untouched)`)
 }
 
+/**
+ * Render the web profile's composition as a build-time smoke check.
+ *
+ * `--profile web --dump-config` loads every loader entry and the profile's
+ * bundles, so it surfaces exactly the failures the shell would hit at boot —
+ * missing plugins, duplicate loader entry ids, and import errors from a mixed
+ * dsh family tree — while the build is still on the machine that can fix it.
+ * The staging upgrade workspace runs the same command as its acceptance gate;
+ * the working repo now fails the build on it instead of handing a broken
+ * harness to the next launch.
+ */
+function smokeComposition() {
+  if (!existsSync(join(WEB_HOME, 'profiles', 'web'))) {
+    console.log('No web profile installed yet — skipping composition smoke check.')
+    return
+  }
+  const cli = requireHarnessRuntime(ROOT)
+  step(`Smoke-check the web profile composition (${cli.bin})`, () => {
+    run('node', [cli.bin, '--profile', 'web', '--dump-config'], { env: { DSH_HOME: WEB_HOME } })
+  })
+  console.log('Composition smoke check passed.')
+}
+
 function setup(options) {
   bootstrapPnpm()
   harnessRuntime({ ...options, frozenHarness: true })
@@ -425,6 +519,7 @@ function setup(options) {
   plugins()
   installPresets()
   installGlobalTemplate()
+  smokeComposition()
   console.log('\nDone. Entry exe at the repository root; dsh runtime, plugins, agent presets, and the global agent template installed.')
 }
 
@@ -435,6 +530,7 @@ function build(options) {
   plugins()
   installPresets()
   installGlobalTemplate()
+  smokeComposition()
   console.log('\nDone. Entry exe at the repository root; dsh runtime, plugins, agent presets, and the global agent template installed.')
 }
 
@@ -515,7 +611,13 @@ Flags:
   --debug          cargo debug build instead of release (release is default)
   --skip-harness   build: skip the dsh runtime install/build
   --skip-exe       skip the cargo build + exe copy (runtime/plugins only)
-  --force-harness  rebuild/reinstall the dsh runtime even when it is current
+  --force-harness  clean-reinstall the dsh runtime even when it is current
+                   (removes .harness/node_modules + lockfile, re-resolves
+                   from the registry)
+
+Build also smoke-checks the web profile composition (--profile web
+--dump-config) after plugins install, so loader/bundle failures surface at
+build time instead of at the next launch.
 
 Examples:
   npm run setup

@@ -121,5 +121,6 @@ git -C plugins\<id>\<package> checkout <旧修订>
 - **子模块指针漂移**：本工程记录的修订与子模块工作区 HEAD 不一致时，`git status` 显示 ` M <path>`；实装要让两者一致，否则本工程处于半升级状态。
 - **移动了 checkout 却没有重跑安装**：`link:` 安装指向包目录，包需要重新构建才会生效，因此本工程检出阶段一确认的修订后，必须由用户重新构建才会生效。
 - **npm 安装型 wrapper 的发布滞后**：仓库 tag 可能早于 npm 发布，只移动 submodule checkout 不会更新已安装的插件本体。
+- **npm 运行时换代后实装仓库的 `.harness` 可能残留混合版本树**：副本是全新安装、必然一致，冒烟验不出；本工程是就地升级，`pnpm add` 调和既有 lockfile 时可能把顶层 `@deepseek-ai/dsh` 升到新版本、兄弟包（`dsh-sandbox`、`dsh-attachment` 等）留在旧版本。症状是启动时 `harness.log` 报 `does not provide an export named '...'`。build 的 npm 运行时分支现已自动兜底：家族不一致触发干净重装（删 `.harness/node_modules` + `pnpm-lock.yaml` 后 `pnpm add`），重装后仍不一致则构建报错；`--force-harness` 也是干净重装。手动恢复：`Remove-Item .harness\node_modules, .harness\pnpm-lock.yaml -Recurse -Force` 后重跑 build。详见 `docs/dsh-gui/harness-runtime.md` 的「故障排查」。
 - **副本不含未提交改动**：本工程有待提交的改动时，副本验证的不是将要实装的状态。
 - **`DSH_HOME` 会从会话环境继承，指向正在运行的实例**：dsh 会话自身导出了 `DSH_HOME=<本工程>/.dsh`，副本里跑的每条 `node` / `dsh` / `install.mjs` 命令都会继承它，于是"副本内验证"实际写进了本工程的 profile。典型症状是 pnpm 报 `ERR_PNPM_UNEXPECTED_STORE`（副本的 store 与本工程 profile 记录的 store 不同），或本工程 `.dsh/` 冒出新的文件。副本内的每条命令都显式带上 `$env:DSH_HOME="<副本>/.dsh"`。若已经写进去，按本工程 `.dsh` 的改动清单逐项复原，至少核对 `profiles/web/pnpm-workspace.yaml` 的 `storeDir`、`gui/npm-installs.json` 与 `profiles/web/package.json` 的依赖与 `dsh.profile.bundles`。
