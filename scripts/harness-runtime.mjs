@@ -77,7 +77,7 @@ export function readHarnessConfig(root) {
  * Read from `apps/cli/package.json`, not from a git tag: the release contract
  * makes the repository root manifest, `apps/cli`, and every published package of
  * the `dsh` family share one version, and a checkout is pinned to a release tag
- * (`dsh-v0.1.5-rc.2` -> `0.1.5-rc.2`). Reading the manifest also keeps this
+ * (`dsh-v0.1.6-alpha.1` -> `0.1.6-alpha.1`). Reading the manifest also keeps this
  * resolution free of a subprocess, which the dsh file sandbox refuses to spawn
  * with piped stdio.
  *

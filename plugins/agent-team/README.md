@@ -18,16 +18,16 @@
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 |
-| `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2` | web profile | 浏览器 roster 与任务板面板 |
+| `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 |
+| `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1` | web profile | 浏览器 roster 与任务板面板 |
 | `<id>-team`，每个含 delegation 行且不挂进程级工具集的官方 preset 各一个 | `<DSH_HOME>/.agent-presets/` | 由官方同名 preset 生成的 Team-aware 组合。当前为 `standard-team` / `ptc-team`；官方 `cordis` 不派生，原因见「派生 preset 的规则」 |
 
 两个 npm 包都声明 `dsh.bundle.patch`，因此 `dsh plugin add` 会自动把它们 reconcile 进
 `dsh.profile.bundles`，由各自的 bundle 层挂载；**本脚本不写 `cordis.patch.yml` insert**（手工插入会 `duplicate loader entry id`）。
 
 版本必须精确 pin：两个包的 npm `latest` 当前仍指向 `0.1.5-alpha.2`，与本仓库 pinned 的
-`dsh-v0.1.5-rc.2` 对应的是 `next` 上的 `0.1.5-rc.2`，不写版本号会装错。二者都是 prerelease，
-这也是它们进不了 Community Market 的原因。
+`dsh-v0.1.6-alpha.1` 对应的是 `alpha` 上的 `0.1.6-alpha.1`，不写版本号会装错。二者都是
+prerelease，这也是它们进不了 Community Market 的原因。
 
 ## 派生 preset 的规则
 

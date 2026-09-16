@@ -83,7 +83,7 @@ harness 升级先由更新对话框把子模块 fast-forward 到新 tag，再运
 
 ## 限制与风险
 
-- `@deepseek-ai/dsh` 的 `latest` dist-tag 落后于预发布（`0.1.5-rc.2` 发布在 `next`），因此只能按精确版本安装，不能依赖 `latest`。
+- `@deepseek-ai/dsh` 的 `latest` dist-tag 落后于预发布（`0.1.6-alpha.1` 发布在 `alpha`），因此只能按精确版本安装，不能依赖 `latest`。
 - 上游只验收 `dsh --version`；端到端启动仍由本仓库 `.staging` 副本的冒烟检查负责（`--profile web --dump-config`）。
 - `.harness/` 中带 install 或 postinstall 脚本的包需要 pinned pnpm 的 `allowBuilds` 决策，未决策会让后续安装失败。
 - npm 模式失去修改 harness 源码或以源码启动它的能力；按 `AGENTS.md`，子模块本来就不允许修改。

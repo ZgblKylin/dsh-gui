@@ -100,7 +100,7 @@ would double-mount it and fail the plugin tree with
   - [@linxin666/dsh-usage@0.3.22](dsh-web-ui/packages/dsh-usage/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-model-capabilities@0.3.22](dsh-web-ui/packages/dsh-model-capabilities/README.zh.md) npm包
   - [@linxin666/dsh-session-archive@0.3.22](dsh-web-ui/packages/dsh-session-archive/README.zh.md) npm包
-- Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2`，另按上游 preset 生成 `<id>-team`；见 [agent-team/README.md](agent-team/README.md)
+- Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`，另按上游 preset 生成 `<id>-team`；见 [agent-team/README.md](agent-team/README.md)
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.9；子模块
   checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 起相同，
   `agentDefaultModel` 由 base bundle 提供；client 半自 0.2.8 起把 `commandUi`
@@ -234,8 +234,8 @@ would double-mount it and fail the plugin tree with
   loading. See `dsh-pet/README.md`.
 - `agent-team` — no plugin package of its own: the wrapper installs two
   official experimental Agent Teams bundles from npm
-  (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.5-rc.2` and
-  `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.5-rc.2`; exact
+  (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` and
+  `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`; exact
   prerelease pins, because npm `latest` still points at `0.1.5-alpha.2` and the
   Community Market cannot carry a prerelease), then derives a Team-aware sibling
   `<id>-team` for every shipped agent preset that carries delegation rows.
