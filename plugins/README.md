@@ -8,15 +8,20 @@ deeper). A wrapper may own several checkouts and install several npm
 packages in one script. Two wrappers own no package checkout at all:
 `dsh-web-ui` installs five npm bundles of its distribution repo —
 `dsh-web-ui-settings`, `dsh-plugin-manager`, `dsh-skill-explorer`,
-`dsh-usage` and `dsh-model-capabilities` — and
-`agent-team` installs two official Agent Teams bundles and derives
-Team-aware agent presets from the shipped ones.
+`dsh-usage` and `dsh-model-capabilities` — and `harness` owns every
+official dsh-family plugin as one flat group: `agent-team.mjs` installs two
+Agent Teams bundles and derives Team-aware agent presets, and
+`auto-review.mjs` installs the per-call LLM authorization layer.
 
 ```
 plugins/
+├─ harness/
+│  ├─ install.mjs        # entry: loads each plugins/harness/*.mjs installer in order
+│  ├─ agent-team.mjs     # Agent Teams bundles + derived presets
+│  └─ auto-review.mjs    # Auto review per-call authorization layer
 ├─ <id>/
 │  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: five npm
-│  │                     # bundles; agent-team: two npm bundles + derived presets
+│  │                     # bundles
 │  └─ <package>/         # the plugin package (in-tree, or a git submodule); absent
 │                        # for npm-only wrappers
 └─ ...
@@ -24,7 +29,10 @@ plugins/
 
 The harness installs plugins into a *profile* (for the web surface, the `web`
 profile). `npm run install:plugins` (alias `npm run plugins`) runs every
-`plugins/*/install.mjs` in directory-name order. Plugin wrappers delegate the
+`plugins/*/install.mjs` in directory-name order. The `harness` wrapper owns no
+install of its own: its `install.mjs` only loads the flat sibling installers
+(`agent-team.mjs`, `auto-review.mjs`), each of which also runs standalone, so
+the group stays one directory with no nesting. Plugin wrappers delegate the
 shared pipeline to `scripts/plugin-install.mjs` and only own their id, package
 directory, and submodule hint:
 
@@ -101,8 +109,9 @@ would double-mount it and fail the plugin tree with
     （会话归档管理 `@linxin666/dsh-session-archive` 与任务板
     `@linxin666/dsh-client-ui-task-board` 已从本工程移除，不再安装；见
     `dsh-web-ui/README.md`「已移除插件」一节）
-- Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`，另按上游 preset 生成 `<id>-team`；见 [agent-team/README.md](agent-team/README.md)
-- Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`，与 pinned 的 dsh-v0.1.6-alpha.1 harness 配套；见 [auto-review/README.md](auto-review/README.md)
+- harness（dsh 工程官方插件组，平铺脚本见 [harness/README.md](harness/README.md)）：
+  - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`，另按上游 preset 生成 `<id>-team`
+  - Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`，与 pinned 的 dsh-v0.1.6-alpha.1 harness 配套
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.9；子模块
   checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 起相同，
   `agentDefaultModel` 由 base bundle 提供；client 半自 0.2.8 起把 `commandUi`
@@ -234,29 +243,32 @@ would double-mount it and fail the plugin tree with
   API removed in DSH 0.1.5; the declared `@deepseek-ai/dsh-client-runtime`
   edge is module-graph ordering metadata only and its absence does not block
   loading. See `dsh-pet/README.md`.
-- `agent-team` — no plugin package of its own: the wrapper installs two
-  official experimental Agent Teams bundles from npm
-  (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` and
-  `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`; exact
-  prerelease pins, because npm `latest` still points at `0.1.5-alpha.2` and the
-  Community Market cannot carry a prerelease), then derives a Team-aware sibling
-  `<id>-team` for every shipped agent preset that carries delegation rows.
-  Those siblings exist because the experimental bundle's own patch layer
-  disables the continuable-child control tools AND the direct delegation rows
-  (`tool-subagent`, `tool-subagent-fork`) at the PROFILE level, which never
-  reaches the preset rows that actually supply those tools — leaving
-  `send_message` Team-addressed (roster names only) while the model still
-  created continuable children the parent could no longer address. The derived
-  siblings repeat that disable on the preset rows, so the closure actually
-  reaches the model. No shipped profile enables Agent Teams. See
-  `agent-team/README.md`.
-- `auto-review` — no plugin package of its own: the wrapper installs the
-  official experimental per-call LLM authorization layer
-  (`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`; exact prerelease
-  pin matching the pinned `dsh-v0.1.6-alpha.1` harness, whose
-  peerDependencies all point at `^0.1.6-alpha.1`), declaring
-  `dsh.bundle.patch` so it self-mounts through its own bundle layer. The layer
-  adds a current-session-only `Auto review EXP` option to the permission
-  selector; every native and started PTC inner tool call is reviewed once by
-  the current agent's model before its body, and allowed calls execute with
-  Full access. See `auto-review/README.md`.
+- `harness` — a single flat wrapper at `harness/` that owns every official
+  dsh-family plugin: `install.mjs` only loads the sibling installers
+  `agent-team.mjs` and `auto-review.mjs`, so the group stays one directory with
+  no nesting. See `harness/README.md`.
+  - `agent-team` — `harness/agent-team.mjs` installs two
+    official experimental Agent Teams bundles from npm
+    (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` and
+    `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`; exact
+    prerelease pins, because npm `latest` still points at `0.1.5-alpha.2` and the
+    Community Market cannot carry a prerelease), then derives a Team-aware sibling
+    `<id>-team` for every shipped agent preset that carries delegation rows.
+    Those siblings exist because the experimental bundle's own patch layer
+    disables the continuable-child control tools AND the direct delegation rows
+    (`tool-subagent`, `tool-subagent-fork`) at the PROFILE level, which never
+    reaches the preset rows that actually supply those tools — leaving
+    `send_message` Team-addressed (roster names only) while the model still
+    created continuable children the parent could no longer address. The derived
+    siblings repeat that disable on the preset rows, so the closure actually
+    reaches the model. No shipped profile enables Agent Teams.
+  - `auto-review` — `harness/auto-review.mjs` installs the
+    official experimental per-call LLM authorization layer
+    (`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`; exact prerelease
+    pin matching the pinned `dsh-v0.1.6-alpha.1` harness, whose
+    peerDependencies all point at `^0.1.6-alpha.1`), declaring
+    `dsh.bundle.patch` so it self-mounts through its own bundle layer. The layer
+    adds a current-session-only `Auto review EXP` option to the permission
+    selector; every native and started PTC inner tool call is reviewed once by
+    the current agent's model before its body, and allowed calls execute with
+    Full access.

@@ -12,7 +12,9 @@
  * The package declares `dsh.bundle.patch`, so `dsh plugin add` reconciles it
  * into `dsh.profile.bundles` and it mounts through its own bundle layer
  * (loader entry id `auto-review`); this script writes no `cordis.patch.yml`
- * insert (a manual one would double-mount it).
+ * insert (a manual one would double-mount it). This installer lives under
+ * `plugins/harness/` — the group of official dsh-family plugins — and is
+ * loaded by `plugins/harness/install.mjs`; it also runs standalone.
  *
  * The version is pinned to the harness revision this repository builds
  * against: `0.1.6-alpha.1` is the dsh-family prerelease whose peerDependencies
