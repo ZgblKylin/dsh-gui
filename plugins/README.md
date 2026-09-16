@@ -6,16 +6,16 @@ Local DeepSeek Harness plugin packages, in the same preset-style layout as
 distribution repos such as `deep-whale`, the package path points one level
 deeper). A wrapper may own several checkouts and install several npm
 packages in one script. Two wrappers own no package checkout at all:
-`dsh-web-ui` installs six npm bundles of its distribution repo —
+`dsh-web-ui` installs five npm bundles of its distribution repo —
 `dsh-web-ui-settings`, `dsh-plugin-manager`, `dsh-skill-explorer`,
-`dsh-usage`, `dsh-model-capabilities` and `dsh-session-archive` — and
+`dsh-usage` and `dsh-model-capabilities` — and
 `agent-team` installs two official Agent Teams bundles and derives
 Team-aware agent presets from the shipped ones.
 
 ```
 plugins/
 ├─ <id>/
-│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: six npm
+│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: five npm
 │  │                     # bundles; agent-team: two npm bundles + derived presets
 │  └─ <package>/         # the plugin package (in-tree, or a git submodule); absent
 │                        # for npm-only wrappers
@@ -69,17 +69,16 @@ its own bundle layer. A manual profile insert for a bundle-declared plugin
 would double-mount it and fail the plugin tree with
 `duplicate loader entry id`.
 
-- **Multiple npm bundles wrapper** — `dsh-web-ui` installs six plugin
+- **Multiple npm bundles wrapper** — `dsh-web-ui` installs five plugin
   packages of its distribution repo, pinned to exact versions matching the
   git tag (`0.3.22`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
   gate, which would otherwise silently fall back to an older version for
   `@latest`): `@linxin666/dsh-client-ui-web-ui-settings`,
   `@linxin666/dsh-client-ui-plugin-manager`,
-  `@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage`,
-  `@linxin666/dsh-client-ui-model-capabilities` and
-  `@linxin666/dsh-session-archive` (the settings bridge is
+  `@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
+  `@linxin666/dsh-client-ui-model-capabilities` (the settings bridge is
   ordered first; per the 安装方式 section below: not marked as source
-  installs). All six declare `dsh.bundle.patch`, so each mounts through its
+  installs). All five declare `dsh.bundle.patch`, so each mounts through its
   own bundle layer (no manual cordis inserts). It does not install agent
   presets or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
 
@@ -99,8 +98,11 @@ would double-mount it and fail the plugin tree with
   - [@linxin666/dsh-client-ui-skill-explorer@0.3.22](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
   - [@linxin666/dsh-usage@0.3.22](dsh-web-ui/packages/dsh-usage/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-model-capabilities@0.3.22](dsh-web-ui/packages/dsh-model-capabilities/README.zh.md) npm包
-  - [@linxin666/dsh-session-archive@0.3.22](dsh-web-ui/packages/dsh-session-archive/README.zh.md) npm包
+    （会话归档管理 `@linxin666/dsh-session-archive` 与任务板
+    `@linxin666/dsh-client-ui-task-board` 已从本工程移除，不再安装；见
+    `dsh-web-ui/README.md`「已移除插件」一节）
 - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`，另按上游 preset 生成 `<id>-team`；见 [agent-team/README.md](agent-team/README.md)
+- Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`，与 pinned 的 dsh-v0.1.6-alpha.1 harness 配套；见 [auto-review/README.md](auto-review/README.md)
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.9；子模块
   checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 起相同，
   `agentDefaultModel` 由 base bundle 提供；client 半自 0.2.8 起把 `commandUi`
@@ -201,17 +203,17 @@ would double-mount it and fail the plugin tree with
   out of any right/bottom panels generically. See
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
-  `dsh-web-ui/dsh-web-ui`. Installs six plugin packages of the distribution
+  `dsh-web-ui/dsh-web-ui`. Installs five plugin packages of the distribution
   repo pinned to exact versions matching the git tag (`0.3.22`) (per the
   安装方式 section above): the `dsh-web-ui-settings` compatibility bundle
   (`@linxin666/dsh-client-ui-web-ui-settings`, ordered first),
   `dsh-plugin-manager` (`@linxin666/dsh-client-ui-plugin-manager`),
   `dsh-skill-explorer` (`@linxin666/dsh-client-ui-skill-explorer`),
-  `dsh-usage` (`@linxin666/dsh-usage`), `dsh-model-capabilities`
-  (`@linxin666/dsh-client-ui-model-capabilities`) and `dsh-session-archive`
-  (`@linxin666/dsh-session-archive`) — each mounts through its
+  `dsh-usage` (`@linxin666/dsh-usage`) and `dsh-model-capabilities`
+  (`@linxin666/dsh-client-ui-model-capabilities`) — each mounts through its
   own `dsh.bundle.patch` layer; the task board
-  (`@linxin666/dsh-client-ui-task-board`) is not installed. It does not
+  (`@linxin666/dsh-client-ui-task-board`) and the session-archive manager
+  (`@linxin666/dsh-session-archive`) are no longer installed. It does not
   install agent presets or any other dsh-web-ui package. See
   `dsh-web-ui/README.md`.
 - `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.9)
@@ -248,3 +250,13 @@ would double-mount it and fail the plugin tree with
   siblings repeat that disable on the preset rows, so the closure actually
   reaches the model. No shipped profile enables Agent Teams. See
   `agent-team/README.md`.
+- `auto-review` — no plugin package of its own: the wrapper installs the
+  official experimental per-call LLM authorization layer
+  (`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`; exact prerelease
+  pin matching the pinned `dsh-v0.1.6-alpha.1` harness, whose
+  peerDependencies all point at `^0.1.6-alpha.1`), declaring
+  `dsh.bundle.patch` so it self-mounts through its own bundle layer. The layer
+  adds a current-session-only `Auto review EXP` option to the permission
+  selector; every native and started PTC inner tool call is reviewed once by
+  the current agent's model before its body, and allowed calls execute with
+  Full access. See `auto-review/README.md`.

@@ -13,15 +13,13 @@
 4. **`dsh-usage` 使用统计**
    （`@linxin666/dsh-usage@0.3.22`）；
 5. **`dsh-model-capabilities` 模型能力**
-   （`@linxin666/dsh-client-ui-model-capabilities@0.3.22`）；
-6. **`dsh-session-archive` 会话归档管理**
-   （`@linxin666/dsh-session-archive@0.3.22`）。
+   （`@linxin666/dsh-client-ui-model-capabilities@0.3.22`）。
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
 保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 版本号。
 
-六个包要求 `dsh >= 0.1.5-rc.1`，本工程 pinned 的 `dsh-v0.1.5-rc.2` 满足该声明。
+五个包要求 `dsh >= 0.1.5-rc.1`，本工程 pinned 的 `dsh-v0.1.5-rc.2` 满足该声明。
 
 不安装 dsh-web-ui 的其他任何包、插件、皮肤，也不安装其 agent preset（agent
 preset 属于 `presets/` 流程，不在本 wrapper）。`dsh-liangshen`（梁神模式）与其
@@ -34,8 +32,7 @@ agent preset 不由本 wrapper 安装：该 preset 由插件的 host 启动同�
 plugins/dsh-web-ui/
 ├─ install.mjs                          # npm 安装 dsh-web-ui-settings /
 │                                       #   dsh-plugin-manager / dsh-skill-explorer /
-│                                       #   dsh-usage / dsh-model-capabilities /
-│                                       #   dsh-session-archive
+│                                       #   dsh-usage / dsh-model-capabilities
 ├─ README.md                            # 本说明
 └─ dsh-web-ui/                          # dsh-web-ui 仓库（git submodule；上游 v0.3.x
    │                                    #   起更名 dsh-web）
@@ -45,15 +42,15 @@ plugins/dsh-web-ui/
    ├─ packages/dsh-skill-explorer/      # 技能中心源码（wrapper 从 npm 安装）
    ├─ packages/dsh-usage/               # 使用统计源码（wrapper 从 npm 安装）
    ├─ packages/dsh-model-capabilities/  # 模型能力源码（wrapper 从 npm 安装）
-   ├─ packages/dsh-session-archive/     # 会话归档管理源码（wrapper 从 npm 安装）
-   ├─ packages/dsh-task-board/          # 任务板源码（仅源码参考，wrapper 不安装）
+   ├─ packages/dsh-session-archive/     # 会话归档管理源码（仅源码参考，wrapper 不再安装）
+   ├─ packages/dsh-task-board/          # 任务板源码（仅源码参考，wrapper 不再安装）
    ├─ packages/dsh-pet/                 # 鲸鱼娘桌宠源（仅源码参考，wrapper 不再安装；
    │                                    #   PC2005-cloud 的 dsh-pet 见 plugins/dsh-pet/）
 ```
 
 ## 安装范围
 
-### dsh-web-ui-settings + dsh-plugin-manager + dsh-skill-explorer + dsh-usage + dsh-model-capabilities + dsh-session-archive
+### dsh-web-ui-settings + dsh-plugin-manager + dsh-skill-explorer + dsh-usage + dsh-model-capabilities
 
 当前 DSH 的 `dsh-host-apiproxy` 只向 web 设置页暴露硬编码的
 `WEB_SETTINGS_NAMESPACES`，不包含第三方插件的设置命名空间。`dsh-web-ui-settings`
@@ -89,15 +86,6 @@ renderer 服务，作为独立 bundle 层自挂载。面板提供搜索框（按
 提供方禁用/启用——禁用先把 profile 存档进本插件的 `dsh-model-capabilities`
 命名空间，再以 `unset` 下线路由。
 
-`dsh-session-archive` 是会话归档管理：host 半区维护全量会话清册（活跃、已归档、
-空会话、子代理、无工作区与会话元数据不完整的历史会话），提供批量归档与取消归档、
-带会话族级联的物理删除管线（归档集合 → 工作区 `sessionIds` → 存储 → 投影缓存 →
-归档台账），以及默认关闭的自动归档（按最后活动时间）与自动清理（按台账归档时间）
-策略；设置页一级分区「会话归档管理」承载过滤、搜索、排序、多选、分块执行与逐会话
-结果。所有 `/api/dsh-session-archive/*` 路由限制为 loopback 且校验 Host 与同源标记，
-LAN/隧道客户端返回 403；运行中会话、当前会话与含运行中子会话的会话族一律跳过，
-物理删除不可恢复。
-
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
@@ -106,16 +94,15 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-plugin-manager@0.3.22
 dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.3.22
 dsh plugin --profile web add @linxin666/dsh-usage@0.3.22
 dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.3.22
-dsh plugin --profile web add @linxin666/dsh-session-archive@0.3.22
 ```
 
-六个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
+五个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
 的 bundle 列表，无需手工 cordis 挂载。
 
 安装目标：
 
 ```text
-.dsh/profiles/web/package.json    # 六个 npm 依赖 + dsh.profile.bundles
+.dsh/profiles/web/package.json    # 五个 npm 依赖 + dsh.profile.bundles
 ```
 
 其中 `DSH_HOME` 与 dsh-gui 的其他 install 脚本一致：显式传入的
@@ -127,29 +114,34 @@ dsh plugin --profile web add @linxin666/dsh-session-archive@0.3.22
   host 启动同步，本 wrapper 不安装；
 - `dsh-remote-web-ui`、`dsh-skins`、`dsh-web-all`（v0.3.x 起，旧名
   `dsh-web-ui-all`）等 dsh-web 其他 package；
-- `@linxin666/dsh-client-ui-task-board`（任务板）——本 wrapper 不安装；曾装过它的
-  profile 需要自行卸载，见下节；
+- `@linxin666/dsh-client-ui-task-board`（任务板）与
+  `@linxin666/dsh-session-archive`（会话归档管理）——已从本工程移除，不再安装，
+  见「已移除插件」一节；
 - `@linxin666/dsh-pet`（鲸鱼娘桌宠）——由
   `plugins/dsh-pet/`（PC2005-cloud 的 dsh-pet）独立 wrapper 安装；
-- 对六个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
+- 对五个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
   bundle patch 挂载；
 - 对上游 submodule 的任何修改。
 
-## 任务板的卸载
+## 已移除插件（dsh-task-board / dsh-session-archive）
 
-`dsh-task-board` 不再由本 wrapper 安装。曾装过它的 profile 会在组合里继续加载该
-包，需要在停掉 dsh-gui 后先从 profile 卸载：
+`dsh-task-board`（`@linxin666/dsh-client-ui-task-board`）与
+`dsh-session-archive`（`@linxin666/dsh-session-archive`）曾由 dsh-web-ui 全家桶随
+版本安装进 web profile，现均已从本工程移除：wrapper 不再安装，profile 也已卸载。
+移除动作做了三件事（完整流程见 skill `dsh-plugin-uninstall`）：
 
-```powershell
-$env:DSH_HOME = '<repo>\.dsh'
-node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove @linxin666/dsh-client-ui-task-board
-```
+1. profile 卸载：
+   `dsh plugin --profile web remove <package>`，移出依赖、`node_modules` 与
+   `dsh.profile.bundles` 条目；
+2. `.dsh` 运行期残留清理：`.dsh/gui/npm-installs.json` 里的包名、
+   `.dsh/settings.yaml` 的 `task-board` / `dsh-session-archive` 段（如有）、
+   `.dsh/task-board/`（账本与调度器状态）与 `.dsh/dsh-session-archive/`
+   （state.json）；
+3. 本 wrapper 的 `install.mjs` 与 `README.md` 去掉 session-archive 条目，避免
+   下次 `npm run install:plugins` 把它装回来。
 
-`dsh plugin remove` 会移出 profile 的依赖、`node_modules` 与 `dsh.profile.bundles`
-条目。它留下的运行期残留还需一并清理：`.dsh/gui/npm-installs.json` 里的包名、
-`.dsh/profiles/web/pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` pin、
-`.dsh/settings.yaml` 的 `task-board` 段，以及 `.dsh/task-board/`（账本与调度器状态）。
-完整卸载流程见 skill `dsh-plugin-uninstall`。
+dsh-web-ui 上游子模块中的 `packages/dsh-task-board/` 与
+`packages/dsh-session-archive/` 仅作源码参考保留，与安装无关。
 
 ## 运行方式
 
@@ -180,10 +172,6 @@ installed plugin 'dsh-usage' into E:\Git\dsh-gui\.dsh\profiles\web
 ==> install plugin 'dsh-model-capabilities' (@linxin666/dsh-client-ui-model-capabilities@0.3.22 from npm)
   ...
 installed plugin 'dsh-model-capabilities' into E:\Git\dsh-gui\.dsh\profiles\web
-
-==> install plugin 'dsh-session-archive' (@linxin666/dsh-session-archive@0.3.22 from npm)
-  ...
-installed plugin 'dsh-session-archive' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
 
 ### 手动执行
@@ -204,7 +192,7 @@ node plugins/dsh-web-ui/install.mjs
 参考。升级顺序：
 
 1. 先移动子模块到新 tag（`git -C plugins/dsh-web-ui/dsh-web-ui checkout <tag>`）；
-2. 同步把本文件 `install.mjs` 与 `README.md` 中的六个 npm 版本号 bump 到新 tag
+2. 同步把本文件 `install.mjs` 与 `README.md` 中的五个 npm 版本号 bump 到新 tag
    对应的版本（精确 pin，`pnpm add` 对精确版本自动豁免发布年龄门禁）；
 3. 重跑安装：
 
