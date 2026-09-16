@@ -240,9 +240,11 @@ would double-mount it and fail the plugin tree with
   Community Market cannot carry a prerelease), then derives a Team-aware sibling
   `<id>-team` for every shipped agent preset that carries delegation rows.
   Those siblings exist because the experimental bundle's own patch layer
-  disables the continuable-child control tools and switches delegation to
-  `one-shot` at the PROFILE level, which never reaches the preset rows that
-  actually supply those tools — leaving `send_message` Team-addressed (roster
-  names only) while `subagent` still created continuable children the parent
-  could no longer address. No shipped profile enables Agent Teams. See
+  disables the continuable-child control tools AND the direct delegation rows
+  (`tool-subagent`, `tool-subagent-fork`) at the PROFILE level, which never
+  reaches the preset rows that actually supply those tools — leaving
+  `send_message` Team-addressed (roster names only) while the model still
+  created continuable children the parent could no longer address. The derived
+  siblings repeat that disable on the preset rows, so the closure actually
+  reaches the model. No shipped profile enables Agent Teams. See
   `agent-team/README.md`.

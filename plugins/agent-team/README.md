@@ -8,11 +8,11 @@
 
 官方 Agent Teams 默认关闭（随附 profile 都不引用它），且它的组合与官方 preset 存在一处**错配**：
 
-- 实验 bundle 的 `cordis.patch.yml` 在**顶层**禁用 continuable-child 控制工具、并把 `subagent` 降为 `one-shot`；
+- 实验 bundle 的 `cordis.patch.yml` 在**顶层**禁用四个 delegation 行：`tool-subagent-control`、`tool-subagent-list-agents`、`tool-subagent`、`tool-subagent-fork`；
 - 但 `dsh-web-app` 早已在顶层裁掉这些行，真正提供 delegation 工具的是 **preset**（`standard` / `cordis` / `ptc` 各自在 `delegation` 组里挂回 `tool-subagent-control` 且 `backgroundMode: continuable`）；
-- 顶层 patch 够不到 preset 行，于是出现：**模型的 `send_message` 被 Agent Teams 的 scoped 版本遮蔽（只认 Team roster 成员名），而 `subagent` 仍在创建 continuable 子级** —— 父 agent 无法再寻址这种子 agent。
+- 顶层 patch 够不到 preset 行，于是出现：**模型的 `send_message` / `list_agents` / `interrupt_agent` 被 Agent Teams 的 scoped 版本遮蔽（只认 Team roster 成员名），而 `subagent` / `subagent_fork` 仍在创建 continuable 子级** —— 父 agent 无法再寻址这种子 agent。
 
-本 wrapper 的派生 preset 把这条缝补上：委派改为 `one-shot`，控制工具交给 Agent Teams。
+本 wrapper 的派生 preset 把这条缝补上：在预设这一层把同样四行设为 `disabled: true`，使「关闭直接委派」真正落到模型可见面——委派统一走 `spawn_teammate`，消息控制交给 Agent Teams。
 
 ## 安装内容
 
@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 |
 | `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1` | web profile | 浏览器 roster 与任务板面板 |
-| `<id>-team`，每个含 delegation 行且不挂进程级工具集的官方 preset 各一个 | `<DSH_HOME>/.agent-presets/` | 由官方同名 preset 生成的 Team-aware 组合。当前为 `standard-team` / `ptc-team`；官方 `cordis` 不派生，原因见「派生 preset 的规则」 |
+| `<id>-team`，每个含 delegation 行且不挂进程级工具集的官方 preset 各一个 | `<DSH_HOME>/.agent-presets/` | 由官方同名 preset 生成的 Team-aware 组合（关闭 `subagent` / `subagent_fork` 直接委派与全局控制工具）。当前为 `standard-team` / `ptc-team`；官方 `cordis` 不派生，原因见「派生 preset 的规则」 |
 
 两个 npm 包都声明 `dsh.bundle.patch`，因此 `dsh plugin add` 会自动把它们 reconcile 进
 `dsh.profile.bundles`，由各自的 bundle 层挂载；**本脚本不写 `cordis.patch.yml` insert**（手工插入会 `duplicate loader entry id`）。
@@ -31,10 +31,12 @@ prerelease，这也是它们进不了 Community Market 的原因。
 
 ## 派生 preset 的规则
 
-`install.mjs` 读取**安装树里的官方 composition**，只改四处锚点，其余逐字节保留：
+`install.mjs` 读取**安装树里的官方 composition**，把四个 delegation 行改为 `disabled: true`，其余逐字节保留：
 
-1. `tool-subagent-control` 与 `tool-subagent-list-agents` 两行加 `disabled: true`；
-2. 两处 `backgroundMode: continuable` 改为 `one-shot`。
+1. `tool-subagent-control` 与 `tool-subagent-list-agents`（两个全局 continuable-child 控制行，`send_message` / `list_agents` / `interrupt_agent` 交给 Agent Teams 接管）；
+2. `tool-subagent` 与 `tool-subagent-fork`（两个直接委派工具行，`subagent` / `subagent_fork` 不再向模型暴露）。
+
+这与官方 bundle 顶层 patch 的关闭一致；两层同为 `disabled`，叠放不冲突。
 
 **哪些 preset 会被派生是"发现"出来的，不是列出来的。** 脚本遍历官方 preset 根，凡是含 delegation 行的就生成一个 `<id>-team` 兄弟目录，所以上游新增 preset 会在下次安装时自动带上兄弟；上游删除 preset、或某 preset 不再满足派生条件时，其兄弟会被清理——清理只针对带本脚本 `generatedBy` 标记的目录，且只在**本轮至少成功派生一个 preset** 时才运行，以免查找失败时清空 roster。
 
@@ -51,10 +53,8 @@ native 完全一致，Team 工具也会照常出现在 `run_code` 的 `dsh.*` �
 派生文件里**官方自己的注释按原样保留**，因此像 "This preset keeps fork continuable" 这种陈述
 模式的行描述的是派生前的行为；生成文件的来源头里带一条同样的说明。
 
-派生结果按"真实挂载"验证过：在 web profile 里让两个 agent 分别加入 `standard` 与
-`standard-team`，读到的 `subagent` 描述分别是 "runs in the background by default, immediately
-returns a durable subagent id"（continuable）与 "waits for the result by default … return a job
-id"（one-shot），Team 工具在两者中都在。
+派生结果按组合校验：生成的 `standard-team` / `ptc-team` 里这四个 delegation 行均为
+`disabled: true`，官方 `standard` / `ptc` 保持原样。
 
 **为什么是生成副本而不是 `cordis:include`。** 用 include + `patches` 表达同样的差异只需要几行，
 但嵌套的 `cordis:include` 是**普通 `Include`**，而 Loader 会把树回写到它读取的文件
@@ -74,15 +74,16 @@ npm run install:plugins        # 或 npm run build
 
 重启后在新会话里选择带 `+ Agent Teams` 后缀的预设（目录名为 `<id>-team`，显示名取官方名加后缀）。
 
-**派生 preset 必须与两个 Team bundle 成对使用**：只落 preset 不装 bundle，会让 `subagent`
-变成 one-shot 却没有任何 Team 工具，那是纯粹的能力退化。preset 在会话开跑后即锁定，因此要在
-**新会话开始前**选。
+**派生 preset 必须与两个 Team bundle 成对使用**：只落 preset 不装 bundle，会关闭
+`subagent` / `subagent_fork` 与全局控制工具，却没有 Team 工具顶上，那是纯粹的能力退化。
+preset 在会话开跑后即锁定，因此要在**新会话开始前**选。
 
 ## 已知限制
 
 - **只为派生 preset 修复**。官方 `standard` / `cordis` / `ptc` 本身仍是原样，在那些 preset 下
-  Agent Teams 的错配依旧存在（Team 工具会遮蔽三个控制工具，而 `subagent` 仍是 continuable）。
-  要让所有会话都一致，需要把某个 `*-team` preset 设为默认（`agentPresets.default`），本 wrapper 不做这件事。
+  Agent Teams 的错配依旧存在（`subagent` / `subagent_fork` 仍是 continuable，三个控制工具被
+  Team scoped 版本遮蔽）。要让所有会话都一致，需要把某个 `*-team` preset 设为默认
+  （`agentPresets.default`），本 wrapper 不做这件事。
 - **创造模式无法 Team 化**。`cordis` 挂的 Cordis 工具集注册进程级 inspect provider，一个进程只能挂一份，
   因此它没有 `-team` 兄弟（见「派生 preset 的规则」）。这不是本 wrapper 能补的缝：只要该进程里已经坐过官方
   `cordis`——选过创造模式会话、跑过 AI 更新（`dsh-ai-update` 会为空白会话自动 `agentPresets.select` 到
@@ -91,9 +92,9 @@ npm run install:plugins        # 或 npm run build
 - **依赖上游文件形状**。四个锚点由 `install.mjs` 在安装时校验，上游重构会让安装**失败**而不是降级；
   届时需要更新脚本中的锚点常量。
 - **生成副本位于 `.agent-presets/`，由安装脚本拥有**：每次安装都会覆盖，不要手改，改脚本。
-- **`run_in_background` 仍然存在**。`one-shot` 只改变默认值（前台）与执行分支：显式
-  `run_in_background: true` 会变成一次性后台 job（需要 `jobs` 服务，`ptc` 已含 `tool-jobs`）。
-  若希望彻底不暴露该参数，可在锚点补丁里追加 `enableRunInBackground: false`。
+- **直接委派全面关闭**。`-team` preset 下模型看不到 `subagent` / `subagent_fork`，委派只剩
+  `spawn_teammate` 与 `workflow`（fresh 一次性子代理）。若要在 Team 模式里保留一次性直接委派
+  工具，去掉 `install.mjs` 中对应锚点的 `disabled: true` 即可。
 - **上游仍在孵化**。两个包公开发布但不承诺稳定性，promotion 时 npm 名会去掉 `experimental-`。
 
 ## 卸载
