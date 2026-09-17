@@ -10,8 +10,8 @@
 
 ## Subagent 编排规范
 
-- 十步内可完成的任务：由主 Agent 直接完成，不额外编排子 Agent。
-- 预计超过十步的任务：优先使用 subagent 或 Agent Team 执行任务，并考虑使用 `workflow` 或 `run_code` 编排并行任务；主 Agent 只负责整体编排与决策，不直接进行修改/调试。
+- 简单任务：由主 Agent 直接完成，不额外编排子 Agent。
+- 复杂任务：优先使用 subagent 或 Agent Team 执行任务，并考虑使用 `workflow` 或 `run_code` 编排并行任务；主 Agent 只负责整体编排与决策，不直接进行修改/调试。
 
 ## Git 提交规范
 
