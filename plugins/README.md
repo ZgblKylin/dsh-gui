@@ -11,9 +11,11 @@ packages in one script. Two wrappers own no package checkout at all:
 `dsh-usage` and `dsh-model-capabilities` — and `harness` owns every
 official dsh-family plugin as one flat group: `agent-team.mjs` installs two
 Agent Teams bundles and derives Team-aware agent presets,
-`auto-review.mjs` installs the per-call LLM authorization layer, and
+`auto-review.mjs` installs the per-call LLM authorization layer,
 `browser-use.mjs` installs the Playwright MCP browser provider (the exclusive
-`dsh-browser-use` registration service + the experimental provider).
+`dsh-browser-use` registration service + the experimental provider), and
+`computer-use.mjs` installs the Cua Driver native desktop provider (the
+exclusive `dsh-computer-use` registration service + the native SDK provider).
 
 ```
 plugins/
@@ -21,7 +23,8 @@ plugins/
 │  ├─ install.mjs        # entry: loads each plugins/harness/*.mjs installer in order
 │  ├─ agent-team.mjs     # Agent Teams bundles + derived presets
 │  ├─ auto-review.mjs    # Auto review per-call authorization layer
-│  └─ browser-use.mjs    # Browser Use: exclus. service + Playwright MCP provider
+│  ├─ browser-use.mjs    # Browser Use: exclus. service + Playwright MCP provider
+│  └─ computer-use.mjs   # Computer Use: exclus. service + Cua Driver native provider
 ├─ <id>/
 │  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: five npm
 │  │                     # bundles
@@ -34,8 +37,9 @@ The harness installs plugins into a *profile* (for the web surface, the `web`
 profile). `npm run install:plugins` (alias `npm run plugins`) runs every
 `plugins/*/install.mjs` in directory-name order. The `harness` wrapper owns no
 install of its own: its `install.mjs` only loads the flat sibling installers
-(`agent-team.mjs`, `auto-review.mjs`), each of which also runs standalone, so
-the group stays one directory with no nesting. Plugin wrappers delegate the
+(`agent-team.mjs`, `auto-review.mjs`, `browser-use.mjs`, `computer-use.mjs`),
+each of which also runs standalone, so the group stays one directory with no
+nesting. Plugin wrappers delegate the
 shared pipeline to `scripts/plugin-install.mjs` and only own their id, package
 directory, and submodule hint:
 
@@ -76,11 +80,16 @@ Plugins without any of these get a derived mount entry (id from
 may instead pass an explicit `mount` entry that overrides the derived entry,
 and the `mount` may also carry a `config` object that the shared pipeline
 renders as the row's `config:` block (needed when a plain package's entry
-must carry settings). `harness`'s `browser-use` is the first wrapper to do
-this: its two packages (`@deepseek-ai/dsh-browser-use` and
-`@deepseek-ai/dsh-experimental-browser-use-playwright-mcp`) declare no
-`dsh.bundle.patch`, so the wrapper mounts both by hand and gives the
-provider row its `mode: launch` / `headless: true` / `executablePath` config.
+must carry settings). `harness`'s `browser-use` and `computer-use` are the
+only wrappers that mount plain packages by hand: their four
+packages (`@deepseek-ai/dsh-browser-use`,
+`@deepseek-ai/dsh-experimental-browser-use-playwright-mcp`,
+`@deepseek-ai/dsh-computer-use`,
+`@deepseek-ai/dsh-experimental-computer-use-cua-driver-native`) declare no
+`dsh.bundle.patch`, so the wrapper mounts them two at a time as
+service + provider insert rows — only the Browser Use provider row carries a
+`config` (`mode: launch` / `headless: true` / `executablePath`); the Cua
+Driver native provider takes no configuration, so its row is bare.
 Every in-tree plugin (`remote`, `ai-update`) still declares
 `dsh.bundle.patch` and mounts through its own bundle layer. A manual profile
 insert for a bundle-declared plugin would double-mount it and fail the plugin
@@ -122,6 +131,7 @@ tree with `duplicate loader entry id`.
   - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`，另按上游 preset 生成 `<id>-team`
   - Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`，与 pinned 的 dsh-v0.1.6-alpha.1 harness 配套
   - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.1.6-alpha.1`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.1`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）
+  - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.1.6-alpha.1`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.1`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.9；子模块
   checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 起相同，
   `agentDefaultModel` 由 base bundle 提供；client 半自 0.2.8 起把 `commandUi`
@@ -255,8 +265,9 @@ tree with `duplicate loader entry id`.
   loading. See `dsh-pet/README.md`.
 - `harness` — a single flat wrapper at `harness/` that owns every official
   dsh-family plugin: `install.mjs` only loads the sibling installers
-  `agent-team.mjs`, `auto-review.mjs` and `browser-use.mjs`, so the group
-  stays one directory with no nesting. See `harness/README.md`.
+  `agent-team.mjs`, `auto-review.mjs`, `browser-use.mjs` and
+  `computer-use.mjs`, so the group stays one directory with no nesting.
+  See `harness/README.md`.
   - `agent-team` — `harness/agent-team.mjs` installs two
     official experimental Agent Teams bundles from npm
     (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` and
@@ -279,11 +290,25 @@ tree with `duplicate loader entry id`.
     `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.1`
     (per-Session Chromium tools via `@playwright/mcp`, surfaced as
     `mcp__playwright-mcp__<tool>`). Neither declares `dsh.bundle.patch`, so the
-    wrapper is the first to mount plain packages by hand: two
+    wrapper mounts both plain packages by hand: two
     `cordis.patch.yml` insert rows (id `browser-use` /
     `browser-use-playwright-mcp`), the provider row carrying a `config:` block
     (`mode: launch`, `headless: true`, and a system Chromium `executablePath`
     resolved at install time — override with `DSH_BROWSER_EXECUTABLE`).
+    See `harness/README.md`.
+  - `computer-use` — `harness/computer-use.mjs` installs the Cua Driver
+    native desktop provider from npm as two plain (non-bundle) packages:
+    `@deepseek-ai/dsh-computer-use@0.1.6-alpha.1` (the exclusive computer-use
+    provider registration service, `ctx.computerUse`) and
+    `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.1`
+    (in-process desktop tools via the Cua Driver native npm SDK
+    `@trycua/cua-driver@0.28.0`, surfaced as `cua_driver_native__<tool>`).
+    Neither declares `dsh.bundle.patch`, so the wrapper mounts both plain
+    packages by hand: two `cordis.patch.yml` insert rows (id `computer-use` /
+    `computer-use-cua-driver-native`), neither carrying `config` because the
+    native provider takes no configuration. Only the native route is
+    installed; the sibling installed-MCP computer-use provider is not, since
+    both contend for the single `ctx.computerUse` registration slot.
     See `harness/README.md`.
   - `auto-review` — `harness/auto-review.mjs` installs the
     official experimental per-call LLM authorization layer

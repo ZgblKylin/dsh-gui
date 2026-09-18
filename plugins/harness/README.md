@@ -6,17 +6,20 @@ dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在
 
 | 文件 | 插件 | 说明 |
 | --- | --- | --- |
-| `install.mjs` | — | 流水线入口，依次加载 `agent-team.mjs`、`auto-review.mjs`、`browser-use.mjs` |
+| `install.mjs` | — | 流水线入口，依次加载所有平铺 installer |
 | `agent-team.mjs` | Agent Teams | 两个 npm bundle + 派生 Team-aware agent preset |
 | `auto-review.mjs` | Auto review | 逐调用 LLM 授权审查层 |
 | `browser-use.mjs` | Browser Use (Playwright MCP) | 独占浏览器提供方注册服务 + Playwright MCP 提供方 |
+| `computer-use.mjs` | Computer Use (Cua Driver native) | 独占桌面提供方注册服务 + Cua Driver 原生提供方 |
 
-其中 **Agent Teams 与 Auto review** 的三个包都声明 `dsh.bundle.patch`，`dsh
+其中 **Agent Teams 与 Auto review** 的四个包都声明 `dsh.bundle.patch`，`dsh
 plugin add` 会自动把它们 reconcile 进 `dsh.profile.bundles`，由各自的 bundle 层
 挂载；**它们的脚本都不写 `cordis.patch.yml` insert**（手工插入会
-`duplicate loader entry id`）。**Browser Use 的两个包不声明 `dsh.bundle.patch`**，
-是普通 npm 依赖，`browser-use.mjs` 通过共享流水线的显式 `mount` 选项写入两行
-insert（服务行 + 提供方行），提供方行带 `config`（见下）。
+`duplicate loader entry id`）。**Browser Use 与 Computer Use 的包都不声明
+`dsh.bundle.patch`**，是普通 npm 依赖，`browser-use.mjs` / `computer-use.mjs`
+通过共享流水线的显式 `mount` 选项写入 insert 行（Browser Use 的服务行 + 提供方行，
+提供方行带 `config`；Computer Use 的服务行 + 原生提供方行，原生提供方无配置、行不带
+`config`，见下）。
 
 ## Agent Teams
 
@@ -170,6 +173,61 @@ Session 独占持有。浏览器模式由 profile 组合中的该 `config` 行�
 - 工具 schema 跟随固定的实验依赖版本，不承诺 DSH 稳定性；浏览器工具与截图会增加
   工具目录与提示词文本（幻像 KV Cache 前缀复用率可能变化）。
 
+## Computer Use (Cua Driver native)
+
+### 安装内容
+
+| 项 | 位置 | 说明 |
+| --- | --- | --- |
+| `@deepseek-ai/dsh-computer-use@0.1.6-alpha.1` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.1` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
+
+两个包都精确 pin `0.1.6-alpha.1`，与本仓库 pinned 的 `dsh-v0.1.6-alpha.1` 运行时
+配套（peerDependencies 全部指向 `^0.1.6-alpha.1`）。均为 prerelease，进不了
+Community Market。核心服务先装：提供方 inject `computerUse`。
+
+### 挂载与配置
+
+两者都不声明 `dsh.bundle.patch`，属普通 npm 依赖，`computer-use.mjs` 走共享流水线
+的显式 `mount` 选项写入两行 insert；**原生提供方无配置字段**（Config 为空 schema），
+所以两行都不带 `config:`：
+
+```yaml
+- insert:
+    - id: computer-use
+      name: '@deepseek-ai/dsh-computer-use'
+- insert:
+    - id: computer-use-cua-driver-native
+      name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
+```
+
+### 使用时
+
+```powershell
+npm run install:plugins        # 或 npm run build
+```
+
+重启后在允许桌面工具且支持图片输入的模型路由上（例如官方 DeepSeek 路由），模型
+可见 `cua_driver_native__<tool>` 工具集与桌面操作指导；截图以持久化附件传给模型。
+桌面由活动 Session 与其它应用共享，调用方自行协调完整的「观察→操作→验证」流程。
+
+### 已知限制
+
+- **每个部署一次只启用一个桌面提供方**（`ctx.computerUse` 独占注册）；本 wrapper
+  只安装 native 提供方，同一族的**已安装 MCP** 提供方
+  （`@deepseek-ai/dsh-experimental-computer-use-cua-driver-mcp`）**未安装**——两者
+  抢占同一个注册位，不可同时激活。
+- **需要启动主机的桌面权限**：npm 安装不授予桌面访问、也不创建图形会话；请向启动
+  DSH 的应用授予权限。此提供方不安装独立持权的 Cua Driver 应用——若你更希望由独立
+  应用持权并可切换驱动进程身份，改用同族的 MCP 提供方。
+- **原生崩溃可能终止 DSH host 进程**：native 运行时与主机共享进程；若需要独立驱动
+  进程兜底，请改用 MCP 提供方。
+- **共享桌面**：提供方不为 Session 预留窗口或完整工作流；其它调用方和应用可能在
+  两次调用之间改动同一桌面；取消的调用可能已投递输入，重试前必须重新查看状态。
+- macOS 无头 Node host 上光标叠加层操作可能返回 `facility_unavailable`（截图与后台
+  输入仍可用）。卸载时若原生关闭失败，注册位保持占用，需重启主机后才能挂载其它桌面
+  提供方。
+
 ## 使用
 
 ```powershell
@@ -188,6 +246,9 @@ npm run install:plugins        # 或 npm run build
 - **Browser Use (Playwright MCP)**：安装后即随组合挂载（无二次开关），重启后工具
   以 `mcp__playwright-mcp__<tool>` 出现；是否对模型可见还取决于工具目录装配与模型
   路由是否支持图片输入。
+- **Computer Use (Cua Driver native)**：安装后即随组合挂载（无二次开关），重启后
+  工具以 `cua_driver_native__<tool>` 出现；前提是支持图片输入的模型路由 + 附件
+  存储，并向启动 DSH 的应用授予桌面权限。
 
 ## 已知限制
 
@@ -211,6 +272,8 @@ dsh plugin --profile web remove @deepseek-ai/dsh-experimental-agent-team-profile
 dsh plugin --profile web remove @deepseek-ai/dsh-experimental-auto-review
 dsh plugin --profile web remove @deepseek-ai/dsh-browser-use
 dsh plugin --profile web remove @deepseek-ai/dsh-experimental-browser-use-playwright-mcp
+dsh plugin --profile web remove @deepseek-ai/dsh-computer-use
+dsh plugin --profile web remove @deepseek-ai/dsh-experimental-computer-use-cua-driver-native
 Get-ChildItem <DSH_HOME>\.agent-presets -Directory |
   Where-Object { Test-Path (Join-Path $_.FullName 'preset.yml') } |
   Where-Object { Select-String -Quiet -Path (Join-Path $_.FullName 'preset.yml') -Pattern 'generatedBy: plugins/harness/agent-team.mjs' } |
@@ -218,10 +281,11 @@ Get-ChildItem <DSH_HOME>\.agent-presets -Directory |
 ```
 
 `dsh plugin remove` 会把对应 bundle 从 `dsh.profile.bundles` 移除；派生 preset
-目录带 `generatedBy` 标记，按标记删除即可。**浏览器两行 insert 是手工挂载，`dsh
-plugin remove` 不会清理** —— 需手动删除 `.dsh/profiles/web/cordis.patch.yml` 里
-`id: browser-use` 与 `id: browser-use-playwright-mcp` 两行（含各自的 `config`），
-否则重启会报 `duplicate loader entry id` 之外的错误（entry 对应的包已不存在）。
+目录带 `generatedBy` 标记，按标记删除即可。**Browser Use 与 Computer Use 的四行
+insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删除
+`.dsh/profiles/web/cordis.patch.yml` 里 `id: browser-use`、
+`id: browser-use-playwright-mcp`、`id: computer-use`、`id: computer-use-cua-driver-native`
+四行（Browser Use 提供方行含 `config`），否则重启会报错误（entry 对应的包已不存在）。
 若要从本仓库安装流水线中整体去掉某个插件，删除 `install.mjs` 中对应的 loader 行即
 可。
 
@@ -231,6 +295,7 @@ plugin remove` 不会清理** —— 需手动删除 `.dsh/profiles/web/cordis.p
 - 幂等：重复执行结果一致（npm 安装由 `dsh plugin add` 去重，派生 preset 每次重新
   生成）。
 - 依赖 `scripts/plugin-install.mjs` 的共享流水线；各包经 `installNpmPlugin`
-  安装，每个 installer 也可单独运行。Browser Use 是第一个用显式 `mount` + `config`
-  的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），它的两行
-  insert 由 `installNpmPlugin` 写入；Agent Teams 与 Auto review 仍是 bundle 自挂载。
+  安装，每个 installer 也可单独运行。Browser Use 与 Computer Use 是头两个用显式
+  `mount` 的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），
+  它们的四行 insert 由 `installNpmPlugin` 写入（Browser Use 提供方行还带 `config`）；
+  Agent Teams 与 Auto review 仍是 bundle 自挂载。
