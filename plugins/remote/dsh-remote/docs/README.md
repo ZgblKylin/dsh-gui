@@ -43,10 +43,12 @@
   - **浏览器认证适配（dsh v0.1.2-alpha.1+）**：升级到该版本后，Web profile 引入一次性 launch token
     （`packages/client/connection/src/browser-auth.ts`，见 `docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md`）：
     启动时打印 `dsh web: http://127.0.0.1:<port>/?token=<token>`，裸请求一律 **401**、带 token 首访 **303 + Set-Cookie**
-    （此后凭 cookie 得 200）。此前 remote 流程只认 2xx，导致隧道建立后仍永远"前端就绪"超时，进而 teardown 杀掉
-    本次启动的远端会话（日志尾部出现 `Killed`）。现已修正：连接时自动从远端 `$HOME/.dsh-gui-remote.log` 提取
-    launch token，用带 token 的隧道 URL 做就绪探测（**303 / 2xx 即就绪**）并作为标签页 URL 返回（与本地壳层
-    `spawn_harness` 的 token 适配一致）；旧版无 token 的 profile 仍按裸 URL 2xx 直连，自动兼容。
+    （此后凭 cookie 得 200）。连接时自动提取 launch token，用带 token 的隧道 URL 做就绪探测（**303 / 2xx 即就绪**）
+    并作为标签页 URL 返回（与本地壳层 `spawn_harness` 的 token 适配一致）；旧版无 token 的 profile 仍按裸 URL 2xx
+    直连，自动兼容。
+  - **launch token 持久化（远端 `~/.dsh-gui-remote.token`）**：token 提取后写入远端该文件，并优先从该文件读取。
+    这样 ssh 中断后重连、远端 dsh 在 tmux 中持续存活时，不受远端启动日志增长影响仍能取到 token；每次启动新的远端
+    会话前会先删除该文件，避免旧进程的 token 被误用。
   - **启动命令必须是"起 web 服务"的命令**：`npm run harness`（本仓库 `scripts/harness.mjs`）现在会**直接启动 web 服务**
     （固定 `node bin.js web --port <DSH_GUI_PORT|3080> --no-open`，忽略额外 argv；**端口由 `DSH_GUI_PORT` 决定，默认 3080**）。
     插件对 `npm|pnpm|bun run <script>` 命令会自动在附加的 `--host/--port/--no-open` 前插入 ` -- `，因此这类启动命令不会再被
@@ -185,11 +187,14 @@ npm start                          # 启动桌面壳
   通配与 OpenSSH **首值优先**语义；**`Include` 不展开**、`Match exec` / `CanonicalizeHostName` **不执行**）。
   仍**不支持** `ProxyJump`、证书主机密钥（`@cert-authority`）与哈希式 known_hosts 条目（未匹配时按首次连接接受）；
   Windows 下不读命名管道 ssh-agent（有 `~/.ssh/id_*` 默认密钥即可）。远端 `~/.ssh/config` 由远端 ssh 自行处理，与本机解析互不影响。
+  会话建立后对 ssh2 客户端保持常驻的 error/close 监听：连接一旦断开就将会话标记为失效并释放其转发与套接字，
+  重连时关闭并重开旧隧道，避免复用已断开的隧道；未处理的 error 事件不会把承载插件的本地 harness 进程打崩。
 - 远端启动命令默认 `npx '@deepseek-ai/dsh' web`；可在对话框「远端启动 dsh 的命令」输入框覆盖单个连接的启动命令，
   也可用环境变量 `DSH_REMOTE_START_COMMAND` 为所有连接改默认值。远端 dsh 配置与插件配置位于远端默认 `~/.dsh`
   （或启动命令设置的 DSH_HOME），与本机完全隔离。启动所需远端工具：`node` / `npm`（含 `npx`）/ `tmux`。
 - 连接时若远端 `dsh-gui` tmux 会话已存活则**复用不重启**（幂等）；变更启动命令后需先清理旧会话再连接，
-  在远端执行 `tmux kill-session -t dsh-gui` 即可。
+  在远端执行 `tmux kill-session -t dsh-gui` 即可。复用时若 30s 内服务端口不开放，判定后端已失效，
+  自动清理旧会话并重新启动（覆盖「tmux 面板还活着但内部 dsh 已退出」的情形）。
 - 远端若尚未安装 `@deepseek-ai/dsh`，`npx` 首次拉取会弹安装确认，在 detached tmux 面板里可能等待输入：
   此时把启动命令写成 `npx -y '@deepseek-ai/dsh' web`（或在远端先全局安装 dsh）。
 - **启动命令在「完整登录 + 交互」shell 中运行**：tmux 面板命令以 `bash -l -i -c`（登录 + 交互）执行，

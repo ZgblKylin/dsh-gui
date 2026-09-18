@@ -124,5 +124,29 @@ const khText = readFileSync(kh, 'utf8')
 if (!khText.includes('127.0.0.2')) throw new Error(`expected 127.0.0.2 in scratch known_hosts, got: ${JSON.stringify(khText)}`)
 step('accept-new appended host key to scratch known_hosts')
 
+// 4) a server-side drop marks the session dead (connected flips to false) —
+//    the reconnect path must not mistake a dead tunnel session for a live one.
+const dropServer = new Server({ hostKeys: [hostKey] }, (client) => {
+  client.on('authentication', (ctx) => {
+    if (ctx.method === 'password' && ctx.username === 'tester') ctx.accept()
+    else ctx.reject()
+  })
+  client.on('ready', () => {
+    // Simulate an ssh interruption: drop the transport out from under us.
+    setTimeout(() => { try { client.end() } catch { /* already gone */ } }, 400)
+  })
+})
+await new Promise((r) => dropServer.listen(0, '127.0.0.2', r))
+const dropPort = dropServer.address().port
+const dropSess = new SshSession({ user: 'tester', host: '127.0.0.2', port: dropPort, password: 'pass01' })
+await dropSess.connect()
+await new Promise((r) => setTimeout(r, 1500))
+if (dropSess.connected !== false) {
+  throw new Error('expected the session to be marked dead after the server dropped it')
+}
+step('server drop marks the session dead (no host crash, no stale reuse)')
+dropSess.close()
+dropServer.close()
+
 server.close()
 console.log(`\nALL ${pass} e2e checks passed`)

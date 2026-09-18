@@ -581,13 +581,45 @@ export class SshSession {
     const failures: string[] = []
     for (const cand of this.candidates()) {
       try {
-        this.client = await this.openOnce(cand)
+        const client = await this.openOnce(cand)
+        this.attachLivenessHandlers(client)
+        this.client = client
         return
       } catch (err) {
         failures.push(err instanceof Error ? err.message : String(err))
       }
     }
     throw new Error(failures.join('；') || '认证失败')
+  }
+
+  /**
+   * Keep a connected ssh2 client permanently observed. The handshake error
+   * listener is a no-op once `ready` has fired (settled), so a dropped
+   * connection would otherwise emit `error` with no functional listener — Node
+   * treats an `error` emit with zero listeners as an uncaught exception and
+   * crashes the whole host (the local dsh process behind `/remote-api`). On a
+   * post-ready error/close the session is marked dead and its servers/sockets
+   * freed, so a reconnect closes the stale tunnel (see openTunnel) instead of
+   * reusing one whose connection is gone.
+   */
+  private attachLivenessHandlers(client: SshClient): void {
+    const drop = (): void => this.onClientDead(client)
+    client.on('error', drop)
+    client.on('close', drop)
+  }
+
+  /** Mark a connected session dead on a post-ready error/close and free everything it owns. */
+  private onClientDead(client: SshClient): void {
+    if (this.client !== client) return
+    this.client = null
+    for (const s of this.sockets) {
+      try { s.destroy() } catch { /* already gone */ }
+    }
+    this.sockets.clear()
+    for (const server of this.servers) {
+      try { server.close() } catch { /* already gone */ }
+    }
+    this.servers = []
   }
 
   /** Run one remote command via `bash -s` on this session. */
@@ -748,6 +780,9 @@ function replaceLog(log: Array<{ step: string; ok: boolean; detail?: string }>, 
 
 /** Remote diagnostics log tail (redirect of the tmux pane) + a wait counter. */
 const REMOTE_LOG = '$HOME/.dsh-gui-remote.log'
+
+/** Persisted remote launch-token file (see remoteStoredToken / remotePersistToken). */
+const REMOTE_TOKEN_FILE = '$HOME/.dsh-gui-remote.token'
 
 /** A live SSH local port forward (remote service reached via 127.0.0.1). */
 interface Tunnel {
@@ -1071,8 +1106,14 @@ async function openDockerTunnel(ctx: Context, container: string, remotePort: num
       try { child.stdin?.end() } catch { /* already gone */ }
       try { child.kill() } catch { /* already gone */ }
     })
-    if (child.stdout !== null) child.stdout.pipe(socket)
-    if (child.stdin !== null) socket.pipe(child.stdin)
+    if (child.stdout !== null) {
+      child.stdout.on('error', () => { try { socket.destroy() } catch { /* already gone */ } })
+      child.stdout.pipe(socket)
+    }
+    if (child.stdin !== null) {
+      child.stdin.on('error', () => { try { socket.destroy() } catch { /* already gone */ } })
+      socket.pipe(child.stdin)
+    }
   })
 
   let listenError: string | null = null
@@ -1149,23 +1190,50 @@ async function sessionState(ctx: Context, auth: SshAuth): Promise<'MISSING' | 'S
 }
 
 /**
- * Harvest the one-time launch token from the remote start log line
- * `dsh web: http://127.0.0.1:<port>/?token=<token>`. dsh v0.1.2-alpha.1+ Web
- * profiles gate every auto-opened page behind this browser-auth token
- * (`packages/client/connection/src/browser-auth.ts`); the shell's own
- * `spawn_harness` (src-tauri) does exactly this on the harness log. Returns
- * null when the profile prints no launch line (legacy dsh web serves 2xx
- * directly and needs no token).
+ * Persist the remote launch token so later reconnects to the same (still
+ * running) remote dsh can authenticate without scraping the rotating start
+ * log. The file holds only the bare base64url token.
+ */
+async function remotePersistToken(ctx: Context, auth: SshAuth, token: string): Promise<void> {
+  if (!/^[A-Za-z0-9_-]{8,}$/.test(token)) return
+  await sshRun(ctx, auth, `umask 077; printf '%s\\n' '${token}' > ${REMOTE_TOKEN_FILE}`, 15000)
+}
+
+/** Read the persisted remote launch token (null when absent or malformed). */
+async function remoteStoredToken(ctx: Context, auth: SshAuth): Promise<string | null> {
+  const res = await sshRun(ctx, auth, `cat ${REMOTE_TOKEN_FILE} 2>/dev/null | tr -d '[:space:]' | head -c 256`, 15000)
+  const t = (res.stdout ?? '').trim()
+  return /^[A-Za-z0-9_-]{8,}$/.test(t) ? t : null
+}
+
+/** Invalidate a persisted token before starting a fresh remote session. */
+async function remoteClearStoredToken(ctx: Context, auth: SshAuth): Promise<void> {
+  await sshRun(ctx, auth, `rm -f ${REMOTE_TOKEN_FILE}`, 15000)
+}
+
+/**
+ * Harvest the one-time launch token (`dsh web: http://127.0.0.1:<port>/?token=...`).
+ * dsh v0.1.2-alpha.1+ Web profiles gate every auto-opened page behind this
+ * browser-auth token (`packages/client/connection/src/browser-auth.ts`); the
+ * shell's own `spawn_harness` (src-tauri) does exactly this on the harness
+ * log. Sources, in order: the persisted token file (written on start/harvest,
+ * survives log growth), then the remote start-log tail; a log-sourced token is
+ * persisted before returning. Returns null when no source yields a token
+ * (legacy dsh web serves 2xx directly and needs no token).
  */
 async function remoteLaunchToken(ctx: Context, auth: SshAuth): Promise<string | null> {
+  const stored = await remoteStoredToken(ctx, auth)
+  if (stored !== null) return stored
   const res = await sshRun(
     ctx,
     auth,
-    `tail -n 200 "$HOME/.dsh-gui-remote.log" 2>/dev/null | grep -a 'dsh web:' | tail -1 | grep -ao 'token=[^ )&]*' | tail -1`,
+    `tail -n 2000 ${REMOTE_LOG} 2>/dev/null | grep -a 'dsh web:' | tail -1 | grep -ao 'token=[^ )&]*' | tail -1`,
     15000,
   )
   const m = /^token=([^\s]+)/.exec((res.stdout ?? '').trim())
-  return m !== null && m[1] !== '' ? m[1] : null
+  const token = m !== null && m[1] !== '' ? m[1] : null
+  if (token !== null) await remotePersistToken(ctx, auth, token)
+  return token
 }
 
 export function apply(ctx: Context): void {
@@ -1181,7 +1249,13 @@ export function apply(ctx: Context): void {
   const disposeRoute = ctx.webServer.register({
     kind: 'prefix',
     path: '/remote-api',
-    handler: (req: IncomingMessage, res: ServerResponse) => { void dispatch(ctx, req, res, locals) },
+    handler: (req: IncomingMessage, res: ServerResponse) => {
+      // A rejection escaping dispatch (e.g. `res.end` racing an aborted client)
+      // would surface as an unhandled rejection and terminate the whole host —
+      // the local dsh process every /remote-api op depends on. dispatch already
+      // reports every real op failure in-band; only swallow the terminal case.
+      dispatch(ctx, req, res, locals).catch(() => { try { res.end() } catch { /* already closed */ } })
+    },
   })
 
   // Kill locally started backends, every SSH tunnel and every Docker tunnel on teardown.
@@ -1661,11 +1735,27 @@ async function connectRemote(
   const state = await sessionState(ctx, auth)
   pushLog(log, `tmux 会话 ${tmuxName}`, state === 'ALIVE', `state=${state}`)
   if (connectCancelled(token)) return bailCancelled()
-  if (state !== 'ALIVE') {
-    if (state === 'STALE') {
-      const killed = await sshRun(ctx, auth, `tmux kill-session -t ${tmuxName} 2>/dev/null || true`, 20000)
+
+  /** Tail the remote start log for diagnostics ($HOME/.dsh-gui-remote.log). */
+  async function remoteTail(lines = 12, chars = 1500): Promise<string> {
+    const r = await sshRun(ctx, auth, `tail -n ${lines} ${REMOTE_LOG} 2>/dev/null || true`, 15000)
+    return (r.stdout + r.stderr).trim().split('\n').slice(-lines).join('\n').slice(0, chars)
+  }
+
+  /**
+   * Kill any existing tmux session and start a fresh one with the configured
+   * command. The persisted launch token is cleared first so a stale token from
+   * the previous process can never masquerade as this boot's token. `cleanupLog`
+   * decides whether a non-empty "清理失效会话" line is emitted (false when no
+   * session existed to clean). Returns true when the session was (re)started.
+   */
+  async function startSession(cleanupLog: boolean): Promise<boolean> {
+    const killed = await sshRun(ctx, auth, `tmux kill-session -t ${tmuxName} 2>/dev/null || true`, 20000)
+    if (cleanupLog) {
       pushLog(log, '清理失效会话', killed.exitCode === 0, (killed.stdout + killed.stderr).trim() || 'ok')
     }
+    await remoteClearStoredToken(ctx, auth)
+    if (connectCancelled(token)) return false
     // The remote usually needs the user's FULL login+interactive environment:
     // an nvm-managed Node (or other tools) only reaches PATH from ~/.bashrc,
     // and a guarded `.bashrc` (`case $- in *i*) ;; *) return;; esac`) refuses
@@ -1688,41 +1778,71 @@ async function connectRemote(
     // runs detached (first npx fetch may take a while), so the port wait below
     // covers the actual boot.
     replaceLog(log, log.length - 1, 'tmux 启动 dsh', start.exitCode === 0, (start.stdout + start.stderr).trim().slice(0, 2000))
-    if (connectCancelled(token)) return bailCancelled()
-    if (start.exitCode !== 0) return { ok: false, log }
+    if (connectCancelled(token)) return false
+    if (start.exitCode !== 0) return false
     startedSession = true
+    return true
   }
 
-  /** Tail the remote start log for diagnostics ($HOME/.dsh-gui-remote.log). */
-  async function remoteTail(lines = 12, chars = 1500): Promise<string> {
-    const r = await sshRun(ctx, auth, `tail -n ${lines} ${REMOTE_LOG} 2>/dev/null || true`, 15000)
-    return (r.stdout + r.stderr).trim().split('\n').slice(-lines).join('\n').slice(0, chars)
+  /** Wait until the remote loopback port accepts TCP, up to windowMs. */
+  async function waitPortOpen(remotePort: number, windowMs: number): Promise<boolean> {
+    const deadline = Date.now() + windowMs
+    const openedAt = Date.now()
+    let open = await sshPortOpen(ctx, auth, remotePort)
+    let waitIt = 0
+    while (!open && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 2000))
+      if (connectCancelled(token)) return false
+      open = await sshPortOpen(ctx, auth, remotePort)
+      waitIt++
+      const waited = Math.round((Date.now() - openedAt) / 1000)
+      if (waitIt % 3 === 1) {
+        const tail = await remoteTail(6)
+        progress('等待服务端口开放', undefined, `127.0.0.1:${remotePort}（已等待 ${waited}s）${tail !== '' ? `\n远端日志:\n${tail}` : ''}`)
+      } else {
+        progress('等待服务端口开放', undefined, `127.0.0.1:${remotePort}（已等待 ${waited}s）`)
+      }
+    }
+    return open
+  }
+
+  if (state !== 'ALIVE') {
+    if (!(await startSession(state === 'STALE'))) {
+      if (connectCancelled(token)) return bailCancelled()
+      return { ok: false, log }
+    }
   }
 
   // 3. discover serving port from the session and wait until it is open
   const remotePort = await discoverSessionPort(ctx, auth, conn.port)
   pushLog(log, `服务端口 ${remotePort}`, true, `会话内后端监听 127.0.0.1:${remotePort}`)
   if (connectCancelled(token)) return bailCancelled()
-  const openDeadline = Date.now() + 300000
-  const openedAt = Date.now()
-  let open = await sshPortOpen(ctx, auth, remotePort)
-  let waitIter = 0
-  while (!open && Date.now() < openDeadline) {
-    await new Promise(r => setTimeout(r, 2000))
-    if (connectCancelled(token)) return bailCancelled()
-    open = await sshPortOpen(ctx, auth, remotePort)
-    waitIter++
-    const waited = Math.round((Date.now() - openedAt) / 1000)
-    if (waitIter % 3 === 1) {
-      const tail = await remoteTail(6)
-      progress('等待服务端口开放', undefined, `127.0.0.1:${remotePort}（已等待 ${waited}s）${tail !== '' ? `\n远端日志:\n${tail}` : ''}`)
-    } else {
-      progress('等待服务端口开放', undefined, `127.0.0.1:${remotePort}（已等待 ${waited}s）`)
+
+  // A reused "ALIVE" session is trusted to answer quickly — but the tmux pane
+  // wrapper can outlive the inner dsh (it exits only when the whole command
+  // chain completes), so an ALIVE pane whose server already died never opens
+  // the port. Give it a short window, then treat the backend as dead and
+  // (re)start the session: the ssh→detect→start flow must not wait out the
+  // full 300s boot deadline on a session that will never come up.
+  let open = await waitPortOpen(remotePort, state === 'ALIVE' ? 30000 : 300000)
+  if (connectCancelled(token)) return bailCancelled()
+  if (!open && state === 'ALIVE') {
+    replaceLog(log, log.length - 1, '服务端口未就绪', false, `127.0.0.1:${remotePort} 在 30s 内未开放，远端 dsh 已失效，重新启动`)
+    if (!(await startSession(true))) {
+      if (connectCancelled(token)) return bailCancelled()
+      return { ok: false, log }
     }
+    const restartedPort = await discoverSessionPort(ctx, auth, conn.port)
+    if (connectCancelled(token)) return bailCancelled()
+    if (restartedPort !== remotePort) {
+      pushLog(log, `服务端口 ${restartedPort}`, true, `会话内后端监听 127.0.0.1:${restartedPort}`)
+    }
+    open = await waitPortOpen(restartedPort, 300000)
+    if (connectCancelled(token)) return bailCancelled()
   }
   if (!open) {
     const tail = await remoteTail(60, 4000)
-    pushLog(log, '服务端口未就绪', false, `127.0.0.1:${remotePort} 未在 300s 内开放${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
+    pushLog(log, '服务端口未就绪', false, `127.0.0.1:${remotePort} 未在限定时间内开放${tail !== '' ? `\n远端日志 (${REMOTE_LOG}):\n${tail}` : ''}`)
     await teardown()
     return { ok: false, log }
   }
