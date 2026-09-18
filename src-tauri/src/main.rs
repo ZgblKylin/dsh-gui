@@ -17,7 +17,10 @@
 //!      page while the harness boots (its cold start takes ~10 s, most of it
 //!      CPU-bound inside the harness) and builds the tab webviews only once
 //!      the ready URL arrives. A boot failure is reported in that page instead
-//!      of behind a message box.
+//!      of behind a message box. After ready the process is watched: an
+//!      unexpected exit re-spawns it automatically (see [`run_harness_loop`]),
+//!      so the local backend hosting the dsh-remote `/remote-api` RPC recovers
+//!      without restarting the app.
 //!
 //! The frontend lives in `src-tauri/ui/` (a plain HTML shell — no bundler). It
 //! has one small IPC surface: window controls, connection tabs, and an About
@@ -46,6 +49,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -785,6 +789,19 @@ impl Drop for ChildGuard {
     }
 }
 
+impl ChildGuard {
+    /// Non-blocking liveness check: true once the child has exited, or when no
+    /// child is recorded any more (taken during teardown). The watchdog polls
+    /// this to notice an unexpected harness exit in order to re-spawn it.
+    fn is_exited(&self) -> bool {
+        let mut guard = self.child.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(child) => child.try_wait().ok().flatten().is_some(),
+            None => true,
+        }
+    }
+}
+
 /// Event carrying [`HarnessStatus`] to the shell page; the loading page waits
 /// for any state other than `starting`.
 const HARNESS_STATUS_EVENT: &str = "harness-status";
@@ -855,6 +872,9 @@ struct ShellState {
     /// Live harness process and lifecycle; shared with the background starter
     /// thread that fills it in.
     harness: Arc<Mutex<HarnessSlot>>,
+    /// Set once the app is exiting (window close / update exit): the harness
+    /// watchdog must not re-spawn a fresh backend during teardown.
+    shutdown: Arc<AtomicBool>,
     /// PID of this shell, which the detached update launcher waits for.
     gui_pid: u32,
     /// Serializes update checks / launches (git fetch can take tens of
@@ -1128,6 +1148,9 @@ fn start_update(
             }
         ),
     );
+    // Exiting drops ChildGuard, whose kill-on-close job tears the harness tree
+    // down; tell the harness watchdog not to re-spawn a fresh backend.
+    state.shutdown.store(true, Ordering::Relaxed);
     app.exit(0);
     Ok(())
 }
@@ -1490,11 +1513,43 @@ fn ready_cookie(state: &ShellState) -> Result<Option<String>, String> {
     }
 }
 
-/// Spawn the harness and publish its lifecycle, off the setup path so the
-/// window paints first. The shell page follows [`HARNESS_STATUS_EVENT`] until
-/// the ready URL or a terminal failure arrives.
-fn start_harness(app: tauri::AppHandle, root: PathBuf, port: u16, slot: Arc<Mutex<HarnessSlot>>) {
-    std::thread::spawn(move || {
+/// Spawn the harness and keep it alive, off the setup path so the window
+/// paints first. The shell page follows [`HARNESS_STATUS_EVENT`] until the
+/// ready URL or a terminal failure arrives. A ready harness is watched: an
+/// unexpected exit triggers an automatic re-spawn (see [`run_harness_loop`]),
+/// so features whose RPC lives on the local backend — the dsh-remote
+/// `/remote-api` used by the connection tab — survive a crashed node process
+/// without restarting the app.
+fn start_harness(
+    app: tauri::AppHandle,
+    root: PathBuf,
+    port: u16,
+    slot: Arc<Mutex<HarnessSlot>>,
+    shutdown: Arc<AtomicBool>,
+) {
+    std::thread::spawn(move || run_harness_loop(app, root, port, slot, shutdown));
+}
+
+const HARNESS_BOOT_TIMEOUT: Duration = Duration::from_secs(90);
+/// Too many exits inside this window means a systematically broken backend;
+/// stop restarting instead of spinning forever.
+const HARNESS_RESTART_WINDOW: Duration = Duration::from_secs(120);
+const HARNESS_MAX_RESTARTS: u32 = 5;
+
+/// Own the harness lifecycle: spawn → wait ready → publish → watch for exit →
+/// re-spawn until the app shuts down. Each restart mints a fresh launch token
+/// (the browser-session cookie secret is durable, so the shell's own RPC
+/// cookie stays valid across a restart). Boot failures stay terminal (the
+/// pre-watchdog UX): a permanently broken profile must not restart-loop.
+fn run_harness_loop(
+    app: tauri::AppHandle,
+    root: PathBuf,
+    port: u16,
+    slot: Arc<Mutex<HarnessSlot>>,
+    shutdown: Arc<AtomicBool>,
+) {
+    let mut recent: Vec<Instant> = Vec::new();
+    loop {
         let mut process = match spawn_harness(&root, port) {
             Ok(process) => process,
             Err(error) => {
@@ -1510,7 +1565,7 @@ fn start_harness(app: tauri::AppHandle, root: PathBuf, port: u16, slot: Arc<Mute
         };
         // Read the PID before the readiness wait consumes the process handle.
         let pid = process.child.id();
-        match wait_ready(&mut process, port, Duration::from_secs(90)) {
+        match wait_ready(&mut process, port, HARNESS_BOOT_TIMEOUT) {
             Ok(auth) => {
                 log_status(&root, &format!("harness ready at {}", auth.web_url));
                 let mut state = harness_slot(&slot);
@@ -1534,9 +1589,60 @@ fn start_harness(app: tauri::AppHandle, root: PathBuf, port: u16, slot: Arc<Mute
                     port,
                     format!("failed to start the harness: {error}"),
                 );
+                return;
             }
         }
-    });
+
+        // Watch the ready harness: block until it exits.
+        loop {
+            if shutdown.load(Ordering::Relaxed) {
+                return;
+            }
+            let exited = {
+                let state = harness_slot(&slot);
+                match &state._guard {
+                    Some(guard) => guard.is_exited(),
+                    None => true,
+                }
+            };
+            if exited {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        if shutdown.load(Ordering::Relaxed) {
+            return;
+        }
+        // A short grace lets a concurrent app shutdown (window close / update
+        // exit) set the flag before a fresh node process is re-spawned.
+        for _ in 0..20 {
+            if shutdown.load(Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // Crash-loop guard: too many exits inside the window, give up loudly.
+        let now = Instant::now();
+        recent.retain(|t| now.duration_since(*t) < HARNESS_RESTART_WINDOW);
+        if recent.len() as u32 >= HARNESS_MAX_RESTARTS {
+            fail_harness(
+                &app,
+                &root,
+                &slot,
+                port,
+                format!(
+                    "the harness exited {HARNESS_MAX_RESTARTS}+ times within {HARNESS_RESTART_WINDOW:?}; giving up"
+                ),
+            );
+            return;
+        }
+        recent.push(now);
+        log_status(&root, "the harness exited unexpectedly; restarting it");
+        let mut state = harness_slot(&slot);
+        state.status = HarnessStatus::starting(port);
+        drop(state);
+        publish_harness_status(&app, &slot);
+    }
 }
 
 /// Publish a terminal harness failure. The window stays open and shows the
@@ -1593,10 +1699,12 @@ fn main() {
                 cookie: None,
                 _guard: None,
             }));
+            let shutdown = Arc::new(AtomicBool::new(false));
             app.manage(ShellState {
                 root: setup_root.clone(),
                 port,
                 harness: Arc::clone(&harness),
+                shutdown: Arc::clone(&shutdown),
                 gui_pid: std::process::id(),
                 update_lock: Arc::new(Mutex::new(())),
                 update_cache: Arc::new(Mutex::new(None)),
@@ -1626,6 +1734,23 @@ fn main() {
             // `.enable_clipboard_access()` in views.rs.
             .enable_clipboard_access()
             .build()?;
+
+            // The app ends when this frameless window closes (title-bar X /
+            // 退出 menu); teardown then kills the harness tree via the
+            // kill-on-close job. Set the shutdown flag so the harness watchdog
+            // never re-spawns a fresh backend mid-teardown.
+            {
+                let shutdown = Arc::clone(&shutdown);
+                let main_window = window.clone();
+                main_window.on_window_event(move |event| {
+                    if matches!(
+                        event,
+                        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                    ) {
+                        shutdown.store(true, Ordering::Relaxed);
+                    }
+                });
+            }
 
             // Add the native non-client interactions missing from a plain
             // `decorations(false)` window: forward the top/bottom resize
@@ -1726,7 +1851,7 @@ fn main() {
             app.manage(WindowMenuState { menu });
             // Last: the harness boot must not delay the window above, and the
             // shell page is already listening for `harness-status`.
-            start_harness(app.handle().clone(), setup_root, port, harness);
+            start_harness(app.handle().clone(), setup_root, port, harness, shutdown);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
