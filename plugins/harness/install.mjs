@@ -11,3 +11,4 @@
 
 import './agent-team.mjs'
 import './auto-review.mjs'
+import './browser-use.mjs'

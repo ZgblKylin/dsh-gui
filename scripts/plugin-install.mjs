@@ -17,7 +17,8 @@
  *     unless the package mounts itself through `dsh.bundle.patch`; bundle
  *     packages instead remove a matching legacy row written by older versions
  *     of this installer. Plain-package rows use the wrapper's explicit `mount`
- *     entry when given, else one derived from the package manifest.
+ *     entry (id/name plus an optional `config` rendered as the row's config
+ *     block) when given, else one derived from the package manifest.
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -208,6 +209,31 @@ function unmountLegacyEntry(profileDir, mount) {
   return true
 }
 
+/** Render a single YAML scalar (string, number, boolean, null). */
+function yamlScalar(value) {
+  if (value === null || value === undefined) return 'null'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'null'
+  const text = String(value)
+  // Quote strings that aren't plain alphanumeric/dot/underscore tokens: e.g.
+  // scoped package names ('@scope/name') and Windows paths need quoting.
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(text) ? text : `'${text.replace(/'/g, "''")}'`
+}
+
+/** Render a config object as indented YAML lines under the row's `config:`. */
+function yamlObjectLines(object, indent) {
+  const lines = []
+  for (const [key, value] of Object.entries(object)) {
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      lines.push(`${' '.repeat(indent)}${key}:`)
+      lines.push(...yamlObjectLines(value, indent + 2))
+    } else {
+      lines.push(`${' '.repeat(indent)}${key}: ${yamlScalar(value)}`)
+    }
+  }
+  return lines
+}
+
 /**
  * Mount a plugin entry into the web composition. The harness scans the
  * Loader's ENTRIES for `dsh.client` declarations, so a plugin stays inert
@@ -215,7 +241,9 @@ function unmountLegacyEntry(profileDir, mount) {
  * idempotent (existing rows are parsed back with parseInsertRows, so
  * reindented blocks still match); user content is preserved.
  * @param {string} profileDir - absolute path to the web profile directory.
- * @param {{ id: string, name: string }} mount - the loader entry to insert.
+ * @param {{ id: string, name: string, config?: object | null }} mount - the loader
+ *   entry to insert; `config` becomes the row's `config:` block (a plain
+ *   package whose entry needs per-row settings, e.g. a browser-use provider).
  * @returns {boolean} whether the insert was newly written.
  */
 function mountEntry(profileDir, mount) {
@@ -249,7 +277,10 @@ function mountEntry(profileDir, mount) {
   const name = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(mount.name)
     ? mount.name
     : `'${mount.name.replace(/'/g, "''")}'`
-  const block = `- insert:\n    - id: ${mount.id}\n      name: ${name}`
+  let block = `- insert:\n    - id: ${mount.id}\n      name: ${name}`
+  if (mount.config !== undefined && mount.config !== null) {
+    block += `\n      config:\n${yamlObjectLines(mount.config, 8).join('\n')}`
+  }
   const body = text.split(/\r?\n/).filter((line) => !/^\s*#/.test(line) && !/^\s*$/.test(line)).join('\n')
   let newText
   if (body.trim() === '[]') {
@@ -267,14 +298,16 @@ function mountEntry(profileDir, mount) {
  * Install one plugin package into the repo-local web profile.
  *
  * @param {{ id: string, packageDir: string, sourceHint?: string | null,
- *   mount?: { id: string, name: string } | null, build?: boolean }} options
+ *   mount?: { id: string, name: string, config?: object | null } | null,
+ *   build?: boolean }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
  *   - packageDir: absolute path to the plugin package (second-level directory,
  *     or one level deeper for a multi-package distribution-repo submodule).
  *   - sourceHint: optional submodule-init hint shown when the package is missing.
  *   - mount: explicit mount entry for plain packages; overrides the entry
  *     derived from the manifest (usually owned by the wrapper's own
- *     cordis.patch.yml mount recipe).
+ *     cordis.patch.yml mount recipe). `config` becomes the row's `config:`
+ *     block (e.g. a browser-use provider's per-row settings).
  *   - build: whether the shared build pipeline may run (default true). Set
  *     false for packages that ship prebuilt output but still declare a
  *     `build` script for upstream development.
@@ -318,7 +351,7 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null,
   }
   const mountId = String(mount?.id ?? manifest.dsh?.gui?.mountId ?? packageName.replace(/^dsh-/, ''))
   const mountName = String(mount?.name ?? packageName)
-  mountEntry(profileDir, { id: mountId, name: mountName })
+  mountEntry(profileDir, { id: mountId, name: mountName, config: mount?.config ?? null })
   console.log(`installed plugin '${id}' into ${profileDir}`)
 }
 
@@ -411,10 +444,14 @@ function removeForeignNestedNodeModules(profileDir, packageName) {
  * Without a bundle patch the entry is appended like installPlugin does
  * (explicit `mount` when given, else derived from the installed manifest).
  *
- * @param {{ id: string, packageSpec: string, mount?: { id: string, name: string } | null, skip?: boolean | string | null }} options
+ * @param {{ id: string, packageSpec: string,
+ *   mount?: { id: string, name: string, config?: object | null } | null,
+ *   skip?: boolean | string | null }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
  *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@0.19.1`.
- *   - mount: explicit mount entry for packages without a bundle patch.
+ *   - mount: explicit mount entry for packages without a bundle patch;
+ *     `config` becomes the row's `config:` block (e.g. a browser-use
+ *     provider's per-row settings).
  *   - skip: wrapper-declared default skip — `true` (unversioned skip) or a
  *     string reason. The wrapper owns WHAT is being skipped and WHY (e.g. a
  *     version incompatible with the pinned harness); the shared pipeline only
@@ -468,7 +505,7 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null })
   const packageName = String(manifest.name ?? name)
   const mountId = String(mount?.id ?? manifest.dsh?.gui?.mountId ?? packageName.replace(/^dsh-/, ''))
   const mountName = String(mount?.name ?? packageName)
-  mountEntry(profileDir, { id: mountId, name: mountName })
+  mountEntry(profileDir, { id: mountId, name: mountName, config: mount?.config ?? null })
   console.log(`installed plugin '${id}' into ${profileDir}`)
 }
 
