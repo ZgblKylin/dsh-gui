@@ -3,7 +3,7 @@
  * install.mjs — install the dsh-web-ui plugin bodies into the web profile
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
- * Five plugin packages of the dsh-web-ui distribution repo are installed,
+ * Four plugin packages of the dsh-web-ui distribution repo are installed,
  * pinned to exact versions matching the upstream git tag (`v0.3.22`), not
  * `@latest` — exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (the
  * gate silently falls back to an older version for `@latest`/ranges, while a
@@ -14,24 +14,28 @@
  *
  * 1. the `dsh-web-ui-settings` compatibility bundle
  *    (`@linxin666/dsh-client-ui-web-ui-settings@0.3.22`);
- * 2. the `dsh-plugin-manager` plugin-manager tab
- *    (`@linxin666/dsh-client-ui-plugin-manager@0.3.22`): registers a
- *    `settings.plugins.tab` tab in the official Plugins settings section
- *    (install from npm/git, enable/disable, update/remove, conflict
- *    reconciliation, repair conversations);
- * 3. the `dsh-skill-explorer` skill center
+ * 2. the `dsh-skill-explorer` skill center
  *    (`@linxin666/dsh-client-ui-skill-explorer@0.3.22`): browse loaded skills
  *    by source (bundled / project / user / custom / runtime), enable/disable,
  *    create and delete, in a web GUI panel;
- * 4. the `dsh-usage` usage-statistics plugin (`@linxin666/dsh-usage@0.3.22`):
+ * 3. the `dsh-usage` usage-statistics plugin (`@linxin666/dsh-usage@0.3.22`):
  *    per-provider balance and coding-plan quota probes plus a live token
  *    ledger, rendered as a first-level "Usage statistics" settings section;
- * 5. the `dsh-model-capabilities` plugin
+ * 4. the `dsh-model-capabilities` plugin
  *    (`@linxin666/dsh-client-ui-model-capabilities@0.3.22`): per-model image
  *    input and reasoning-effort declarations edited on the models settings
  *    cards, writing the official `llm-pi-ai` namespace.
  *
- * All five declare their own `dsh.bundle.patch`, so `dsh plugin add`
+ * `dsh-plugin-manager` is no longer installed here: since the pinned harness
+ * dsh-v0.1.6-alpha.2 the official `@deepseek-ai/dsh-web-app` bundle ships its
+ * own `ui-plugin-manager` loader entry, which collides with the upstream
+ * package's bundle patch id (`duplicate loader entry id: ui-plugin-manager`,
+ * harness fails to boot). The official plugin manager covers the built-in
+ * Plugins page; if the upstream package is wanted again it must be mounted
+ * under a distinct loader entry id (see dsh-plugin-uninstall skill).
+ *
+ * The four remaining packages each declare their own `dsh.bundle.patch`, so
+ * `dsh plugin add`
  * reconciles them into `dsh.profile.bundles` and each mounts through its own
  * bundle layer — no manual cordis mount is written (that would double-mount).
  * The settings bridge exposes the `webUiSettings` compatibility binder to
@@ -58,15 +62,6 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 installNpmPlugin({
   id: 'dsh-web-ui-settings',
   packageSpec: '@linxin666/dsh-client-ui-web-ui-settings@0.3.22',
-})
-
-// plugin-manager：官方「插件」设置分区内的插件管理器 Tab（启停/安装/更新/卸载
-// + 冲突对账 + 修复会话），双通道（官方 /plugin-installer RPC 或 loopback 网关 +
-// dsh plugin CLI）。engines.dsh >=0.1.5-rc.1 匹配 pinned harness；版本对齐
-// 子模块 tag v0.3.22。
-installNpmPlugin({
-  id: 'dsh-plugin-manager',
-  packageSpec: '@linxin666/dsh-client-ui-plugin-manager@0.3.22',
 })
 
 // skill-explorer：DSH 技能中心面板，按来源（bundled/project/user/custom/runtime）

@@ -416,16 +416,19 @@ submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
 (`build: false`, no copy, no patch).
 
 `plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
-five npm bundles pinned to the submodule tag (`0.3.22`) through
+four npm bundles pinned to the submodule tag (`0.3.22`) through
 `installNpmPlugin` — `@linxin666/dsh-client-ui-web-ui-settings` (ordered
-first), `@linxin666/dsh-client-ui-plugin-manager`,
-`@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
-`@linxin666/dsh-client-ui-model-capabilities`; all five declare
+first), `@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
+`@linxin666/dsh-client-ui-model-capabilities`; all four declare
 `dsh.bundle.patch`, so `dsh plugin add` reconciles each into
 `dsh.profile.bundles` (no manual cordis insert). The task board
 (`@linxin666/dsh-client-ui-task-board`) and the session-archive manager
 (`@linxin666/dsh-session-archive`) are no longer installed (see
-`dsh-web-ui/README.md`). The bridge is required because
+`dsh-web-ui/README.md`); the plugin-manager tab
+(`@linxin666/dsh-client-ui-plugin-manager`) is no longer installed either,
+because the official `dsh-web-app` bundle of the pinned harness
+(dsh-v0.1.6-alpha.2) ships its own `ui-plugin-manager` loader entry that
+collides with the upstream package's bundle patch id. The bridge is required because
 dsh-host-apiproxy's hard-coded settings allowlist does not expose third-party
 namespaces, so without it a `webUiSettings`-dependent plugin's configuration
 form is read-only. `dsh-web-ui/` stays as the source reference only (v0.3.x layout:

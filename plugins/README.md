@@ -95,17 +95,20 @@ Every in-tree plugin (`remote`, `ai-update`) still declares
 insert for a bundle-declared plugin would double-mount it and fail the plugin
 tree with `duplicate loader entry id`.
 
-- **Multiple npm bundles wrapper** — `dsh-web-ui` installs five plugin
+- **Multiple npm bundles wrapper** — `dsh-web-ui` installs four plugin
   packages of its distribution repo, pinned to exact versions matching the
   git tag (`0.3.22`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
   gate, which would otherwise silently fall back to an older version for
   `@latest`): `@linxin666/dsh-client-ui-web-ui-settings`,
-  `@linxin666/dsh-client-ui-plugin-manager`,
   `@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
   `@linxin666/dsh-client-ui-model-capabilities` (the settings bridge is
   ordered first; per the 安装方式 section below: not marked as source
-  installs). All five declare `dsh.bundle.patch`, so each mounts through its
-  own bundle layer (no manual cordis inserts). It does not install agent
+  installs). All four declare `dsh.bundle.patch`, so each mounts through its
+  own bundle layer (no manual cordis inserts). The plugin-manager tab
+  (`@linxin666/dsh-client-ui-plugin-manager`) is no longer installed: the
+  official `@deepseek-ai/dsh-web-app` bundle of the pinned harness
+  (dsh-v0.1.6-alpha.2) ships its own `ui-plugin-manager` loader entry, which
+  collides with the upstream package's bundle patch id. It does not install agent
   presets or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
 
 ## 安装方式
@@ -120,11 +123,11 @@ tree with `duplicate loader entry id`.
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（pin 子模块 tag `v0.1.2`；skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-client-ui-web-ui-settings@0.3.22](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
-  - [@linxin666/dsh-client-ui-plugin-manager@0.3.22](dsh-web-ui/packages/dsh-plugin-manager/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-skill-explorer@0.3.22](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
   - [@linxin666/dsh-usage@0.3.22](dsh-web-ui/packages/dsh-usage/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-model-capabilities@0.3.22](dsh-web-ui/packages/dsh-model-capabilities/README.zh.md) npm包
-    （会话归档管理 `@linxin666/dsh-session-archive` 与任务板
+    （插件管理器 Tab `@linxin666/dsh-client-ui-plugin-manager`、会话归档管理
+    `@linxin666/dsh-session-archive` 与任务板
     `@linxin666/dsh-client-ui-task-board` 已从本工程移除，不再安装；见
     `dsh-web-ui/README.md`「已移除插件」一节）
 - harness（dsh 工程官方插件组，平铺脚本见 [harness/README.md](harness/README.md)）：
@@ -232,15 +235,15 @@ tree with `duplicate loader entry id`.
   out of any right/bottom panels generically. See
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
-  `dsh-web-ui/dsh-web-ui`. Installs five plugin packages of the distribution
+  `dsh-web-ui/dsh-web-ui`. Installs four plugin packages of the distribution
   repo pinned to exact versions matching the git tag (`0.3.22`) (per the
   安装方式 section above): the `dsh-web-ui-settings` compatibility bundle
   (`@linxin666/dsh-client-ui-web-ui-settings`, ordered first),
-  `dsh-plugin-manager` (`@linxin666/dsh-client-ui-plugin-manager`),
   `dsh-skill-explorer` (`@linxin666/dsh-client-ui-skill-explorer`),
   `dsh-usage` (`@linxin666/dsh-usage`) and `dsh-model-capabilities`
   (`@linxin666/dsh-client-ui-model-capabilities`) — each mounts through its
-  own `dsh.bundle.patch` layer; the task board
+  own `dsh.bundle.patch` layer; the plugin-manager tab
+  (`@linxin666/dsh-client-ui-plugin-manager`), the task board
   (`@linxin666/dsh-client-ui-task-board`) and the session-archive manager
   (`@linxin666/dsh-session-archive`) are no longer installed. It does not
   install agent presets or any other dsh-web-ui package. See
