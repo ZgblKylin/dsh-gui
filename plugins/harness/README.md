@@ -27,12 +27,12 @@ plugin add` 会自动把它们 reconcile 进 `dsh.profile.bundles`，由各自�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 |
-| `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1` | web profile | 浏览器 roster 与任务板面板 |
+| `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.2` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 |
+| `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.2` | web profile | 浏览器 roster 与任务板面板 |
 | `<id>-team`，每个含 delegation 行且不挂进程级工具集的官方 preset 各一个 | `<DSH_HOME>/.agent-presets/` | 由官方同名 preset 生成的 Team-aware 组合。当前为 `standard-team` / `ptc-team`；官方 `cordis` 不派生，原因见「派生 preset 的规则」 |
 
 版本必须精确 pin：两个包的 npm `latest` 当前仍指向 `0.1.5-alpha.2`，与本仓库
-pinned 的 `dsh-v0.1.6-alpha.1` 对应的是 `alpha` 上的 `0.1.6-alpha.1`；二者都是
+pinned 的 `dsh-v0.1.6-alpha.2` 对应的是 `alpha` 上的 `0.1.6-alpha.2`；二者都是
 prerelease，这也是它们进不了 Community Market 的原因。
 
 ### 用途与派生 preset 的规则
@@ -80,10 +80,10 @@ no-op）；嵌套 include 会把官方 composition 文件改写成垂死树的�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1` | web profile | 逐调用 LLM 授权审查层 |
+| `@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.2` | web profile | 逐调用 LLM 授权审查层 |
 
-版本必须精确 pin：`0.1.6-alpha.1` 与本仓库 pinned 的 `dsh-v0.1.6-alpha.1` 运行时
-配套，包的 peerDependencies 全部指向 `^0.1.6-alpha.1`；prerelease，进不了
+版本必须精确 pin：`0.1.6-alpha.2` 与本仓库 pinned 的 `dsh-v0.1.6-alpha.2` 运行时
+配套，包的 peerDependencies 全部指向 `^0.1.6-alpha.2`；prerelease，进不了
 Community Market。
 
 ### 用途
@@ -109,12 +109,12 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-browser-use@0.1.6-alpha.1` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.1` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
+| `@deepseek-ai/dsh-browser-use@0.1.6-alpha.2` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.2` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
 
-两个包都精确 pin `0.1.6-alpha.1`，与本仓库 pinned 的 `dsh-v0.1.6-alpha.1` 运行时
-配套（peerDependencies 全部指向 `^0.1.6-alpha.1`）——npm `alpha` dist-tag 已推进到
-`0.1.6-alpha.2`，不能通过 `@latest` 或范围解析。均为 prerelease，进不了
+两个包都精确 pin `0.1.6-alpha.2`，与本仓库 pinned 的 `dsh-v0.1.6-alpha.2` 运行时
+配套（peerDependencies 全部指向 `^0.1.6-alpha.2`）——npm `latest` 仍指向
+`0.1.5-rc.2`，不能通过 `@latest` 或范围解析。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `browserUse`。
 
 ### 挂载与配置
@@ -179,11 +179,11 @@ Session 独占持有。浏览器模式由 profile 组合中的该 `config` 行�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-computer-use@0.1.6-alpha.1` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.1` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
+| `@deepseek-ai/dsh-computer-use@0.1.6-alpha.2` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.2` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
 
-两个包都精确 pin `0.1.6-alpha.1`，与本仓库 pinned 的 `dsh-v0.1.6-alpha.1` 运行时
-配套（peerDependencies 全部指向 `^0.1.6-alpha.1`）。均为 prerelease，进不了
+两个包都精确 pin `0.1.6-alpha.2`，与本仓库 pinned 的 `dsh-v0.1.6-alpha.2` 运行时
+配套（peerDependencies 全部指向 `^0.1.6-alpha.2`）。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `computerUse`。
 
 ### 挂载与配置

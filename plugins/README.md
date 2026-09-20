@@ -128,10 +128,10 @@ tree with `duplicate loader entry id`.
     `@linxin666/dsh-client-ui-task-board` 已从本工程移除，不再安装；见
     `dsh-web-ui/README.md`「已移除插件」一节）
 - harness（dsh 工程官方插件组，平铺脚本见 [harness/README.md](harness/README.md)）：
-  - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`，另按上游 preset 生成 `<id>-team`
-  - Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`，与 pinned 的 dsh-v0.1.6-alpha.1 harness 配套
-  - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.1.6-alpha.1`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.1`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）
-  - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.1.6-alpha.1`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.1`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
+  - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.2` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.2`，另按上游 preset 生成 `<id>-team`
+  - Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.2`，与 pinned 的 dsh-v0.1.6-alpha.2 harness 配套
+  - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.1.6-alpha.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）
+  - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.1.6-alpha.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.9；子模块
   checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 起相同，
   `agentDefaultModel` 由 base bundle 提供；client 半自 0.2.8 起把 `commandUi`
@@ -270,8 +270,8 @@ tree with `duplicate loader entry id`.
   See `harness/README.md`.
   - `agent-team` — `harness/agent-team.mjs` installs two
     official experimental Agent Teams bundles from npm
-    (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.1` and
-    `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.1`; exact
+    (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.2` and
+    `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.2`; exact
     prerelease pins, because npm `latest` still points at `0.1.5-alpha.2` and the
     Community Market cannot carry a prerelease), then derives a Team-aware sibling
     `<id>-team` for every shipped agent preset that carries delegation rows.
@@ -285,9 +285,9 @@ tree with `duplicate loader entry id`.
     reaches the model. No shipped profile enables Agent Teams.
   - `browser-use` — `harness/browser-use.mjs` installs the Playwright MCP
     browser provider from npm as two plain (non-bundle) packages:
-    `@deepseek-ai/dsh-browser-use@0.1.6-alpha.1` (the exclusive browser-use
+    `@deepseek-ai/dsh-browser-use@0.1.6-alpha.2` (the exclusive browser-use
     provider registration service, `ctx.browserUse`) and
-    `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.1`
+    `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.2`
     (per-Session Chromium tools via `@playwright/mcp`, surfaced as
     `mcp__playwright-mcp__<tool>`). Neither declares `dsh.bundle.patch`, so the
     wrapper mounts both plain packages by hand: two
@@ -298,9 +298,9 @@ tree with `duplicate loader entry id`.
     See `harness/README.md`.
   - `computer-use` — `harness/computer-use.mjs` installs the Cua Driver
     native desktop provider from npm as two plain (non-bundle) packages:
-    `@deepseek-ai/dsh-computer-use@0.1.6-alpha.1` (the exclusive computer-use
+    `@deepseek-ai/dsh-computer-use@0.1.6-alpha.2` (the exclusive computer-use
     provider registration service, `ctx.computerUse`) and
-    `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.1`
+    `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.2`
     (in-process desktop tools via the Cua Driver native npm SDK
     `@trycua/cua-driver@0.28.0`, surfaced as `cua_driver_native__<tool>`).
     Neither declares `dsh.bundle.patch`, so the wrapper mounts both plain
@@ -312,9 +312,9 @@ tree with `duplicate loader entry id`.
     See `harness/README.md`.
   - `auto-review` — `harness/auto-review.mjs` installs the
     official experimental per-call LLM authorization layer
-    (`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1`; exact prerelease
-    pin matching the pinned `dsh-v0.1.6-alpha.1` harness, whose
-    peerDependencies all point at `^0.1.6-alpha.1`), declaring
+    (`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.2`; exact prerelease
+    pin matching the pinned `dsh-v0.1.6-alpha.2` harness, whose
+    peerDependencies all point at `^0.1.6-alpha.2`), declaring
     `dsh.bundle.patch` so it self-mounts through its own bundle layer. The layer
     adds a current-session-only `Auto review EXP` option to the permission
     selector; every native and started PTC inner tool call is reviewed once by

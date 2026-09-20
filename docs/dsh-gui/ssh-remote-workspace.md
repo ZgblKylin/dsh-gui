@@ -1,7 +1,7 @@
 # DSH 通过 SSH 使用远端工作区：文件、命令与 PTC 工具的远端执行
 
-当前 harness 运行时为 `0.1.6-alpha.1`（`deepseek-harness` 子模块钉在
-`dsh-v0.1.6-alpha.1`）。本版本新增的 SSH 提供方家族位于上游 `packages/ssh/`，它让本地
+当前 harness 运行时为 `0.1.6-alpha.2`（`deepseek-harness` 子模块钉在
+`dsh-v0.1.6-alpha.2`）。本版本新增的 SSH 提供方家族位于上游 `packages/ssh/`，它让本地
 运行的 DSH 通过一条 OpenSSH 连接，把文件、命令、终端、沙箱与 PTC（模型编写的
 TypeScript）执行放到同一台远端 POSIX 主机上。本文分析该功能如何使用。
 
@@ -139,7 +139,7 @@ PTC 需要成对配置 `bootstrapPath`/`bootstrapHash`。未配置时 `bootstrap
 在 profile 中安装四个 SSH 包（版本与 harness 一致）：
 
 ```text
-dsh plugin --profile ssh add @deepseek-ai/dsh-ssh@0.1.6-alpha.1 @deepseek-ai/dsh-fs-ssh@0.1.6-alpha.1 @deepseek-ai/dsh-subprocess-ssh@0.1.6-alpha.1 @deepseek-ai/dsh-sandbox-ssh@0.1.6-alpha.1
+dsh plugin --profile ssh add @deepseek-ai/dsh-ssh@0.1.6-alpha.2 @deepseek-ai/dsh-fs-ssh@0.1.6-alpha.2 @deepseek-ai/dsh-subprocess-ssh@0.1.6-alpha.2 @deepseek-ai/dsh-sandbox-ssh@0.1.6-alpha.2
 ```
 
 安装后按上文在 profile 的 `cordis.patch.yml` 完成组合改写，再以该 profile 启动

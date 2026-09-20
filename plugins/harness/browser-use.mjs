@@ -20,8 +20,8 @@
  * DevTools MCP and Stagehand providers of the same family are not.
  *
  * The versions are pinned to the harness revision this repository builds
- * against: `0.1.6-alpha.1` is the dsh-family prerelease whose peerDependencies
- * all point at `^0.1.6-alpha.1`, matching the pinned `dsh-v0.1.6-alpha.1`
+ * against: `0.1.6-alpha.2` is the dsh-family prerelease whose peerDependencies
+ * all point at `^0.1.6-alpha.2`, matching the pinned `dsh-v0.1.6-alpha.2`
  * runtime. It is also a prerelease, which is why the Community Market cannot
  * carry it.
  *
@@ -48,8 +48,8 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 /** Wrapper id prefix: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'browser-use'
 
-const BROWSER_USE_SPEC = '@deepseek-ai/dsh-browser-use@0.1.6-alpha.1'
-const PLAYWRIGHT_MCP_SPEC = '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.1'
+const BROWSER_USE_SPEC = '@deepseek-ai/dsh-browser-use@0.1.6-alpha.2'
+const PLAYWRIGHT_MCP_SPEC = '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.2'
 
 /**
  * Resolve a Chromium-family executable for the provider's `mode: launch`.

@@ -61,13 +61,13 @@ const ID = 'agent-team'
  * Pinned to the harness revision this repository builds against.
  * An exact version is required: the npm `latest` dist-tag of both packages
  * still points at `0.1.5-alpha.2` while the matching build is published under
- * `alpha`/`0.1.6-alpha.1` (the `0.1.5-rc.2` build is superseded by the harness
- * revision this repository builds against), so an unversioned install would
- * take the wrong one.
+ * `alpha`/`0.1.6-alpha.2` (the earlier `0.1.6-alpha.1` build is superseded by
+ * the harness revision this repository builds against), so an unversioned
+ * install would take the wrong one.
  * Both are prereleases, which is also why the Community Market cannot carry
  * them.
  */
-const TEAM_VERSION = '0.1.6-alpha.1'
+const TEAM_VERSION = '0.1.6-alpha.2'
 const TEAM_PROFILE = '@deepseek-ai/dsh-experimental-agent-team-profile'
 const TEAM_WEB_PROFILE = '@deepseek-ai/dsh-experimental-agent-team-web-profile'
 
