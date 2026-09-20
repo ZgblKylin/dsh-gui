@@ -39,17 +39,31 @@
  * preset install. This installer lives under `plugins/harness/` — the group
  * of official dsh-family plugins — and is loaded by
  * `plugins/harness/install.mjs`; it also runs standalone.
+ *
+ * Default install state: SKIPPED pending an upstream fix. The Playwright MCP
+ * provider mounts a per-Session mcp-client but its tools, `mcp:playwright-mcp`
+ * prompt section, and `playwright-mcp` resource server all land in DSH's
+ * shared/global registration layer, so only ONE live Session per host can
+ * hold the namespace; any second Session (new or resumed) throws
+ * "already registered" and session create/resume rolls back. The two
+ * installNpmPlugin calls carry `skip` and still record the packages for the
+ * update checker. Restore when the upstream provider registers per-agent (or
+ * uses a unique serverName); `DSH_PLUGIN_FORCE_INSTALL=1` overrides this
+ * wrapper's default.
  */
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
+import { installNpmPlugin, skipInstall } from '../../scripts/plugin-install.mjs'
 
 /** Wrapper id prefix: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'browser-use'
 
 const BROWSER_USE_SPEC = '@deepseek-ai/dsh-browser-use@0.1.6-alpha.2'
 const PLAYWRIGHT_MCP_SPEC = '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.2'
+
+/** Default skip reason (see the header): collides on the shared registration layer for a second live Session. */
+const SKIP_REASON = 'Playwright MCP per-Session registration collides on the shared layer for a second live Session (upstream mountSessionMcp limitation); disabled until upstream fix'
 
 /**
  * Resolve a Chromium-family executable for the provider's `mode: launch`.
@@ -73,16 +87,22 @@ function resolveChromiumExecutable() {
   return candidates.find((candidate) => existsSync(candidate))
 }
 
-const executablePath = resolveChromiumExecutable()
-const providerConfig =
-  executablePath === undefined
-    ? { mode: 'launch', headless: true }
-    : { mode: 'launch', headless: true, executablePath }
+// Resolve the Chromium path only when this wrapper actually installs. When
+// skipped (the default) the shared pipeline logs the skip and records the
+// packages for the update checker; DSH_PLUGIN_FORCE_INSTALL=1 overrides.
+let providerConfig
+if (!skipInstall(ID, SKIP_REASON)) {
+  const executablePath = resolveChromiumExecutable()
+  providerConfig =
+    executablePath === undefined
+      ? { mode: 'launch', headless: true }
+      : { mode: 'launch', headless: true, executablePath }
 
-if (executablePath !== undefined) {
-  console.log(`  browser-use: resolved Chromium executable at ${executablePath}`)
-} else {
-  console.log('  browser-use: no system Chromium found — provider row omits executablePath (upstream discovery)')
+  if (executablePath !== undefined) {
+    console.log(`  browser-use: resolved Chromium executable at ${executablePath}`)
+  } else {
+    console.log('  browser-use: no system Chromium found — provider row omits executablePath (upstream discovery)')
+  }
 }
 
 // The core service first: the provider injects `browserUse`.
@@ -90,6 +110,7 @@ installNpmPlugin({
   id: ID,
   packageSpec: BROWSER_USE_SPEC,
   mount: { id: 'browser-use', name: '@deepseek-ai/dsh-browser-use' },
+  skip: SKIP_REASON,
 })
 
 installNpmPlugin({
@@ -98,6 +119,7 @@ installNpmPlugin({
   mount: {
     id: 'browser-use-playwright-mcp',
     name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp',
-    config: providerConfig,
+    ...providerConfig === undefined ? {} : { config: providerConfig },
   },
+  skip: SKIP_REASON,
 })

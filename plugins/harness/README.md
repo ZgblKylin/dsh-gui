@@ -9,17 +9,18 @@ dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在
 | `install.mjs` | — | 流水线入口，依次加载所有平铺 installer |
 | `agent-team.mjs` | Agent Teams | 两个 npm bundle + 派生 Team-aware agent preset |
 | `auto-review.mjs` | Auto review | 逐调用 LLM 授权审查层 |
-| `browser-use.mjs` | Browser Use (Playwright MCP) | 独占浏览器提供方注册服务 + Playwright MCP 提供方 |
+| `browser-use.mjs` | Browser Use (Playwright MCP) | 独占浏览器提供方注册服务 + Playwright MCP 提供方；**默认跳过**（逐会话注册在共享层撞名，等上游修复） |
 | `computer-use.mjs` | Computer Use (Cua Driver native) | 独占桌面提供方注册服务 + Cua Driver 原生提供方 |
 
 其中 **Agent Teams 与 Auto review** 的四个包都声明 `dsh.bundle.patch`，`dsh
 plugin add` 会自动把它们 reconcile 进 `dsh.profile.bundles`，由各自的 bundle 层
 挂载；**它们的脚本都不写 `cordis.patch.yml` insert**（手工插入会
 `duplicate loader entry id`）。**Browser Use 与 Computer Use 的包都不声明
-`dsh.bundle.patch`**，是普通 npm 依赖，`browser-use.mjs` / `computer-use.mjs`
+`dsh.bundle.patch`**，是普通 npm 依赖，由 `browser-use.mjs` / `computer-use.mjs`
 通过共享流水线的显式 `mount` 选项写入 insert 行（Browser Use 的服务行 + 提供方行，
 提供方行带 `config`；Computer Use 的服务行 + 原生提供方行，原生提供方无配置、行不带
-`config`，见下）。
+`config`，见下）。**Browser Use 当前默认跳过**：`installNpmPlugin` 的 `skip` 只记录
+包、不写 insert，原因与恢复方式见「Browser Use」一节；`computer-use.mjs` 正常安装。
 
 ## Agent Teams
 
@@ -105,6 +106,12 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 
 ## Browser Use (Playwright MCP)
 
+> **当前状态：默认跳过安装。** `browser-use.mjs` 的两个 `installNpmPlugin`
+> 调用都带 `skip`：构建时只记录包、不写入 profile，输出
+> `skipping 'browser-use' / 'browser-use-playwright-mcp' — <原因>`。
+> 恢复安装设 `DSH_PLUGIN_FORCE_INSTALL=1`（如构建前
+> `$env:DSH_PLUGIN_FORCE_INSTALL=1`）。跳过原因见「已知限制」。
+
 ### 安装内容
 
 | 项 | 位置 | 说明 |
@@ -121,7 +128,7 @@ Community Market。核心服务先装：提供方 inject `browserUse`。
 
 两者都不声明 `dsh.bundle.patch`，属普通 npm 依赖，`browser-use.mjs` 走共享流水线
 的显式 `mount` 选项写入两行 insert（这是本仓库第一个用显式 `mount`/`config` 的
-wrapper）：
+wrapper；恢复安装后生成的样式如下）：
 
 ```yaml
 - insert:
@@ -153,13 +160,24 @@ x64/x86 安装路径），找到就写进提供方行的 `config.executablePath`
 npm run install:plugins        # 或 npm run build
 ```
 
-重启后在允许浏览器工具且支持图片输入的模型路由上（例如官方 DeepSeek 路由），模型
+**默认不加 `DSH_PLUGIN_FORCE_INSTALL=1` 时本组不安装任何东西**；以该变量强装并重启
+后，在允许浏览器工具且支持图片输入的模型路由上（例如官方 DeepSeek 路由），模型才会
 可见 `mcp__playwright-mcp__<tool>` 工具集与浏览器指导；启动/附加的浏览器由活动
 Session 独占持有。浏览器模式由 profile 组合中的该 `config` 行决定，不是会话级开关。
 把浏览器工具留在 `<unlisted-tools>`（`toolOrder`）中，避免无浏览器连接的 Session
 无法组装提示词。
 
 ### 已知限制
+
+- **同一 host 仅一个存活 Session 可用（当前默认跳过的原因）**：提供方通过
+  `mountSessionMcp` 逐 Session 挂载 mcp-client，其工具（`mcp__playwright-mcp__*`）、
+  提示词段（`mcp:playwright-mcp`）与资源服务器（`playwright-mcp`）都注册进 DSH 的
+  共享/全局层；第二个存活会话（新建或恢复历史会话）会撞名 `already registered`，
+  `failOnStartupError: true` 使会话创建/恢复回滚、并从列表消失。同族的
+  Chrome DevTools MCP 提供方（`browser-use-chrome-devtools-mcp`）结构相同、同样受限；
+  `stagehand-native` 不走逐会话 mcp-client（工具目录只注册一次），不受影响；
+  `computer-use`（cua-driver native / mcp）同样不逐会话挂载，不受影响。等待上游把
+  注册改为按 agent 作用域（或使用唯一 serverName）后恢复安装。
 
 - **每个部署一次只启用一个浏览器提供方**；`dsh-browser-use` 服务本身不持有浏览器
   状态，注册位由提供方独占（`ctx.browserUse.register`）。本 wrapper 只安装 Playwright
@@ -243,8 +261,9 @@ npm run install:plugins        # 或 npm run build
   `/permission` slash 选择器）中选择带 `EXP` 角标的 `Auto review`，在确认对话框中
   勾选「我已了解这些风险，并愿意继续」后点「启用 Auto review」；直接键入
   `/permission auto` 也构成明确同意。通用设置行与新会话默认值都不提供 Auto。
-- **Browser Use (Playwright MCP)**：安装后即随组合挂载（无二次开关），重启后工具
-  以 `mcp__playwright-mcp__<tool>` 出现；是否对模型可见还取决于工具目录装配与模型
+- **Browser Use (Playwright MCP)**：**默认跳过、不安装**（原因见其一节）；只有以
+  `DSH_PLUGIN_FORCE_INSTALL=1` 强装并重启后才随组合挂载，工具以
+  `mcp__playwright-mcp__<tool>` 出现；是否对模型可见还取决于工具目录装配与模型
   路由是否支持图片输入。
 - **Computer Use (Cua Driver native)**：安装后即随组合挂载（无二次开关），重启后
   工具以 `cua_driver_native__<tool>` 出现；前提是支持图片输入的模型路由 + 附件
@@ -297,5 +316,7 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
 - 依赖 `scripts/plugin-install.mjs` 的共享流水线；各包经 `installNpmPlugin`
   安装，每个 installer 也可单独运行。Browser Use 与 Computer Use 是头两个用显式
   `mount` 的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），
-  它们的四行 insert 由 `installNpmPlugin` 写入（Browser Use 提供方行还带 `config`）；
-  Agent Teams 与 Auto review 仍是 bundle 自挂载。
+  原本各写两行 insert（Browser Use 提供方行带 `config`）；**Browser Use 当前默认
+  跳过**（`skip`），其两行 insert 只在 `DSH_PLUGIN_FORCE_INSTALL=1` 强装时写入，
+  Computer Use 的两行 insert 正常写入；Agent Teams 与 Auto review 仍是 bundle
+  自挂载。

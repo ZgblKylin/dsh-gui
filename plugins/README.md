@@ -13,7 +13,8 @@ official dsh-family plugin as one flat group: `agent-team.mjs` installs two
 Agent Teams bundles and derives Team-aware agent presets,
 `auto-review.mjs` installs the per-call LLM authorization layer,
 `browser-use.mjs` installs the Playwright MCP browser provider (the exclusive
-`dsh-browser-use` registration service + the experimental provider), and
+`dsh-browser-use` registration service + the experimental provider; currently
+default-skipped — see `harness/README.md`), and
 `computer-use.mjs` installs the Cua Driver native desktop provider (the
 exclusive `dsh-computer-use` registration service + the native SDK provider).
 
@@ -23,7 +24,7 @@ plugins/
 │  ├─ install.mjs        # entry: loads each plugins/harness/*.mjs installer in order
 │  ├─ agent-team.mjs     # Agent Teams bundles + derived presets
 │  ├─ auto-review.mjs    # Auto review per-call authorization layer
-│  ├─ browser-use.mjs    # Browser Use: exclus. service + Playwright MCP provider
+│  ├─ browser-use.mjs    # Browser Use: exclus. service + Playwright MCP provider (default-skipped)
 │  └─ computer-use.mjs   # Computer Use: exclus. service + Cua Driver native provider
 ├─ <id>/
 │  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: five npm
@@ -90,6 +91,9 @@ packages (`@deepseek-ai/dsh-browser-use`,
 service + provider insert rows — only the Browser Use provider row carries a
 `config` (`mode: launch` / `headless: true` / `executablePath`); the Cua
 Driver native provider takes no configuration, so its row is bare.
+**Browser Use is currently default-skipped** (`skip` on both of its
+`installNpmPlugin` calls), so its two insert rows are written only when a
+build runs with `DSH_PLUGIN_FORCE_INSTALL=1`; Computer Use installs normally.
 Every in-tree plugin (`remote`, `ai-update`) still declares
 `dsh.bundle.patch` and mounts through its own bundle layer. A manual profile
 insert for a bundle-declared plugin would double-mount it and fail the plugin
@@ -133,7 +137,7 @@ tree with `duplicate loader entry id`.
 - harness（dsh 工程官方插件组，平铺脚本见 [harness/README.md](harness/README.md)）：
   - Agent Teams（无本地包）npm包 ×2 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.2` 与 `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.2`，另按上游 preset 生成 `<id>-team`
   - Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.2`，与 pinned 的 dsh-v0.1.6-alpha.2 harness 配套
-  - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.1.6-alpha.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）
+  - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.1.6-alpha.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）——**当前默认跳过安装**（逐会话注册在共享层撞名，等上游修复；`DSH_PLUGIN_FORCE_INSTALL=1` 强装）
   - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.1.6-alpha.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.9；子模块
   checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 起相同，
@@ -301,6 +305,10 @@ tree with `duplicate loader entry id`.
     `browser-use-playwright-mcp`), the provider row carrying a `config:` block
     (`mode: launch`, `headless: true`, and a system Chromium `executablePath`
     resolved at install time — override with `DSH_BROWSER_EXECUTABLE`).
+    Currently **default-skipped** pending an upstream per-agent registration
+    fix: both `installNpmPlugin` calls carry `skip` (the packages are still
+    recorded for the update checker) and the rows are written only when a
+    build runs with `DSH_PLUGIN_FORCE_INSTALL=1`.
     See `harness/README.md`.
   - `computer-use` — `harness/computer-use.mjs` installs the Cua Driver
     native desktop provider from npm as two plain (non-bundle) packages:
