@@ -117,8 +117,8 @@ tree with `duplicate loader entry id`.
 标注源码安装的，基于源码编译后，基于link模式引入源码安装。
 
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.46.1`）
-- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.19.1** 起含 DSH 0.1.5-rc.1 适配（peerDeps 全指 `^0.1.5-rc.1`，上游已在 rc.2 上完成真机挂载验证，与本工程 pinned 的 dsh-v0.1.5-rc.2 harness 一致），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.19.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.5.0`、`dsh-sidebar-qa@0.5.0`）
-  - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.5.0`，v0.5.0 起以 DSH 0.1.5+ 原生右侧栏 page type 承载，client peer 抬到 `^0.1.5-rc.1`；对 `dsh-better-sidebar` 的 peer 为 `>=0.19.0`，与本 wrapper 固定的 0.19.1 匹配）
+- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.19.1** 起含 DSH 0.1.5-rc.1 适配（peerDeps 全指 `^0.1.5-rc.1`，上游已在 rc.2 上完成真机挂载验证，与本工程 pinned 的 dsh-v0.1.5-rc.2 harness 一致），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.19.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.6.0`、`dsh-sidebar-qa@0.5.0`）
+  - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.6.0`，v0.6.0 起适配 pinned 的 dsh-v0.1.6-alpha.2 harness：client remote codec 补上 `create` 工厂（v0.5.0 缺失导致 alpha.2 严格 codec 校验拒绝挂载、浏览器侧启动即失败），peer 抬到 `^0.1.5-rc.1 || ^0.1.6-alpha.2`；v0.5.0 起以 DSH 0.1.5+ 原生右侧栏 page type 承载；对 `dsh-better-sidebar` 的 peer 为 `>=0.19.0`，与本 wrapper 固定的 0.19.1 匹配）
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `0.5.0`）
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（pin 子模块 tag `v0.1.2`；skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
@@ -163,7 +163,7 @@ tree with `duplicate loader entry id`.
   挂载验证。固定精确版本而非 `@latest`，因为 pinned pnpm 11.7 默认
   supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退
   到更旧版本；子模块 checkout 在 pinned tag 处保留作源码参考),
-  then `dsh-flowglass@0.5.0`, then `dsh-sidebar-qa@0.5.0`
+  then `dsh-flowglass@0.6.0`, then `dsh-sidebar-qa@0.5.0`
   (both companions declare better-sidebar as a peer dependency, so it must
   land first; the same order ends up in `dsh.profile.bundles`; both are pinned
   to exact versions matching their submodule tags).
@@ -182,7 +182,10 @@ tree with `duplicate loader entry id`.
     lanes (user/assistant trunk, tool-call branches, subagent left-column
     branches), parallel-group frames, drill-down with breadcrumbs, and a
     hot-reloadable session toolbox drawer (21 mini-tools). Installed from npm
-    as `dsh-flowglass@0.5.0` (pinned to the submodule tag); declares
+    as `dsh-flowglass@0.6.0` (pinned to the submodule tag; v0.6.0 adapts the
+    pinned dsh-v0.1.6-alpha.2 harness — its client remote codec adds the
+    `create` factory that the alpha.2 gateway's strict codec validation
+    requires, and the peer range covers `^0.1.6-alpha.2`); declares
     `dsh.bundle.patch` (self-mounting;
     the repo checkout is kept as a source reference only). Since v0.5.0 the
     hosting surface follows a fixed priority instead of a manual preference:
