@@ -211,6 +211,10 @@ npm start                          # 启动桌面壳
   保证只在 rc 里出现的工具/环境变量（如 **nvm 托管的 Node**、自定义 PATH、DSH_HOME）对启动命令可见——
   否则后端会以裸系统 Node 启动，插件树报 `Cannot find package '@deepseek-ai/...'`。面板日志首行会回显
   `node -v`（如 `v24.20.0`），用于确认实际用到的运行时。
+- **所有远端检测命令同样在「完整登录 + 交互」shell 中执行**：工具预检等经 `bash -l -i -s`（stdin 喂脚本）运行，
+   与启动面板同环境；因此 **nvm 托管的 node/npm（只在 `~/.bashrc` 里、需交互登录才上 PATH）也能被预检检测到**。
+   若远端交互式 ssh 里 `which node` 有值而这里仍报"远端缺少工具"，先重启 dsh-gui 让新版 host 生效再试；
+   普通非交互 shell 里 `command -v` 会误报 MISSING，这正是本轮修复的回归点。
 - **旧 tmux 环境残留**：`dsh-gui` 的 tmux server/session 一旦创建就固定继承当时的进程环境；若早前以非登录环境起过，
   先清理再重连：远端执行 `tmux kill-server`（或 `tmux kill-session -t dsh-gui`）。
 - **取消即清理**：对话框「取消」会走 `ssh.cancel` 中止进行中的连接——停止实时进度轮询，令宿主端尽快退出并**杀掉本次启动的
@@ -225,7 +229,7 @@ npm start                          # 启动桌面壳
 
 - `node tests/transport.test.mjs` —— 纯逻辑：`~/.ssh/config` 解析/合并、连接计划、known_hosts accept-new、连接失败路径。
 - `node tests/transport-e2e.test.mjs "<scratch-dir>"` —— 在 127.0.0.2 起临时 `ssh2` 服务器做端到端验证：**密码认证**、
-  `bash -s` stdin 脚本通道、端口转发、accept-new 落盘、会话清理。**必须传隔离 HOME 目录**，避免改动真实 `~/.ssh`。
+  `bash -l -i -s` 登录交互 stdin 脚本通道、端口转发、accept-new 落盘、会话清理。**必须传隔离 HOME 目录**，避免改动真实 `~/.ssh`。
 
 手工验证（真实远端/`~/.ssh/config` 别名）：
 

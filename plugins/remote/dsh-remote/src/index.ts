@@ -682,7 +682,21 @@ export class SshSession {
     this.servers = []
   }
 
-  /** Run one remote command via `bash -s` on this session. */
+  /**
+   * Run one remote command on this session. The remote shell is `bash -l -i -s`
+   * — a LOGIN + INTERACTIVE bash fed the script on stdin — so every inspection
+   * command sees the same environment as the user's interactive `ssh` session.
+   * That parity matters for the toolchain precheck: an nvm-managed Node (or any
+   * tooling only exported from `~/.bashrc`, possibly behind the
+   * `case $- in *i*) ;; *) return;; esac` guard) is invisible to a plain
+   * non-interactive `bash -s` and would be false-reported "missing", exactly as
+   * the start pane already relies on (`bash -l -i -c` in startSession). The
+   * login+interactive combo sources `~/.profile` and `~/.bashrc`.
+   *
+   * Without a pty, bash prints two harmless startup warnings to stderr
+   * (`cannot set terminal process group` / `no job control in this shell`);
+   * they do not reach stdout, where all command output is parsed.
+   */
   async exec(script: string, timeoutMs: number): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     const client = this.client
     if (client === null) return { exitCode: 1, stdout: '', stderr: '会话未连接' }
@@ -702,7 +716,7 @@ export class SshSession {
           stderr: Buffer.concat(err).toString('utf8'),
         })
       }
-      client.exec('bash -s', (execErr, stream) => {
+      client.exec('bash -l -i -s', (execErr, stream) => {
         if (execErr !== undefined && execErr !== null) {
           err.push(Buffer.from(String(execErr)))
           finish(1)
@@ -1210,6 +1224,15 @@ async function sshPortOpen(ctx: Context, auth: SshAuth, port: number): Promise<b
   return res.exitCode === 0 && res.stdout.includes('OPEN')
 }
 
+/** Drop bash's pty-less interactive startup warnings from surfaced stderr. */
+function cleanBashWarnings(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((l) => !/cannot set terminal process group|no job control in this shell/.test(l))
+    .join('\n')
+    .trim()
+}
+
 /** Remote toolchain presence check; reports each missing tool. */
 async function checkRemoteToolchain(ctx: Context, auth: SshAuth): Promise<{ ok: boolean; detail: string }> {
   const res = await sshRun(ctx, auth, [
@@ -1222,7 +1245,7 @@ async function checkRemoteToolchain(ctx: Context, auth: SshAuth): Promise<{ ok: 
   ].join('\n'), 30000)
   const lines = res.stdout.trim().split('\n').map(s => s.trim()).filter(Boolean)
   const missing = lines.filter(l => l.startsWith('MISSING')).map(l => l.replace(/^MISSING\s+/, ''))
-  if (res.exitCode !== 0 && missing.length === 0) return { ok: false, detail: res.stderr.trim() }
+  if (res.exitCode !== 0 && missing.length === 0) return { ok: false, detail: cleanBashWarnings(res.stderr) }
   if (missing.length > 0) return { ok: false, detail: `远端缺少工具: ${missing.join(', ')}` }
   return { ok: true, detail: lines.join('\n') }
 }
@@ -1660,7 +1683,7 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
 async function probeSshAuth(ctx: Context, auth: SshAuth): Promise<{ ok: boolean; detail?: string }> {
   const res = await sshRun(ctx, auth, 'echo DSH_REMOTE_AUTH_OK', 20000)
   if (res.exitCode === 0 && res.stdout.includes('DSH_REMOTE_AUTH_OK')) return { ok: true }
-  const err = res.stderr.trim()
+  const err = cleanBashWarnings(res.stderr)
   if (/Host denied \(verification failed\)/.test(err)) return { ok: false, detail: err.slice(0, 600) }
   return { ok: false }
 }

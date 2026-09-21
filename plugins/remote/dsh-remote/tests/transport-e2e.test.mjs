@@ -53,6 +53,12 @@ const hostKey = await new Promise((resolve, reject) => {
   utils.generateKeyPair('ecdsa', { bits: 256 }, (err, pair) => (err ? reject(err) : resolve(pair.private)))
 })
 
+// The exec channels the client opens, observed by the fake server. Every remote
+// command must run over `bash -l -i -s` (login + interactive) so the precheck
+// sees the same nvm/PATH environment the user's interactive `ssh` has — a bare
+// `bash -s` would false-report node/npm "missing" (see src/index.ts `exec`).
+const execCommands = []
+
 const server = new Server({ hostKeys: [hostKey] }, (client) => {
   client.on('authentication', (ctx) => {
     if (ctx.method === 'password' && ctx.username === 'tester' && ctx.password === 'pass01') {
@@ -63,7 +69,11 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
   client.on('ready', () => {
     client.on('session', (accept) => {
       const session = accept()
-      session.on('exec', (accept2) => {
+      session.on('exec', (accept2, _reject2, info) => {
+        // The client must drive remote commands through a login+interactive
+        // bash (`bash -l -i -s`), not a bare non-interactive `bash -s` — that
+        // parity is what lets the toolchain precheck see nvm-managed node/npm.
+        execCommands.push(String(info.command))
         const stream = accept2()
         let input = ''
         stream.on('data', (d) => { input += d })
@@ -87,7 +97,7 @@ await new Promise((r) => server.listen(0, '127.0.0.2', r))
 const port = server.address().port
 console.log(`fake ssh server on 127.0.0.2:${port}`)
 
-// 1) password auth + exec('bash -s') stdin script
+// 1) password auth + exec stdin script (command must be `bash -l -i -s`)
 const sess = new SshSession({ user: 'tester', host: '127.0.0.2', port, password: 'pass01' })
 await sess.connect()
 step(`connect with PASSWORD auth (${sess.label})`)
@@ -95,7 +105,11 @@ const execRes = await sess.exec('echo DSH_REMOTE_TEST_OK && echo second-line', 1
 if (execRes.exitCode !== 0 || !execRes.stdout.includes('DSH_REMOTE_TEST_OK')) {
   throw new Error(`exec failed: exit=${execRes.exitCode} out=${JSON.stringify(execRes.stdout)} err=${JSON.stringify(execRes.stderr)}`)
 }
-step(`exec('bash -s') stdin-script channel (exit=${execRes.exitCode})`)
+step(`exec stdin-script channel (exit=${execRes.exitCode})`)
+if (execCommands.length === 0 || execCommands.some((c) => c !== 'bash -l -i -s')) {
+  throw new Error(`expected remote exec under 'bash -l -i -s', got: ${JSON.stringify(execCommands)}`)
+}
+step('remote exec runs login+interactive bash (bash -l -i -s)')
 
 // 2) local port forward -> remote echo
 const local = createServer((socket) => {
