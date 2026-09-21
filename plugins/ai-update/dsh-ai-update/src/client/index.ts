@@ -9,19 +9,19 @@
  * on and prefills the prompt. It:
  *
  *  1. validates the request (type + version + requestId + prompt),
- *  2. returns the page to the new-session home (sessions.clear),
- *  3. selects the dsh-gui project directory there — the standard workspace
- *     pick: uiWorkspace.connectWorkspace reuses the workspace's existing
- *     blank session (a fresh one is only minted when the workspace has none,
- *     exactly like clicking the workspace on the home screen) and opens it,
- *  4. auto-selects the 「创造模式」(cordis) preset for that blank session via
+ *  2. selects the dsh-gui project directory — the standard workspace pick:
+ *     uiWorkspace.connectWorkspace reuses the workspace's existing blank
+ *     session (a fresh one is only minted when the workspace has none, exactly
+ *     like clicking the workspace on the home screen) and opens it via
+ *     uiWorkspace.openSession,
+ *  3. auto-selects the 「创造模式」(cordis) preset for that blank session via
  *     ctx.remote.agentPresets.select — the same selection the hero chip and
  *     the settings creator-draft entry make, so the AI-update work runs under
  *     the creator's composition (runtime inspection, plugin experiments,
  *     preset authoring guidance) instead of the deployment default; a refusal
  *     fails the request rather than silently running under another preset,
- *  5. prefills the composer draft with the prompt,
- *  6. replies to window.parent with "dsh-gui:ai-update-result" so the shell
+ *  4. prefills the composer draft with the prompt,
+ *  5. replies to window.parent with "dsh-gui:ai-update-result" so the shell
  *     can toast success/failure.
  *
  * Everything goes through public client services (sessions, workspaces,
@@ -60,16 +60,8 @@ interface AiUpdateResult {
   error?: string
 }
 
-interface SessionSummaryLike {
-  id: string
-}
-
+/** The session-controller client face; only the borrowed one-step scope is used. */
 interface SessionsLike {
-  list: {
-    getSnapshot(): { current?: string; ids: string[]; byId: Record<string, SessionSummaryLike> }
-  }
-  clear(): void
-  open(id: string): void
   scope(id: string): unknown | undefined
 }
 
@@ -88,6 +80,7 @@ interface WorkspacesLike {
 /** Workspace navigation service (owns the standard new-session workspace pick). */
 interface UiWorkspaceLike {
   connectWorkspace(workspaceId: string): Promise<string>
+  openSession(sessionId: string): void
 }
 
 /** Public per-session input face (the draft write the shell wants). */
@@ -183,17 +176,14 @@ function basenameOf(path: string): string {
 /**
  * Pick the workspace to select on the home screen. The dsh-gui repository
  * workspace wins when registered (the update prompts use its relative paths),
- * then the current session's workspace, then the first workspace.
+ * then the first workspace. The current open session's workspace is not
+ * exposed through public client services, so it cannot be preferred here.
  */
-function resolveTargetWorkspace(sessions: SessionsLike, workspaces: WorkspacesLike): string | undefined {
+function resolveTargetWorkspace(workspaces: WorkspacesLike): string | undefined {
   const ws = workspaces.list.getSnapshot()
   const repo = ws.items.find(item => item.path !== undefined && basenameOf(item.path).toLowerCase() === 'dsh-gui')
   if (repo !== undefined) return repo.workspaceId
-  const current = sessions.list.getSnapshot().current
-  const currentWorkspaceId = current === undefined
-    ? undefined
-    : ws.items.find(item => item.sessionIds.includes(current))?.workspaceId
-  return currentWorkspaceId ?? ws.items[0]?.workspaceId
+  return ws.items[0]?.workspaceId
 }
 
 /**
@@ -207,18 +197,17 @@ async function run(ctx: ClientCtxLike, request: AiUpdateRequest): Promise<void> 
   const conversation = ctx.get('conversation')
 
   await ensureWorkspacesReady(workspaces)
-  const targetWorkspaceId = resolveTargetWorkspace(sessions, workspaces)
+  const targetWorkspaceId = resolveTargetWorkspace(workspaces)
   if (targetWorkspaceId === undefined) {
     throw new Error('没有可用的工作区（请先在 dsh web 中注册 dsh-gui 项目目录）')
   }
 
-  // Back to the new-session home first, then the standard workspace pick:
-  // reuses the workspace's existing blank session (creates one only when the
-  // workspace has none — the same as clicking the workspace on the home
-  // screen) and opens it.
-  sessions.clear()
+  // The standard workspace pick: connectWorkspace reuses the workspace's
+  // existing blank session (creates one only when the workspace has none —
+  // the same as clicking the workspace on the home screen), then openSession
+  // retains it (source 'mainView') so its Agent scope becomes addressable.
   const sessionId = await uiWorkspace.connectWorkspace(targetWorkspaceId)
-  sessions.open(sessionId)
+  uiWorkspace.openSession(sessionId)
 
   // Auto-select the 「创造模式」(creator) preset for the blank session — the
   // same `agentPresets.select` the hero chip's pick and the settings

@@ -5,21 +5,19 @@ has "AI 更新" buttons; clicking one posts a "dsh-gui:ai-update" window message
 into the embedded dsh web page, and this plugin prepares the ready-to-send
 session WITHOUT creating one itself:
 
-1. returns the page to the new-session home (the empty hero screen);
-2. selects the target workspace there (preferring the dsh-gui repository
-   workspace, then the current session's workspace, then the first
-   workspace) — the standard workspace pick reuses the workspace's existing
-   blank session, and only mints a fresh one when the workspace has none,
-   exactly like clicking the workspace on the home screen;
-3. opens that blank session and auto-selects the 「创造模式」(creator) preset
+1. selects the target workspace (preferring the dsh-gui repository workspace,
+   then the first registered workspace) — the standard workspace pick reuses
+   the workspace's existing blank session, and only mints a fresh one when the
+   workspace has none, exactly like clicking the workspace on the home screen;
+2. opens that blank session and auto-selects the 「创造模式」(creator) preset
    for it via `ctx.remote.agentPresets.select(sessionId, 'cordis')` — the
    same selection the hero chip's pick and the settings creator-draft entry
    make — so the AI-update work runs under the creator's composition
    (runtime inspection, plugin experiments, preset authoring guidance). A
    refusal fails the request instead of silently running under another
    preset; the user may still change the preset chip before sending.
-4. prefills the composer draft with the prompt built by the shell;
-5. replies "dsh-gui:ai-update-result" to the parent frame so the shell can
+3. prefills the composer draft with the prompt built by the shell;
+4. replies "dsh-gui:ai-update-result" to the parent frame so the shell can
    toast the outcome.
 
 The plugin imports nothing from dsh-gui and only uses public client services
