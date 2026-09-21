@@ -21,6 +21,7 @@ const {
   buildSshPlan,
   resolveSshConfigFromText,
   checkHostKeyAcceptNew,
+  knownHostKey,
   SshSession,
   expandTilde,
 } = lib
@@ -188,6 +189,29 @@ assert.deepEqual(checkHostKeyAcceptNew('10.2.3.4', edBlob, both), { ok: true, kn
 const edOnly = `10.2.3.4 ssh-ed25519 ${edBlob.toString('base64')}\n`
 assert.deepEqual(checkHostKeyAcceptNew('10.2.3.4', ed2Blob, edOnly), { ok: false, known: false })
 ok('known_hosts algorithm-aware (rotating key type / genuine same-type change)')
+
+// ── known_hosts port-scoped keys (`[host]:port`) ──────────────
+// OpenSSH treats each host+port as a separate host-key identity: a bare
+// `10.1.2.64` (port-22) record must never be matched against a
+// `[10.1.2.64]:6001` key — or the port-22 record would falsely deny the
+// port-6001 connection with `Host denied (verification failed)` (the report
+// behind this regression: ssh targets 10.1.2.64:6001, known_hosts holds both).
+const ed3Blob = await genKeyBlob('ed25519', {})
+const scopedKnown = [
+  `[10.1.2.64]:6001 ssh-ed25519 ${edBlob.toString('base64')}`,
+  `10.1.2.64 ssh-ed25519 ${ed3Blob.toString('base64')}`, // separate port-22 identity
+].join('\n') + '\n'
+assert.equal(knownHostKey('10.1.2.64', 6001), '[10.1.2.64]:6001')
+assert.equal(knownHostKey('10.1.2.64', 22), '10.1.2.64')
+// the port-6001 service presents its own recorded key → trust
+assert.deepEqual(checkHostKeyAcceptNew('[10.1.2.64]:6001', edBlob, scopedKnown), { ok: true, known: true })
+// a different key on the same scoped host+port → genuine change → refuse
+assert.deepEqual(checkHostKeyAcceptNew('[10.1.2.64]:6001', ed2Blob, scopedKnown), { ok: false, known: false })
+// Regression guard: a portless lookup (the pre-fix behavior) of the same 6001
+// key hits the bare port-22 record and falsely refuses — the scoped key above
+// is what isolates the two identities.
+assert.deepEqual(checkHostKeyAcceptNew('10.1.2.64', edBlob, scopedKnown), { ok: false, known: false })
+ok('known_hosts port-scoped ([host]:port ≢ bare host)')
 
 // ── SshSession failure paths (no network) ──────────────────────
 const sess = new SshSession({ user: 'x', host: '127.0.0.1', port: 1, password: 'pw' })

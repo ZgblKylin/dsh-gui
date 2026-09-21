@@ -389,6 +389,10 @@ export function buildSshPlan(auth: SshAuth): SshPlan {
  * the connection may proceed and whether the host was already known (callers
  * append the key once after a successful first connect).
  *
+ * `host` is the known_hosts key as `knownHostKey()` scopes it — bare `host` for
+ * port 22, `[host]:port` otherwise — so entries are only matched within the
+ * same host+port identity (OpenSSH-exact).
+ *
  * OpenSSH records ONE key per key type per host, and the SSH handshake offers
  * exactly one host key (its type negotiated by KEX). Only a same-type recorded
  * key is evidence about the presented key: an identical one is trusted, a
@@ -422,11 +426,23 @@ function knownHostsPath(): string {
   return join(sshHome(), '.ssh', 'known_hosts')
 }
 
-function verifyKnownHosts(host: string, key: Buffer): { ok: boolean; known: boolean } {
+/**
+ * known_hosts key namespace for a target, OpenSSH-exact: non-standard ports are
+ * bracketed (`[host]:port`) and the default port 22 is bare `host`. Two SSH
+ * services on the same IP but different ports (e.g. sshd on 22 vs an ssh
+ * remapped to 6001) are therefore SEPARATE host-key identities. Host keys must
+ * be matched/recorded under this scoped key — matching portlessly would let a
+ * bare `10.1.2.64` (port-22) record falsely deny a `[10.1.2.64]:6001` key.
+ */
+export function knownHostKey(host: string, port: number): string {
+  return port === 22 ? host : `[${host}]:${port}`
+}
+
+function verifyKnownHosts(hostKey: string, key: Buffer): { ok: boolean; known: boolean } {
   try {
     const file = knownHostsPath()
     if (!existsSync(file)) return { ok: true, known: false }
-    return checkHostKeyAcceptNew(host, key, readFileSync(file, 'utf8'))
+    return checkHostKeyAcceptNew(hostKey, key, readFileSync(file, 'utf8'))
   } catch {
     return { ok: true, known: false }
   }
@@ -532,16 +548,20 @@ export class SshSession {
 
   private hostVerifier(): (key: Buffer) => boolean {
     return (key: Buffer) => {
-      const res = verifyKnownHosts(this.plan.hostname, key)
-      if (res.ok && !res.known) this.pendingAppend = { host: this.plan.hostname, key: Buffer.from(key) }
+      // known_hosts keys are scoped by host+port (`[host]:port` for non-22):
+      // the same IP may run different SSH services per port, each with its own
+      // key identity. Look up/record under the scoped key (OpenSSH-exact).
+      const hostKey = knownHostKey(this.plan.hostname, this.plan.port)
+      const res = verifyKnownHosts(hostKey, key)
+      if (res.ok && !res.known) this.pendingAppend = { host: hostKey, key: Buffer.from(key) }
       if (!res.ok) {
         // ssh2 only surfaces `Host denied (verification failed)`; make the cause
-        // actionable: which host, which record, and how to trust the new key.
+        // actionable: which host+port, which record, and how to trust the new key.
         this.hostKeyDetail = [
-          `主机密钥验证拒绝：远端 ${this.plan.hostname} 的主机密钥与本地记录不一致。`,
-          `检查 ${knownHostsPath()} 中 ${this.plan.hostname} 的条目。`,
+          `主机密钥验证拒绝：远端 ${this.plan.hostname}（SSH 端口 ${this.plan.port}）的主机密钥与本地记录不一致。`,
+          `检查 ${knownHostsPath()} 中 ${hostKey} 的条目。`,
           '可能原因：远端重装/更换了主机密钥（可接受），或连接正被中间人劫持（应拒绝）。',
-          `若确认远端可信，请清除旧记录后重试：ssh-keygen -R ${this.plan.hostname}（或删除 known_hosts 里对应行）。`,
+          `若确认远端可信，请清除旧记录后重试：ssh-keygen -R '${hostKey}'（或删除 known_hosts 里对应行）。`,
         ].join('\n')
       }
       return res.ok

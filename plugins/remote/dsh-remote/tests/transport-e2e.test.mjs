@@ -124,11 +124,15 @@ local.close()
 sess.close()
 step('session close (teardown)')
 
-// 3) accept-new appended the host key to the SCRATCH known_hosts only
+// 3) accept-new appended the host key to the SCRATCH known_hosts only, keyed by
+//    the OpenSSH port-scoped form (`[127.0.0.2]:<port>` — the fake server runs
+//    on a non-22 port, so the bare-host namespace must not be used).
 const kh = join(scratch, '.ssh', 'known_hosts')
 if (!existsSync(kh)) throw new Error('known_hosts not written in scratch HOME')
 const khText = readFileSync(kh, 'utf8')
-if (!khText.includes('127.0.0.2')) throw new Error(`expected 127.0.0.2 in scratch known_hosts, got: ${JSON.stringify(khText)}`)
+if (!khText.includes(`[127.0.0.2]:${port}`)) {
+  throw new Error(`expected port-scoped [127.0.0.2]:${port} in scratch known_hosts, got: ${JSON.stringify(khText)}`)
+}
 step('accept-new appended host key to scratch known_hosts')
 
 // 4) a server-side drop marks the session dead (connected flips to false) —
