@@ -683,21 +683,34 @@ export class SshSession {
   }
 
   /**
-   * Run one remote command on this session. The remote shell is `bash -l -i -s`
-   * — a LOGIN + INTERACTIVE bash fed the script on stdin — so every inspection
-   * command sees the same environment as the user's interactive `ssh` session.
-   * That parity matters for the toolchain precheck: an nvm-managed Node (or any
-   * tooling only exported from `~/.bashrc`, possibly behind the
-   * `case $- in *i*) ;; *) return;; esac` guard) is invisible to a plain
-   * non-interactive `bash -s` and would be false-reported "missing", exactly as
-   * the start pane already relies on (`bash -l -i -c` in startSession). The
-   * login+interactive combo sources `~/.profile` and `~/.bashrc`.
-   *
-   * Without a pty, bash prints two harmless startup warnings to stderr
-   * (`cannot set terminal process group` / `no job control in this shell`);
-   * they do not reach stdout, where all command output is parsed.
+   * Run one remote command on this session over a plain NON-interactive
+   * `bash -s` fed the script on stdin. Non-interactive is fast, safe and
+   * tty-free — the default for every inspection probe; it must NOT be forced
+   * interactive blindly (an interactive bash without a pty prints rc noise and
+   * PS1 prompts to the channel and can wedge). Tooling that only exists in the
+   * user's interactive login environment (nvm-managed node/npm behind
+   * `~/.bashrc`) is invisible here — the toolchain precheck re-tests under the
+   * login shell via {@link execLogin} before declaring anything "missing"
+   * (see checkRemoteToolchain).
    */
   async exec(script: string, timeoutMs: number): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    return this.execChannel('bash -s', script, timeoutMs)
+  }
+
+  /**
+   * Run one remote command under a LOGIN + INTERACTIVE `bash -l -i -s` (stdin
+   * script), mirroring the environment of the user's interactive `ssh` session
+   * and of the start pane (`bash -l -i -c` in startSession): `~/.profile` and
+   * `~/.bashrc` load fully, including guarded rc files. Reserved for the rare
+   * checks that must see rc-only tooling; without a pty bash prints two
+   * harmless startup warnings to stderr (stripped by cleanRemoteOutput).
+   */
+  async execLogin(script: string, timeoutMs: number): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    return this.execChannel('bash -l -i -s', script, timeoutMs)
+  }
+
+  /** Shared exec channel implementation (command string + stdin script). */
+  private async execChannel(channel: string, script: string, timeoutMs: number): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     const client = this.client
     if (client === null) return { exitCode: 1, stdout: '', stderr: '会话未连接' }
     return new Promise((resolve) => {
@@ -716,7 +729,7 @@ export class SshSession {
           stderr: Buffer.concat(err).toString('utf8'),
         })
       }
-      client.exec('bash -l -i -s', (execErr, stream) => {
+      client.exec(channel, (execErr, stream) => {
         if (execErr !== undefined && execErr !== null) {
           err.push(Buffer.from(String(execErr)))
           finish(1)
@@ -780,13 +793,16 @@ export class SshSession {
 /** The transient ssh2 session backing the in-flight `sshRun`; `ssh.cancel` closes it to abort. */
 const activeSession: { current: SshSession | null } = { current: null }
 
-/** One remote command fed to `bash -s` over an ssh2 session (own connection, closed afterwards). */
-async function sshRun(_ctx: Context, auth: SshAuth, script: string, timeoutMs = 120000): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+/** Remote command channel: default plain `bash -s`; `login` for rc-only tooling. */
+export type SshChannel = 'bash -s' | 'bash -l -i -s'
+
+/** One remote command over an ssh2 session (own connection, closed afterwards). */
+async function sshRun(_ctx: Context, auth: SshAuth, script: string, timeoutMs = 120000, channel: SshChannel = 'bash -s'): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const session = new SshSession(auth)
   activeSession.current = session
   try {
     await session.connect()
-    return await session.exec(script, timeoutMs)
+    return await (channel === 'bash -l -i -s' ? session.execLogin(script, timeoutMs) : session.exec(script, timeoutMs))
   } catch (error) {
     return { exitCode: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }
   } finally {
@@ -1224,30 +1240,63 @@ async function sshPortOpen(ctx: Context, auth: SshAuth, port: number): Promise<b
   return res.exitCode === 0 && res.stdout.includes('OPEN')
 }
 
-/** Drop bash's pty-less interactive startup warnings from surfaced stderr. */
-function cleanBashWarnings(text: string): string {
+/**
+ * Clean remote command output for user-facing display: drop ANSI escapes
+ * (colors, `ESC[3J` clear-screen, OSC titles) and bash's pty-less interactive
+ * startup warnings, then trim.
+ */
+function cleanRemoteOutput(text: string): string {
   return text
+    .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '') // OSC sequences
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')            // CSI sequences
     .split(/\r?\n/)
     .filter((l) => !/cannot set terminal process group|no job control in this shell/.test(l))
     .join('\n')
     .trim()
 }
 
+/** One `command -v` result row for the toolchain check. */
+interface ToolcheckRow {
+  exitCode: number
+  saw: boolean
+  lines: string[]
+  missing: string[]
+}
+
+/** Parse the toolchain probe output into OK/MISSING rows, ignoring rc noise. */
+function parseToolcheck(res: { exitCode: number; stdout: string; stderr: string }): ToolcheckRow {
+  const lines = cleanRemoteOutput(res.stdout).split('\n').map(s => s.trim()).filter(Boolean)
+  const missing = lines.filter(l => /^MISSING\s+/.test(l)).map(l => l.replace(/^MISSING\s+/, ''))
+  return { exitCode: res.exitCode, saw: lines.some(l => /^(OK|MISSING)\s+/.test(l)), lines, missing }
+}
+
 /** Remote toolchain presence check; reports each missing tool. */
 async function checkRemoteToolchain(ctx: Context, auth: SshAuth): Promise<{ ok: boolean; detail: string }> {
-  const res = await sshRun(ctx, auth, [
-    // node/npm (npx ships with npm) run the dsh CLI; tmux hosts the session so
-    // the backend survives the ssh command returning. git/pnpm are no longer
-    // required since no code is deployed to the remote.
+  // node/npm (npx ships with npm) run the dsh CLI; tmux hosts the session so
+  // the backend survives the ssh command returning. git/pnpm are no longer
+  // required since no code is deployed to the remote.
+  const script = [
     'for c in node npm tmux; do',
     '  if command -v "$c" >/dev/null 2>&1; then echo "OK $c"; else echo "MISSING $c"; fi',
     'done',
-  ].join('\n'), 30000)
-  const lines = res.stdout.trim().split('\n').map(s => s.trim()).filter(Boolean)
-  const missing = lines.filter(l => l.startsWith('MISSING')).map(l => l.replace(/^MISSING\s+/, ''))
-  if (res.exitCode !== 0 && missing.length === 0) return { ok: false, detail: cleanBashWarnings(res.stderr) }
-  if (missing.length > 0) return { ok: false, detail: `远端缺少工具: ${missing.join(', ')}` }
-  return { ok: true, detail: lines.join('\n') }
+  ].join('\n')
+  // First pass: plain non-interactive shell (fast, tty-free, no rc side
+  // effects). Machines with tools on the default PATH stop here.
+  const first = parseToolcheck(await sshRun(ctx, auth, script, 30000))
+  if (first.missing.length === 0) return { ok: true, detail: first.lines.join('\n') }
+  // Second pass: some tools exist only in the user's interactive login env —
+  // nvm-managed node/npm sit behind `~/.bashrc` (often guarded). Re-check under
+  // `bash -l -i -s` exactly like the start pane (`bash -l -i -c`) before
+  // declaring them missing; machines whose rc is quiet never hit this pass.
+  const login = parseToolcheck(await sshRun(ctx, auth, script, 45000, 'bash -l -i -s'))
+  if (!login.saw) {
+    // The login re-check never produced rows (shell couldn't start / timed
+    // out): don't guess — surface the failure, keeping the tools "pending".
+    return { ok: false, detail: (login.exitCode !== 0 && first.missing.length === 0) ? '远端工具预检失败' : `远端缺少工具: ${first.missing.join(', ')}` }
+  }
+  const stillMissing = first.missing.filter(t => login.missing.includes(t))
+  if (stillMissing.length === 0) return { ok: true, detail: login.lines.join('\n') }
+  return { ok: false, detail: `远端缺少工具（登录交互环境同样缺失）: ${stillMissing.join(', ')}` }
 }
 
 /** Discover the port the live `dsh-gui` tmux session is serving on. */
@@ -1683,7 +1732,7 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
 async function probeSshAuth(ctx: Context, auth: SshAuth): Promise<{ ok: boolean; detail?: string }> {
   const res = await sshRun(ctx, auth, 'echo DSH_REMOTE_AUTH_OK', 20000)
   if (res.exitCode === 0 && res.stdout.includes('DSH_REMOTE_AUTH_OK')) return { ok: true }
-  const err = cleanBashWarnings(res.stderr)
+  const err = cleanRemoteOutput(res.stderr)
   if (/Host denied \(verification failed\)/.test(err)) return { ok: false, detail: err.slice(0, 600) }
   return { ok: false }
 }

@@ -70,16 +70,18 @@ const server = new Server({ hostKeys: [hostKey] }, (client) => {
     client.on('session', (accept) => {
       const session = accept()
       session.on('exec', (accept2, _reject2, info) => {
-        // The client must drive remote commands through a login+interactive
-        // bash (`bash -l -i -s`), not a bare non-interactive `bash -s` — that
-        // parity is what lets the toolchain precheck see nvm-managed node/npm.
+        // The client must drive default probes through non-interactive `bash -s`
+        // and reserve login+interactive `bash -l -i -s` for the toolchain
+        // re-check — that parity is what lets the precheck see nvm node/npm.
         execCommands.push(String(info.command))
         const stream = accept2()
         let input = ''
         stream.on('data', (d) => { input += d })
         stream.on('end', () => {
-          const ok = input.includes('DSH_REMOTE_TEST_OK')
-          stream.write(`${ok ? 'DSH_REMOTE_TEST_OK' : 'NOT_OK'}\n`)
+          // Echo the DSH_REMOTE marker the script carried, if any.
+          const tok = (input.match(/DSH_REMOTE\w*/) || [])[0]
+          const ok = tok !== undefined
+          stream.write(`${ok ? tok : 'NOT_OK'}\n`)
           stream.exit(ok ? 0 : 1)
           stream.end()
         })
@@ -106,10 +108,21 @@ if (execRes.exitCode !== 0 || !execRes.stdout.includes('DSH_REMOTE_TEST_OK')) {
   throw new Error(`exec failed: exit=${execRes.exitCode} out=${JSON.stringify(execRes.stdout)} err=${JSON.stringify(execRes.stderr)}`)
 }
 step(`exec stdin-script channel (exit=${execRes.exitCode})`)
-if (execCommands.length === 0 || execCommands.some((c) => c !== 'bash -l -i -s')) {
-  throw new Error(`expected remote exec under 'bash -l -i -s', got: ${JSON.stringify(execCommands)}`)
+// Normal probes run over plain non-interactive `bash -s` (fast, tty-free); the
+// login+interactive `bash -l -i -s` shell is reserved for the toolchain re-check
+// that must see rc-only tooling like nvm node/npm (checkRemoteToolchain).
+if (execCommands.length === 0 || execCommands.some((c) => c !== 'bash -s')) {
+  throw new Error(`expected remote exec under 'bash -s', got: ${JSON.stringify(execCommands)}`)
 }
-step('remote exec runs login+interactive bash (bash -l -i -s)')
+step('default remote exec runs non-interactive bash (bash -s)')
+const loginRes = await sess.execLogin('echo DSH_REMOTE_LOGIN_OK', 10000)
+if (loginRes.exitCode !== 0 || !loginRes.stdout.includes('DSH_REMOTE_LOGIN_OK')) {
+  throw new Error(`execLogin failed: exit=${loginRes.exitCode} out=${JSON.stringify(loginRes.stdout)} err=${JSON.stringify(loginRes.stderr)}`)
+}
+if (!execCommands.some((c) => c === 'bash -l -i -s')) {
+  throw new Error(`expected a login+interactive exec ('bash -l -i -s'), got: ${JSON.stringify(execCommands)}`)
+}
+step('login re-check runs bash -l -i -s')
 
 // 2) local port forward -> remote echo
 const local = createServer((socket) => {
