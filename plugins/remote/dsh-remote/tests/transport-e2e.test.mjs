@@ -35,6 +35,13 @@ if (!scratch) {
   process.exit(2)
 }
 mkdirSync(join(scratch, '.ssh'), { recursive: true })
+// Point the plugin's sshHome() (node:os homedir(), which on Windows resolves
+// %USERPROFILE% and on POSIX $HOME) at the scratch dir BEFORE any session is
+// created, so accept-new persistence writes scratch/.ssh/known_hosts and the
+// real ~/.ssh is never touched. This is why the script must stay self-contained
+// despite the spec-file comment — the isolation override lives here, in-process.
+process.env.USERPROFILE = scratch
+process.env.HOME = scratch
 console.log('isolated HOME =', scratch)
 
 let pass = 0

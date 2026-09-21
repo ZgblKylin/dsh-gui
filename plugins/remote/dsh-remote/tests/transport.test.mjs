@@ -152,6 +152,43 @@ assert.deepEqual(checkHostKeyAcceptNew('sub.example.com', wildKey, known), { ok:
 assert.deepEqual(checkHostKeyAcceptNew('hashedhost', fakeKey, known), { ok: true, known: false })
 ok('known_hosts accept-new (same key / changed key / new host / wildcard / hashed)')
 
+// ── known_hosts algorithm-aware matching (rotating key types) ──
+// A host legitimately records ONE key per key type (OpenSSH). The presented
+// host key's type is decided by KEX, so it must only be compared against
+// same-type records: an `ssh-rsa` line is not evidence about an `ssh-ed25519`
+// key. This is the regression for the false `Host denied (verification failed)`
+// seen when a server offers a key type not (or not first) recorded.
+const { utils } = require('ssh2')
+const genKeyBlob = (type, opts) => new Promise((resolve, reject) =>
+  utils.generateKeyPair(type, opts, (err, pair) => {
+    if (err) return reject(err)
+    const parsed = utils.parseKey(pair.private)
+    const list = Array.isArray(parsed) ? parsed : [parsed]
+    resolve(list[0].getPublicSSH())
+  }),
+)
+const edBlob = await genKeyBlob('ed25519', {})
+const ed2Blob = await genKeyBlob('ed25519', {})
+const rsaBlob = await genKeyBlob('rsa', { bits: 2048 })
+const algoOf = (buf) => { const len = buf.readUInt32BE(0); return buf.subarray(4, 4 + len).toString('ascii') }
+assert.equal(algoOf(edBlob), 'ssh-ed25519')
+assert.equal(algoOf(rsaBlob), 'ssh-rsa')
+
+// RSA-only recorded; server now offers a never-recorded ED25519 key → accept-new
+// (this is NOT a key change, and must NOT be refused).
+const rsaOnly = `10.2.3.4 ssh-rsa ${rsaBlob.toString('base64')}\n`
+assert.deepEqual(checkHostKeyAcceptNew('10.2.3.4', edBlob, rsaOnly), { ok: true, known: false })
+
+// Both types recorded, ED25519 matches its own record even though the RSA line
+// appears first in the file → trust.
+const both = `10.2.3.4 ssh-rsa ${rsaBlob.toString('base64')}\n10.2.3.4 ssh-ed25519 ${edBlob.toString('base64')}\n`
+assert.deepEqual(checkHostKeyAcceptNew('10.2.3.4', edBlob, both), { ok: true, known: true })
+
+// Same key type, key genuinely changed → still refuse (防 MITM preserved).
+const edOnly = `10.2.3.4 ssh-ed25519 ${edBlob.toString('base64')}\n`
+assert.deepEqual(checkHostKeyAcceptNew('10.2.3.4', ed2Blob, edOnly), { ok: false, known: false })
+ok('known_hosts algorithm-aware (rotating key type / genuine same-type change)')
+
 // ── SshSession failure paths (no network) ──────────────────────
 const sess = new SshSession({ user: 'x', host: '127.0.0.1', port: 1, password: 'pw' })
 let threw = null

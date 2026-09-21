@@ -388,9 +388,21 @@ export function buildSshPlan(auth: SshAuth): SshPlan {
  * accept-new host-key check against a known_hosts document. Returns whether
  * the connection may proceed and whether the host was already known (callers
  * append the key once after a successful first connect).
+ *
+ * OpenSSH records ONE key per key type per host, and the SSH handshake offers
+ * exactly one host key (its type negotiated by KEX). Only a same-type recorded
+ * key is evidence about the presented key: an identical one is trusted, a
+ * differing one is a genuine key change → refuse (防 MITM). Entries for other
+ * key types (e.g. an old `ssh-rsa` line when the server now offers
+ * `ssh-ed25519`) are NOT evidence of a change and must be skipped — otherwise a
+ * perfectly fine host whose servers rotates/negotiates another key type would
+ * be falsely denied with `Host denied (verification failed)`.
  */
 export function checkHostKeyAcceptNew(host: string, key: Buffer, knownText: string): { ok: boolean; known: boolean } {
   const keyB64 = key.toString('base64')
+  // '' when the blob is not parseable — fall back to the legacy any-line match
+  // so synthetic/foreign keys keep working instead of being misclassified.
+  const algo = keyAlgorithm(key)
   for (const raw of knownText.split(/\r?\n/)) {
     const line = raw.trim()
     if (line === '' || line.startsWith('@')) continue // markers: @cert-authority / @revoked
@@ -399,10 +411,11 @@ export function checkHostKeyAcceptNew(host: string, key: Buffer, knownText: stri
     const hostList = parts[0]
     if (hostList.includes('|')) continue // hashed host entry (`|1|salt|hash`) — cannot match here
     if (!sshGlob(hostList, host)) continue
+    if (algo !== '' && parts[1] !== algo) continue // other key type → not evidence about this key
     if (parts[2] === keyB64) return { ok: true, known: true } // same key → trust
     return { ok: false, known: false } // key changed for a known host → refuse (possible MITM)
   }
-  return { ok: true, known: false } // not present → accept-new
+  return { ok: true, known: false } // not present (for this key type) → accept-new
 }
 
 function knownHostsPath(): string {
@@ -419,13 +432,13 @@ function verifyKnownHosts(host: string, key: Buffer): { ok: boolean; known: bool
   }
 }
 
-/** Fall back to the algorithm tag parsed from the key blob. */
+/** Fall back to the algorithm tag parsed from the key blob ('' when unparsable). */
 function keyAlgorithm(key: Buffer): string {
   try {
     const len = key.readUInt32BE(0)
     if (len > 0 && len < 256 && key.length >= 4 + len) return key.subarray(4, 4 + len).toString('ascii')
   } catch { /* unparsable */ }
-  return 'ssh-rsa'
+  return ''
 }
 
 /** Best-effort append of a newly accepted host key (accept-new persistence). */
@@ -434,13 +447,20 @@ function appendKnownHostKey(host: string, key: Buffer): void {
   try {
     const file = knownHostsPath()
     if (!existsSync(dirname(file))) return
+    const algo = keyAlgorithm(key) || 'ssh-rsa'
+    const keyB64 = key.toString('base64')
     let existing = ''
     if (existsSync(file)) existing = readFileSync(file, 'utf8')
+    // One key per (host, key-type) pair, mirroring OpenSSH: a host that already
+    // records an `ssh-rsa` line may still gain an `ssh-ed25519` line.
     for (const raw of existing.split(/\r?\n/)) {
       const parts = raw.trim().split(/\s+/)
-      if (parts.length >= 1 && parts[0].split(',').includes(host)) return // already recorded
+      if (parts.length >= 3 && parts[0].split(',').includes(host) && parts[1] === algo) {
+        if (parts[2] !== keyB64) continue // same type but changed — skip (never overwrite)
+        return // already recorded exactly
+      }
     }
-    appendFileSync(file, `${host} ${keyAlgorithm(key)} ${key.toString('base64')}\n`)
+    appendFileSync(file, `${host} ${algo} ${keyB64}\n`)
   } catch { /* best-effort */ }
 }
 
@@ -461,6 +481,8 @@ export class SshSession {
   private servers: ReturnType<typeof createServer>[] = []
   private sockets = new Set<import('node:net').Socket>()
   private pendingAppend: { host: string; key: Buffer } | null = null
+  /** Set when the accept-new check REFUSED: actionable guidance for the user. */
+  private hostKeyDetail: string | null = null
 
   constructor(auth: SshAuth) {
     this.auth = auth
@@ -512,6 +534,16 @@ export class SshSession {
     return (key: Buffer) => {
       const res = verifyKnownHosts(this.plan.hostname, key)
       if (res.ok && !res.known) this.pendingAppend = { host: this.plan.hostname, key: Buffer.from(key) }
+      if (!res.ok) {
+        // ssh2 only surfaces `Host denied (verification failed)`; make the cause
+        // actionable: which host, which record, and how to trust the new key.
+        this.hostKeyDetail = [
+          `主机密钥验证拒绝：远端 ${this.plan.hostname} 的主机密钥与本地记录不一致。`,
+          `检查 ${knownHostsPath()} 中 ${this.plan.hostname} 的条目。`,
+          '可能原因：远端重装/更换了主机密钥（可接受），或连接正被中间人劫持（应拒绝）。',
+          `若确认远端可信，请清除旧记录后重试：ssh-keygen -R ${this.plan.hostname}（或删除 known_hosts 里对应行）。`,
+        ].join('\n')
+      }
       return res.ok
     }
   }
@@ -569,7 +601,11 @@ export class SshSession {
         settled = true
         clearTimeout(timer)
         try { client.end() } catch { /* already closed */ }
-        reject(err)
+        // Amplify the opaque ssh2 `Host denied (verification failed)` with the
+        // accept-new diagnostic (which host / what changed / how to fix).
+        const detail = this.hostKeyDetail
+        const msg = detail !== null ? `${err instanceof Error ? err.message : String(err)}\n${detail}` : err
+        reject(msg instanceof Error ? msg : new Error(String(msg)))
       })
       client.connect(cfg)
     })
@@ -586,7 +622,11 @@ export class SshSession {
         this.client = client
         return
       } catch (err) {
-        failures.push(err instanceof Error ? err.message : String(err))
+        const msg = err instanceof Error ? err.message : String(err)
+        // Host-key denial is deterministic per host — trying the remaining auth
+        // candidates would only repeat the same failure (and double the message).
+        if (/Host denied \(verification failed\)/.test(msg)) throw new Error(msg)
+        if (!failures.includes(msg)) failures.push(msg)
       }
     }
     throw new Error(failures.join('；') || '认证失败')
@@ -1504,7 +1544,9 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
             logLines,
             'ssh config 认证检查',
             probeRes.ok,
-            probeRes.ok ? '通过（复用 ~/.ssh/config' + (auth.host !== String(conn.address) ? ` 别名 ${auth.host}` : '') + '）' : '该主机需要认证，请填写用户名/密码或密钥',
+            probeRes.ok
+              ? '通过（复用 ~/.ssh/config' + (auth.host !== String(conn.address) ? ` 别名 ${auth.host}` : '') + '）'
+              : (probeRes.detail ?? '该主机需要认证，请填写用户名/密码或密钥'),
           )
           if (!probeRes.ok) {
             return { ok: false, authRequired: true, log: logLines }
@@ -1591,11 +1633,16 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
  * ssh2 auth probe for the no-credential path: connect using the resolved
  * `~/.ssh/config` alias (or default keys / agent) and run a trivial command.
  * A failure means the alias needs authentication the plugin was not given →
- * authRequired.
+ * authRequired. A host-key refusal is NOT an auth problem — it is surfaced
+ * verbatim (with the accept-new fix-it guidance) so the user is not told to
+ * "fill in credentials" for a MITM/key-rotation denial.
  */
-async function probeSshAuth(ctx: Context, auth: SshAuth): Promise<{ ok: boolean }> {
+async function probeSshAuth(ctx: Context, auth: SshAuth): Promise<{ ok: boolean; detail?: string }> {
   const res = await sshRun(ctx, auth, 'echo DSH_REMOTE_AUTH_OK', 20000)
-  return { ok: res.exitCode === 0 && res.stdout.includes('DSH_REMOTE_AUTH_OK') }
+  if (res.exitCode === 0 && res.stdout.includes('DSH_REMOTE_AUTH_OK')) return { ok: true }
+  const err = res.stderr.trim()
+  if (/Host denied \(verification failed\)/.test(err)) return { ok: false, detail: err.slice(0, 600) }
+  return { ok: false }
 }
 
 /**
