@@ -299,7 +299,10 @@ npm run harness
 It uses the same `web --port <port> --no-open` arguments, starts the resolved
 runtime's CLI from that runtime's working directory (`.harness/` in `npm` mode,
 `deepseek-harness/` in `source` mode), and pins `DSH_HOME` to this repository's
-`.dsh`. Its output stays in the terminal; press Ctrl+C to stop it.
+`.dsh` plus `DSH_AGENTS_HOME` to `.dsh\.agents` (the agent-config home the build
+fills from `global_template.agents/`; without that pin the harness reads the
+machine-wide `~/.agents` and the user-level skills never reach the session). Its
+output stays in the terminal; press Ctrl+C to stop it.
 
 Both launch paths honor `$env:DSH_GUI_PORT` (default `3080`). Under `npm start`,
 harness output is logged to `.dsh\gui\harness.log`; dsh-gui's own status lines

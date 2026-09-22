@@ -1533,12 +1533,18 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
       if (!Number.isInteger(port) || port <= 0 || port > 65535) return { ok: false, error: 'invalid port' }
       if (locals.has(port)) return { ok: true, already: true, port }
       if (env.bin === '' || env.node === '') return { ok: false, error: 'no harness bin found' }
-      const logFile = join(env.home !== '' ? env.home : join(env.repoRoot, '.dsh'), 'gui', `remote-${port}.log`)
+      const home = env.home !== '' ? env.home : join(env.repoRoot, '.dsh')
+      const logFile = join(home, 'gui', `remote-${port}.log`)
       mkdirSync(dirname(logFile), { recursive: true })
       const out = openSync(logFile, 'a')
-      const child = spawn(env.node, [env.bin, 'web', '--port', String(port)], {
+      const child = spawn(env.node, [env.bin, 'web', '--port', String(port), '--no-open'], {
         cwd: env.harnessDir !== '' ? env.harnessDir : env.repoRoot,
-        env: { ...process.env, DSH_HOME: env.home !== '' ? env.home : join(env.repoRoot, '.dsh') },
+        // The agent-config home the desktop shell pins too: this backend is a
+        // second instance of the same installation, so it must read the same
+        // user-level skills and always-loaded docs (otherwise the provider
+        // falls back to the machine-wide `~/.agents` and this tab shows a
+        // smaller skill roster than the primary one).
+        env: { ...process.env, DSH_HOME: home, DSH_AGENTS_HOME: join(home, '.agents') },
         stdio: ['ignore', out, out],
         detached: process.platform !== 'win32',
       })
