@@ -415,12 +415,34 @@ fn install_panic_log() {
 /// launch line `dsh web: http://127.0.0.1:<port>/?token=...` emitted once the
 /// Web profile is ready (a harness ≥ dsh-v0.1.2-alpha.1 authenticates every
 /// request through that one-time token or its minted session cookie).
+///
+/// On Windows the child also carries a kill-on-close job. It is created and
+/// assigned **right after spawn** (not after readiness), so the harness is
+/// protected by the job from the very first instant — including the several
+/// seconds of boot time when the loading window is still showing. Before this
+/// field existed, a shell killed during that boot window left the node
+/// process orphaned and still holding its port (the zombie this guard fixes).
+/// Job creation/assignment is best-effort: `None` degrades to the taskkill
+/// fallback described on [`ChildGuard`], same as before.
 struct HarnessProcess {
     child: Child,
     lines: mpsc::Receiver<String>,
+    #[cfg(windows)]
+    job: Option<job::KillJob>,
 }
 
 impl HarnessProcess {
+    /// Split the harness back into its child and (Windows) kill-on-close job
+    /// so ownership can move on: readiness failure drops the job (its
+    /// kill-on-close tears the tree down), readiness success hands both to the
+    /// [`ChildGuard`] that owns them for the app's lifetime.
+    #[cfg(windows)]
+    fn into_parts(self) -> (Child, Option<job::KillJob>) {
+        (self.child, self.job)
+    }
+
+    /// Non-Windows shells have no job wrapper: the child is moved out as-is.
+    #[cfg(not(windows))]
     fn into_child(self) -> Child {
         self.child
     }
@@ -496,6 +518,36 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
         .stderr
         .take()
         .ok_or("harness stderr is unavailable")?;
+    // Put the harness into a kill-on-close job the moment it is born, not
+    // after it becomes ready. The boot window (loading page showing, up to
+    // `HARNESS_BOOT_TIMEOUT`) is then covered too: if this shell is killed
+    // without running destructors during those seconds, closing the job's
+    // last handle tears the whole harness tree down instead of leaving an
+    // orphaned node that keeps its port (see crate docs).
+    #[cfg(windows)]
+    let job = match job::KillJob::new() {
+        Ok(job) => {
+            if !job.assign(&child) {
+                log_status(
+                    &root,
+                    &format!(
+                        "could not assign harness {} to its kill-on-close job; cleanup will fall back to taskkill on exit",
+                        child.id()
+                    ),
+                );
+            }
+            Some(job)
+        }
+        Err(error) => {
+            log_status(
+                &root,
+                &format!(
+                    "failed to create the harness kill-on-close job ({error}); cleanup will fall back to taskkill on exit"
+                ),
+            );
+            None
+        }
+    };
     let (tx, rx) = mpsc::channel();
     // One writer thread per stream: each line is appended to the shared log
     // file (append-mode handles) and, for stdout, replayed to the channel so
@@ -543,7 +595,12 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
         }
     });
     let _ = (tee, tee2);
-    Ok(HarnessProcess { child, lines: rx })
+    Ok(HarnessProcess {
+        child,
+        lines: rx,
+        #[cfg(windows)]
+        job,
+    })
 }
 
 /// Append-mode handle for the harness log, opened lazily per thread (Windows
@@ -740,6 +797,21 @@ struct ChildGuard {
 }
 
 impl ChildGuard {
+    /// Claim a kill-on-close job created at spawn time (spawn 期就建好的
+    /// Job 直接接管，避免 boot 窗口期的孤儿窗口)。Job 已对 Child 分配过；
+    /// 这里只收下持有权，让 Drop 时一并清树。`None`（创建/分配失败的降级）
+    /// 回退到 [`Self::new`]，走原 taskkill 兜底。
+    #[cfg(windows)]
+    fn with_job(child: Child, job: Option<job::KillJob>) -> Self {
+        match job {
+            Some(job) => Self {
+                child: Mutex::new(Some(child)),
+                job: Some(job),
+            },
+            None => Self::new(child),
+        }
+    }
+
     #[cfg(windows)]
     fn new(child: Child) -> Self {
         match job::KillJob::new() {
@@ -1573,15 +1645,30 @@ fn run_harness_loop(
                 state.cookie = auth.cookie;
                 state.status = HarnessStatus::ready(port, auth.web_url);
                 // Holds the child from here on: the app's exit terminates the
-                // harness tree through this guard's kill-on-close job.
-                state._guard = Some(ChildGuard::new(process.into_child()));
+                // harness tree through this guard's kill-on-close job. The job
+                // was built at spawn time; `with_job` takes it over so the
+                // boot window (loading page) was already protected.
+                #[cfg(windows)]
+                let (child, job) = process.into_parts();
+                #[cfg(windows)]
+                let guard = ChildGuard::with_job(child, job);
+                #[cfg(not(windows))]
+                let guard = ChildGuard::new(process.into_child());
+                state._guard = Some(guard);
                 drop(state);
                 publish_harness_status(&app, &slot);
             }
             Err(error) => {
                 // The child is unusable: a throwaway guard terminates its tree
-                // (its `Drop` also waits for the process).
-                drop(ChildGuard::new(process.into_child()));
+                // (its `Drop` also waits for the process). It takes over the
+                // job built at spawn time so the boot window stays covered.
+                #[cfg(windows)]
+                let (child, job) = process.into_parts();
+                #[cfg(windows)]
+                let guard = ChildGuard::with_job(child, job);
+                #[cfg(not(windows))]
+                let guard = ChildGuard::new(process.into_child());
+                drop(guard);
                 fail_harness(
                     &app,
                     &root,
