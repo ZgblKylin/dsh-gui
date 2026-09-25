@@ -74,7 +74,7 @@
 | --- | --- |
 | `plugins/harness/agent-team.mjs` | `TEAM_VERSION` → `0.1.7-rc.2`；移除 web-profile 的安装 |
 | `plugins/harness/auto-review.mjs` | `@deepseek-ai/dsh-experimental-auto-review@0.1.7-rc.2` |
-| `plugins/harness/browser-use.mjs` | 两个包 → `0.1.7-rc.2`（仍默认跳过） |
+| `plugins/harness/browser-use.mjs` | 两个包 → `0.1.7-rc.2`（本次仍保持默认跳过；随后在该版本上核实并解除屏蔽，见 [2026-09-26-browser-use-unmask.md](2026-09-26-browser-use-unmask.md)） |
 | `plugins/harness/computer-use.mjs` | 两个包 → `0.1.7-rc.2` |
 | `plugins/better-sidebar/install.mjs` | `dsh-better-sidebar@0.21.1`、`dsh-flowglass@0.7.2`、`dsh-sidebar-qa@1.0.2` |
 | `plugins/plugin-market/install.mjs` | `dshmarket@1.65.3` |

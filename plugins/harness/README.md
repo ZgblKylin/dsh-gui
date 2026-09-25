@@ -9,7 +9,7 @@ dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在
 | `install.mjs` | — | 流水线入口，依次加载所有平铺 installer |
 | `agent-team.mjs` | Agent Teams | 两个 npm bundle + 派生 Team-aware agent preset |
 | `auto-review.mjs` | Auto review | 逐调用 LLM 授权审查层 |
-| `browser-use.mjs` | Browser Use (Playwright MCP) | 独占浏览器提供方注册服务 + Playwright MCP 提供方；**默认跳过**（逐会话注册在共享层撞名，等上游修复） |
+| `browser-use.mjs` | Browser Use (Playwright MCP) | 独占浏览器提供方注册服务 + Playwright MCP 提供方 |
 | `computer-use.mjs` | Computer Use (Cua Driver native) | 独占桌面提供方注册服务 + Cua Driver 原生提供方 |
 
 其中 **Agent Teams 与 Auto review** 的四个包都声明 `dsh.bundle.patch`，`dsh
@@ -19,8 +19,7 @@ plugin add` 会自动把它们 reconcile 进 `dsh.profile.bundles`，由各自�
 `dsh.bundle.patch`**，是普通 npm 依赖，由 `browser-use.mjs` / `computer-use.mjs`
 通过共享流水线的显式 `mount` 选项写入 insert 行（Browser Use 的服务行 + 提供方行，
 提供方行带 `config`；Computer Use 的服务行 + 原生提供方行，原生提供方无配置、行不带
-`config`，见下）。**Browser Use 当前默认跳过**：`installNpmPlugin` 的 `skip` 只记录
-包、不写 insert，原因与恢复方式见「Browser Use」一节；`computer-use.mjs` 正常安装。
+`config`，见下）。四个 installer 都正常安装，没有默认跳过的条目。
 
 ## Agent Teams
 
@@ -120,11 +119,14 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 
 ## Browser Use (Playwright MCP)
 
-> **当前状态：默认跳过安装。** `browser-use.mjs` 的两个 `installNpmPlugin`
-> 调用都带 `skip`：构建时只记录包、不写入 profile，输出
-> `skipping 'browser-use' / 'browser-use-playwright-mcp' — <原因>`。
-> 恢复安装设 `DSH_PLUGIN_FORCE_INSTALL=1`（如构建前
-> `$env:DSH_PLUGIN_FORCE_INSTALL=1`）。跳过原因见「已知限制」。
+> **当前状态：正常安装。** 本 wrapper 曾在 0.1.6-alpha.2 上屏蔽安装，因为提供方把
+> MCP 工具注册进共享/全局层，同一 host 只有第一个存活 Session 能用，之后每个
+> Session 都建立失败。根因是 profile 里多出一份 `@deepseek-ai/dsh-scope` 模块实例
+> （上游 issue #4573），其按模块实例生成的 scope 标签宿主注册表不认。
+> `dsh-scope` 在 0.1.7-alpha.1 前后改为 peer 声明，提供方也改为每个存活 Agent 持有
+> 一份 `SessionResources` 并把 MCP 客户端挂进该 Agent 的 scope，因此每个 Session
+> 各自拿到浏览器客户端。副本实测见
+> [`docs/dsh-gui/2026-09-26-browser-use-unmask.md`](../../docs/dsh-gui/2026-09-26-browser-use-unmask.md)。
 
 ### 安装内容
 
@@ -134,15 +136,14 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 | `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.7-rc.2` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
 
 两个包都精确 pin `0.1.7-rc.2`，与本仓库 pinned 的 `dsh-v0.1.7-rc.2` 运行时
-配套（peerDependencies 全部指向 `^0.1.7-rc.1`）——npm `latest` 仍指向
+配套（peerDependencies 精确指向 `0.1.7-rc.2`）——npm `latest` 仍指向
 `0.1.6-alpha.1`，不能通过 `@latest` 或范围解析。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `browserUse`。
 
 ### 挂载与配置
 
 两者都不声明 `dsh.bundle.patch`，属普通 npm 依赖，`browser-use.mjs` 走共享流水线
-的显式 `mount` 选项写入两行 insert（这是本仓库第一个用显式 `mount`/`config` 的
-wrapper；恢复安装后生成的样式如下）：
+的显式 `mount` 选项写入两行 insert（生成的样式如下）：
 
 ```yaml
 - insert:
@@ -174,24 +175,29 @@ x64/x86 安装路径），找到就写进提供方行的 `config.executablePath`
 npm run install:plugins        # 或 npm run build
 ```
 
-**默认不加 `DSH_PLUGIN_FORCE_INSTALL=1` 时本组不安装任何东西**；以该变量强装并重启
-后，在允许浏览器工具且支持图片输入的模型路由上（例如官方 DeepSeek 路由），模型才会
-可见 `mcp__playwright-mcp__<tool>` 工具集与浏览器指导；启动/附加的浏览器由活动
-Session 独占持有。浏览器模式由 profile 组合中的该 `config` 行决定，不是会话级开关。
-把浏览器工具留在 `<unlisted-tools>`（`toolOrder`）中，避免无浏览器连接的 Session
-无法组装提示词。
+安装并重启后，在允许浏览器工具且支持图片输入的模型路由上（例如官方 DeepSeek 路由），
+模型才会可见 `mcp__playwright-mcp__<tool>` 工具集与浏览器指导；`mode: launch` 下每个
+存活 Session 各持一份自己启动的浏览器。浏览器模式由 profile 组合中的该 `config` 行
+决定，不是会话级开关。把浏览器工具留在 `<unlisted-tools>`（`toolOrder`）中，避免无
+浏览器连接的 Session 无法组装提示词。
 
 ### 已知限制
 
-- **同一 host 仅一个存活 Session 可用（当前默认跳过的原因）**：提供方通过
-  `mountSessionMcp` 逐 Session 挂载 mcp-client，其工具（`mcp__playwright-mcp__*`）、
-  提示词段（`mcp:playwright-mcp`）与资源服务器（`playwright-mcp`）都注册进 DSH 的
-  共享/全局层；第二个存活会话（新建或恢复历史会话）会撞名 `already registered`，
-  `failOnStartupError: true` 使会话创建/恢复回滚、并从列表消失。同族的
-  Chrome DevTools MCP 提供方（`browser-use-chrome-devtools-mcp`）结构相同、同样受限；
-  `stagehand-native` 不走逐会话 mcp-client（工具目录只注册一次），不受影响；
-  `computer-use`（cua-driver native / mcp）同样不逐会话挂载，不受影响。等待上游把
-  注册改为按 agent 作用域（或使用唯一 serverName）后恢复安装。
+- **每个存活 Session 各持一份浏览器客户端（0.1.7-rc.2 起）**：提供方通过
+  `SessionResources` 为每个存活 Agent 惰性获取一份 mcp-client，并把它挂进
+  `createScope(ctx, agent)` 生成的 Agent 作用域，因此工具（`mcp__playwright-mcp__*`）、
+  提示词段（`mcp:playwright-mcp`）与资源服务器（`playwright-mcp`）只对该 Agent 可见。
+  副本实测：连开两个会话时后端下出现两个独立的 `@playwright/mcp/cli.js` 进程，两个
+  会话都建立成功。此前 0.1.6-alpha.2 会因 profile 里多出一份 `@deepseek-ai/dsh-scope`
+  而把注册写进全局层，第二个会话直接建立失败（上游 issue #4573；`dsh-scope` 改为
+  peer 声明后消失）。
+  `mode: attach` 是唯一跨会话争用的路径：第二个会话拿不到该连接时**不报错**，只是没有
+  浏览器工具（工具被掩码、提示词段被摘除），可继续其它轮次。
+
+- **启动失败仍会让该次会话创建失败**：提供方以 `failOnStartupError: true` 启动 MCP，
+  而 `agent/created` 是 serial 事件、其监听器失败会 reject agent 创建。缺 Chromium、
+  spawn 被拦或包损坏时该次会话建不起来；修好环境后新建会话即可。同族的
+  Chrome DevTools MCP 与 Stagehand native 提供方本 wrapper 不安装。
 
 - **每个部署一次只启用一个浏览器提供方**；`dsh-browser-use` 服务本身不持有浏览器
   状态，注册位由提供方独占（`ctx.browserUse.register`）。本 wrapper 只安装 Playwright
@@ -275,8 +281,7 @@ npm run install:plugins        # 或 npm run build
   `/permission` slash 选择器）中选择带 `EXP` 角标的 `Auto review`，在确认对话框中
   勾选「我已了解这些风险，并愿意继续」后点「启用 Auto review」；直接键入
   `/permission auto` 也构成明确同意。通用设置行与新会话默认值都不提供 Auto。
-- **Browser Use (Playwright MCP)**：**默认跳过、不安装**（原因见其一节）；只有以
-  `DSH_PLUGIN_FORCE_INSTALL=1` 强装并重启后才随组合挂载，工具以
+- **Browser Use (Playwright MCP)**：安装后即随组合挂载（无二次开关），重启后工具以
   `mcp__playwright-mcp__<tool>` 出现；是否对模型可见还取决于工具目录装配与模型
   路由是否支持图片输入。
 - **Computer Use (Cua Driver native)**：安装后即随组合挂载（无二次开关），重启后
@@ -327,9 +332,8 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
 - 幂等：重复执行结果一致（npm 安装由 `dsh plugin add` 去重，派生 preset 每次重新
   生成）。
 - 依赖 `scripts/plugin-install.mjs` 的共享流水线；各包经 `installNpmPlugin`
-  安装，每个 installer 也可单独运行。Browser Use 与 Computer Use 是头两个用显式
+  安装，每个 installer 也可单独运行。Browser Use 与 Computer Use 是仅有的两个用显式
   `mount` 的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），
-  原本各写两行 insert（Browser Use 提供方行带 `config`）；**Browser Use 当前默认
-  跳过**（`skip`），其两行 insert 只在 `DSH_PLUGIN_FORCE_INSTALL=1` 强装时写入，
-  Computer Use 的两行 insert 正常写入；Agent Teams 与 Auto review 仍是 bundle
-  自挂载。
+  各自写入两行 insert（Browser Use 提供方行带 `config`）；Agent Teams 与 Auto
+  review 仍是 bundle 自挂载。任一 installer 都可用 `DSH_PLUGIN_SKIP=<wrapper id>`
+  临时跳过，`DSH_PLUGIN_FORCE_INSTALL=1` 反过来强制安装。

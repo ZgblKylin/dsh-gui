@@ -13,17 +13,15 @@
  * Neither package declares `dsh.bundle.patch`, so `dsh plugin add` installs
  * them as plain profile dependencies and this script supplies the insert rows
  * through the shared pipeline's explicit `mount` option — the provider row
- * carries its required `config` (`mode: launch`, `headless: true`). This is
- * the first wrapper to use explicit `mount`/`config` (the sibling Agent Teams
- * and Auto review packages self-mount through their own bundle layers). Only
- * the service and the Playwright MCP provider are installed; the Chrome
- * DevTools MCP and Stagehand providers of the same family are not.
+ * carries its required `config` (`mode: launch`, `headless: true`). Only the
+ * service and the Playwright MCP provider are installed; the Chrome DevTools
+ * MCP and Stagehand providers of the same family are not.
  *
  * The versions are pinned to the harness revision this repository builds
- * against: `0.1.7-rc.2` is the dsh-family prerelease whose peerDependencies
- * all point at `^0.1.7-rc.1`, matching the pinned `dsh-v0.1.7-rc.2`
- * runtime. It is also a prerelease, which is why the Community Market cannot
- * carry it.
+ * against: `0.1.7-rc.2` is the dsh-family prerelease whose peers pin the same
+ * 0.1.7 family (the browser packages declare exact `0.1.7-rc.2` peers),
+ * matching the pinned `dsh-v0.1.7-rc.2` runtime. It is also a prerelease, which
+ * is why the Community Market cannot carry it.
  *
  * The provider launches a Chromium binary. The wrapper resolves one at
  * install time from the standard Windows locations (honoring an explicit
@@ -40,30 +38,34 @@
  * of official dsh-family plugins — and is loaded by
  * `plugins/harness/install.mjs`; it also runs standalone.
  *
- * Default install state: SKIPPED pending an upstream fix. The Playwright MCP
- * provider mounts a per-Session mcp-client but its tools, `mcp:playwright-mcp`
- * prompt section, and `playwright-mcp` resource server all land in DSH's
- * shared/global registration layer, so only ONE live Session per host can
- * hold the namespace; any second Session (new or resumed) throws
- * "already registered" and session create/resume rolls back. The two
- * installNpmPlugin calls carry `skip` and still record the packages for the
- * update checker. Restore when the upstream provider registers per-agent (or
- * uses a unique serverName); `DSH_PLUGIN_FORCE_INSTALL=1` overrides this
- * wrapper's default.
+ * Per-Session browser clients. Until 0.1.6-alpha.2 this wrapper was masked:
+ * the provider registered its MCP tools in DSH's shared/global layer, so only
+ * ONE live Session per host could hold the namespace and every later Session
+ * failed to create. The cause was a second `@deepseek-ai/dsh-scope` module
+ * instance in the profile (upstream issue #4573), whose per-module scope tag no
+ * host registry recognized. `dsh-scope` became a peer between 0.1.6-alpha.2 and
+ * 0.1.7-alpha.1, and the provider now keeps one `SessionResources` entry per
+ * live Agent and mounts its MCP client inside that Agent's scope, so each
+ * Session gets its own browser client. `mode: launch` is non-exclusive; only
+ * `mode: attach` reserves one browser across Sessions, and a Session that
+ * cannot have it runs without browser tools instead of failing to open.
+ *
+ * One contract this wrapper accepts with the unmask: the provider starts the
+ * MCP server with `failOnStartupError`, and `agent/created` is a serial event
+ * whose listener failure rejects agent creation. A browser that cannot start
+ * (no Chromium, a blocked spawn, a broken package) therefore fails that one
+ * Session's creation rather than degrading it.
  */
 
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { installNpmPlugin, skipInstall } from '../../scripts/plugin-install.mjs'
+import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 /** Wrapper id prefix: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'browser-use'
 
 const BROWSER_USE_SPEC = '@deepseek-ai/dsh-browser-use@0.1.7-rc.2'
 const PLAYWRIGHT_MCP_SPEC = '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.7-rc.2'
-
-/** Default skip reason (see the header): collides on the shared registration layer for a second live Session. */
-const SKIP_REASON = 'Playwright MCP per-Session registration collides on the shared layer for a second live Session (upstream mountSessionMcp limitation); disabled until upstream fix'
 
 /**
  * Resolve a Chromium-family executable for the provider's `mode: launch`.
@@ -87,22 +89,16 @@ function resolveChromiumExecutable() {
   return candidates.find((candidate) => existsSync(candidate))
 }
 
-// Resolve the Chromium path only when this wrapper actually installs. When
-// skipped (the default) the shared pipeline logs the skip and records the
-// packages for the update checker; DSH_PLUGIN_FORCE_INSTALL=1 overrides.
-let providerConfig
-if (!skipInstall(ID, SKIP_REASON)) {
-  const executablePath = resolveChromiumExecutable()
-  providerConfig =
-    executablePath === undefined
-      ? { mode: 'launch', headless: true }
-      : { mode: 'launch', headless: true, executablePath }
+const executablePath = resolveChromiumExecutable()
+const providerConfig =
+  executablePath === undefined
+    ? { mode: 'launch', headless: true }
+    : { mode: 'launch', headless: true, executablePath }
 
-  if (executablePath !== undefined) {
-    console.log(`  browser-use: resolved Chromium executable at ${executablePath}`)
-  } else {
-    console.log('  browser-use: no system Chromium found — provider row omits executablePath (upstream discovery)')
-  }
+if (executablePath !== undefined) {
+  console.log(`  browser-use: resolved Chromium executable at ${executablePath}`)
+} else {
+  console.log('  browser-use: no system Chromium found — provider row omits executablePath (upstream discovery)')
 }
 
 // The core service first: the provider injects `browserUse`.
@@ -110,7 +106,6 @@ installNpmPlugin({
   id: ID,
   packageSpec: BROWSER_USE_SPEC,
   mount: { id: 'browser-use', name: '@deepseek-ai/dsh-browser-use' },
-  skip: SKIP_REASON,
 })
 
 installNpmPlugin({
@@ -119,7 +114,6 @@ installNpmPlugin({
   mount: {
     id: 'browser-use-playwright-mcp',
     name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp',
-    ...providerConfig === undefined ? {} : { config: providerConfig },
+    config: providerConfig,
   },
-  skip: SKIP_REASON,
 })
