@@ -158,10 +158,17 @@ export function parseInsertRows(text) {
 }
 
 /**
- * Remove legacy three-line insert blocks emitted by mountEntry when a package
- * has since migrated to `dsh.bundle.patch`. Matching both id and package name
- * keeps arbitrary user-authored patch entries untouched. The formatter and all
+ * Remove legacy insert blocks emitted by mountEntry when a package has since
+ * migrated to `dsh.bundle.patch`. Matching both id and package name keeps
+ * arbitrary user-authored patch entries untouched. The formatter and all
  * unrelated content are preserved byte-for-byte apart from removed blocks.
+ *
+ * A row may carry a `config:` block (mountEntry renders per-row settings such as
+ * a browser-use provider config as deeper-indented lines). Those lines belong to
+ * the row: dropping only the three header lines would orphan the block and make
+ * the whole patch unparsable. Continuation lines are exactly the non-empty lines
+ * indented deeper than the row's own `- id:` marker, which also stops at a
+ * sibling row (same indent) and at the blank line between blocks.
  *
  * @param {string} text - patch-list file content.
  * @param {{ id: string, name: string }} mount - the obsolete manual mount.
@@ -171,16 +178,20 @@ export function removeLegacyInsertBlocks(text, mount) {
   const newline = text.includes('\r\n') ? '\r\n' : '\n'
   const trailingNewline = /\r?\n$/.test(text)
   const lines = text.split(/\r?\n/)
+  const indentOf = (line) => /^[ \t]*/.exec(line)[0].length
   let removed = 0
 
   for (let index = 0; index + 2 < lines.length;) {
     const insert = /^\s*- insert:\s*$/.test(lines[index])
-    const id = /^\s*-\s*id:\s*(\S+)\s*$/.exec(lines[index + 1])?.[1]
+    const idLine = /^([ \t]*)-[ \t]*id:\s*(\S+)\s*$/.exec(lines[index + 1])
     const quotedName = /^\s*name:\s*'([^']*)'\s*$/.exec(lines[index + 2])?.[1]
     const plainName = /^\s*name:\s*(\S+)\s*$/.exec(lines[index + 2])?.[1]
     const name = (quotedName ?? plainName)?.replace(/''/g, "'")
-    if (insert && id === mount.id && name === mount.name) {
-      lines.splice(index, 3)
+    if (insert && idLine?.[2] === mount.id && name === mount.name) {
+      const rowIndent = idLine[1].length
+      let end = index + 3
+      while (end < lines.length && lines[end].trim() !== '' && indentOf(lines[end]) > rowIndent) end += 1
+      lines.splice(index, end - index)
       removed += 1
       continue
     }
