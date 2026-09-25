@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // plugins/dsh-pet/install.mjs — PC2005-cloud/dsh-pet（npm 包名 dsh-pet）wrapper。
 //
-// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 最新版本 tag v0.2.9，
+// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 最新版本 tag v0.2.12，
 //   仅作源码参考，不参与构建）；安装走 npm（installNpmPlugin，精确版本
-//   dsh-pet@0.2.9），与 dsh-web-ui 等 npm 型 wrapper 同一通道。
+//   dsh-pet@0.2.12），与 dsh-web-ui 等 npm 型 wrapper 同一通道。
 //
-// 兼容性：v0.2.9 的 host 半 inject `webServer / agentDefaultModel / credentials /
+// 兼容性：v0.2.12 的 host 半 inject `webServer / agentDefaultModel / credentials /
 //   llm / commands` 与 0.2.6 起相同，其中 `agentDefaultModel` 服务由本仓库 pin 的
 //   base bundle（@deepseek-ai/dsh-agent-default-model）提供，host 半可正常激活；
 //   浏览器半自 0.2.8 起把 `commandUi`（官方 dsh-client-ui-commands 的「/」命令
@@ -16,6 +16,8 @@
 //   并落在 `/dsh-pet-7340/notify`，浏览器半轮询该路由），不再使用 DSH 0.1.5 已
 //   移除的 `ctx.connection.api.events.mux/host`；浏览器通知权限仍由 dsh-gui 壳层
 //   的 WebView2 授权弹窗支持（见 src-tauri）。故本 wrapper 不默认跳过。
+//   v0.2.10–v0.2.12 是桌面 helper 的健壮性修复（窗口显示、点击穿透、宿主退出
+//   自退）与素材加载/设置页保存修复；host 半 inject 未变，桌面屏蔽仍然生效。
 //
 // 桌面屏蔽：插件真正装入 profile 后，向 $DSH_HOME/dsh-pet/main-config.json
 //   注入 display:"web" 的默认宠物（见 inject-config.mjs），使任何宠物都不
@@ -34,7 +36,7 @@ import { injectPetConfig, petConfigPath } from './inject-config.mjs'
 
 const ID = 'dsh-pet'
 // 精确稳定 SemVer（Market 约束：不用 latest / 版本范围 / prerelease 作安装目标）。
-const PACKAGE_SPEC = 'dsh-pet@0.2.9'
+const PACKAGE_SPEC = 'dsh-pet@0.2.12'
 
 installNpmPlugin({ id: ID, packageSpec: PACKAGE_SPEC })
 
