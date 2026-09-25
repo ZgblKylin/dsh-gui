@@ -72,6 +72,14 @@ source 模式以 revision 为增量判据：`harness-build.json` 记录的 revis
 
 `DSH_HARNESS_ALLOW_BUILDS` 可把指定项改为 `true`。工作区文件每次构建都会重写，因此该环境变量才是持久的改动方式；缺少决策时 pnpm 会写入非布尔的占位值，后续安装随之失败。
 
+## 仓库根不安装依赖
+
+仓库根的 `package.json` 只承载 `npm run` 入口与 `name`/`version`，**不声明任何依赖，也不带锁文件**。`name`/`version` 是硬要求：harness 的 `nearestManifest()` 会从 `.dsh/.agent-presets/<id>/` 里的相对条目逐级上溯命中它，缺 `version` 会让 DeepSeek 请求的扩展准备阶段整体失败（见 [2026-09-01 记录](2026-09-01-deepseek-request-extension-preparation-failed.md)）。各 `scripts/*.mjs` 只 import Node 内建模块，CLI 一律从 `.harness/node_modules/@deepseek-ai/dsh/lib/bin.js` 或子模块解析，因此根不需要 `node_modules`。
+
+历史上根曾把 `@deepseek-ai/dsh` 写成「版本标记」依赖并留下两枚锁文件：一枚有效的 npm 锁，一枚在根误跑 pnpm 产生的空壳 `pnpm-lock.yaml`（`importers: .: {}`，不含任何包）。编辑器的 npm 扩展只在工作区文件夹根目录按文件名探测锁文件（不递归），两者并存即报「找到多个锁文件，请删除与首选包管理器不匹配的锁文件」。两者已于 2026-09-26 一并删除。
+
+因此不要在仓库根跑 `npm install` / `pnpm install`：重新生成的锁文件没有消费方，且会让该告警复现。依赖一律装在子工程里——`.harness/`、`deepseek-harness/`、`plugins/*`、`.dsh/profiles/web`，各自是独立的 pnpm 工程，`storeDir` 统一指向仓库根的 `.pnpm-store`。
+
 ## 子模块的角色
 
 `deepseek-harness/` 是 pinned 上游子模块，提供版本与规范；npm 模式下只读取 `apps/cli/package.json` 的版本，子模块不编译。禁止编辑其中的任何文件，也禁止向插件源码复制其中的代码。
