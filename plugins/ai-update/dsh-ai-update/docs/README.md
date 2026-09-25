@@ -32,9 +32,11 @@ harness plugin usable without dsh-gui.
   a fresh session is only minted when the workspace has none — the same
   behavior as clicking the workspace on the home screen. The plugin never
   calls session create directly.
-- The agent preset is deliberately NOT touched: the preset chip keeps its
-  default/staged choice and the user selects the preset before sending.
-  agentPreset.select is therefore not part of this plugin.
+- The 「创造模式」(cordis) preset IS auto-selected for the blank session via
+  `ctx.remote.agentPresets.select` (see the header comment of
+  `src/client/index.ts`): a refusal fails the request instead of silently
+  running under the deployment default, and the user can still switch the
+  preset chip before sending.
 - The draft is written through conversation.input.for(actx).setDraft, the
   same single-write path the composer uses; the user reviews and sends it.
 
@@ -58,6 +60,15 @@ cannot know: the module name, its path, its current version, and the target its
 dialog row selected. `deepseek-harness` is the engineering base (the harness
 itself, at the repository root) and not a plugin, so its prompt says so instead
 of referencing the `plugins/` layout or the plugin install pipeline.
+
+The draft closes with two shared notes: `AI_UPDATE_WORKSPACE_NOTE` (the paths
+are relative to the repository root, and the session workspace must be that
+repository) and `AI_UPDATE_GATE_NOTE` — the acceptance gate the skill cannot
+infer from the dialog: the staging copy's WebUI must actually load (a green
+build and a clean `--dump-config` are only preconditions), a batch that
+updates `deepseek-harness` additionally needs a computer-use check that the GUI
+starts and runs, and phase two only touches this checkout after the user
+explicitly approves the verification report.
 
 Batch AI update (`AI 更新全部`) special-cases the base modules:
 

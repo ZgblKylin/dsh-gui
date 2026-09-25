@@ -87,10 +87,14 @@ browser.
   exits, updates in a console window, and restarts. The dialog recommends
   AI-sync updates: each updatable row and the bottom bar offer an **AI 更新**
   button that returns to the project home screen, selects the dsh-gui
-  directory there, and prefills a prompt that asks the agent to sync the
-  submodule(s) to the chosen target and run the install scripts (the bottom
-  button lists every updatable module with its combo choice). The agent preset
-  is left for you to pick. Each behind row also has an **更新日志** button:
+  directory there, selects the 「创造模式」(cordis) preset, and prefills a
+  prompt that asks the agent to sync the submodule(s) to the chosen target and
+  verify the result in the persistent `.staging/dsh-gui` clone — the staging
+  WebUI must actually load, a harness update additionally needs a computer-use
+  check that the GUI starts and runs, and phase two only touches this checkout
+  after you approve the verification report (the bottom button lists every
+  updatable module with its combo choice; the preset can still be changed
+  before sending). Each behind row also has an **更新日志** button:
   for a tag target it shows the official GitHub Release notes for **every**
   release the update brings in — all tags between the current checkout and the
   update target, newest first, so a checkout several releases behind sees the

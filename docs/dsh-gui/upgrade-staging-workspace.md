@@ -2,7 +2,7 @@
 
 ## 用途
 
-`.staging/dsh-gui` 是本仓库的持久化 clone 副本，连同全部子模块一起维护。插件或 harness 的升级先在该副本中更新、构建与冒烟检查，通过后才实装到本工程，因此中途失败的升级不会让本工程正在服务的安装无法启动。升级流程见 skill [dsh-gui-update](../../.agents/skills/dsh-gui-update/SKILL.md)。
+`.staging/dsh-gui` 是本仓库的持久化 clone 副本，连同全部子模块一起维护。插件或 harness 的升级先在该副本中更新、构建、冒烟检查，并验收 WebUI（更新含 harness 时另验 GUI）能正常加载与运行；报告用户并取得明确审批后才实装到本工程，因此中途失败的升级不会让本工程正在服务的安装无法启动。升级流程见 skill [dsh-gui-update](../../.agents/skills/dsh-gui-update/SKILL.md)。
 
 副本自带独立的 DSH_HOME（`.staging/dsh-gui/.dsh`）、工具链（`.toolchain/`）、pnpm store（`.pnpm-store/`）与构建产物，验证过程不写入本工程的对应目录。`.staging/` 由 `.gitignore` 排除，副本永不作为本仓库的源。
 
@@ -47,9 +47,36 @@ $env:DSH_HOME = "$PWD\.staging\dsh-gui\.dsh"
 node .staging\dsh-gui\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --dump-config
 ```
 
+## 阶段一验收：WebUI 与 GUI
+
+[冒烟检查](#冒烟检查)只是前置条件——阶段一的通过基准是副本真的能跑起来。
+
+**WebUI 加载验收（每次升级都必做）**：以副本自身的 DSH_HOME 在**空闲端口**启动副本的 web 后端（正在运行的 dsh-gui 占着默认的 3080），确认 WebUI 能正确加载。
+
+```powershell
+cd .staging\dsh-gui
+$env:DSH_GUI_PORT = "3090"   # 空闲端口，避免与运行中的实例争用
+npm run harness              # scripts/harness.mjs：副本 .dsh 为 DSH_HOME，副本 .dsh\.agents 为 DSH_AGENTS_HOME
+```
+
+在 `http://127.0.0.1:3090` 确认会话界面正常渲染、能新建或载入会话、插件与组合没有加载失败提示或错误覆盖层；确认后结束该进程。构建全绿与 `--dump-config` 无报错都不算通过。
+
+**GUI 启动运行验收（仅当本次更新包含 `deepseek-harness`）**：harness 换代可能让桌面外壳起不来，因此还要用 computer use 验证 GUI 能正常启动和运行。先构建入口 exe，再启动副本自己的 exe：
+
+```powershell
+cd .staging\dsh-gui
+$env:DSH_GUI_PORT = "3090"
+npm run build                # 不带 --skip-exe，产出副本根目录的 dsh-gui.exe
+npm start                    # 启动副本根目录的入口 exe
+```
+
+副本 exe 从自身路径解析仓库根与 `.dsh`（`src-tauri/src/main.rs` 的 `repo_root`），与正在运行的实例互不干扰；唯一会冲突的是端口（`ensure_loopback_port_available`），因此必须换端口。确认窗口出现、加载页过渡到标签页、harness 就绪、能正常交互后关闭该实例。
+
+两项验收都通过后，先向用户报告结论（副本路径、目标修订、验证命令与结果、适配改动清单、屏蔽项与未决风险），取得明确审批后才执行阶段二实装到本工程。
+
 ## 与产品内「AI 更新」的关系
 
-更新对话框的「AI 更新」把 `src-tauri/ui/app.js` 生成的提示词预填到会话：提示词以 `/dsh-gui-update` skill 手势开头，由 skill `dsh-gui-update` 驱动升级流程，本工作区就是该流程的验证位置。副本跨会话保留，已完成的依赖安装与构建可以复用，重复验证不必每次重新引导工具链。
+更新对话框的「AI 更新」把 `src-tauri/ui/app.js` 生成的提示词预填到会话：提示词以 `/dsh-gui-update` skill 手势开头，由 skill `dsh-gui-update` 驱动升级流程，本工作区就是该流程的验证位置。提示词末尾的「验证与实装门槛」（`AI_UPDATE_GATE_NOTE`）与本节一致：先在本副本验证，**「验证通过」指副本的 WebUI 能正确加载**；本次更新包含 harness 时还要用 computer use 验证 GUI 能正常启动和运行；两项都通过后向用户报告，**等用户审批后**才把更新同步到主工程。副本跨会话保留，已完成的依赖安装与构建可以复用，重复验证不必每次重新引导工具链。
 
 ## 沙箱与提权
 

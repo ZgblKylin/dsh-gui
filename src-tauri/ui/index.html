@@ -212,7 +212,7 @@
     <div id="update-overlay" class="overlay hidden">
       <div class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
         <h2 id="update-title">检查更新</h2>
-        <div class="update-sub">比较 dsh-gui 与所有 submodule 的本地版本和远端最新版本。检测到可用更新后，建议使用「AI 更新」同步升级：让 agent 回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 /dsh-gui-update 提示词，由该 skill 执行「先在 .staging/dsh-gui 副本验证、通过后实装」的升级流程（发送前可再改预设）。</div>
+        <div class="update-sub">比较 dsh-gui 与所有 submodule 的本地版本和远端最新版本。检测到可用更新后，建议使用「AI 更新」同步升级：让 agent 回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 /dsh-gui-update 提示词，由该 skill 执行「先在 .staging/dsh-gui 副本验证（WebUI 能正确加载；更新含 harness 时另用 computer use 验证 GUI 能启动运行），报告并取得你的审批后再实装到主工程」的升级流程（发送前可再改预设）。</div>
         <div class="update-header-row">
           <span id="update-status-line" class="update-status-line"></span>
           <button id="update-refresh" class="update-refresh" type="button" title="重新检查">↻ 重新检查</button>

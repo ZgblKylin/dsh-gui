@@ -34,10 +34,22 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 
 提示词由 `src-tauri/ui/app.js` 生成（`buildAiUpdatePrompt` 与两个基座提示词
 构造器），以 `/dsh-gui-update` skill 手势开头：host 侧的 `dsh-tool-skill` 会把
-该 skill 的内容注入会话，升级流程（先在 `.staging/dsh-gui` 副本中验证、通过后
-才实装）全部由该 skill 承载，提示词只补充模块名、路径、当前版本与更新目标。
-工作区说明见
-[upgrade-staging-workspace.md](upgrade-staging-workspace.md)。
+该 skill 的内容注入会话，升级流程全部由该 skill 承载，提示词只补充模块名、
+路径、当前版本、更新目标，以及 skill 无法从对话框得知的验收门槛
+（`AI_UPDATE_GATE_NOTE`，三类提示词——单模块、仅 harness、harness 与插件批量
+——都带这段）：
+
+1. 先在 `.staging/dsh-gui` 副本中更新与验证；**「验证通过」指副本的 WebUI
+   能正确加载**（会话界面正常渲染、能新建或载入会话、插件与组合无加载报错），
+   构建全绿与 `--dump-config` 无报错都只是前置条件；
+2. 本次更新包含 `deepseek-harness` 时，还要用 computer use 验证 GUI（桌面
+   外壳）能在副本中正常启动和运行；
+3. 验证全部通过后先向用户报告结论，**等用户明确审批后**才执行阶段二，把更新
+   同步到本工程。
+
+验收命令与判据见
+[upgrade-staging-workspace.md](upgrade-staging-workspace.md) 与 skill
+`dsh-gui-update`。
 
 ## 检测与标注
 

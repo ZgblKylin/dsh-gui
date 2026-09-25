@@ -40,7 +40,7 @@ console.log({ platform: process.platform, arch: process.arch })
 ## 项目 Skills
 
 - **`dsh-plugin-install`**：安装/卸载 DSH 插件到 profile 的标准流程。涉及插件安装、卸载、更新、源码编译安装时，先加载该 skill。其内容基于 `dsh plugin --profile <profile> add --help`（受管安装器转发的 pnpm add）的权威安装方式列表：npm 包 / tag / 版本 / 版本范围 / git 简写 / git URL / 本地 tgz / tarball URL / 目录。
-- **`dsh-gui-update`**：把 `deepseek-harness` 或某插件模块升级到更新的上游修订（最新 tag / 最新提交）的标准流程。涉及模块升级、升级前验证、插件屏蔽与实装时，先加载该 skill；它基于更新对话框的 AI 更新提示词，升级先在 `.staging/dsh-gui` 副本中验证，通过后才实装到本工程。
+- **`dsh-gui-update`**：把 `deepseek-harness` 或某插件模块升级到更新的上游修订（最新 tag / 最新提交）的标准流程。涉及模块升级、升级前验证、插件屏蔽与实装时，先加载该 skill；它基于更新对话框的 AI 更新提示词：升级先在 `.staging/dsh-gui` 副本中验证（「验证通过」指副本 WebUI 能正确加载；更新含 harness 时另用 computer use 验证 GUI 能启动运行），报告并取得用户审批后才实装到本工程。
 - Skill 分两级：仓库级开发 skill 存放于 `.agents/skills/<skill-name>/SKILL.md`；用户级 skill（对所有 workspace 生效）源文件存放于 `global_template.agents/skills/<skill-name>/SKILL.md`，由构建安装到 `.dsh/.agents/skills/`。frontmatter 含 `name`、`description`、`whenToUse`。
 
 ## 工具与终端

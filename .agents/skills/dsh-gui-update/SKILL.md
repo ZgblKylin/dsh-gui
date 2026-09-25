@@ -1,6 +1,6 @@
 ---
 name: dsh-gui-update
-description: 'Use when updating a dsh-gui module to a newer upstream revision — the deepseek-harness engineering base or a plugin module under plugins/ — and when validating that upgrade before it reaches the working repository. Covers the persistent staging clone (.staging/dsh-gui via scripts/staging.mjs), the staging-first two-phase flow, the ban on building or installing inside the running checkout (phase two only syncs install scripts and submodule pins, then hands the rebuild back to the user), plugin masking, the post-upgrade install-script audit, the npm publish state of npm-installed wrappers and of the dsh runtime, reporting and commit-message drafting, and the sandbox elevation rule.'
+description: 'Use when updating a dsh-gui module to a newer upstream revision — the deepseek-harness engineering base or a plugin module under plugins/ — and when validating that upgrade before it reaches the working repository. Covers the persistent staging clone (.staging/dsh-gui via scripts/staging.mjs), the staging-first two-phase flow, the phase-one acceptance gate (the staging WebUI must actually load; a harness update additionally gets a computer-use check that the GUI starts and runs) and the user approval required before phase two, the ban on building or installing inside the running checkout (phase two only syncs install scripts and submodule pins, then hands the rebuild back to the user), plugin masking, the post-upgrade install-script audit, the npm publish state of npm-installed wrappers and of the dsh runtime, reporting and commit-message drafting, and the sandbox elevation rule.'
 whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上游修订（最新 tag 或最新提交）、需要在实装前先验证、需要在实装阶段避免改动正在运行的 dsh 实例、或更新对话框的「AI 更新」把升级提示词预填到会话后落地该流程时使用。
 ---
 
@@ -10,10 +10,11 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 
 ## 0. 铁律：先验证，后实装
 
-- 阶段一在副本 `.staging/dsh-gui` 中更新、构建与冒烟检查；阶段二在本工程实装。本工程正在服务运行中的 dsh-gui，一次失败的升级会让它无法启动，副本验证正是为了在改动本工程之前暴露这类问题（事故复盘见 [`docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md`](../../../docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md)）。
+- 阶段一在副本 `.staging/dsh-gui` 中更新、构建、冒烟检查与验收；阶段二在本工程实装。本工程正在服务运行中的 dsh-gui，一次失败的升级会让它无法启动，副本验证正是为了在改动本工程之前暴露这类问题（事故复盘见 [`docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md`](../../../docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md)）。
 - 更新、构建与安装只在副本中进行。副本自带独立的 DSH_HOME（`.staging/dsh-gui/.dsh`），全部产出落在副本内。禁止在本工程执行任何构建或安装动作（`npm run build`、各插件的 `install.mjs`、`dsh plugin add`，以及直接写入本工程 `.dsh/` 的改动）：这些动作会改写正在运行的 dsh 实例的 profile、插件与 preset，使其损坏到无法操作。
 - 阶段二因此只写本工程中受版本管理的文件：安装脚本、插件源码适配与子模块指针。本工程的重新构建由用户在停止运行中的实例后自行执行，会话只负责通知，不代跑。
 - 阶段一全部通过之前，禁止改动本工程的子模块指针、插件安装与构建产物。
+- 阶段一验收全部通过后，先向用户报告验证结论（副本路径、目标修订、验证命令与结果、适配改动清单、屏蔽项与未决风险），取得用户明确审批后才进入阶段二实装；用户未批准前不得改动本工程受版本管理的文件。
 - 一次只推进一个明确目标：更新目标是「最新 tag」还是「最新提交」，由用户在更新对话框按行选择，或由用户直接指定。
 - `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范：禁止编辑其中任何文件，也禁止从该目录向插件源码复制代码。
 
@@ -21,7 +22,7 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 
 | 来源 | 内容 |
 | --- | --- |
-| [`src-tauri/ui/app.js`](../../../src-tauri/ui/app.js) | 更新对话框预填的提示词：`AI_UPDATE_SKILL`（手势常量 `/dsh-gui-update`）、`buildHarnessUpdatePrompt`（仅 harness）、`buildHarnessMergedPrompt`（harness 与插件批量）、`buildAiUpdatePrompt`（单模块与插件批量）。提示词只给出模块名、路径、当前版本与更新目标，流程由本 skill 承载 |
+| [`src-tauri/ui/app.js`](../../../src-tauri/ui/app.js) | 更新对话框预填的提示词：`AI_UPDATE_SKILL`（手势常量 `/dsh-gui-update`）、`buildHarnessUpdatePrompt`（仅 harness）、`buildHarnessMergedPrompt`（harness 与插件批量）、`buildAiUpdatePrompt`（单模块与插件批量）。提示词只给出模块名、路径、当前版本、更新目标，以及 skill 无法从对话框得知的验收门槛 `AI_UPDATE_GATE_NOTE`（副本 WebUI 必须能正确加载；含 harness 时另用 computer use 验证 GUI；报告并经用户审批后才实装）；分步流程由本 skill 承载 |
 | [`docs/dsh-gui/upgrade-staging-workspace.md`](../../../docs/dsh-gui/upgrade-staging-workspace.md) | 副本的位置、维护命令、远端语义、副本内构建与冒烟检查 |
 | [`harness.json`](../../../harness.json) 与 [`docs/dsh-gui/harness-runtime.md`](../../../docs/dsh-gui/harness-runtime.md) | dsh 运行时的选择与版本来源；harness 升级后由 build 按子模块 `apps/cli/package.json` 的版本安装 CLI |
 | [`docs/dsh-gui/update-check.md`](../../../docs/dsh-gui/update-check.md) | 更新检查的判定规则与 npm 发布状态 |
@@ -44,19 +45,38 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
    - **副本内的每一条 `node` / `dsh` / `install.mjs` 调用都必须显式设置 `DSH_HOME`**：见第 9 节的同名条目。
 2. 在副本中把目标模块更新到目标修订，操作同第 2 节的两种目标。
 3. 分析该版本的影响：新增、变更或移除的功能、配置与依赖，以及本仓库插件需要跟进适配的点（组合方式、插件 API、bundle 契约）。以 `AGENTS.md` 与 [`docs/official/`](../../../docs/official) 为依据。
-4. 在副本中完成适配修改并验证：改动本仓库侧的插件源码、适配代码与安装脚本（不涉及 `deepseek-harness/` 内文件），然后运行副本内的 `npm run build -- --skip-exe`，必须全绿；需要一并验证入口 exe 时用 `npm run build`。
+4. 在副本中完成适配修改并验证：改动本仓库侧的插件源码、适配代码与安装脚本（不涉及 `deepseek-harness/` 内文件），然后运行副本内的 `npm run build -- --skip-exe`，必须全绿；本次更新包含 `deepseek-harness` 时必须去掉该标记跑 `npm run build`，因为它要一并构建第 7 步验证的入口 exe。
    - `harness.json` 的 `runtime` 为 `npm`（仓库当前取值）时，本步按子模块 `apps/cli/package.json` 的版本从 registry 安装 dsh CLI，不编译子模块；子模块快进后必须重跑 build 才会换到新版本。
-5. 冒烟检查组合：用副本的 dsh CLI 以 `--profile web --dump-config` 渲染配置树（命令见副本说明文档），确认没有 `duplicate loader entry id`、缺失插件或 patch 报错。
-6. 屏蔽确认与新版不兼容且本次无法修复的插件，并从 profile 的挂载与依赖条目中移除，使其不参与本次验证的安装：
+5. 组合冒烟检查：用副本的 dsh CLI 以 `--profile web --dump-config` 渲染配置树（命令见副本说明文档），确认没有 `duplicate loader entry id`、缺失插件或 patch 报错。这一步只是验收的前置条件，通过它不等于验证通过。
+6. **WebUI 加载验收（必做，阶段一的通过基准）**：「验证通过」指副本的 WebUI 能正确加载出来——构建全绿与配置 dump 无报错都不算。以副本自身的 DSH_HOME 在**空闲端口**启动副本的 web 后端，再确认界面真的渲染出来：
+
+   ```powershell
+   cd .staging\dsh-gui
+   $env:DSH_GUI_PORT = "3090"   # 空闲端口：正在运行的 dsh-gui 占着 3080
+   npm run harness              # scripts/harness.mjs：副本 .dsh 为 DSH_HOME，副本 .dsh\.agents 为 DSH_AGENTS_HOME
+   ```
+
+   在 `http://127.0.0.1:3090`（或所选空闲端口）确认会话界面正常渲染、能新建或载入会话、插件与组合没有加载失败提示或错误覆盖层；在 agent 会话中以后台任务启动它，确认手段不限（浏览器或 computer use），但必须以真实渲染结果为准，不能只看进程起来了。确认后结束该实例，不要把端口或 profile 留给后续步骤复用。
+7. **GUI 启动运行验收（仅当本次更新包含 `deepseek-harness`）**：harness 换代可能让桌面外壳起不来，因此还要用 computer use 验证 GUI 能正常启动和运行。副本内 `npm run build`（不带 `--skip-exe`）已产出副本根目录的入口 exe，用空闲端口启动副本自己的 exe，再用 computer use 观察真实窗口：
+
+   ```powershell
+   cd .staging\dsh-gui
+   $env:DSH_GUI_PORT = "3090"
+   npm start                    # 副本的 scripts/dsh-gui.mjs run：启动副本根目录的入口 exe
+   ```
+
+   确认窗口出现、加载页过渡到标签页、harness 就绪、能正常交互（打开设置或新建会话即可），随后关闭该实例。副本 exe 从自身路径解析仓库根与 `.dsh`（[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs) 的 `repo_root`），与正在运行的实例互不干扰；唯一会冲突的是端口（`ensure_loopback_port_available`），因此必须换端口。
+8. 屏蔽确认与新版不兼容且本次无法修复的插件，并从 profile 的挂载与依赖条目中移除，使其不参与本次验证的安装：
    - npm 安装型 wrapper：以 `DSH_PLUGIN_SKIP=<wrapper id>` 跳过本次安装，或把 wrapper 的 `skip` 声明改为默认跳过；[`scripts/plugin-install.mjs`](../../../scripts/plugin-install.mjs) 的 `skipInstall` 是唯一判定处，`DSH_PLUGIN_FORCE_INSTALL=1` 强制安装。
    - 源码构建与 link 安装型 wrapper：在其 `plugins/<id>/install.mjs` 顶部加 MASKED 守卫。
    - 逐条记录屏蔽原因与恢复条件（例如等上游适配）。
-7. 记录修复清单：每一项适配改动对应的文件、结论与验证命令及结果，供阶段二逐文件同步。
+9. 记录修复清单：每一项适配改动对应的文件、结论与验证命令及结果，供阶段二逐文件同步。
 
-## 4. 阶段二：在本工程实装（阶段一全部通过后进行）
+## 4. 阶段二：在本工程实装（阶段一验收通过并经用户审批后）
 
 本阶段只改本工程中受版本管理的文件，不执行构建或安装，也不改动本工程 `.dsh/` 中的已安装状态（见第 0 节）。
 
+0. 先确认两件事都已发生：阶段一验收全部通过，且用户已明确审批本次实装。把验证结论、改动清单与风险报告给用户后等待其答复；用户未批准（或尚未答复）时停在这里，不要改动本工程。
 1. 把本工程的目标模块更新到阶段一确认的修订。
 2. 逐文件同步副本中验证过的适配改动：核对差异后复制或应用，禁止整目录覆盖，避免带入 `.dsh/`、`.toolchain/`、`.pnpm-store/`、`node_modules/` 等 gitignore 产物。
 3. 执行第 5 节的安装脚本速查。
@@ -85,12 +105,15 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 
 - 副本内 `npm run build` 全绿，含 dsh 运行时的安装或构建与各插件安装脚本；
 - 副本的 `--profile web --dump-config` 能渲染组合；
+- **副本的 WebUI 已实际加载验收通过**：在空闲端口启动副本 web 后端后，会话界面正常渲染、无插件或组合的加载报错；
+- **本次更新包含 `deepseek-harness` 时，副本的入口 exe 已用 computer use 验证能正常启动和运行**；
+- **用户已明确审批阶段二实装**；
 - 不兼容插件已屏蔽，原因与恢复条件已记录；
 - npm 安装型 wrapper 与 dsh 运行时的 npm 发布状态已核对（判据见 `docs/dsh-gui/update-check.md`）；
 - 本工程已更新到阶段一确认的修订，验证过的安装脚本与适配改动已逐文件同步；
 - 已通知用户重新构建，构建结果与重建后各插件、agent preset 的安装由用户确认。
 
-验证失败时先在副本中修正重试，不要带着失败的升级改动回到本工程。本工程需要回滚时，把对应模块检回旧修订，然后同样通知用户重新构建：
+阶段一验收未全部通过、或用户尚未审批时，不得进入阶段二。验证失败时先在副本中修正重试，不要带着失败的升级改动回到本工程。本工程需要回滚时，把对应模块检回旧修订，然后同样通知用户重新构建：
 
 ```powershell
 git -C deepseek-harness checkout <旧修订>
@@ -125,3 +148,5 @@ git -C plugins\<id>\<package> checkout <旧修订>
 - **副本不含未提交改动**：本工程有待提交的改动时，副本验证的不是将要实装的状态。
 - **`DSH_HOME` 会从会话环境继承，指向正在运行的实例**：dsh 会话自身导出了 `DSH_HOME=<本工程>/.dsh`，副本里跑的每条 `node` / `dsh` / `install.mjs` 命令都会继承它，于是"副本内验证"实际写进了本工程的 profile。典型症状是 pnpm 报 `ERR_PNPM_UNEXPECTED_STORE`（副本的 store 与本工程 profile 记录的 store 不同），或本工程 `.dsh/` 冒出新的文件。副本内的每条命令都显式带上 `$env:DSH_HOME="<副本>/.dsh"`。若已经写进去，按本工程 `.dsh` 的改动清单逐项复原，至少核对 `profiles/web/pnpm-workspace.yaml` 的 `storeDir`、`gui/npm-installs.json` 与 `profiles/web/package.json` 的依赖与 `dsh.profile.bundles`。
 - **强杀副本构建会遗留陈旧的 atomic-write 锁**：在 `dsh plugin add` 写 `package.json` 期间用 `Stop-Process -Force` 终止副本构建，会留下陈旧的 `.dsh/profiles/web/package.json.lock`（内容是刚被杀进程的 PID）。之后每次 `dsh plugin add` 都等待该锁直到超时，报 `atomic-write: timed out waiting for the writer lock at ...package.json.lock`，整体表现为构建长时间静默挂起。清理：删除该锁文件后重跑 build。
+- **验收副本的 WebUI / GUI 与运行中的实例争用端口**：副本的 web 后端与入口 exe 都默认用 3080，而正在运行的 dsh-gui 正占着它，直接启动会报 `127.0.0.1:3080 is already in use`（[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs) 的 `ensure_loopback_port_available`）。验收一律显式把 `DSH_GUI_PORT` 设到空闲端口；验收结束后关闭该实例，避免残留进程占住端口，或被后续步骤误当成"副本实例还在跑"。
+- **把端口起来当成验证通过**：WebUI 验收看的是真实渲染结果（会话界面出来、无插件或组合的加载报错），不是进程存活、也不是 `dump-config` 无报错；harness 更新的 GUI 验收同样要用 computer use 看到窗口真正走到就绪。
