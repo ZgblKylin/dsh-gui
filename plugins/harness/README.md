@@ -28,13 +28,14 @@ plugin add` 会自动把它们 reconcile 进 `dsh.profile.bundles`，由各自�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.6-alpha.2` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 |
-| `@deepseek-ai/dsh-experimental-agent-team-web-profile@0.1.6-alpha.2` | web profile | 浏览器 roster 与任务板面板 |
-| `<id>-team`，每个含 delegation 行且不挂进程级工具集的官方 preset 各一个 | `<DSH_HOME>/.agent-presets/` | 由官方同名 preset 生成的 Team-aware 组合。当前为 `standard-team` / `ptc-team`；官方 `cordis` 不派生，原因见「派生 preset 的规则」 |
+| `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.7-rc.2` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 + 浏览器 roster 与任务板面板 |
+| `<id>-team`，每个含 delegation 行且不挂进程级工具集的官方 preset 各一个 | `$DSH_HOME/profiles/web/cordis.patch.yml` 的 `@deepseek-ai/dsh-agent-preset` 声明行 | 由官方同名 preset 的声明派生的 Team-aware 组合。当前为 `standard-team` / `ptc-team`；官方 `cordis` 不派生，原因见「派生 preset 的规则」 |
 
-版本必须精确 pin：两个包的 npm `latest` 当前仍指向 `0.1.5-alpha.2`，与本仓库
-pinned 的 `dsh-v0.1.6-alpha.2` 对应的是 `alpha` 上的 `0.1.6-alpha.2`；二者都是
-prerelease，这也是它们进不了 Community Market 的原因。
+版本必须精确 pin：npm `latest` dist-tag 仍落后于已发布的 prerelease，与本仓库
+pinned 的 `dsh-v0.1.7-rc.2` 对应的是同版本号；它是 prerelease，这也是它进不了
+Community Market 的原因。自 `0.1.7-rc.2` 起上游把原先的
+`@deepseek-ai/dsh-experimental-agent-team-web-profile` 合并进这一个 bundle 并删除了
+那个包，所以这里只安装一个 spec。
 
 ### 用途与派生 preset 的规则
 
@@ -43,20 +44,28 @@ prerelease，这也是它们进不了 Community Market 的原因。
 （`tool-subagent-control`、`tool-subagent-list-agents`、`tool-subagent`、
 `tool-subagent-fork`），但 `dsh-web-app` 早已在顶层裁掉这些行，真正提供
 delegation 工具的是 preset 行（`standard` / `cordis` / `ptc` 各自挂回
-`tool-subagent-control` 且 `backgroundMode: continuable`）。顶层 patch 够不到
-preset 行，于是出现**错配**：`send_message` / `list_agents` / `interrupt_agent`
-被 Agent Teams 的 scoped 版本遮蔽（只认 Team roster 成员名），而 `subagent` /
-`subagent_fork` 仍在创建 continuable 子级——父 agent 无法再寻址这种子 agent。
+`tool-subagent-control` 且 `backgroundMode: continuable`）。一只 preset 的
+`config.plugins` 会被挂成一棵独立的 Loader 子树，顶层 patch 够不到它，于是出现
+**错配**：`send_message` / `list_agents` / `interrupt_agent` 被 Agent Teams 的
+scoped 版本遮蔽（只认 Team roster 成员名），而 `subagent` / `subagent_fork` 仍在
+创建 continuable 子级——父 agent 无法再寻址这种子 agent。
 
-`agent-team.mjs` 的派生 preset 把这条缝补上：在预设这一层把同样四行设为
+`agent-team.mjs` 的派生声明把这条缝补上：在 preset 这一层把同样四行设为
 `disabled: true`，使「关闭直接委派」真正落到模型可见面——委派统一走
 `spawn_teammate`，消息控制交给 Agent Teams。派生只改这四个锚点，其余逐字节保留。
 
-**哪些 preset 会被派生是"发现"出来的，不是列出来的。** 脚本遍历官方 preset 根，
-凡是含 delegation 行的就生成一个 `<id>-team` 兄弟目录，所以上游新增 preset 会在
-下次安装时自动带上兄弟；上游删除 preset、或某 preset 不再满足派生条件时，其兄弟
-会被清理——清理只针对带本脚本 `generatedBy` 标记的目录，且只在**本轮至少成功派生
-一个 preset** 时才运行，以免查找失败时清空 roster。
+**声明式 preset（harness >= `dsh-v0.1.7-rc.2`）。** preset 不再是
+`.dsh/.agent-presets/<id>/` 目录，而是一条 `@deepseek-ai/dsh-agent-preset` 行：
+`config.id` 是会话记录的标识符，`config.plugins` 是该 agent 的 Cordis 行列表。随包
+preset 由 `@deepseek-ai/dsh-web-app` bundle 的 `presets/*.patch.yml` 声明
+（`dsh.bundle.patch` 自该版本起是列表）。脚本因此**读取**这些随包声明，并把派生声明
+写进 profile patch 中一段带标记的块里（`writeDerivedDeclarations()`）；profile patch
+在每层 bundle 之后应用，所以派生行排在最后。整个块按标记整体重写，因此本轮不再满足
+派生条件的 preset 也会停止被声明。
+
+**哪些 preset 会被派生是"发现"出来的，不是列出来的。** 脚本遍历随包声明，凡是含
+delegation 行的就派生一个 `<id>-team` 兄弟，所以上游新增 preset 会在下次安装时自动
+带上兄弟。`writeDerivedDeclarations()` 只在用户已手写同名行 id 时跳过并告警。
 
 **挂进程级工具集的 preset 不派生。** 官方 `cordis`（创造模式）挂
 `@deepseek-ai/dsh-tool-cordis`，它把 `Service` / `Event` / `Builtin` / `Tool`
@@ -64,16 +73,21 @@ preset 行，于是出现**错配**：`send_message` / `list_agents` / `interrup
 唯一，且该工具集没有"复用已有注册"的配置；而 preset 的 standing mount 在进程内
 常驻不回收。所以含这个工具集的两份 composition 无法在同一进程内共存——后挂的那份
 会在 `tool-cordis` 行上失败，报 `Host Cordis inspect provider "Service" is already
-registered`。`cordis-team` 正是这种组合，因此脚本跳过它。`minimal` 没有
+registered`。`cordis` 正是这种组合，因此脚本跳过它。`minimal` 没有
 delegation 行，同样跳过。
 
-**为什么是生成副本而不是 `cordis:include`。** 用 include + `patches` 表达同样
-的差异只需要几行，但嵌套的 `cordis:include` 是普通 `Include`，而 Loader 会把树
-回写到它读取的文件（`Include.write()` → `this.filename`）。只有 preset 自己的树
-抑制了这一点（`agent-presets/src/mount.ts` 把 `PresetTree.write()` 覆盖为
-no-op）；嵌套 include 会把官方 composition 文件改写成垂死树的内容。生成副本保留
-了"只跟上游差异"的好处，同时绝不把官方文件当作写入目标。若上游重构了这四个锚点，
-脚本**报错退出**而不是静默放过。
+**旧目录 preset 的清理。** 脚本会删除自己（含已退役的
+`plugins/agent-team/install.mjs`）写过的 `.dsh/.agent-presets/<id>/` 目录——只删带
+`generatedBy` 标记的，手写目录一律不动，并在日志里提示它们已不再被发现、需要改写
+成声明行。
+
+**为什么是生成副本而不是 `cordis:include`。** 用 include 表达同样的差异更短，但
+嵌套的 `cordis:include` 是普通 `Include`，而 Loader 会把树回写到它读取的文件
+（`Include.write()` → `this.filename`）。只有 preset 自己的树抑制了这一点
+（`agent-preset-registry/src/mount.ts` 把 `PresetTree.write()` 覆盖为 no-op）。派生
+声明整体复制随包声明的 `config.plugins`，只改四个锚点，因此其余行（包括脚本写成之后
+上游新增的行）逐字节跟随上游，同时绝不把随包声明文件当作写入目标。若上游重构了这四
+个锚点，脚本**报错退出**而不是静默放过。
 
 ## Auto review
 
@@ -81,10 +95,10 @@ no-op）；嵌套 include 会把官方 composition 文件改写成垂死树的�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.2` | web profile | 逐调用 LLM 授权审查层 |
+| `@deepseek-ai/dsh-experimental-auto-review@0.1.7-rc.2` | web profile | 逐调用 LLM 授权审查层 |
 
-版本必须精确 pin：`0.1.6-alpha.2` 与本仓库 pinned 的 `dsh-v0.1.6-alpha.2` 运行时
-配套，包的 peerDependencies 全部指向 `^0.1.6-alpha.2`；prerelease，进不了
+版本必须精确 pin：`0.1.7-rc.2` 与本仓库 pinned 的 `dsh-v0.1.7-rc.2` 运行时
+配套，包的 peerDependencies 全部指向 `^0.1.7-rc.1`；prerelease，进不了
 Community Market。
 
 ### 用途
@@ -116,12 +130,12 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-browser-use@0.1.6-alpha.2` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.6-alpha.2` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
+| `@deepseek-ai/dsh-browser-use@0.1.7-rc.2` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.7-rc.2` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
 
-两个包都精确 pin `0.1.6-alpha.2`，与本仓库 pinned 的 `dsh-v0.1.6-alpha.2` 运行时
-配套（peerDependencies 全部指向 `^0.1.6-alpha.2`）——npm `latest` 仍指向
-`0.1.5-rc.2`，不能通过 `@latest` 或范围解析。均为 prerelease，进不了
+两个包都精确 pin `0.1.7-rc.2`，与本仓库 pinned 的 `dsh-v0.1.7-rc.2` 运行时
+配套（peerDependencies 全部指向 `^0.1.7-rc.1`）——npm `latest` 仍指向
+`0.1.6-alpha.1`，不能通过 `@latest` 或范围解析。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `browserUse`。
 
 ### 挂载与配置
@@ -197,11 +211,11 @@ Session 独占持有。浏览器模式由 profile 组合中的该 `config` 行�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-computer-use@0.1.6-alpha.2` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.6-alpha.2` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
+| `@deepseek-ai/dsh-computer-use@0.1.7-rc.2` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.7-rc.2` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
 
-两个包都精确 pin `0.1.6-alpha.2`，与本仓库 pinned 的 `dsh-v0.1.6-alpha.2` 运行时
-配套（peerDependencies 全部指向 `^0.1.6-alpha.2`）。均为 prerelease，进不了
+两个包都精确 pin `0.1.7-rc.2`，与本仓库 pinned 的 `dsh-v0.1.7-rc.2` 运行时
+配套（peerDependencies 全部指向 `^0.1.7-rc.1`）。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `computerUse`。
 
 ### 挂载与配置
@@ -286,21 +300,20 @@ npm run install:plugins        # 或 npm run build
 ## 卸载
 
 ```powershell
-dsh plugin --profile web remove @deepseek-ai/dsh-experimental-agent-team-web-profile
 dsh plugin --profile web remove @deepseek-ai/dsh-experimental-agent-team-profile
 dsh plugin --profile web remove @deepseek-ai/dsh-experimental-auto-review
 dsh plugin --profile web remove @deepseek-ai/dsh-browser-use
 dsh plugin --profile web remove @deepseek-ai/dsh-experimental-browser-use-playwright-mcp
 dsh plugin --profile web remove @deepseek-ai/dsh-computer-use
 dsh plugin --profile web remove @deepseek-ai/dsh-experimental-computer-use-cua-driver-native
-Get-ChildItem <DSH_HOME>\.agent-presets -Directory |
-  Where-Object { Test-Path (Join-Path $_.FullName 'preset.yml') } |
-  Where-Object { Select-String -Quiet -Path (Join-Path $_.FullName 'preset.yml') -Pattern 'generatedBy: plugins/harness/agent-team.mjs' } |
-  Remove-Item -Recurse -Force
+# 派生 preset 是 profile patch 里的标记块；删除该块（含两条标记注释与其中内容）即卸载
+Select-String -Path <DSH_HOME>\profiles\web\cordis.patch.yml -Pattern 'agent-team derived presets'
 ```
 
-`dsh plugin remove` 会把对应 bundle 从 `dsh.profile.bundles` 移除；派生 preset
-目录带 `generatedBy` 标记，按标记删除即可。**Browser Use 与 Computer Use 的四行
+`dsh plugin remove` 会把对应 bundle 从 `dsh.profile.bundles` 移除；派生 preset 位于
+`<DSH_HOME>\profiles\web\cordis.patch.yml` 中一段以 `# --- agent-team derived presets`
+开始、以 `# --- end agent-team derived presets` 结束的块里，连同标记一起删除即可。
+**Browser Use 与 Computer Use 的四行
 insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删除
 `.dsh/profiles/web/cordis.patch.yml` 里 `id: browser-use`、
 `id: browser-use-playwright-mcp`、`id: computer-use`、`id: computer-use-cua-driver-native`

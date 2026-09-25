@@ -13,7 +13,7 @@
 - global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把缺失文件装到 `.dsh/.agents/`，已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；外壳以 `DSH_AGENTS_HOME` 指向该目录）
 - harness.json: dsh 运行时清单（选择 npm 安装还是源码编译，并锁定版本）
 - plugins: 本地插件目录
-- presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到.dsh/.agent-presets/）
+- presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到 profile 的 `@deepseek-ai/dsh-agent-preset` 声明行；见 presets/README.md）
 - src-tauri: tauri源码目录
 - scripts: 启动脚本目录
 

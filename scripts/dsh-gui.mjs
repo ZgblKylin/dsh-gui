@@ -401,8 +401,7 @@ function buildExe(debug) {
  * Each `plugins/<id>/` directory is self-contained (`install.mjs` + whatever
  * source it owns); plugin wrappers land in the web profile
  * (`.dsh/profiles/web/`), while hybrid wrappers such as `dsh-web-ui`
- * first copy an agent preset into `.dsh/.agent-presets/` and then install
- * their package profile-side. The CLI delegates the
+ * also write profile state beside their npm install. The CLI delegates the
  * work to the wrapper script, so adding one never touches this CLI. Scripts
  * run in directory-name order for a deterministic install sequence.
  */
@@ -436,10 +435,12 @@ function plugins() {
 /**
  * Install every agent preset under presets/ by running its own install
  * script. Each `presets/<id>/` directory is a self-contained preset package
- * (composition + metadata + `install.mjs`); the build delegates installation
- * to the preset's script, so a preset owns how it lands in the harness home
- * (`.dsh/.agent-presets/<id>/`) and adding one never touches this CLI. Scripts
- * run in directory-name order for a deterministic install sequence.
+ * (`install.mjs` plus the source it owns); the build delegates installation to
+ * the preset's script, so a preset owns how it lands. Since harness
+ * dsh-v0.1.7-rc.2 a preset is an `@deepseek-ai/dsh-agent-preset` declaration
+ * row in the profile patch, not a `.dsh/.agent-presets/<id>/` directory (see
+ * `presets/README.md`), and adding one never touches this CLI. Scripts run in
+ * directory-name order for a deterministic install sequence.
  */
 function installPresets() {
   const dir = join(ROOT, 'presets')

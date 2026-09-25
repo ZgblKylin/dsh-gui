@@ -185,8 +185,8 @@ dsh-gui/
 ├─ scripts/
 │  └─ dsh-gui.mjs      # the cross-platform CLI behind every npm script
 ├─ presets/            # agent preset sources: each presets/<id>/ directory owns
-│                      #   its install.mjs; the build installs every preset into
-│                      #   .dsh/.agent-presets/ (see presets/README.md)
+│                      #   its install.mjs; the build installs every preset as an
+│                      #   @deepseek-ai/dsh-agent-preset row (see presets/README.md)
 ├─ plugins/            # plugin wrappers, preset-style: each plugins/<id>/ owns an
 │                      #   install.mjs plus the plugin package/repo checkout
 │                      #   (remote/dsh-remote in-tree; better-sidebar/
@@ -254,9 +254,11 @@ This is idempotent and fully repo-internal:
   package into the web profile; `dsh-web-ui/install.mjs` installs its four
   npm bundles through the same profile pipeline (see
   [Adding plugins](#adding-plugins-at-runtime)).
-- Runs every agent-preset install script under `presets/` — each
-  `presets/<id>/` directory lands in `.dsh\.agent-presets\<id>\` and appears on
-  the preset roster (see `presets/README.md` for the pattern).
+- Runs every agent-preset install script under `presets/` — since harness
+  `dsh-v0.1.7-rc.2` each `presets/<id>/` directory lands as an
+  `@deepseek-ai/dsh-agent-preset` declaration row in the profile patch and
+  appears on the preset roster (see `presets/README.md` for the pattern; the
+  retired `.dsh/.agent-presets/` directory is no longer discovered).
 - Fills in the **global agent template** — `global_template.agents/` is merged
   into `.dsh\.agents\`, the agent-config home the desktop shell pins
   `DSH_AGENTS_HOME` to, so its always-loaded docs and user-level skills (the

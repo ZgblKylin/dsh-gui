@@ -419,7 +419,7 @@ function report() {
   }
   lines.push(`    entry exe        : ${present('dsh-gui.exe') || present('dsh-gui') ? 'built' : 'not built'}`)
   lines.push(`    installed profile: ${present('.dsh', 'profiles', 'web', 'cordis.patch.yml') ? 'present' : 'absent'} (.dsh/profiles/web/)`)
-  lines.push(`    agent presets    : ${present('.dsh', '.agent-presets') ? 'installed' : 'absent'} (.dsh/.agent-presets/)`)
+  lines.push(`    agent presets    : declarative profile-patch rows; legacy dir ${present('.dsh', '.agent-presets') ? 'present (no longer discovered)' : 'absent'} (.dsh/.agent-presets/)`)
   console.log(lines.join('\n'))
 }
 

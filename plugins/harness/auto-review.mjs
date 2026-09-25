@@ -17,8 +17,8 @@
  * loaded by `plugins/harness/install.mjs`; it also runs standalone.
  *
  * The version is pinned to the harness revision this repository builds
- * against: `0.1.6-alpha.2` is the dsh-family prerelease whose peerDependencies
- * all point at `^0.1.6-alpha.2`, matching the pinned `dsh-v0.1.6-alpha.2`
+ * against: `0.1.7-rc.2` is the dsh-family prerelease whose peerDependencies
+ * all point at `^0.1.7-rc.1`, matching the pinned `dsh-v0.1.7-rc.2`
  * runtime. It is also a prerelease, which is why the Community Market cannot
  * carry it.
  */
@@ -28,6 +28,6 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 /** Wrapper id: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'auto-review'
 
-const AUTO_REVIEW_SPEC = '@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.2'
+const AUTO_REVIEW_SPEC = '@deepseek-ai/dsh-experimental-auto-review@0.1.7-rc.2'
 
 installNpmPlugin({ id: ID, packageSpec: AUTO_REVIEW_SPEC })
