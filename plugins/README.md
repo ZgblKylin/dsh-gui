@@ -2,13 +2,12 @@
 
 Local DeepSeek Harness plugin packages, in the same preset-style layout as
 `presets/`: every first-level directory is a **plugin wrapper** that owns an
-`install.mjs` plus the plugin package/repo checkout (for multi-package
-distribution repos such as `deep-whale`, the package path points one level
-deeper). A wrapper may own several checkouts and install several npm
+`install.mjs` plus the plugin package/repo checkout it installs from, if any.
+A wrapper may own several checkouts and install several npm
 packages in one script. Two wrappers own no package checkout at all:
-`dsh-web-ui` installs five npm bundles of its distribution repo —
-`dsh-web-ui-settings`, `dsh-plugin-manager`, `dsh-skill-explorer`,
-`dsh-usage` and `dsh-model-capabilities` — and `harness` owns every
+`dsh-web-ui` installs four npm bundles of its distribution repo —
+`dsh-web-ui-settings`, `dsh-skill-explorer`, `dsh-usage` and
+`dsh-model-capabilities` — and `harness` owns every
 official dsh-family plugin as one flat group: `agent-team.mjs` installs two
 Agent Teams bundles and derives Team-aware agent presets,
 `auto-review.mjs` installs the per-call LLM authorization layer,
@@ -27,7 +26,7 @@ plugins/
 │  ├─ browser-use.mjs    # Browser Use: exclus. service + Playwright MCP provider (default-skipped)
 │  └─ computer-use.mjs   # Computer Use: exclus. service + Cua Driver native provider
 ├─ <id>/
-│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: five npm
+│  ├─ install.mjs        # plugin: builds + installs + mounts; dsh-web-ui: four npm
 │  │                     # bundles
 │  └─ <package>/         # the plugin package (in-tree, or a git submodule); absent
 │                        # for npm-only wrappers
@@ -67,9 +66,6 @@ Two package shapes are handled specially:
 
 - **No `build` script** — the package is used as shipped (prebuilt `lib/` or
   config-only): the installer skips `pnpm install` + `pnpm run build` for it.
-- **Wrapper `build: false` opt-out** — a prebuilt distribution package that
-  still declares a `build` script for upstream development is used as shipped;
-  `deep-whale` uses this for its `maid-atelier` skin.
 - **`dsh.bundle.patch` declared** — the package carries its own
   `cordis.patch.yml` bundle layer. `dsh plugin add` reconciles it into the
   profile's `dsh.profile.bundles`, and that layer inserts its entry — the
@@ -124,7 +120,7 @@ tree with `duplicate loader entry id`.
 - [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.21.1** 起含 DSH 0.1.7-rc.1 适配（peerDeps 全指 `^0.1.7-rc.1`，上游把该版标记为「DSH 0.1.7-rc.1 的稳定适配版」并补齐 DSH 0.1.7 插件列表使用的图标与 locale 元数据），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.21.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.7.2`、`dsh-sidebar-qa@1.0.2`）
   - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.7.2`；0.7.x 适配 DSH 0.1.7 的工具结果与会话投影，0.6.x 的 `create` 工厂修复仍在其 peer 范围内，peer 为 `^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2`；v0.5.0 起以 DSH 0.1.5+ 原生右侧栏 page type 承载；对 `dsh-better-sidebar` 的 peer 为 `>=0.19.0`，与本 wrapper 固定的 0.21.1 匹配）
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `1.0.2`；v1.0.0 起收敛为原生单后端，并在 manifest 层移除了 `dsh-better-sidebar` peer；按 DSH 0.1.7 重命名后的图标集按名解析宿主图标）
-- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) 免编译源码安装（pin 子模块 tag `v0.1.5`；skin-manager + maid-atelier + orca-link 三包，首次 bootstrap 预置 maid-atelier 为启用皮肤）
+- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) npm包（pin 子模块 tag `v0.1.5`；`@smalltailqwq/dsh-client-ui-skin-*` 三包：skin-manager + maid-atelier + orca-link，按上游 INSTALL.md 顺序安装，并清理旧 `@dsh-external/*` 占位 scope 的残留键）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-client-ui-web-ui-settings@0.4.2](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
   - [@linxin666/dsh-client-ui-skill-explorer@0.4.2](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
@@ -224,23 +220,26 @@ tree with `duplicate loader entry id`.
   bundle layer (no manual cordis insert). See
   `ai-update/dsh-ai-update/docs/`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
-  `deep-whale/dsh-deep-whale`: the whale-girl skin series. The wrapper
-  installs the full upstream trio (per the upstream INSTALL.md /
-  dsh-skin-install skill): the persistent skin manager
-  `@dsh-external/dsh-client-ui-skin-deep-whale-manager` plus the two
+  `deep-whale/dsh-deep-whale`, kept as the version source and a source
+  reference only. The wrapper installs the published trio from npm in upstream
+  order (per the upstream INSTALL.md, which makes the npm packages the regular
+  install path and scopes the bundled `dsh-skin-install` skill to legacy
+  migration, local development builds, specified-commit testing and diagnosis):
+  the persistent skin manager
+  `@smalltailqwq/dsh-client-ui-skin-deep-whale-manager` plus the two
   mutually exclusive skins `maid-atelier` and `orca-link`
-  (`@dsh-external/dsh-client-ui-skin-maid-atelier` /
-  `@dsh-external/dsh-client-ui-skin-orca-link`, each MIT for its code and
-  CC BY-NC-SA 4.0 for its artwork). All
-  three are 免编译源码安装 (per the 安装方式 section above): the checkout
-  ships prebuilt `lib/` committed in the repo, so the wrapper passes
-  `build: false` and never compiles — it links the prebuilt packages as
-  shipped, each through its own `dsh.bundle.patch` layer (entry ids
-  `ui-skin-deep-whale-manager`, `ui-skin-maid-atelier`, `ui-skin-orca-link`;
-  no copy, no patch). On first bootstrap the wrapper pre-stages skin mutual
-  exclusion to keep `maid-atelier` active (`orca-link` disabled) before the
-  first restart; later switches via `设置 → 皮肤管理` are preserved. Current
-  upstream tracks the native conversation geometry itself
+  (`@smalltailqwq/dsh-client-ui-skin-maid-atelier` /
+  `@smalltailqwq/dsh-client-ui-skin-orca-link`, each MIT for its code and
+  CC BY-NC-SA 4.0 for its artwork), all pinned to exact `0.1.5`. Every tarball
+  ships its prebuilt `lib/` and its own `cordis.patch.yml`, so nothing is
+  compiled or linked locally and each mounts through its own bundle layer (entry
+  ids `ui-skin-deep-whale-manager`, `ui-skin-maid-atelier`, `ui-skin-orca-link`).
+  Skin mutual exclusion is the manager's own job: on the first restart it detects
+  "two skins enabled at once" and falls back to the official default, after which
+  a skin is chosen in `设置 → 皮肤管理`; the wrapper pre-stages nothing. The
+  wrapper also migrates installs made from GitHub before upstream 0.1.3, whose
+  `@dsh-external/*` placeholder keys would otherwise leave two identities for the
+  same skins. Current upstream tracks the native conversation geometry itself
   (`--maid-conversation-*`), so the palace backdrop and whale-girl art shrink
   out of any right/bottom panels generically. See
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
