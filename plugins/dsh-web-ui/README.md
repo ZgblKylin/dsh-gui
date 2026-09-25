@@ -28,8 +28,10 @@
 
 不安装 dsh-web-ui 的其他任何包、插件、皮肤，也不安装其 agent preset（agent
 preset 属于 `presets/` 流程，不在本 wrapper）。`dsh-liangshen`（梁神模式）与其
-agent preset 不由本 wrapper 安装：该 preset 由插件的 host 启动同步到
-`.dsh/.agent-presets/liangshen`。
+agent preset 不由本 wrapper 安装：该 preset 由插件的 host 启动写出，而自
+`dsh-v0.1.7-rc.2` 起 preset 是 profile patch 里的 `@deepseek-ai/dsh-agent-preset`
+声明行、`.dsh/.agent-presets/` 目录已不再被发现——若上游仍写目录，它不会进入
+roster。
 
 ## 目录
 
