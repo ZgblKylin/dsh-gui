@@ -19,6 +19,12 @@ tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-snap-layout = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Global `log` sink (src/logging.rs): tauri's runtime-wry reports a failed
+# native window/webview creation only through `log`, and it swallows the error
+# (the next `Window::hwnd()` is what fails visibly). Without a logger installed
+# that real cause is lost and startup dies as an opaque "the underlying handle
+# is not available" panic in `setup`.
+log = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

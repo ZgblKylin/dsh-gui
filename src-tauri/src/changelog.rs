@@ -21,9 +21,11 @@
 //!
 //! [`prepare`] resolves the repository, the target, and (for a tag target) the
 //! release notes; it runs while the caller holds the update lock so git
-//! reads never race an in-dialog root update. [`finish`] runs the AI summary
-//! without touching the repository (the commit data was already collected), so
-//! it can run without the lock while the UI stays responsive.
+//! reads never race an in-dialog root update. When that lookup actually found a
+//! release, the answer also carries the repository's GitHub Releases page so
+//! the dialog can link the module name in its title to it. [`finish`] runs the
+//! AI summary without touching the repository (the commit data was already
+//! collected), so it can run without the lock while the UI stays responsive.
 //!
 //! Both steps shell out through file-redirected stdio (dsh's Windows sandbox
 //! rejects piped child stdio with EPERM) and never add a Rust HTTP client:
@@ -160,6 +162,11 @@ const MAX_DIFFSTAT_CHARS: usize = 3000;
 pub struct UpdateChangelog {
     pub subtitle: String,
     pub text: String,
+    /// The repository's GitHub Releases *list* page, when the lookup actually
+    /// found a release for this update (see `releases_page_url`); the dialog
+    /// turns the module name in its title into a link to it. `None` keeps the
+    /// title plain text.
+    pub release_url: Option<String>,
 }
 
 /// Everything the AI step needs. `prepare` fills it while holding the update
@@ -176,6 +183,10 @@ pub struct SummaryRequest {
     pub diffstat: String,
     /// Extra provenance for the subtitle (why the release path was skipped).
     pub note: Option<String>,
+    /// Releases page carried over from the preparation step, so the AI path
+    /// keeps the title link a successful release lookup earned (a release
+    /// exists, it just carries no body to show).
+    pub release_url: Option<String>,
 }
 
 /// The outcome of [`prepare`]: either a complete changelog (release notes, or
@@ -219,6 +230,8 @@ pub fn prepare(root: &Path, id: &str, mode: &str) -> Result<Prepared, String> {
                 "当前提交（{}）已与更新目标（{label}）一致。",
                 short_sha(&from_sha)
             ),
+            // No release lookup ran, so there is no release page to link.
+            release_url: None,
         }));
     }
 
@@ -227,16 +240,23 @@ pub fn prepare(root: &Path, id: &str, mode: &str) -> Result<Prepared, String> {
     // tags inside one release) must show all of them, newest first, not just
     // the target tag's notes.
     let mut note = None;
+    // The module-name link the dialog title gains once a release was actually
+    // found; `None` (no GitHub origin, no release, or a failed lookup) keeps
+    // the title as plain text.
+    let mut release_page = None;
     if let Some(tag) = &tag {
+        let origin = git_output(&dir, &["remote", "get-url", "origin"]);
         let tags = release_range_tags(&dir, &from_sha, &to_sha, tag);
-        match release_notes(&dir, &tags) {
-            ReleaseLookup::Found(set) if set.releases.iter().any(|r| !r.body.trim().is_empty()) => {
-                return Ok(Prepared::Done(UpdateChangelog {
-                    subtitle: release_subtitle(&set),
-                    text: render_releases(&set),
-                }));
-            }
+        match release_notes(origin.as_deref(), &dir, &tags) {
             ReleaseLookup::Found(set) => {
+                release_page = releases_page_url(origin.as_deref());
+                if set.releases.iter().any(|r| !r.body.trim().is_empty()) {
+                    return Ok(Prepared::Done(UpdateChangelog {
+                        subtitle: release_subtitle(&set),
+                        text: render_releases(&set),
+                        release_url: release_page,
+                    }));
+                }
                 note = Some(format!(
                     "{} 个 GitHub Release 都没有正文",
                     set.releases.len()
@@ -284,6 +304,7 @@ pub fn prepare(root: &Path, id: &str, mode: &str) -> Result<Prepared, String> {
         commits: bound_lines(&commits, MAX_COMMIT_LINES, MAX_COMMIT_CHARS, "提交过多或过长，列表已截断"),
         diffstat: bound_chars(&diffstat, MAX_DIFFSTAT_CHARS, "变更统计过长，已截断"),
         note,
+        release_url: release_page,
     }))
 }
 
@@ -310,9 +331,16 @@ pub fn finish(
 
     let prompt = build_prompt(&request);
     let subtitle = summary_subtitle(&request);
+    // The preparation step already earned the title link when the lookup found
+    // a release; the summary replaces only the body, never the provenance.
+    let release_url = request.release_url;
     for attempt in 0..2 {
         if let Some(text) = web_summary(port, &prompt, cookie.as_deref())? {
-            return Ok(UpdateChangelog { subtitle, text });
+            return Ok(UpdateChangelog {
+                subtitle,
+                text,
+                release_url,
+            });
         }
         if attempt == 0 {
             // The harness may accept TCP while the plugin routes are still
@@ -321,7 +349,7 @@ pub fn finish(
             std::thread::sleep(HEADLESS_RETRY_DELAY);
         }
     }
-    run_headless_summary(root, harness_cli, &prompt, subtitle)
+    run_headless_summary(root, harness_cli, &prompt, subtitle, release_url)
 }
 
 /// The provenance line shared by both AI paths.
@@ -347,9 +375,11 @@ fn run_headless_summary(
     harness_cli: &Path,
     prompt: &str,
     subtitle: String,
+    release_url: Option<String>,
 ) -> Result<UpdateChangelog, String> {
     let (session_root, patch) = temp_session_redirect()?;
-    let result = run_headless_summary_inner(root, harness_cli, prompt, subtitle, &patch);
+    let result =
+        run_headless_summary_inner(root, harness_cli, prompt, subtitle, release_url, &patch);
     let _ = fs::remove_dir_all(&session_root);
     let _ = fs::remove_file(&patch);
     result
@@ -361,6 +391,7 @@ fn run_headless_summary_inner(
     harness_cli: &Path,
     prompt: &str,
     subtitle: String,
+    release_url: Option<String>,
     patch: &Path,
 ) -> Result<UpdateChangelog, String> {
     let args = headless_args(harness_cli, patch, prompt);
@@ -380,6 +411,7 @@ fn run_headless_summary_inner(
             return Ok(UpdateChangelog {
                 subtitle,
                 text: text.to_string(),
+                release_url,
             });
         }
     }
@@ -629,10 +661,10 @@ fn release_range_tags(dir: &Path, from_sha: &str, to_sha: &str, target_tag: &str
 }
 
 /// Look up the GitHub releases for `tags` (one paginated list request, see
-/// [`RELEASE_FETCH_SCRIPT`]).
-fn release_notes(dir: &Path, tags: &[String]) -> ReleaseLookup {
-    let origin = git_output(dir, &["remote", "get-url", "origin"]);
-    let Some((owner, repo)) = github_repo(origin.as_deref()) else {
+/// [`RELEASE_FETCH_SCRIPT`]). `origin` is the repository's `origin` URL, read
+/// once by the caller because the title link needs it too.
+fn release_notes(origin: Option<&str>, dir: &Path, tags: &[String]) -> ReleaseLookup {
+    let Some((owner, repo)) = github_repo(origin) else {
         return ReleaseLookup::NotGithub;
     };
     let base = format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=100");
@@ -850,6 +882,16 @@ fn github_repo(url: Option<&str>) -> Option<(String, String)> {
     Some((owner, repo))
 }
 
+/// The repository's Releases **list** page for a GitHub `origin` URL
+/// (`https://github.com/<owner>/<repo>/releases`) — deliberately not the
+/// per-tag `/releases/tag/<tag>` subpage: one changelog covers every release
+/// the update brings in, so the link lands on the list the reader can pick a
+/// version from. Non-GitHub remotes yield `None`.
+fn releases_page_url(origin: Option<&str>) -> Option<String> {
+    let (owner, repo) = github_repo(origin)?;
+    Some(format!("https://github.com/{owner}/{repo}/releases"))
+}
+
 pub(crate) fn write_temp_script(contents: &str) -> Result<PathBuf, String> {
     let id = CAPTURE_SEQ.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("dsh-gui-release-{}-{id}.mjs", std::process::id()));
@@ -1052,6 +1094,50 @@ mod tests {
         assert_eq!(github_repo(Some("https://gitlab.com/x/y.git")), None);
         assert_eq!(github_repo(Some("https://github.com/only-owner")), None);
         assert_eq!(github_repo(None), None);
+    }
+
+    #[test]
+    fn changelog_serializes_the_release_page_under_the_frontend_field_name() {
+        // `app.js` reads `result.releaseUrl`; the camelCase serde rename is the
+        // wire contract between the two halves, so pin it here.
+        let linked = serde_json::to_string(&UpdateChangelog {
+            subtitle: "s".to_string(),
+            text: "t".to_string(),
+            release_url: Some("https://github.com/o/r/releases".to_string()),
+        })
+        .unwrap();
+        assert!(
+            linked.contains("\"releaseUrl\":\"https://github.com/o/r/releases\""),
+            "unexpected payload: {linked}"
+        );
+        let plain = serde_json::to_string(&UpdateChangelog {
+            subtitle: "s".to_string(),
+            text: "t".to_string(),
+            release_url: None,
+        })
+        .unwrap();
+        assert!(plain.contains("\"releaseUrl\":null"), "unexpected payload: {plain}");
+    }
+
+    #[test]
+    fn releases_page_url_points_at_the_release_list_not_a_tag_subpage() {
+        // The dialog title links the module name here: the releases *list*, so
+        // a multi-release changelog never drops the reader into one tag's
+        // subpage.
+        assert_eq!(
+            releases_page_url(Some("https://github.com/zhu1090093659/dsh-web.git")),
+            Some("https://github.com/zhu1090093659/dsh-web/releases".to_string())
+        );
+        assert_eq!(
+            releases_page_url(Some("git@github.com:omdsh-dev/dsh-gui.git")),
+            Some("https://github.com/omdsh-dev/dsh-gui/releases".to_string())
+        );
+        assert!(!releases_page_url(Some("https://github.com/omdsh-dev/dsh-gui.git"))
+            .unwrap()
+            .contains("/tag/"));
+        // Non-GitHub and absent remotes keep the title plain text.
+        assert_eq!(releases_page_url(Some("https://gitlab.com/x/y.git")), None);
+        assert_eq!(releases_page_url(None), None);
     }
 
     #[test]
@@ -1311,6 +1397,7 @@ mod tests {
             commits: "abc1234|Alice|2026-08-20|feat: 增加更新日志".to_string(),
             diffstat: "2 files changed".to_string(),
             note: None,
+            release_url: None,
         };
         let prompt = build_prompt(&request);
         assert!(prompt.contains("a1b2c3d"));

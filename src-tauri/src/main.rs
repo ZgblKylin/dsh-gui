@@ -38,6 +38,7 @@ mod console;
 mod dialog_sizes;
 mod dialogs;
 mod harness;
+mod logging;
 #[cfg(windows)]
 mod native_window;
 mod update;
@@ -231,6 +232,21 @@ fn resolve_port() -> u16 {
         .ok()
         .and_then(|v| v.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_PORT)
+}
+
+/// WebView2 user-data folder shared by every webview the shell creates.
+///
+/// Kept inside the repository (next to `.dsh/gui/gui.log`) instead of the
+/// per-user `%LOCALAPPDATA%\<identifier>\EBWebView` default. When that default
+/// profile is unusable — locked, corrupt, or otherwise rejected by WebView2 —
+/// `CreateCoreWebView2EnvironmentWithOptions` fails, tauri-runtime-wry swallows
+/// the error, and startup dies as the opaque `HandleError::Unavailable` panic
+/// (see `logging`). A repo-local folder is created by the shell's own
+/// self-hosting layout (`DSH_HOME` also lives under `.dsh`), is trivially
+/// resettable by deleting `.dsh/gui/webview2`, and works under restricted
+/// execution where the per-user AppData profile may be unavailable.
+pub(crate) fn webview_data_dir(root: &Path) -> PathBuf {
+    root.join(".dsh").join("gui").join("webview2")
 }
 
 /// Refuse to launch while another process already owns the requested endpoint.
@@ -1762,6 +1778,10 @@ fn main() {
         Ok(root) => root,
         Err(e) => fatal(None, &e),
     };
+    // Capture dependencies' diagnostics (notably wry's swallowed window/webview
+    // creation errors) before the Tauri builder can run `setup`.
+    logging::install(&root);
+    log::info!("dsh-gui starting (root={})", root.display());
     let port = resolve_port();
 
     // The window is created first and shows a loading page: a `dsh web` cold
@@ -1806,6 +1826,7 @@ fn main() {
             // connection tab is hosted by a child webview (see views.rs) that
             // loads the harness page as a real top-level document, so the
             // browser-auth token flow works exactly like a browser tab.
+            log::info!("setup: building the main window");
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -1814,6 +1835,9 @@ fn main() {
             .title("DeepSeek Harness")
             .inner_size(1280.0, 800.0)
             .min_inner_size(800.0, 600.0)
+            // Repo-local WebView2 profile (see `webview_data_dir`): the
+            // per-user default is the failure this change guards against.
+            .data_directory(webview_data_dir(&setup_root))
             .decorations(false)
             // Answer WebView2/WebKitGTK clipboard permission requests so the
             // shell page (copy buttons in the dialogs) may use the async
@@ -1839,13 +1863,31 @@ fn main() {
                 });
             }
 
+            // A failed native window/webview creation is swallowed by
+            // tauri-runtime-wry (its `Message::CreateWindow` handler only logs
+            // the error) while `build()` still returns `Ok`, so `build()?`
+            // cannot be the check: the window handle is where the failure first
+            // surfaces, as `HandleError::Unavailable`. Resolve it once with a
+            // clear message instead of propagating the opaque error into a
+            // `setup` panic; wry's real error is in `.dsh\gui\gui.log`.
+            #[cfg(windows)]
+            let main_hwnd = match window.hwnd() {
+                Ok(hwnd) => hwnd.0,
+                Err(error) => fatal(
+                    Some(&setup_root),
+                    &format!(
+                        "主窗口创建失败（原生句柄不可用：{error}）。wry 的真实错误见 .dsh\\gui\\gui.log。"
+                    ),
+                ),
+            };
+            log::info!("setup: main window created");
             // Add the native non-client interactions missing from a plain
             // `decorations(false)` window: forward the top/bottom resize
             // border double-click to the parent so Windows' default WndProc
             // performs its native vertical fill/restore action. (The actual
             // OS Snap Layouts flyout is provided by the snap-layout plugin.)
             #[cfg(windows)]
-            native_window::install(window.hwnd()?.0);
+            native_window::install(main_hwnd);
 
             // Window-control menu shown by the custom top-left icon. Predefined
             // minimize/maximize/close items act on the HWND the menu is shown
@@ -1933,7 +1975,18 @@ fn main() {
             // create harness tab child webviews: creating an additional
             // WebviewWindow later, while the tauri `unstable` feature is on,
             // hits tauri#10011 (white + hang).
-            dialogs::create_all(app.handle(), &window)?;
+            //
+            // This is best-effort: a partial failure must not take the whole
+            // shell down. `open_dialog` lazily (re)creates any missing dialog
+            // window on first use, so a failure here costs a little latency,
+            // not correctness.
+            if let Err(error) = dialogs::create_all(app.handle(), &window) {
+                log::error!("dialog pre-creation failed: {error}");
+                dsh_log(
+                    app.handle(),
+                    &format!("dialog pre-creation failed: {error}（弹窗将在首次打开时按需创建）"),
+                );
+            }
 
             app.manage(WindowMenuState { menu });
             // Last: the harness boot must not delay the window above, and the

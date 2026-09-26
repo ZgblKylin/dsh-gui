@@ -2099,6 +2099,35 @@ let changelogBusy = false;
 let changelogStallTimer = null;
 let changelogRawText = "";
 
+/**
+ * The dialog title: the module name plus a fixed suffix. When the Rust side
+ * actually found a GitHub release for this update it also returns the
+ * repository's Releases page, and the module name becomes a link to it — the
+ * releases *list* (`…/releases`), never a `/releases/tag/…` subpage. A dialog
+ * window has no popup handler, so a plain click is routed to the system
+ * browser here; Ctrl/Cmd+click is left to the document-level anchor handler,
+ * which opens the same URL (handling both would open two tabs).
+ */
+function renderChangelogTitle(name, releaseUrl) {
+  const label = name || "工程";
+  const href = changelogSafeUrl(releaseUrl);
+  changelogTitle.textContent = "";
+  if (!href) {
+    changelogTitle.textContent = label + " · 更新日志";
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = href;
+  link.textContent = label;
+  link.title = "点击在浏览器打开 GitHub Releases：" + href;
+  link.addEventListener("click", (e) => {
+    if (e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    void openExternal(href);
+  });
+  changelogTitle.append(link, document.createTextNode(" · 更新日志"));
+}
+
 function closeChangelog() {
   markModal(false);
   changelogOverlay.classList.add("hidden");
@@ -2114,8 +2143,9 @@ async function openChangelog(projectId) {
     toast("找不到该工程的信息，请重新检查更新");
     return;
   }
+  const moduleName = project.name || project.id || "工程";
   changelogBusy = true;
-  changelogTitle.textContent = (project.name || project.id || "工程") + " · 更新日志";
+  renderChangelogTitle(moduleName, "");
   changelogSub.textContent = "";
   changelogBody.classList.add("hidden");
   changelogBody.innerHTML = "";
@@ -2137,6 +2167,9 @@ async function openChangelog(projectId) {
     });
     clearTimeout(changelogStallTimer);
     changelogLoading.classList.add("hidden");
+    // A release-backed changelog also carries the repository's releases page;
+    // an AI summary of a commit target leaves the title as plain text.
+    renderChangelogTitle(moduleName, result.releaseUrl);
     changelogSub.textContent = result.subtitle || "";
     changelogRawText = result.text || "";
     try {

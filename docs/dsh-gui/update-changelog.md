@@ -32,6 +32,31 @@ Agent/Session），不可用时回退到一次性 headless 运行（会话存储
 用完删除）。单个版本的更新保留原有的
 `GitHub Release「<名称>（<tag>）」官方说明（发布于 …）` 标题格式。
 
+## 标题里的 Release 页链接
+
+`prepare` 的 Release 查询一旦**真的取到** Release（`ReleaseLookup::Found`，
+含「有 Release 但都没有正文」这种落到 AI 汇总的分支），返回的
+`UpdateChangelog` 就带上 `releaseUrl`；前端（`ui/app.js` 的
+`renderChangelogTitle`）据此把弹窗标题里的**模块名**渲染成链接，其余
+（`· 更新日志`）保持纯文本，标题整体文本不变。
+
+- 链接目标是仓库的 **Releases 列表页**
+  `https://github.com/<owner>/<repo>/releases`，即 `releases_page_url` 用
+  `origin` 解析出的 `owner/repo` 拼成；**不是** `/releases/tag/<tag>` 子页面——
+  一次更新可能跨多个 Release，落到具体 tag 会把读者带进单个版本。
+- 触发条件是「检索到 GitHub Release」：`Absent`（范围内没有 Release）、
+  `NotGithub`（origin 非 GitHub）、`Failed`（接口失败）以及「当前提交已与更新
+  目标一致」这几种情况都不附带链接，标题保持纯文本。
+- AI 汇总路径同样继承该链接（`SummaryRequest.release_url`）：Release 存在但没正文
+  时，正文由 AI 生成、标题仍可点进 Releases 页。
+- 点击行为：标题行不可选中（外壳全局 `user-select: none`），因此**普通单击**就经
+  `open_external` 交给系统浏览器；Ctrl/Cmd+点击由 document 级捕获监听器处理，
+  本地处理器在带修饰键时直接放行，避免同一次点击开两个标签页。正文里的链接仍保
+  持原有的「Ctrl+点击打开」约定。
+- 线协议由 `#[serde(rename_all = "camelCase")]` 定名：Rust 的 `release_url`
+  序列化为 `releaseUrl`（`None` → `null`），有测试
+  `changelog_serializes_the_release_page_under_the_frontend_field_name` 钉住。
+
 ## 曾出现的故障：已写出的结果被误判为获取失败
 
 （Windows）点「更新日志」时，tag 目标会显示
@@ -95,7 +120,9 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
   `release_capture_maps_status_and_network_answers`、
   `release_capture_reports_the_crash_when_nothing_was_emitted`、
   `release_range_tags_covers_every_tag_the_update_brings_in`、
-  `release_subtitle_and_body_cover_a_multi_release_update`；
+  `release_subtitle_and_body_cover_a_multi_release_update`、
+  `releases_page_url_points_at_the_release_list_not_a_tag_subpage`、
+  `changelog_serializes_the_release_page_under_the_frontend_field_name`；
 - `update.rs`：`embedded_npm_script_never_calls_process_exit`、
   `npm_answer_is_used_even_when_the_child_aborted`。
 
@@ -127,8 +154,11 @@ Release 正文里的原生 HTML（例如 dsh-web-ui 用的 `<details>` 英文镜
 
 ## 相关文件
 
-- `src-tauri/src/changelog.rs` —— Release 查询、AI 汇总、`run_node_captured`
+- `src-tauri/src/changelog.rs` —— Release 查询、`releases_page_url`、AI 汇总、
+  `run_node_captured`
 - `src-tauri/src/update.rs` —— npm 版本核对脚本与 `emitted_npm_json`
-- `src-tauri/ui/app.js` —— `openChangelog`：加载态、副标题与错误文本渲染
-- `src-tauri/ui/titlebar.css` —— `.changelog-sub` / `.changelog-loading` 可选中文案
+- `src-tauri/ui/app.js` —— `openChangelog`：加载态、副标题与错误文本渲染；
+  `renderChangelogTitle`：标题里的 Release 页链接
+- `src-tauri/ui/titlebar.css` —— `.changelog-sub` / `.changelog-loading` 可选中文案；
+  `.changelog-dialog h2 a` 标题链接样式
 - `docs/dsh-gui/update-check.md` —— 更新检查与 npm 发布状态

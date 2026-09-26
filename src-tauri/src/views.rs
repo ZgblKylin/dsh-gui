@@ -172,7 +172,7 @@ pub fn ensure(
     }
 
     let label = format!("{TAB_LABEL_PREFIX}{tab_id}");
-    let builder = WebviewBuilder::new(label, WebviewUrl::External(parse_url(url)?))
+    let mut builder = WebviewBuilder::new(label, WebviewUrl::External(parse_url(url)?))
         // Run the page-theme + AI-update bridge inside the harness page.
         .initialization_script(include_str!("../ui/view-bridge.js"))
         // The harness walks WebView2's natural new-window flow (popups open
@@ -181,6 +181,14 @@ pub fn ensure(
         // `install_webview_permissions` handler (below) instead of wry's
         // built-in clipboard-only handler, so the consent dialog can prompt.
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Allow);
+    // Same repo-local WebView2 profile as the shell window and dialogs (see
+    // `webview_data_dir`), so every environment shares one folder.
+    if let Some(data_dir) = window
+        .try_state::<crate::ShellState>()
+        .map(|s| crate::webview_data_dir(&s.root))
+    {
+        builder = builder.data_directory(data_dir);
+    }
 
     let (x, y, w, h) = bounds;
     let view = window

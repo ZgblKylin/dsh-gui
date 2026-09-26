@@ -110,9 +110,14 @@ browser.
   in a scrollable, selectable dialog whose copy button copies the raw source
   text; the provenance line and any failure message (for example a
   GitHub-Release fetch error) are selectable as well, so a problem can be
-  copied out verbatim into a report. **Ctrl+click** on a link in it opens the
-  URL in the system default browser (a plain click stays a text-selection
-  gesture, since a webview link cannot spawn a popup on its own).
+  copied out verbatim into a report. When the changelog came from a real
+  GitHub release, the module name in the dialog title becomes a link to the
+  repository's **Releases list** page (`https://github.com/<owner>/<repo>/releases`,
+  never a per-tag `/releases/tag/…` subpage); the title line is not selectable,
+  so a plain click there opens the system default browser. **Ctrl+click** on a
+  link in the body opens the URL in the system default browser (a plain click
+  stays a text-selection gesture, since a webview link cannot spawn a popup on
+  its own).
 
 ### Plugins
 

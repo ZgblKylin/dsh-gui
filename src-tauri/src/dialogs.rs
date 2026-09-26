@@ -66,7 +66,7 @@ fn create_one(
         serde_json::to_string(kind).map_err(|e| e.to_string())?
     );
 
-    let builder = tauri::WebviewWindowBuilder::new(app, label_for(kind), WebviewUrl::App("index.html".into()))
+    let mut builder = tauri::WebviewWindowBuilder::new(app, label_for(kind), WebviewUrl::App("index.html".into()))
         .title(title)
         .inner_size(width, height)
         .min_inner_size(min_width, min_height)
@@ -78,6 +78,12 @@ fn create_one(
         // A dialog does not need a taskbar entry; the owner's is enough.
         .skip_taskbar(true)
         .initialization_script(script);
+    // Same repo-local WebView2 profile as the main window and tab webviews, so
+    // every environment shares one folder and the per-user default is never
+    // relied upon (see `webview_data_dir`).
+    if let Some(data_dir) = root.as_ref().map(|r| crate::webview_data_dir(r)) {
+        builder = builder.data_directory(data_dir);
+    }
     // Owned by the main window: keeps the dialog above its owner on Windows
     // and avoids it sliding behind the shell.
     let builder = builder.owner(owner).map_err(|e| e.to_string())?;
