@@ -2,9 +2,9 @@
 
 ## 用途
 
-`.staging/dsh-gui` 是本仓库的持久化 clone 副本，连同全部子模块一起维护。插件或 harness 的升级先在该副本中更新、构建、冒烟检查，并验收 WebUI（更新含 harness 时另验 GUI）能正常加载与运行；报告用户并取得明确审批后才实装到本工程，因此中途失败的升级不会让本工程正在服务的安装无法启动。升级流程见 skill [dsh-gui-update](../../.agents/skills/dsh-gui-update/SKILL.md)。
+`.staging/dsh-gui` 是本仓库的持久化 clone 副本，连同全部子模块一起维护；`<runtime-root>/.staging/` 是这个副本的运行时根，副本的 `.dsh`、`.harness`、`.toolchain`、`.pnpm-store` 与入口 exe 都在那里。插件或 harness 的升级先在该副本中更新、构建、冒烟检查，并验收 WebUI（更新含 harness 时另验 GUI）能正常加载与运行；报告用户并取得明确审批后才实装到本工程，因此中途失败的升级不会让本工程正在服务的安装无法启动。升级流程见 skill [dsh-gui-update](../../.agents/skills/dsh-gui-update/SKILL.md)。
 
-副本自带独立的 DSH_HOME（`.staging/dsh-gui/.dsh`）、工具链（`.toolchain/`）、pnpm store（`.pnpm-store/`）与构建产物，验证过程不写入本工程的对应目录。`.staging/` 由 `.gitignore` 排除，副本永不作为本仓库的源。
+副本自带独立的 DSH_HOME（`.staging/.dsh`）、工具链（`.staging/.toolchain/`）、pnpm store（`.staging/.pnpm-store/`）、harness 安装（`.staging/.harness/`）与构建产物，验证过程不写入本工程的对应目录。这些目录位于运行时根，即本工程工作区之外；副本的 `dsh-gui/` 只保留源码与构建目录，副本永不作为本仓库的源。
 
 ## 维护命令
 
@@ -34,17 +34,19 @@ cd .staging\dsh-gui
 npm run build -- --skip-exe
 ```
 
-副本内 `npm run build` 解析的 `ROOT`、`.toolchain/`、`.pnpm-store/` 与 `DSH_HOME` 全部指向副本，dsh 运行时的安装或构建、各插件安装脚本与 agent preset 安装都落在副本内，不触碰本工程的 `.dsh/`。副本的 `harness.json` 决定它安装 registry 的 CLI（产出落在副本的 `.harness/`）还是编译子模块，见 [harness-runtime.md](harness-runtime.md)。`--skip-exe` 跳过 cargo 与入口 exe 的复制，只验证 dsh 运行时与插件；需要一并验证入口 exe 时去掉该标记。
+副本内 `npm run build` 解析出的 `ROOT` 是副本检出（`.staging/dsh-gui`），运行时根是 `.staging`，因此 `.toolchain/`、`.pnpm-store/`、`.harness/` 与 `DSH_HOME` 全部落在 `.staging/` 下，dsh 运行时的安装或构建、各插件安装脚本与 agent preset 安装都不触碰本工程的 `.dsh/`。副本的 `harness.json` 决定它安装 registry 的 CLI（产出落在 `.staging/.harness/`）还是编译子模块，见 [harness-runtime.md](harness-runtime.md)。`--skip-exe` 跳过 cargo 与入口 exe 的复制，只验证 dsh 运行时与插件；需要一并验证入口 exe 时去掉该标记。
+
+运行时根相对检出发生位移时（例如把一个单目录检出改成嵌套布局），profile 的依赖树仍按旧位置链接，pnpm 会以 `ERR_PNPM_UNEXPECTED_STORE` 拒绝按新 store 重链；此时先删除 `.staging/.dsh/profiles/web/node_modules` 与同目录锁文件再重跑。
 
 副本内不要运行 `npm run staging`：该路径解析出的 `ROOT` 是副本自身，脚本会拒绝嵌套创建副本。
 
 ## 冒烟检查
 
-升级后先确认组合能否渲染。用 `harness.json` 选定的 dsh CLI 做配置 dump，不监听端口（在仓库根目录执行；副本为 `source` 运行时则把入口换成副本内的 `.staging\dsh-gui\deepseek-harness\apps\cli\lib\bin.js`）：
+升级后先确认组合能否渲染。用 `harness.json` 选定的 dsh CLI 做配置 dump，不监听端口（在运行时根执行；副本为 `source` 运行时则把入口换成 `.staging\dsh-gui\deepseek-harness\apps\cli\lib\bin.js`）：
 
 ```powershell
-$env:DSH_HOME = "$PWD\.staging\dsh-gui\.dsh"
-node .staging\dsh-gui\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --dump-config
+$env:DSH_HOME = "$PWD\.staging\.dsh"
+node .staging\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --dump-config
 ```
 
 ## 阶段一验收：WebUI 与 GUI
@@ -56,7 +58,7 @@ node .staging\dsh-gui\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profil
 ```powershell
 cd .staging\dsh-gui
 $env:DSH_GUI_PORT = "3090"   # 空闲端口，避免与运行中的实例争用
-npm run harness              # scripts/harness.mjs：副本 .dsh 为 DSH_HOME，副本 .dsh\.agents 为 DSH_AGENTS_HOME
+npm run harness              # scripts/harness.mjs：副本运行时根的 .dsh 为 DSH_HOME，其 .agents 为 DSH_AGENTS_HOME
 ```
 
 在 `http://127.0.0.1:3090` 确认会话界面正常渲染、能新建或载入会话、插件与组合没有加载失败提示或错误覆盖层；确认后结束该进程。构建全绿与 `--dump-config` 无报错都不算通过。
@@ -66,11 +68,11 @@ npm run harness              # scripts/harness.mjs：副本 .dsh 为 DSH_HOME，
 ```powershell
 cd .staging\dsh-gui
 $env:DSH_GUI_PORT = "3090"
-npm run build                # 不带 --skip-exe，产出副本根目录的 dsh-gui.exe
-npm start                    # 启动副本根目录的入口 exe
+npm run build                # 不带 --skip-exe，产出运行时根的 .staging\dsh-gui.exe
+npm start                    # 启动运行时根的入口 exe
 ```
 
-副本 exe 从自身路径解析仓库根与 `.dsh`（`src-tauri/src/main.rs` 的 `repo_root`），与正在运行的实例互不干扰；唯一会冲突的是端口（`ensure_loopback_port_available`），因此必须换端口。确认窗口出现、加载页过渡到标签页、harness 就绪、能正常交互后关闭该实例。
+副本 exe 从自身路径解析两个根（`src-tauri/src/roots.rs` 的 `repo_root` 与 `runtime_root`），与正在运行的实例互不干扰；唯一会冲突的是端口（`ensure_loopback_port_available`），因此必须换端口。确认窗口出现、加载页过渡到标签页、harness 就绪、能正常交互后关闭该实例。
 
 两项验收都通过后，先向用户报告结论（副本路径、目标修订、验证命令与结果、适配改动清单、屏蔽项与未决风险），取得明确审批后才执行阶段二实装到本工程。
 
@@ -89,13 +91,13 @@ npm start                    # 启动副本根目录的入口 exe
 
 ## 不注册为 DSH 项目
 
-副本不作为 DSH 工作区注册。`dsh-ai-update` 的浏览器半按路径 basename 为 `dsh-gui` 选择 AI 更新会话的目标工作区，注册副本可能让它选中副本而不是本工程。副本位于本工程工作区内，会话以本工程为工作区即可读写副本。
+副本不作为 DSH 工作区注册。`dsh-ai-update` 的浏览器半按路径 basename 为 `dsh-gui` 选择 AI 更新会话的目标工作区，注册副本可能让它选中副本而不是本工程。会话以本工程的工作区（仓库根）为工作区即可读写副本；**运行时根不得作为 DSH 工作区**，沙箱会给工作区树打低完整性标签，`.dsh`、`.harness`、`.toolchain` 与入口 exe 一旦进入该范围，其中的可执行文件就以低完整性运行，见 [windows-acl-low-integrity-label.md](windows-acl-low-integrity-label.md)。
 
 ## 相关文件
 
 - `scripts/staging.mjs` —— 副本的创建、同步、状态与删除
 - `harness.json`、`docs/dsh-gui/harness-runtime.md` —— dsh 运行时的选择、解析契约与版本来源
-- `.gitignore` —— `.staging/` 条目
+- `docs/dsh-gui/nested-clone-layout.md` —— 两个根的契约、硬约束与迁移步骤
 - `src-tauri/ui/app.js` —— 更新对话框的 AI 更新提示词
 - `docs/dsh-gui/update-check.md` —— 更新检查与 npm 发布状态
 - `docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md` —— harness 升级后构建失败的事故复盘

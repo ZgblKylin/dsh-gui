@@ -33,7 +33,7 @@
  * Mount source: explicit `mount` rows (id `browser-use` /
  * `browser-use-playwright-mcp` with the provider's `config`) via
  * `installNpmPlugin`; neither package declares `dsh.bundle.patch`.
- * Writes only under DSH_HOME (default `<repo>/.dsh`); never to the shipped
+ * Writes only under DSH_HOME (default `<runtime-root>/.dsh`); never to the shipped
  * preset install. This installer lives under `plugins/harness/` — the group
  * of official dsh-family plugins — and is loaded by
  * `plugins/harness/install.mjs`; it also runs standalone.

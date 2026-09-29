@@ -11,9 +11,9 @@
  * cordis.patch.yml insert row (`id: remote, name: dsh-remote`) mounts it as a
  * bundle layer — no manual cordis.patch.yml insert is written.
  *
- * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<repo>/.dsh` by
+ * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh` by
  * the desktop shell; this script honors an explicit `DSH_HOME` override (the
- * build passes one) and otherwise pins the same repo-local default.
+ * build passes one) and otherwise pins the same runtime-root default.
  */
 
 import { dirname, join } from 'node:path'

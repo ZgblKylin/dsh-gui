@@ -5,19 +5,31 @@
 
 ## 目录结构
 
-- .dsh: dsh配置目录
-- .harness: npm 运行时的 dsh CLI 安装目录（gitignored；由 `npm run build` 按 `harness.json` 生成）
-- .staging: 升级验证工作区（本仓库的持久化 clone 副本，gitignored；由 `scripts/staging.mjs` 维护，见 `dsh-gui-update` skill）
+本仓库是嵌套布局里的检出：一个**运行时根**保存运行时与 home，其下的**仓库根**保存源码与子模块。仓库根由可执行文件位置或 `DSH_GUI_ROOT` 解析，运行时根由 `DSH_GUI_RUNTIME_ROOT` 或仓库根的父目录解析，契约见 `scripts/harness-runtime.mjs` 的 `resolveRuntimeRoot` 与 `src-tauri/src/roots.rs`，背景见 `docs/dsh-gui/nested-clone-layout.md`。
+
+仓库根：
+
 - deepseek-harness: dsh框架本体
 - docs: 文档目录
-- global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把缺失文件装到 `.dsh/.agents/`，已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；外壳以 `DSH_AGENTS_HOME` 指向该目录）
+- global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把缺失文件装到运行时根的 `.dsh/.agents/`，已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；外壳以 `DSH_AGENTS_HOME` 指向该目录）
 - harness.json: dsh 运行时清单（选择 npm 安装还是源码编译，并锁定版本）
 - plugins: 本地插件目录
 - presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到 profile 的 `@deepseek-ai/dsh-agent-preset` 声明行；见 presets/README.md）
 - src-tauri: tauri源码目录
 - scripts: 启动脚本目录
 
-- `harness.json` 的 `runtime` 决定外壳与构建用哪个 dsh：`npm` 从 registry 安装 `@deepseek-ai/dsh@<version>` 到 `.harness/`（不再编译子模块），`source` 编译 `deepseek-harness` 子模块；契约见 `scripts/harness-runtime.mjs` 与 `src-tauri/src/harness.rs`，说明见 `docs/dsh-gui/harness-runtime.md`。
+运行时根：
+
+- .dsh: dsh配置目录（会话、profile、凭据、GUI 日志）
+- .harness: npm 运行时的 dsh CLI 安装目录（由 `npm run build` 按 `harness.json` 生成）
+- .staging: 升级验证工作区（持久化 clone 副本，由 `scripts/staging.mjs` 维护，见 `dsh-gui-update` skill）
+- .toolchain、.pnpm-store: pinned pnpm 与共享 store
+- dsh-gui.exe: 入口 exe，由 `npm run build` 产出后拷贝到此处
+- run.cmd: 由 `npm run build` 生成的转发脚本，等价于在仓库根执行 `npm run <脚本> -- <参数>`
+
+两条硬约束：**运行时根禁止作为 DSH 工作区**（会话工作区取仓库根，否则 `.dsh`、`.harness` 与入口 exe 会进入沙箱的低完整性打标范围）；**仓库内不放 `node_modules`**（pnpm 硬链接会让标签沿共享文件对象外溢到 store）。
+
+- `harness.json` 的 `runtime` 决定外壳与构建用哪个 dsh：`npm` 从 registry 安装 `@deepseek-ai/dsh@<version>` 到运行时根的 `.harness/`（不再编译子模块），`source` 编译 `deepseek-harness` 子模块；契约见 `scripts/harness-runtime.mjs` 与 `src-tauri/src/harness.rs`，说明见 `docs/dsh-gui/harness-runtime.md`。
 - `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范与提供版本；不要编辑其中的任何文件，不要从该目录向插件源码复制代码。
 - 新增插件在 `plugins/<id>/<package>` 下创建（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）：wrapper `install.mjs` + 包（内嵌或 git submodule），包内 `package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`。
 
@@ -58,7 +70,7 @@ console.log({ platform: process.platform, arch: process.arch })
 
 ## 自托管
 
-dsh-gui的环境（dsh和插件）使用自托管，DSH_HOME安装至本仓库`.dsh`路径，不要使用系统全局安装。
+dsh-gui的环境（dsh和插件）使用自托管，DSH_HOME安装至运行时根的`.dsh`路径，不要使用系统全局安装；以运行时根作为 DSH 工作区会把 `.dsh`、`.harness` 与入口 exe 拖进沙箱的低完整性打标范围（见 [docs/dsh-gui/windows-acl-low-integrity-label.md](docs/dsh-gui/windows-acl-low-integrity-label.md)），会话工作区一律取仓库根。
 
 无dsh-gui环境，只将本仓库作为插件列表时，使用系统全局的.dsh路径即可。
 

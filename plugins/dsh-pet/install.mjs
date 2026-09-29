@@ -25,7 +25,7 @@
 //   0.2.9 新增的配图开关（whisperImageEnabled / chatImageEnabled）与 `memes`
 //   段不注入：上游按内置默认值合并、保存时原样透传，屏蔽语义只需 display。
 //
-// Target: `$DSH_HOME/profiles/web/`。`DSH_HOME` 缺省仓库内 `<repo>/.dsh`，
+// Target: `$DSH_HOME/profiles/web/`。`DSH_HOME` 缺省仓库内 `<runtime-root>/.dsh`，
 //   显式传入的 `DSH_HOME` 优先（与共享流水线一致）。
 
 import { existsSync, mkdirSync } from 'node:fs'

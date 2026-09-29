@@ -5,7 +5,7 @@
 //! contract for the build CLI, the plugin installer, and `scripts/harness.mjs`;
 //! the two must agree on the file, the variable names, and the resolved paths).
 //!
-//! * `npm` — `@deepseek-ai/dsh@<version>` installed into `<root>/.harness/`.
+//! * `npm` — `@deepseek-ai/dsh@<version>` installed into `<runtime-root>/.harness/`.
 //!   Nothing under `deepseek-harness/` is compiled; the pinned submodule
 //!   supplies the version (`apps/cli/package.json`).
 //! * `source` — the built `deepseek-harness` submodule at
@@ -140,8 +140,9 @@ pub fn submodule_version(root: &Path) -> Option<String> {
 /// without a resolvable version) fail loud; a missing CLI binary does not — the
 /// caller reports [`HarnessRuntime::missing_hint`] with launch context.
 /// @param root - repository root.
+/// @param runtime_root - directory holding `.harness/` for the npm runtime.
 /// @returns the resolved runtime.
-pub fn resolve(root: &Path) -> Result<HarnessRuntime, String> {
+pub fn resolve(root: &Path, runtime_root: &Path) -> Result<HarnessRuntime, String> {
     let (file_runtime, file_version) = read_config(root)?;
     let runtime = match env_override("DSH_HARNESS_RUNTIME").as_deref() {
         None => file_runtime,
@@ -159,10 +160,10 @@ pub fn resolve(root: &Path) -> Result<HarnessRuntime, String> {
             if path.is_absolute() {
                 path.to_path_buf()
             } else {
-                root.join(path)
+                runtime_root.join(path)
             }
         }
-        None => root.join(INSTALL_DIR),
+        None => runtime_root.join(INSTALL_DIR),
     };
     let configured = env_override("DSH_HARNESS_VERSION").or(file_version);
 
@@ -237,7 +238,7 @@ mod tests {
     #[test]
     fn missing_config_selects_the_source_runtime() {
         let root = scratch("no-config");
-        let runtime = resolve(&root).expect("resolve");
+        let runtime = resolve(&root, &root).expect("resolve");
         assert_eq!(runtime.runtime, Runtime::Source);
         assert!(runtime.bin.ends_with("deepseek-harness/apps/cli/lib/bin.js"));
         assert_eq!(runtime.cwd, root.join(SUBMODULE_DIR));
@@ -248,7 +249,7 @@ mod tests {
         let root = scratch("npm-derived");
         write_config(&root, "{\"runtime\":\"npm\",\"version\":null}");
         write_submodule_version(&root, "0.1.5-rc.2");
-        let runtime = resolve(&root).expect("resolve");
+        let runtime = resolve(&root, &root).expect("resolve");
         assert_eq!(runtime.runtime, Runtime::Npm);
         assert_eq!(runtime.version.as_deref(), Some("0.1.5-rc.2"));
         assert_eq!(runtime.cwd, root.join(INSTALL_DIR));
@@ -261,7 +262,7 @@ mod tests {
     fn npm_config_pins_an_explicit_version_without_the_submodule() {
         let root = scratch("npm-pinned");
         write_config(&root, "{\"runtime\":\"npm\",\"version\":\"9.9.9\"}");
-        let runtime = resolve(&root).expect("resolve");
+        let runtime = resolve(&root, &root).expect("resolve");
         assert_eq!(runtime.version.as_deref(), Some("9.9.9"));
     }
 
@@ -269,7 +270,7 @@ mod tests {
     fn npm_without_a_version_or_submodule_fails_loud() {
         let root = scratch("npm-unversioned");
         write_config(&root, "{\"runtime\":\"npm\"}");
-        let error = resolve(&root).expect_err("resolve must fail");
+        let error = resolve(&root, &root).expect_err("resolve must fail");
         assert!(error.contains("without a version"), "{error}");
     }
 
@@ -277,7 +278,7 @@ mod tests {
     fn an_unknown_runtime_is_rejected() {
         let root = scratch("bad-runtime");
         write_config(&root, "{\"runtime\":\"pnpm\"}");
-        let error = resolve(&root).expect_err("resolve must fail");
+        let error = resolve(&root, &root).expect_err("resolve must fail");
         assert!(error.contains("\"runtime\""), "{error}");
     }
 
@@ -285,7 +286,7 @@ mod tests {
     fn a_malformed_config_is_rejected() {
         let root = scratch("bad-json");
         write_config(&root, "{");
-        let error = resolve(&root).expect_err("resolve must fail");
+        let error = resolve(&root, &root).expect_err("resolve must fail");
         assert!(error.contains("not valid JSON"), "{error}");
     }
 
@@ -296,7 +297,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("repository root");
-        let runtime = resolve(root).expect("the checked-in harness.json must resolve");
+        let runtime = resolve(root, root).expect("the checked-in harness.json must resolve");
         assert!(runtime.bin.is_absolute(), "{:?}", runtime.bin);
         assert!(runtime.cwd.is_absolute(), "{:?}", runtime.cwd);
         assert!(runtime.bin.starts_with(root), "{:?}", runtime.bin);

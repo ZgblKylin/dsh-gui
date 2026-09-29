@@ -306,7 +306,7 @@ function mountEntry(profileDir, mount) {
 }
 
 /**
- * Install one plugin package into the repo-local web profile.
+ * Install one plugin package into the runtime-root web profile.
  *
  * @param {{ id: string, packageDir: string, sourceHint?: string | null,
  *   mount?: { id: string, name: string, config?: object | null } | null,

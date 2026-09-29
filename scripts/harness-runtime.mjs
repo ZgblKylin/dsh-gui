@@ -4,25 +4,30 @@
  * Two runtimes are supported. `harness.json` at the repository root selects one,
  * and environment variables override the file:
  *
- *   npm     install `@deepseek-ai/dsh@<version>` into `<root>/.harness/` and
- *           launch its `lib/bin.js`. Nothing under `deepseek-harness/` is
+ *   npm     install `@deepseek-ai/dsh@<version>` into `<runtime-root>/.harness/`
+ *           and launch its `lib/bin.js`. Nothing under `deepseek-harness/` is
  *           compiled; the pinned submodule supplies the version tag (and the
  *           upstream sources to consult) instead.
  *   source  build the `deepseek-harness` submodule and launch its
  *           `apps/cli/lib/bin.js`.
+ *
+ * The repository root holds `harness.json`, the `deepseek-harness` submodule and
+ * the build sources; the runtime root holds `.harness`, `.dsh`, `.toolchain`,
+ * `.pnpm-store` and the entry exe. `resolveRuntimeRoot` derives the latter.
  *
  * The same contract is implemented for the Rust shell in
  * `src-tauri/src/harness.rs`; the two must agree on the file, the environment
  * names, and the resolved paths.
  *
  * Overrides: `DSH_HARNESS_RUNTIME` (`npm` | `source`), `DSH_HARNESS_VERSION`
- * (exact npm version), `DSH_HARNESS_INSTALL_DIR` (relative to the repository
- * root, or absolute), `DSH_HARNESS_BIN` (absolute `bin.js` path; highest
- * precedence, the runtime still decides the working directory).
+ * (exact npm version), `DSH_HARNESS_INSTALL_DIR` (relative to the runtime root,
+ * or absolute), `DSH_HARNESS_BIN` (absolute `bin.js` path; highest precedence,
+ * the runtime still decides the working directory), `DSH_GUI_RUNTIME_ROOT`
+ * (explicit runtime root).
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 /** Repository-root manifest that selects the runtime. */
 export const HARNESS_CONFIG_FILE = 'harness.json'
@@ -30,8 +35,12 @@ export const HARNESS_CONFIG_FILE = 'harness.json'
 export const HARNESS_NPM_PACKAGE = '@deepseek-ai/dsh'
 /** Source-mode submodule directory, relative to the repository root. */
 export const HARNESS_SUBMODULE = 'deepseek-harness'
-/** npm-mode install directory, relative to the repository root. */
+/** npm-mode install directory, relative to the runtime root. */
 export const HARNESS_INSTALL_DIR = '.harness'
+/** Environment override naming the runtime root explicitly. */
+export const RUNTIME_ROOT_ENV = 'DSH_GUI_RUNTIME_ROOT'
+/** Directory name of the checkout inside the runtime root in the nested layout. */
+export const NESTED_CHECKOUT_DIR = 'dsh-gui'
 /** Pin recorded by a successful source-mode build in `<.dsh>/gui/`. */
 export const HARNESS_BUILD_STATE_FILE = 'harness-build.json'
 
@@ -121,10 +130,35 @@ export function submoduleRevision(root) {
 }
 
 /**
+ * Resolve the runtime root that holds `.dsh`, `.harness`, `.toolchain`,
+ * `.pnpm-store`, `.staging` and the entry exe.
+ *
+ * An explicit `DSH_GUI_RUNTIME_ROOT` wins. Otherwise a checkout named
+ * `dsh-gui/`, or one whose parent already carries `.dsh` or `.harness`, uses
+ * that parent: this is the nested layout. Every other checkout is its own
+ * runtime root, which keeps a single-directory layout working.
+ *
+ * @param {string} repoRoot - repository root.
+ * @param {NodeJS.ProcessEnv} [env] - environment overrides.
+ * @returns {string} absolute runtime root.
+ */
+export function resolveRuntimeRoot(repoRoot, env = process.env) {
+  const override = env[RUNTIME_ROOT_ENV]?.trim()
+  if (override !== undefined && override !== '') return resolve(override)
+  const parent = dirname(repoRoot)
+  if (parent === repoRoot) return repoRoot
+  const nested = basename(repoRoot) === NESTED_CHECKOUT_DIR
+  const carriesRuntime = existsSync(join(parent, '.dsh')) || existsSync(join(parent, '.harness'))
+  return nested || carriesRuntime ? parent : repoRoot
+}
+
+/**
  * Resolve the runtime the repository should use.
  *
- * `bin` may be missing (nothing installed yet); callers that need it check
- * `missing` and report `missingHint`. Configuration errors throw.
+ * The repository root selects the runtime and supplies the source-mode CLI; the
+ * runtime root holds the npm install directory. `bin` may be missing (nothing
+ * installed yet); callers that need it check `missing` and report
+ * `missingHint`. Configuration errors throw.
  *
  * @param {string} root - repository root.
  * @param {NodeJS.ProcessEnv} [env] - environment overrides.
@@ -132,13 +166,14 @@ export function submoduleRevision(root) {
  *   cwd: string, installDir: string, missing: boolean, missingHint: string }}
  */
 export function resolveHarnessRuntime(root, env = process.env) {
+  const runtimeRoot = resolveRuntimeRoot(root, env)
   const config = readHarnessConfig(root)
   const runtime = env.DSH_HARNESS_RUNTIME?.trim() || config.runtime
   if (!RUNTIMES.has(runtime)) {
     fail(`DSH_HARNESS_RUNTIME must be "npm" or "source" (got ${JSON.stringify(env.DSH_HARNESS_RUNTIME)})`)
   }
   const installDirValue = env.DSH_HARNESS_INSTALL_DIR?.trim() || HARNESS_INSTALL_DIR
-  const installDir = isAbsolute(installDirValue) ? installDirValue : resolve(root, installDirValue)
+  const installDir = isAbsolute(installDirValue) ? installDirValue : resolve(runtimeRoot, installDirValue)
 
   const explicitVersion = env.DSH_HARNESS_VERSION?.trim() || config.version
   let version = null

@@ -2,28 +2,35 @@
  * Shared, repo-local toolchain helpers for the dsh-gui build CLI and the
  * per-plugin install scripts under `plugins/<id>/install.mjs`.
  *
- * Everything resolves from the repository root regardless of the module that
- * imports this file, and every pnpm call is pinned to the bootstrap copy under
- * `.toolchain/` with the repo-local store at `.pnpm-store/` — a system pnpm or
- * a global store is never used.
+ * The repository root holds the sources, the pinned submodules and the build
+ * scripts; the runtime root holds `.dsh`, `.harness`, `.toolchain`,
+ * `.pnpm-store` and the entry exe. Both roots resolve regardless of the module
+ * that imports this file, and every pnpm call is pinned to the bootstrap copy
+ * under `.toolchain/` with the store at `.pnpm-store/` — a system pnpm or a
+ * global store is never used.
  */
 
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveRuntimeRoot } from './harness-runtime.mjs'
 
 /** Repository root: scripts/toolchain.mjs -> <repo>/. */
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-export const TOOLCHAIN = join(ROOT, '.toolchain')
-export const STORE = join(ROOT, '.pnpm-store')
+/** Runtime root: holds `.dsh`, `.harness`, `.toolchain`, `.pnpm-store` and the entry exe. */
+export const RUNTIME_ROOT = resolveRuntimeRoot(ROOT)
+export const TOOLCHAIN = join(RUNTIME_ROOT, '.toolchain')
+export const STORE = join(RUNTIME_ROOT, '.pnpm-store')
 export const HARNESS = join(ROOT, 'deepseek-harness')
 export const PLUGINS = join(ROOT, 'plugins')
-export const WEB_HOME = join(ROOT, '.dsh')
+export const WEB_HOME = join(RUNTIME_ROOT, '.dsh')
 /** Global agent-config template copied into `<WEB_HOME>/.agents/` on every build. */
 export const GLOBAL_AGENTS_TEMPLATE = join(ROOT, 'global_template.agents')
 export const IS_WINDOWS = process.platform === 'win32'
 export const BIN_NAME = IS_WINDOWS ? 'dsh-gui.exe' : 'dsh-gui'
+/** Entry exe the shell launches, written at the runtime root. */
+export const ENTRY_EXE = join(RUNTIME_ROOT, BIN_NAME)
 export const PNPM_VERSION = '11.7.0'
 
 /**

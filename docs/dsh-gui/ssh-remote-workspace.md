@@ -160,7 +160,7 @@ dsh（例如 `dsh --profile ssh "任务"`）。`dsh-ssh` 就绪前会校验远�
 `dsh plugin --profile ssh add <pkg>`。跨 profile 自动共享的只有以下内容：
 
 - 内置组合包（`dsh-base`、`web-app`、`headless` 等）与 core 的 `@deepseek-ai/*`
-  依赖始终从 dsh 安装目录（`.harness`）解析，launcher 通过物化的 fallback 链接让
+  依赖始终从 dsh 安装目录（运行时根的 `.harness`，或 `source` 运行时的 `deepseek-harness/`）解析，launcher 通过物化的 fallback 链接让
   profile 使用它们，无需在每个 profile 重装。
 - home 级 `$DSH_HOME/cordis.patch.yml` 应用于每个 profile，是机器本地共享的组合叠加
   层；其中新增行引用的插件必须在对应 profile 中可解析，否则该 profile 启动报错。

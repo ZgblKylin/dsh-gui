@@ -6,11 +6,11 @@ whenToUse: 用户要求卸载、移除、删除、彻底清理某个 DSH 插件�
 
 # 卸载 DSH 插件
 
-插件一旦装过，痕迹会散落在**三个地方**，缺一处就会留下悬空状态：
+插件一旦装过，痕迹会散落在**三个地方**，缺一处就会留下悬空状态；前两处在运行时根，第三处在仓库根：
 
-1. **profile 侧**（`.dsh/profiles/web/`）：依赖、bundles、node_modules、组合 patch 行；
-2. **harness home 侧**（`.dsh/`）：插件配置段、状态目录、storage、注册表记录；
-3. **仓库侧**（本仓库 `plugins/<id>/`）：wrapper 目录、`install.mjs`、git submodule 登记。
+1. **profile 侧**（`<runtime-root>/.dsh/profiles/web/`）：依赖、bundles、node_modules、组合 patch 行；
+2. **harness home 侧**（`<runtime-root>/.dsh/`）：插件配置段、状态目录、storage、注册表记录；
+3. **仓库侧**（仓库根 `plugins/<id>/`）：wrapper 目录、`install.mjs`、git submodule 登记。
 
 推荐顺序：**先从 profile 卸载**（此时包目录还在，`link:` 依赖能正常解绑）→ **再清
 `.dsh` 残留** → **最后删仓库侧来源** → **引用自检与验证**。
@@ -37,7 +37,7 @@ whenToUse: 用户要求卸载、移除、删除、彻底清理某个 DSH 插件�
 ## 1. 第 1 步：从 profile 卸载
 
 ```powershell
-$env:DSH_HOME = '<repo>\.dsh'      # dsh-gui 一律自托管到仓库内 .dsh
+$env:DSH_HOME = '<runtime-root>\.dsh'      # dsh-gui 一律自托管到仓库内 .dsh
 node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove <package>
 ```
 

@@ -3,13 +3,13 @@
  * Start the same dsh web backend the Tauri shell starts, but keep it attached
  * to this terminal. The launch contract mirrors `spawn_harness` in
  * `src-tauri/src/main.rs`: web profile, DSH_GUI_PORT (or 3080), no browser
- * handoff, the resolved runtime's working directory, the repo-local `.dsh` as
- * DSH_HOME, and the agent-config home the build fills from
- * `global_template.agents/` as DSH_AGENTS_HOME (`harness.json` selects the npm
- * or the source runtime). Both pins are load-bearing: the skill provider reads
- * `$DSH_AGENTS_HOME` and otherwise falls back to the machine-wide `~/.agents`,
- * so a backend started without it loses the user-level skills and the
- * always-loaded docs of this installation.
+ * handoff, the resolved runtime's working directory, the runtime root's `.dsh`
+ * as DSH_HOME, `DSH_GUI_ROOT` pointing at the repository, and the agent-config
+ * home the build fills from `global_template.agents/` as DSH_AGENTS_HOME
+ * (`harness.json` selects the npm or the source runtime). Both pins are
+ * load-bearing: the skill provider reads `$DSH_AGENTS_HOME` and otherwise falls
+ * back to the machine-wide `~/.agents`, so a backend started without it loses
+ * the user-level skills and the always-loaded docs of this installation.
  */
 
 import { spawn } from 'node:child_process'
@@ -45,7 +45,7 @@ const agentsHome = join(WEB_HOME, '.agents')
 
 const child = spawn('node', [cli.bin, 'web', '--port', String(port), '--no-open'], {
   cwd: cli.cwd,
-  env: { ...process.env, DSH_HOME: WEB_HOME, DSH_AGENTS_HOME: agentsHome },
+  env: { ...process.env, DSH_HOME: WEB_HOME, DSH_AGENTS_HOME: agentsHome, DSH_GUI_ROOT: ROOT },
   stdio: 'inherit',
 })
 

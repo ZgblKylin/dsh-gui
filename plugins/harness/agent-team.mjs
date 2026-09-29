@@ -47,7 +47,7 @@
  *
  * Mount source: the bundle self-mounts through `dsh.bundle.patch`; derived
  * presets are declared rows in the profile patch.
- * Writes only under DSH_HOME (default `<repo>/.dsh`); never to the shipped
+ * Writes only under DSH_HOME (default `<runtime-root>/.dsh`); never to the shipped
  * preset declarations.
  */
 
@@ -55,7 +55,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
-import { ROOT, WEB_HOME } from '../../scripts/toolchain.mjs'
+import { ROOT, RUNTIME_ROOT, WEB_HOME } from '../../scripts/toolchain.mjs'
 
 /** Wrapper id: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'agent-team'
@@ -191,20 +191,20 @@ function presetPatchFiles(dir) {
  * shipped preset declarations.
  *
  * Requirement bases cover both installation shapes — the npm runtime install
- * (`<repo>/.harness`) and an installed profile — while the literal paths cover
- * forms where a base cannot resolve the package. The harness checkout is the
- * last resort and matches the pinned revision exactly. The first candidate that
- * actually exposes preset patch files wins.
+ * (`<runtime-root>/.harness`) and an installed profile — while the literal paths
+ * cover forms where a base cannot resolve the package. The harness checkout is
+ * the last resort and matches the pinned revision exactly. The first candidate
+ * that actually exposes preset patch files wins.
  * @returns {string} absolute path to the bundle package directory.
  */
 function webAppPackageDir() {
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
   const bases = [
-    join(ROOT, '.harness', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
+    join(RUNTIME_ROOT, '.harness', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
     join(dshHome, 'profiles', 'web', 'package.json'),
   ]
   const literals = [
-    join(ROOT, '.harness', 'node_modules', '@deepseek-ai', 'dsh-web-app', 'package.json'),
+    join(RUNTIME_ROOT, '.harness', 'node_modules', '@deepseek-ai', 'dsh-web-app', 'package.json'),
     join(dshHome, 'profiles', 'node_modules', '@deepseek-ai', 'dsh-web-app', 'package.json'),
     join(dshHome, 'profiles', 'web', 'node_modules', '@deepseek-ai', 'dsh-web-app', 'package.json'),
     join(ROOT, 'deepseek-harness', 'packages', 'bundle', 'web-app', 'package.json'),

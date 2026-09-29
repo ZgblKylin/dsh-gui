@@ -399,7 +399,7 @@ fn run_headless_summary_inner(
         Path::new("node"),
         &args,
         root,
-        &[("DSH_HOME", &root.join(".dsh").to_string_lossy())],
+        &[("DSH_HOME", &crate::roots::dsh_home(root).to_string_lossy())],
         HEADLESS_TIMEOUT,
     )?;
 

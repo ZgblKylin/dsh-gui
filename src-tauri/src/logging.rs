@@ -54,13 +54,13 @@ impl log::Log for FileLogger {
     fn flush(&self) {}
 }
 
-/// Install the process-wide logger writing to `<root>/.dsh/gui/gui.log`.
+/// Install the process-wide logger writing to `<runtime root>/.dsh/gui/gui.log`.
 ///
 /// Call once from `main` before the Tauri builder runs so that a window/
 /// webview creation failure inside `setup` is captured. Idempotent: a second
 /// call (or a `set_logger` race) is ignored.
 pub fn install(root: &std::path::Path) {
-    let dir = root.join(".dsh").join("gui");
+    let dir = crate::roots::dsh_home(root).join("gui");
     let _ = std::fs::create_dir_all(&dir);
     let _ = LOG_PATH.set(dir.join("gui.log"));
 

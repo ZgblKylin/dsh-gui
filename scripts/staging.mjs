@@ -3,10 +3,10 @@
  * dsh-gui — upgrade staging workspace.
  *
  * `.staging/dsh-gui` holds a persistent clone of this repository together with
- * every submodule. A plugin or harness upgrade is validated there first: the
- * clone carries its own DSH_HOME (`.dsh/`), toolchain (`.toolchain/`), pnpm
- * store (`.pnpm-store/`), and build output, so a failed upgrade never touches
- * the installation this repository serves.
+ * every submodule, and `.staging/` is that clone's runtime root: it carries the
+ * clone's DSH_HOME (`.dsh/`), toolchain (`.toolchain/`), pnpm store
+ * (`.pnpm-store/`), harness install and build output, so a failed upgrade never
+ * touches the installation this repository serves.
  *
  * Commands:
  *   ensure   create the clone: clone this repository, seed the submodule URLs
@@ -15,7 +15,7 @@
  *   sync     move the clone onto this repository's current revision and re-pin
  *            its submodules
  *   status   report revisions, drift, and how far the clone's build has come
- *   clean    delete the clone
+ *   clean    delete the clone and its runtime directories
  *
  * Flags:
  *   --from-origin  ensure: clone the superproject from its origin URL instead
@@ -41,10 +41,12 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import { ROOT } from './toolchain.mjs'
+import { ROOT, RUNTIME_ROOT } from './toolchain.mjs'
 
-const STAGING_ROOT = join(ROOT, '.staging')
+const STAGING_ROOT = join(RUNTIME_ROOT, '.staging')
 const CLONE = join(STAGING_ROOT, 'dsh-gui')
+/** Runtime root of the clone: the staging directory itself. */
+const CLONE_RUNTIME = STAGING_ROOT
 /** Remote of the clone holding this repository's origin URL (the GitHub side). */
 const UPSTREAM_REMOTE = 'upstream'
 /** Build stages `status` probes inside the clone. */
@@ -396,7 +398,12 @@ function sync() {
 
 /** Does the clone contain one of the listed paths? */
 function present(...parts) {
-  return existsSync(join(CLONE, ...parts))
+  return presentAt(CLONE, ...parts)
+}
+
+/** Does `base` contain one of the listed paths? */
+function presentAt(base, ...parts) {
+  return existsSync(join(base, ...parts))
 }
 
 /**
@@ -443,20 +450,20 @@ function report() {
   lines.push(`    submodules: ${drifted.length === 0 ? `${submoduleEntries().length} pinned as recorded` : `DRIFT — ${drifted.join('; ')}`}`)
 
   lines.push('  clone build stages:')
-  lines.push(`    toolchain        : ${present('.toolchain', 'node_modules', 'pnpm') ? 'bootstrapped' : 'missing'} (.toolchain/node_modules/pnpm/)`)
-  lines.push(`    pnpm store       : ${present('.pnpm-store') ? 'present' : 'missing'} (.pnpm-store/)`)
+  lines.push(`    toolchain        : ${presentAt(CLONE_RUNTIME, '.toolchain', 'node_modules', 'pnpm') ? 'bootstrapped' : 'missing'} (.staging/.toolchain/node_modules/pnpm/)`)
+  lines.push(`    pnpm store       : ${presentAt(CLONE_RUNTIME, '.pnpm-store') ? 'present' : 'missing'} (.staging/.pnpm-store/)`)
   const runtime = cloneRuntime()
   if (runtime.runtime === 'npm') {
     const version = runtime.version ?? 'version from the submodule manifest'
-    lines.push(`    dsh runtime      : npm (${version}) — ${present('.harness', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js') ? 'installed' : 'missing'} (.harness/node_modules/@deepseek-ai/dsh/lib/bin.js)`)
+    lines.push(`    dsh runtime      : npm (${version}) — ${presentAt(CLONE_RUNTIME, '.harness', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js') ? 'installed' : 'missing'} (.staging/.harness/node_modules/@deepseek-ai/dsh/lib/bin.js)`)
     lines.push(`    harness submodule: not compiled (npm runtime); ${present(HARNESS, 'apps', 'cli', 'package.json') ? 'checkout present' : 'checkout missing'} (${HARNESS}/)`)
   } else {
     lines.push(`    dsh runtime      : source — ${present(HARNESS, 'apps', 'cli', 'lib', 'bin.js') ? 'built' : 'missing'} (${HARNESS}/apps/cli/lib/bin.js)`)
     lines.push(`    harness deps     : ${present(HARNESS, 'node_modules') ? 'installed' : 'missing'} (${HARNESS}/node_modules/)`)
   }
-  lines.push(`    entry exe        : ${present('dsh-gui.exe') || present('dsh-gui') ? 'built' : 'not built'}`)
-  lines.push(`    installed profile: ${present('.dsh', 'profiles', 'web', 'cordis.patch.yml') ? 'present' : 'absent'} (.dsh/profiles/web/)`)
-  lines.push(`    agent presets    : declarative profile-patch rows; legacy dir ${present('.dsh', '.agent-presets') ? 'present (no longer discovered)' : 'absent'} (.dsh/.agent-presets/)`)
+  lines.push(`    entry exe        : ${presentAt(CLONE_RUNTIME, 'dsh-gui.exe') || presentAt(CLONE_RUNTIME, 'dsh-gui') ? 'built' : 'not built'} (.staging/dsh-gui.exe)`)
+  lines.push(`    installed profile: ${presentAt(CLONE_RUNTIME, '.dsh', 'profiles', 'web', 'cordis.patch.yml') ? 'present' : 'absent'} (.staging/.dsh/profiles/web/)`)
+  lines.push(`    agent presets    : declarative profile-patch rows; legacy dir ${presentAt(CLONE_RUNTIME, '.dsh', '.agent-presets') ? 'present (no longer discovered)' : 'absent'} (.staging/.dsh/.agent-presets/)`)
   console.log(lines.join('\n'))
 }
 
@@ -467,11 +474,14 @@ function clean(options) {
     return
   }
   if (!options.yes) {
-    fail(`refusing to delete ${CLONE} without --yes`)
+    fail(`refusing to delete ${STAGING_ROOT} without --yes`)
   }
-  console.log(`==> remove ${CLONE}`)
+  console.log(`==> remove ${STAGING_ROOT}`)
   removeClone()
-  console.log('staging clone removed')
+  for (const name of ['.toolchain', '.pnpm-store', '.harness', '.dsh', 'dsh-gui.exe', 'dsh-gui']) {
+    rmSync(join(STAGING_ROOT, name), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  }
+  console.log('staging clone and its runtime directories removed')
 }
 
 function help() {
@@ -488,7 +498,7 @@ Commands:
   sync     fetch this repository into the clone, move it onto the repository's
            current revision, and re-pin its submodules
   status   report revisions, submodule drift, and the clone's build stages
-  clean    delete the staging clone (requires --yes)
+  clean    delete the staging clone and its runtime directories (requires --yes)
 
 Flags:
   --from-origin  ensure: clone the superproject from its origin URL instead of

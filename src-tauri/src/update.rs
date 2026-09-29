@@ -161,7 +161,7 @@ pub struct UpdateStatus {
 }
 
 fn gui_dir(root: &Path) -> PathBuf {
-    root.join(".dsh").join("gui")
+    crate::roots::dsh_home(root).join("gui")
 }
 
 fn plan_path(root: &Path) -> PathBuf {
@@ -895,17 +895,20 @@ pub fn check_and_sync(root: &Path, gui_pid: u32, harness_pid: u32) -> Result<Upd
     Ok(status)
 }
 
-/// Render the update launcher source with the root path and PIDs baked in.
+/// Render the update launcher source with the two roots and the PIDs baked in.
 fn render_update_script(root: &Path, gui_pid: u32, harness_pid: u32) -> io::Result<String> {
     let root_json = serde_json::to_string(&root.to_string_lossy())
         .map_err(|e| io::Error::other(e.to_string()))?;
+    let runtime_json = serde_json::to_string(&crate::roots::runtime_root(root).to_string_lossy())
+        .map_err(|e| io::Error::other(e.to_string()))?;
     Ok(UPDATE_SCRIPT_TEMPLATE
         .replace("\"__ROOT__\"", &root_json)
+        .replace("\"__RUNTIME_ROOT__\"", &runtime_json)
         .replace("__GUI_PID__", &gui_pid.to_string())
         .replace("__HARNESS_PID__", &harness_pid.to_string()))
 }
 
-/// Write (or refresh) the in-repo update launcher copy. This file lives under
+/// Write (or refresh) the update launcher copy under the runtime root's
 /// git-ignored `.dsh/`; it is the persisted plan artifact, while the script
 /// actually executed is a temp-dir copy (see [`copy_update_script_to_temp`]).
 fn write_update_script(root: &Path, gui_pid: u32, harness_pid: u32) -> io::Result<PathBuf> {
@@ -1080,7 +1083,7 @@ fn spawn_unix_update_node(
     command
         .arg(script)
         .current_dir(root)
-        .env("DSH_HOME", root.join(".dsh"))
+        .env("DSH_HOME", crate::roots::dsh_home(root))
         .stdin(Stdio::null())
         .stdout(Stdio::from(
             log.try_clone()
@@ -1673,6 +1676,7 @@ mod tests {
         let script = write_update_script(&temp, 4242, 4343).expect("script generation must work");
         let content = fs::read_to_string(&script).expect("generated script must be readable");
         assert!(!content.contains("__ROOT__"));
+        assert!(!content.contains("__RUNTIME_ROOT__"));
         assert!(!content.contains("__GUI_PID__"));
         assert!(!content.contains("__HARNESS_PID__"));
         assert!(content.contains("const GUI_PID = 4242;"));
@@ -1766,7 +1770,7 @@ mod tests {
             r#"{"name":"@linxin666/dsh-pet","version":"0.3.8"}"#,
         )
         .unwrap();
-        let registry_dir = root.join(".dsh").join("gui");
+        let registry_dir = crate::roots::dsh_home(&root).join("gui");
         fs::create_dir_all(&registry_dir).unwrap();
         fs::write(
             registry_dir.join(NPM_INSTALLS_FILE),

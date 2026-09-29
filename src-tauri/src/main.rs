@@ -41,6 +41,7 @@ mod harness;
 mod logging;
 #[cfg(windows)]
 mod native_window;
+mod roots;
 mod update;
 mod views;
 
@@ -68,6 +69,11 @@ use dialogs::{
     ai_update_request, close_dialog, connection_added, dialog_event, fit_dialog, open_dialog,
     save_dialog_size, show_dialog,
 };
+// Root discovery (see `roots`); plain imports keep the call sites in this file
+// unqualified, and the re-export keeps `crate::webview_data_dir` working for the
+// window modules.
+use roots::{repo_root, runtime_root};
+pub(crate) use roots::webview_data_dir;
 
 #[cfg(windows)]
 mod job {
@@ -198,55 +204,12 @@ mod job {
 /// the `DSH_GUI_PORT` environment variable).
 const DEFAULT_PORT: u16 = 3080;
 
-/// Walk up from the executable until the repository root (the directory that
-/// holds the runtime manifest or the `deepseek-harness` submodule and
-/// `src-tauri/`) is found. The exe sits either in
-/// `src-tauri/target/<profile>/` or at the repository root itself (the build
-/// scripts copy it there), and both resolve on the first hop.
-fn repo_root() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("could not resolve the executable path: {e}"))?;
-    let mut dir = exe
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| format!("executable has no parent directory: {exe:?}"))?;
-    for _ in 0..8 {
-        let runtime_marker = dir.join(harness::CONFIG_FILE).is_file()
-            || dir
-                .join(harness::SUBMODULE_DIR)
-                .join("package.json")
-                .is_file();
-        if runtime_marker && dir.join("src-tauri").join("tauri.conf.json").is_file() {
-            return Ok(dir);
-        }
-        if !dir.pop() {
-            break;
-        }
-    }
-    Err(format!("could not locate the repository root from {exe:?}"))
-}
-
 /// Resolve the loopback port: `DSH_GUI_PORT` if it parses as a u16, else 3080.
 fn resolve_port() -> u16 {
     std::env::var("DSH_GUI_PORT")
         .ok()
         .and_then(|v| v.trim().parse::<u16>().ok())
         .unwrap_or(DEFAULT_PORT)
-}
-
-/// WebView2 user-data folder shared by every webview the shell creates.
-///
-/// Kept inside the repository (next to `.dsh/gui/gui.log`) instead of the
-/// per-user `%LOCALAPPDATA%\<identifier>\EBWebView` default. When that default
-/// profile is unusable — locked, corrupt, or otherwise rejected by WebView2 —
-/// `CreateCoreWebView2EnvironmentWithOptions` fails, tauri-runtime-wry swallows
-/// the error, and startup dies as the opaque `HandleError::Unavailable` panic
-/// (see `logging`). A repo-local folder is created by the shell's own
-/// self-hosting layout (`DSH_HOME` also lives under `.dsh`), is trivially
-/// resettable by deleting `.dsh/gui/webview2`, and works under restricted
-/// execution where the per-user AppData profile may be unavailable.
-pub(crate) fn webview_data_dir(root: &Path) -> PathBuf {
-    root.join(".dsh").join("gui").join("webview2")
 }
 
 /// Refuse to launch while another process already owns the requested endpoint.
@@ -337,11 +300,11 @@ fn loopback_listener_pid(port: u16) -> Result<Option<u32>, String> {
         .map(|row| row.dwOwningPid))
 }
 
-/// Append a status line to `<root>/.dsh/gui/gui.log` (the only visible record
-/// once the console is gone) and mirror it to stderr for `cargo run`.
+/// Append a status line to `<runtime root>/.dsh/gui/gui.log` (the only visible
+/// record once the console is gone) and mirror it to stderr for `cargo run`.
 pub(crate) fn log_status(root: &Path, msg: &str) {
     eprintln!("[dsh-gui] {msg}");
-    let dir = root.join(".dsh").join("gui");
+    let dir = roots::dsh_home(root).join("gui");
     if fs::create_dir_all(&dir).is_ok() {
         if let Ok(mut file) = OpenOptions::new()
             .create(true)
@@ -477,14 +440,14 @@ struct HarnessAuth {
 }
 
 /// Spawn `node <resolved dsh CLI> web --port <port> --no-open` with `DSH_HOME`
-/// pinned to `<root>/.dsh`; `harness.json` decides whether that CLI is the
+/// pinned to `<runtime root>/.dsh`; `harness.json` decides whether that CLI is the
 /// registry-installed package or the built submodule. The CLI's stdout is
 /// captured (the launch URL line carries its one-time token) and mirrored to
 /// `.dsh\gui\harness.log`; stderr goes to the same log file. `--no-open` stops
 /// the web bundle from handing the page to the default browser: the shell opens
 /// its own window, and dsh runs embedded in it.
 fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::error::Error>> {
-    let runtime = harness::resolve(root)?;
+    let runtime = harness::resolve(root, &runtime_root(root))?;
     let bin = runtime.bin.clone();
     if !bin.is_file() {
         return Err(format!(
@@ -497,7 +460,7 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
 
     ensure_loopback_port_available(port)?;
 
-    let home = root.join(".dsh");
+    let home = roots::dsh_home(root);
     // The agent-config home the build installs `global_template.agents/` into:
     // the harness scans it for user-level skills and always-loaded docs, and it
     // must be set here because its default is the machine-wide `~/.agents`.
@@ -521,6 +484,7 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
         .current_dir(&runtime.cwd)
         .env("DSH_HOME", &home)
         .env("DSH_AGENTS_HOME", &agents_home)
+        .env("DSH_GUI_ROOT", root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command
@@ -1297,7 +1261,7 @@ async fn update_changelog(
 ) -> Result<changelog::UpdateChangelog, String> {
     views::ensure_shell_or_dialog(&webview)?;
     let root = state.root.clone();
-    let harness_cli = match harness::resolve(&root) {
+    let harness_cli = match harness::resolve(&root, &runtime_root(&root)) {
         Ok(runtime) => runtime.bin,
         Err(error) => {
             // The launch already reported this; the changelog only needs a CLI,

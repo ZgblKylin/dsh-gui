@@ -32,9 +32,9 @@
  * as a source reference only, like the dsh-web-ui and dsh-market wrappers: it is
  * neither built nor linked here.
  *
- * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<repo>/.dsh` by
+ * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh` by
  * the desktop shell; this script honors an explicit `DSH_HOME` override (the
- * build passes one) and otherwise pins the same repo-local default.
+ * build passes one) and otherwise pins the same runtime-root default.
  */
 
 import { existsSync, lstatSync, readFileSync, readdirSync, rmSync } from 'node:fs'

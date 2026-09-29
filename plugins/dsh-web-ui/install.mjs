@@ -53,9 +53,9 @@
  * No other dsh-web-ui package (skins, community-plugins, ...) and no agent
  * preset from the distribution repo is installed here.
  *
- * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<repo>/.dsh`
+ * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`
  * by the desktop shell; this script honors an explicit `DSH_HOME` override
- * (the build passes one) and otherwise pins the same repo-local default.
+ * (the build passes one) and otherwise pins the same runtime-root default.
  */
 
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'

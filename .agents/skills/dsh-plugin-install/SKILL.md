@@ -1,13 +1,13 @@
 ---
 name: dsh-plugin-install
-description: 安装 / 卸载 DSH 插件到 profile 的标准流程，涵盖 npm 包、git 源码、本地 tgz、目录等所有受管安装方式，以及源码编译安装（third_party + tsdown 构建 + pnpm pack）的要点与沙箱提权规则。使用 dsh plugin --profile <profile> add --help 作为权威安装方式列表。dsh-gui 仓库内一律自托管（DSH_HOME=<repo>/.dsh，web profile），不装系统全局。
+description: 安装 / 卸载 DSH 插件到 profile 的标准流程，涵盖 npm 包、git 源码、本地 tgz、目录等所有受管安装方式，以及源码编译安装（third_party + tsdown 构建 + pnpm pack）的要点与沙箱提权规则。使用 dsh plugin --profile <profile> add --help 作为权威安装方式列表。dsh-gui 环境一律自托管（DSH_HOME=<runtime-root>/.dsh，web profile），不装系统全局。
 whenToUse: 用户要求安装、卸载、更新某个 DSH 插件（如 dsh-better-sidebar、dsh-sidebar-qa、dsh-git-remotes），或询问插件怎么装、装到哪个 profile、源码插件如何编译安装时使用。
 ---
 
 # 安装 DSH 插件
 
-插件安装在 **profile** 下。**dsh-gui 仓库环境一律自托管**：`DSH_HOME` 指向仓库内
-`.dsh`（web profile 在 `.dsh/profiles/web/`），不要使用系统全局安装
+插件安装在 **profile** 下。**dsh-gui 环境一律自托管**：`DSH_HOME` 指向运行时根的
+`.dsh`（web profile 在 `<runtime-root>/.dsh/profiles/web/`），不要使用系统全局安装
 （AGENTS.md「自托管」规则）。只有无 dsh-gui 环境、仅把本仓库当插件清单时，
 才用系统全局 `.dsh`（`~/.dsh`），此时按「无 dsh-gui 环境」小节处理。
 
@@ -123,12 +123,14 @@ tgz"方案：受管安装器接受本地 tgz 并写入 `file:` 依赖。
 
 ### 推荐流程：third_party 克隆 → 本地构建 → pack → 受管安装
 
+依赖树与构建产物不得落在仓库根内（见 `AGENTS.md` 的两条硬约束），克隆与构建因此都放在运行时根的 `third_party/` 下：
+
 ```powershell
-# 1) 克隆源码到 third_party（保留 .git 便于以后 git pull 更新）
-git clone --depth 1 <git-url> third_party/<plugin>
+# 1) 克隆源码到运行时根的 third_party（保留 .git 便于以后 git pull 更新）
+git clone --depth 1 <git-url> E:\Git\dsh-gui\third_party\<plugin>
 
 # 2) 装依赖（在源码目录内）
-cd third_party/<plugin>
+Set-Location E:\Git\dsh-gui\third_party\<plugin>
 pnpm install --no-frozen-lockfile
 # 注意：install 的 prepare 生命周期脚本若被沙箱 spawn EPERM 拦截，可先完成依赖安装再单独构建
 
@@ -138,12 +140,13 @@ node node_modules/tsdown/dist/run.mjs
 # 注意 pwsh 的 workdir 参数可能不生效——先 Set-Location 到源码目录再执行
 
 # 4) 打 tgz（files 白名单控制内容，应含 lib/、cordis.patch.yml、README 等）
-pnpm pack --pack-destination <父目录>
+pnpm pack --pack-destination ..
 # 产出 <plugin>-<version>.tgz
 
-# 5) 受管安装 tgz（从仓库根目录，自托管）
+# 5) 受管安装 tgz（自托管；cwd 不限）
 $env:DSH_HOME = 'E:\Git\dsh-gui\.dsh'
-node deepseek-harness/apps/cli/lib/bin.js plugin --profile web add "E:\Git\dsh-plugins\third_party\<plugin>-<version>.tgz"
+node E:\Git\dsh-gui\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js plugin --profile web add 'E:\Git\dsh-gui\third_party\<plugin>-<version>.tgz'
+# npm 运行时用上面的 .harness 入口；source 运行时换成 <仓库根>\deepseek-harness\apps\cli\lib\bin.js
 # package.json 会写入 file:E:/.../<plugin>-<version>.tgz
 ```
 
@@ -195,7 +198,7 @@ Get-Content "$env:USERPROFILE\.dsh\profiles\web\package.json" -Raw
 ## 检查清单
 
 - [ ] 用 `npm view` 确认包存在、版本、bundle 声明、`files` 含 `cordis.patch.yml`、peer 兼容
-- [ ] 仓库内一律自托管：`$env:DSH_HOME = <repo>\.dsh`，走 `deepseek-harness/apps/cli/lib/bin.js plugin --profile web add`
+- [ ] 运行时根内一律自托管：`$env:DSH_HOME = <runtime-root>\.dsh`，走 `deepseek-harness/apps/cli/lib/bin.js plugin --profile web add`
 - [ ] 验证 `package.json` 依赖 + bundles + node_modules
 - [ ] bundle 型插件无需手工改 `cordis.patch.yml`；手工维护过的旧行要清理
 - [ ] git 源码插件：third_party 克隆 → 本地构建 → `pnpm pack` → tgz 受管安装

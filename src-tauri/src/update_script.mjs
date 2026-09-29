@@ -20,17 +20,18 @@ import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = "__ROOT__";
+const RUNTIME_ROOT = "__RUNTIME_ROOT__";
 const GUI_PID = __GUI_PID__;
 const HARNESS_PID = __HARNESS_PID__;
 const IS_WINDOWS = process.platform === 'win32';
-const GUI_DIR = join(ROOT, '.dsh', 'gui');
+const GUI_DIR = join(RUNTIME_ROOT, '.dsh', 'gui');
 const PLAN_FILE = join(GUI_DIR, 'pending-updates.json');
 const LOG_FILE = join(GUI_DIR, 'update.log');
 const SELF_PATH = fileURLToPath(import.meta.url);
 
 // Rust copies this script to %TEMP%/dsh-gui-update-<pid>-<n>.mjs before
 // executing it. Delete that temporary copy when this run finishes; the
-// in-repo `.dsh/gui/update.mjs` copy is intentionally left alone.
+// runtime root's `.dsh/gui/update.mjs` copy is intentionally left alone.
 function cleanupTempCopy() {
   if (!basename(SELF_PATH).startsWith('dsh-gui-update-')) return;
   try {
@@ -186,14 +187,14 @@ function remoteDefaultBranch(dir) {
 }
 
 function relaunch() {
-  const exe = join(ROOT, IS_WINDOWS ? 'dsh-gui.exe' : 'dsh-gui');
+  const exe = join(RUNTIME_ROOT, IS_WINDOWS ? 'dsh-gui.exe' : 'dsh-gui');
   if (!existsSync(exe)) {
     log(`entry exe missing after update: ${exe}`);
     return;
   }
   log(`relaunching ${exe}`);
   const child = spawn(exe, [], {
-    cwd: ROOT,
+    cwd: RUNTIME_ROOT,
     detached: true,
     stdio: 'ignore',
     windowsHide: true,
@@ -285,7 +286,7 @@ async function main() {
     try {
       run(process.execPath, [join(ROOT, 'scripts', 'dsh-gui.mjs'), 'build'], {
         cwd: ROOT,
-        env: { CI: 'true', DSH_HOME: join(ROOT, '.dsh') },
+        env: { CI: 'true', DSH_HOME: join(RUNTIME_ROOT, '.dsh') },
       });
     } catch (error) {
       log(`build failed, relaunching the previous exe: ${error.message}`);

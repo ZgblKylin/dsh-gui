@@ -4,6 +4,8 @@
 
 `harness.json` 决定本仓库运行的 dsh CLI 来自哪里：`npm` 用 registry 安装的 `@deepseek-ai/dsh`，`source` 编译 `deepseek-harness` 子模块。外壳、构建 CLI、插件安装器与 `npm run harness` 共用同一份解析契约：JS 侧实现在 `scripts/harness-runtime.mjs`，Rust 侧实现在 `src-tauri/src/harness.rs`，两侧在清单文件、环境变量名与解析路径上保持一致。
 
+解析涉及两个根。**仓库根**保存 `harness.json`、`deepseek-harness/` 子模块与构建脚本；**运行时根**保存 `.harness`、`.dsh`、`.toolchain`、`.pnpm-store`、`.staging` 与入口 exe。默认取仓库根的父目录当检出目录名为 `dsh-gui`（或其父目录已含 `.dsh`/`.harness`）时，否则退回单目录布局；`DSH_GUI_ROOT` 与 `DSH_GUI_RUNTIME_ROOT` 分别显式覆盖。判定实现见 `scripts/harness-runtime.mjs` 的 `resolveRuntimeRoot` 与 `src-tauri/src/roots.rs`，布局与硬约束见 [nested-clone-layout.md](nested-clone-layout.md)。
+
 ## 清单
 
 `harness.json` 位于仓库根并受版本管理：
@@ -25,7 +27,7 @@
 
 ### npm
 
-CLI 安装在 `<repo>/.harness/`，入口是 `.harness/node_modules/@deepseek-ai/dsh/lib/bin.js`，工作目录是 `.harness/`。
+CLI 安装在 `<runtime-root>/.harness/`，入口是 `.harness/node_modules/@deepseek-ai/dsh/lib/bin.js`，工作目录是 `<runtime-root>/.harness/`。
 
 `deepseek-harness/` 下的内容不参与编译，子模块只提供版本与规范。
 
@@ -41,26 +43,28 @@ CLI 安装在 `<repo>/.harness/`，入口是 `.harness/node_modules/@deepseek-ai
 | --- | --- |
 | `DSH_HARNESS_RUNTIME` | 覆盖 `runtime`，取 `npm` 或 `source`，其他值报错 |
 | `DSH_HARNESS_VERSION` | 覆盖 `version`，指定精确版本 |
-| `DSH_HARNESS_INSTALL_DIR` | npm 安装目录，相对仓库根或绝对路径，默认 `.harness` |
+| `DSH_HARNESS_INSTALL_DIR` | npm 安装目录，相对运行时根或绝对路径，默认 `.harness` |
 | `DSH_HARNESS_BIN` | 覆盖 CLI 入口路径，优先级最高；工作目录仍由运行时决定 |
+| `DSH_GUI_ROOT` | 显式指定仓库根；外壳把它注入 harness 进程，供需要定位检出的插件使用 |
+| `DSH_GUI_RUNTIME_ROOT` | 显式指定运行时根 |
 | `DSH_HARNESS_REBUILD` | 取值为 `1` 时强制干净重装运行时（删 `node_modules` + lockfile 后重解析），等同 `--force-harness` |
 | `DSH_HARNESS_ALLOW_BUILDS` | 逗号分隔的包名，把 `.harness/pnpm-workspace.yaml` 中对应的 `allowBuilds` 决策改为 `true` |
 
-表内前四项由 JS 与 Rust 两侧读取，最后两项只在构建 CLI 中生效。空白值按未设置处理。
+运行时的六项变量由 JS 与 Rust 两侧读取，最后两项只在构建 CLI 中生效。空白值按未设置处理。
 
 ## 构建行为
 
 `npm run build` 与 `npm run setup` 先解析运行时，再按运行时分支：
 
-- `npm`：不编译 harness。`pnpm add @deepseek-ai/dsh@<version>` 装入 `.harness/`，已装同版本且家族一致时跳过安装，也跳过其后的清理与记录。实际发生（重）安装时**一律干净重装**：先删除 `.harness/node_modules` 与 `.harness/pnpm-lock.yaml`，再 `pnpm add`，强制从 registry 全新解析整棵依赖树；随后清理 `<DSH_HOME>/profiles/web/.dsh-module-fallback/node_modules` 下指向 `deepseek-harness/` 源码树的链接，并把 `@deepseek-ai/dsh` 记入 `<DSH_HOME>/gui/npm-installs.json`，供更新检查识别这个 npm 安装。
+- `npm`：不编译 harness。`pnpm add @deepseek-ai/dsh@<version>` 装入 `.harness/`，已装同版本且家族一致时跳过安装，也跳过其后的清理与记录。实际发生（重）安装时**一律干净重装**：先删除 `<runtime-root>/.harness/node_modules` 与 `<runtime-root>/.harness/pnpm-lock.yaml`，再 `pnpm add`，强制从 registry 全新解析整棵依赖树；随后清理 `<DSH_HOME>/profiles/web/.dsh-module-fallback/node_modules` 下指向 `deepseek-harness/` 源码树的链接，并把 `@deepseek-ai/dsh` 记入 `<DSH_HOME>/gui/npm-installs.json`，供更新检查识别这个 npm 安装。
   - **家族一致性**：dsh 家族按同一版本一起发布，`@deepseek-ai/dsh` 与每个 `@deepseek-ai/dsh-*` 兄弟包应同版本。跳过判断同时核对全部已装 `dsh-*` 包的版本，任何一个是旧版本（混合树）即视为不当前、触发干净重装；重装后再次断言，仍不一致（如镜像元数据滞后）则构建报错而不是把坏树留给启动时爆炸。
-- `source`：在子模块内执行 `pnpm install --store-dir <repo>/.pnpm-store`（`setup` 额外带 `--frozen-lockfile`）、`pnpm run clean` 与 `pnpm run build`；完成后把子模块 revision 记入 `<DSH_HOME>/gui/harness-build.json`，内容为 `runtime`、`revision`、`version` 与 `builtAt`。
+- `source`：在子模块内执行 `pnpm install --store-dir <runtime-root>/.pnpm-store`（`setup` 额外带 `--frozen-lockfile`）、`pnpm run clean` 与 `pnpm run build`；完成后把子模块 revision 记入 `<DSH_HOME>/gui/harness-build.json`，内容为 `runtime`、`revision`、`version` 与 `builtAt`。
 
 source 模式以 revision 为增量判据：`harness-build.json` 记录的 revision 与当前子模块一致、且 `apps/cli/lib/bin.js` 存在时，跳过 `pnpm install`、`pnpm run clean` 与 `pnpm run build`。revision 从子模块 `.git` gitfile 指向的 gitdir 的 `HEAD` 读取；检出停留在分支而非游离 HEAD 时读不到 revision，该构建按过期处理并重建。
 
 `--force-harness`（`npm run build -- --force-harness`）或 `DSH_HARNESS_REBUILD=1` 强制重装运行时——`--force-harness` 同样走干净重装（删 `node_modules` + lockfile 后重解析）；`--skip-harness` 跳过整个运行时步骤。
 
-`<DSH_HOME>` 默认是仓库的 `.dsh`，可用 `DSH_HOME` 覆盖，上述状态文件随之改址。
+`<DSH_HOME>` 默认是运行时根的 `.dsh`，可用 `DSH_HOME` 覆盖，上述状态文件随之改址。
 
 ## `.harness` 项目布局
 
@@ -72,13 +76,11 @@ source 模式以 revision 为增量判据：`harness-build.json` 记录的 revis
 
 `DSH_HARNESS_ALLOW_BUILDS` 可把指定项改为 `true`。工作区文件每次构建都会重写，因此该环境变量才是持久的改动方式；缺少决策时 pnpm 会写入非布尔的占位值，后续安装随之失败。
 
-## 仓库根不安装依赖
+## 两个根都不安装依赖
 
-仓库根的 `package.json` 只承载 `npm run` 入口与 `name`/`version`，**不声明任何依赖，也不带锁文件**。`name`/`version` 是硬要求：harness 的 `nearestManifest()` 会从 `.dsh/.agent-presets/<id>/` 里的相对条目逐级上溯命中它，缺 `version` 会让 DeepSeek 请求的扩展准备阶段整体失败（见 [2026-09-01 记录](2026-09-01-deepseek-request-extension-preparation-failed.md)）。各 `scripts/*.mjs` 只 import Node 内建模块，CLI 一律从 `.harness/node_modules/@deepseek-ai/dsh/lib/bin.js` 或子模块解析，因此根不需要 `node_modules`。
+仓库根的 `package.json` 只承载 `npm run` 入口与 `name`/`version`，**不声明任何依赖，也不带锁文件**。`name`/`version` 是硬要求：harness 的 `nearestManifest()` 会从运行时根 `.dsh/.agent-presets/<id>/` 里的相对条目逐级上溯命中它，缺 `version` 会让 DeepSeek 请求的扩展准备阶段整体失败（见 [2026-09-01 记录](2026-09-01-deepseek-request-extension-preparation-failed.md)）。各 `scripts/*.mjs` 只 import Node 内建模块，CLI 一律从运行时根的 `.harness/node_modules/@deepseek-ai/dsh/lib/bin.js` 或子模块解析，因此仓库根不需要 `node_modules`，也不应在其中运行 `npm install` / `pnpm install`：重新生成的锁文件没有消费方，并会让编辑器的多锁文件告警复现。
 
-历史上根曾把 `@deepseek-ai/dsh` 写成「版本标记」依赖并留下两枚锁文件：一枚有效的 npm 锁，一枚在根误跑 pnpm 产生的空壳 `pnpm-lock.yaml`（`importers: .: {}`，不含任何包）。编辑器的 npm 扩展只在工作区文件夹根目录按文件名探测锁文件（不递归），两者并存即报「找到多个锁文件，请删除与首选包管理器不匹配的锁文件」。两者已于 2026-09-26 一并删除。
-
-因此不要在仓库根跑 `npm install` / `pnpm install`：重新生成的锁文件没有消费方，且会让该告警复现。依赖一律装在子工程里——`.harness/`、`deepseek-harness/`、`plugins/*`、`.dsh/profiles/web`，各自是独立的 pnpm 工程，`storeDir` 统一指向仓库根的 `.pnpm-store`。
+运行时根同样不放 `node_modules`。pnpm 以硬链接把 store 文件链接进各子工程，而硬链接共享同一个文件对象：DSH 给会话工作区打低完整性标签时会遍历整棵子树，仓库内的别名被打标即等于给 store 中的同一对象打标，并沿其在别处的别名传播，使本应保持中等完整性的可执行文件一并降级。依赖树因此只出现在各子工程的工程目录内——`.harness`、`deepseek-harness`、`plugins/*`、`.dsh/profiles/web`，各自是独立的 pnpm 工程，`storeDir` 统一指向运行时根的 `.pnpm-store`。
 
 ## 子模块的角色
 
@@ -118,6 +120,7 @@ SyntaxError: The requested module '@deepseek-ai/dsh-sandbox' does not provide an
 **诊断**：
 
 ```powershell
+# 在运行时根执行
 Get-ChildItem .harness\node_modules\@deepseek-ai\dsh-* | % {
   "{0} = {1}" -f $_.Name, (Get-Content "$($_.FullName)\package.json" | ConvertFrom-Json).version
 } | Sort-Object -Unique
@@ -130,22 +133,26 @@ Get-ChildItem .harness\node_modules\@deepseek-ai\dsh-* | % {
 状态）。手工恢复方式：
 
 ```powershell
+# 在运行时根执行
 Remove-Item .harness\node_modules, .harness\pnpm-lock.yaml -Recurse -Force
+# 在仓库根执行
 npm run build
 ```
 
 `--force-harness` 等价于强制走一遍干净重装。
 
 **构建期冒烟**：build/setup 在插件安装后执行
-`node .harness/node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --dump-config`
-（`DSH_HOME=.dsh`），loader/bundle/import 报错会让构建失败，把这类问题挡在
+`node <runtime-root>/.harness/node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --dump-config`
+（`DSH_HOME=<runtime-root>/.dsh`），loader/bundle/import 报错会让构建失败，把这类问题挡在
 启动之前。`.dsh/profiles/web` 尚不存在时跳过该步。
 
 ## 相关文件
 
 - `harness.json` —— 运行时清单
-- `scripts/harness-runtime.mjs` —— JS 侧的解析契约与 `.harness` 项目生成
+- `scripts/harness-runtime.mjs` —— JS 侧的解析契约、`resolveRuntimeRoot` 与 `.harness` 项目生成
 - `src-tauri/src/harness.rs` —— Rust 侧的同一契约
+- `src-tauri/src/roots.rs` —— 仓库根与运行时根的解析（外壳侧）
+- `docs/dsh-gui/nested-clone-layout.md` —— 两个根的布局、硬约束与迁移步骤
 - `scripts/dsh-gui.mjs` —— build 与 setup 的运行时分支、`--force-harness`
 - `scripts/plugin-install.mjs` —— 插件安装用同一解析结果调用 `dsh plugin add`
 - `scripts/harness.mjs` —— `npm run harness` 的前台启动

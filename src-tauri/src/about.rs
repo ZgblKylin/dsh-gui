@@ -165,7 +165,7 @@ fn item(dir: &Path, fallback_name: &str) -> AboutItem {
 /// from that repository.
 fn harness_item(root: &Path) -> AboutItem {
     let source = root.join(harness::SUBMODULE_DIR);
-    match harness::resolve(root) {
+    match harness::resolve(root, &crate::roots::runtime_root(root)) {
         Ok(runtime) if runtime.runtime == harness::Runtime::Npm => AboutItem {
             name: harness::NPM_PACKAGE.to_string(),
             version: runtime.version.unwrap_or_else(|| "unknown".to_string()),

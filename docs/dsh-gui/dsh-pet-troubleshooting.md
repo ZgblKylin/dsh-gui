@@ -4,6 +4,8 @@
 本页是出现问题时**优先翻阅**的快速定位 + 清理清单；其余更新/构建故障见
 `docs/dsh-gui/update-check.md`、`docs/dsh-gui/2026-08-30-harness-upgrade-v0-1-2-alpha-1-build-failure.md`。
 
+> 本页命令中的 `.dsh\...`、`.harness\...` 相对**运行时根**（嵌套布局下是仓库根的父目录）；从仓库根执行时加 `..\` 前缀，或先 `Set-Location` 到运行时根。`$DSH_HOME` 的默认值即该目录下的 `.dsh`。
+
 ## 1. 两个 dsh-pet，先分清是谁
 
 | | `@linxin666/dsh-pet`（鲸鱼娘） | `dsh-pet`（PC2005-cloud） |
@@ -56,7 +58,7 @@ Get-ChildItem .dsh\profiles\web\node_modules -Directory -Filter '*pet*'
 if (Test-Path .dsh\gui\npm-installs.json) { Get-Content .dsh\gui\npm-installs.json -Raw }
 
 # 3.5 最终 Loader 组合核对（重启前先看树）
-$env:DSH_HOME = 'D:\git\dsh-gui\.dsh'
+$env:DSH_HOME = 'E:\Git\dsh-gui\.dsh'
 node deepseek-harness/apps/cli/lib/bin.js --profile web --dump-config
 ```
 
@@ -65,7 +67,7 @@ node deepseek-harness/apps/cli/lib/bin.js --profile web --dump-config
 ### 4.1 卸载鲸鱼娘 `@linxin666/dsh-pet`（从 web-ui wrapper 中移除后，残留需手工清）
 
 ```powershell
-$env:DSH_HOME = 'D:\git\dsh-gui\.dsh'
+$env:DSH_HOME = 'E:\Git\dsh-gui\.dsh'
 node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove @linxin666/dsh-pet
 # 会同时清：package.json 依赖 + dsh.profile.bundles 条目 + node_modules/@linxin666/dsh-pet
 # 之后 entry `pet` 让出，PC2005 dsh-pet 才可安全安装。
@@ -74,7 +76,7 @@ node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove @linxin666
 ### 4.2 PC2005 `dsh-pet` 安装 / 重建
 
 ```powershell
-$env:DSH_HOME = 'D:\git\dsh-gui\.dsh'
+$env:DSH_HOME = 'E:\Git\dsh-gui\.dsh'
 node plugins/dsh-pet/install.mjs        # npm 受管安装 dsh-pet@0.2.9 + 注入桌面屏蔽配置
 ```
 

@@ -30,7 +30,7 @@
  * `dsh.profile.bundles` 并由其 bundle 层插入 Loader entry——不写手工 insert
  * （那会 double-mount）。
  *
- * Target: `$DSH_HOME/profiles/web/`。`DSH_HOME` 被桌面壳钉到 `<repo>/.dsh`；
+ * Target: `$DSH_HOME/profiles/web/`。`DSH_HOME` 被桌面壳钉到 `<runtime-root>/.dsh`；
  * 本脚本尊重显式 `DSH_HOME` 覆盖（build 会传一个），否则取同一仓库内默认值。
  */
 

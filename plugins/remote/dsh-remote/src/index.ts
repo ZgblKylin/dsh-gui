@@ -102,17 +102,25 @@ interface LocalHandle {
   proc: ReturnType<typeof spawn>
 }
 
-/** Locate the self-hosted harness checkout by walking up from cwd / DSH_HOME. */
+/**
+ * Locate the self-hosted harness checkout from `DSH_GUI_ROOT`, then by walking
+ * up from cwd and from `DSH_HOME`. The desktop shell exports `DSH_GUI_ROOT`
+ * because the checkout lives below the runtime root in the nested layout, where
+ * neither the harness working directory nor `DSH_HOME` sits inside the checkout.
+ */
 function discover(): Discovery {
   const home = process.env.DSH_HOME || ''
+  const explicit = process.env.DSH_GUI_ROOT || ''
   const cwd = process.cwd()
-  let root = ''
+  let root = explicit !== '' && existsSync(join(explicit, 'harness.json')) ? explicit : ''
   let p = cwd
-  for (let i = 0; i < 10; i++) {
-    if (existsSync(join(p, 'deepseek-harness', 'apps', 'cli', 'lib', 'bin.js'))) { root = p; break }
-    const q = dirname(p)
-    if (q === p) break
-    p = q
+  if (root === '') {
+    for (let i = 0; i < 10; i++) {
+      if (existsSync(join(p, 'deepseek-harness', 'apps', 'cli', 'lib', 'bin.js'))) { root = p; break }
+      const q = dirname(p)
+      if (q === p) break
+      p = q
+    }
   }
   if (root === '' && home !== '') {
     let q = home

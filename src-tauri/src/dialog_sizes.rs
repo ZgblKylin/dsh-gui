@@ -1,7 +1,7 @@
 //! Dialog-size persistence: remembers each native dialog window's last
-//! user-adjusted size in `<root>/.dsh/gui/dialog-sizes.json`, so a reopened
-//! dialog keeps the geometry the user chose instead of snapping back to a
-//! compiled-in default.
+//! user-adjusted size in `<runtime root>/.dsh/gui/dialog-sizes.json`, so a
+//! reopened dialog keeps the geometry the user chose instead of snapping back
+//! to a compiled-in default.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ const SIZES_FILE: &str = "dialog-sizes.json";
 pub struct DialogSizes(pub HashMap<String, (f64, f64)>);
 
 fn sizes_path(root: &Path) -> PathBuf {
-    root.join(".dsh").join("gui").join(SIZES_FILE)
+    crate::roots::dsh_home(root).join("gui").join(SIZES_FILE)
 }
 
 /// Load the persisted dialog sizes. A missing or corrupt file silently

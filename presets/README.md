@@ -57,7 +57,7 @@ Cordis 行列表。旧版按 `.dsh/.agent-presets/<id>/`（目录名即 id，外
 - **安装脚本必须幂等**：重复执行结果一致。写 profile patch 时以标记块整体替换，
   不要追加重复行——重复的 preset id 会让声明加载失败。
 - **安装脚本必须仓库内自托管**：只写 `$DSH_HOME`（构建时传入、缺省为
-  `<repo>/.dsh`），不碰系统全局位置。
+  `<runtime-root>/.dsh`），不碰系统全局位置。
 - **不要覆盖随包声明行**：随包 preset 的行 id 形如 `preset-standard`，由官方 bundle
   提供。自己的预设用不同的行 id 与 `config.id`；需要派生（例如 Team 版）就整体
   复制 `config.plugins` 再改，见 `agent-team.mjs`。

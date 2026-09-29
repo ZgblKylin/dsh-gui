@@ -328,7 +328,7 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
 
 ## 约束
 
-- `DSH_HOME` 缺省 `<repo>/.dsh`，只写该目录；**从不写官方 preset 安装目录**。
+- `DSH_HOME` 缺省 `<runtime-root>/.dsh`，只写该目录；**从不写官方 preset 安装目录**。
 - 幂等：重复执行结果一致（npm 安装由 `dsh plugin add` 去重，派生 preset 每次重新
   生成）。
 - 依赖 `scripts/plugin-install.mjs` 的共享流水线；各包经 `installNpmPlugin`

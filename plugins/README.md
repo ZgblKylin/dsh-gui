@@ -44,7 +44,7 @@ shared pipeline to `scripts/plugin-install.mjs` and only own their id, package
 directory, and submodule hint:
 
 1. build the package in place when it declares a `build` script (pinned
-   toolchain pnpm + repo-local store),
+   toolchain pnpm + shared store),
 2. pin the profile's pnpm store,
 3. `dsh plugin --profile web add link:<package dir>`,
 4. append an idempotent insert to `.dsh/profiles/web/cordis.patch.yml` —
@@ -58,9 +58,10 @@ source installs) skip the local build/link pipeline and call the shared
 own `dsh.bundle.patch` reconcile it into `dsh.profile.bundles` — no manual
 cordis insert.
 
-`DSH_HOME` is pinned to `./.dsh` by the desktop shell and by every install
-script, so installed plugins land under `.dsh/` inside this repository —
-nothing is written to `~/.dsh` or any global location.
+`DSH_HOME` is pinned to the runtime root's `.dsh` by the desktop shell and by
+every install script, so installed plugins land under that directory — the
+checkout's parent in the nested layout — and nothing is written to `~/.dsh` or
+any global location.
 
 Two package shapes are handled specially:
 

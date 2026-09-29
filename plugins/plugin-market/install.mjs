@@ -14,9 +14,9 @@
  * `dsh.profile.bundles` and its own bundle layer mounts the entry; no manual
  * insert is written (that would double-mount it).
  *
- * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<repo>/.dsh`
+ * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`
  * by the desktop shell; this script honors an explicit `DSH_HOME` override
- * (the build passes one) and otherwise pins the same repo-local default.
+ * (the build passes one) and otherwise pins the same runtime-root default.
  */
 
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
