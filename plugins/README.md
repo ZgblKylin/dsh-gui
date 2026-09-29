@@ -58,6 +58,19 @@ source installs) skip the local build/link pipeline and call the shared
 own `dsh.bundle.patch` reconcile it into `dsh.profile.bundles` — no manual
 cordis insert.
 
+Since harness dsh-v0.2.0-rc.2 the app-boot admission gate compares every
+`@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer with the running dsh version: a
+package whose range predates it is refused by `dsh plugin add` and its bundle
+layer is skipped at boot. `installNpmPlugin`'s `exempt` option
+is the only way to keep such a version mounted: the wrapper passes a reason, and
+before the install the pipeline grants the profile an exact-version exemption
+with `dsh plugin allow-version <spec> --dsh-version <runtime> --accept-risk`,
+which writes the accepted risk into the profile's `compatibility.json`. The
+exemption is keyed by exact package version and exact runtime version, so the
+next harness change invalidates it instead of carrying the accepted risk
+forward. Flowglass, the two deep-whale skins and dsh-pet use it; a package whose
+installed version already admits the 0.2 line does not.
+
 Both paths fast-path an already-satisfied profile. `installNpmPlugin` skips the
 `dsh plugin add` entirely when the package is pinned to an exact version, the
 profile's dependency and `node_modules` copy are at that version, no foreign
@@ -107,7 +120,7 @@ tree with `duplicate loader entry id`.
 
 - **Multiple npm bundles wrapper** — `dsh-web-ui` installs four plugin
   packages of its distribution repo, pinned to exact versions matching the
-  git tag (`0.4.2`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
+  git tag (`0.4.4`; exact pins bypass pnpm 11's 24h `minimumReleaseAge`
   gate, which would otherwise silently fall back to an older version for
   `@latest`): `@linxin666/dsh-client-ui-web-ui-settings`,
   `@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
@@ -115,38 +128,44 @@ tree with `duplicate loader entry id`.
   ordered first; per the 安装方式 section below: not marked as source
   installs). All four declare `dsh.bundle.patch`, so each mounts through its
   own bundle layer (no manual cordis inserts). The plugin-manager tab
-  (`@linxin666/dsh-client-ui-plugin-manager`) is no longer installed: the
-  official `@deepseek-ai/dsh-web-app` bundle of the pinned harness
-  (dsh-v0.1.7-rc.2) ships its own `ui-plugin-manager` loader entry, which
-  collides with the upstream package's bundle patch id. It does not install agent
-  presets or any other dsh-web-ui package. See `dsh-web-ui/README.md`.
+  (`@linxin666/dsh-client-ui-plugin-manager`) is not installed: the official
+  `@deepseek-ai/dsh-web-app` bundle of the pinned harness (dsh-v0.2.0-rc.2)
+  inserts its own `ui-plugin-manager` loader entry with the same id. A duplicate
+  id across bundle layers is not a boot failure — the loader reuses one Entry per
+  id and the last row wins — but the surviving row would be the upstream
+  package's, and shadowing the official row removes the Plugins page seat that
+  the upstream package's own `plugins.detail.section` block extends. It does not
+  install agent presets or any other dsh-web-ui package. See
+  `dsh-web-ui/README.md`.
 
 ## 安装方式
 
 未标注源码安装的，均使用`dsh plugin --profile <profile> add <package>`安装npm包，package参数见列表。
 标注源码安装的，基于源码编译后，基于link模式引入源码安装。
 
-- [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.65.3`）
-- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**v0.21.1** 起含 DSH 0.1.7-rc.1 适配（peerDeps 全指 `^0.1.7-rc.1`，上游把该版标记为「DSH 0.1.7-rc.1 的稳定适配版」并补齐 DSH 0.1.7 插件列表使用的图标与 locale 元数据），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.21.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.7.2`、`dsh-sidebar-qa@1.0.2`）
-  - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.7.2`；0.7.x 适配 DSH 0.1.7 的工具结果与会话投影，0.6.x 的 `create` 工厂修复仍在其 peer 范围内，peer 为 `^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2`；v0.5.0 起以 DSH 0.1.5+ 原生右侧栏 page type 承载；对 `dsh-better-sidebar` 的 peer 为 `>=0.19.0`，与本 wrapper 固定的 0.21.1 匹配）
-  - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `1.0.2`；v1.0.0 起收敛为原生单后端，并在 manifest 层移除了 `dsh-better-sidebar` peer；按 DSH 0.1.7 重命名后的图标集按名解析宿主图标）
-- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) npm包（pin 子模块 tag `v0.1.5`；`@smalltailqwq/dsh-client-ui-skin-*` 三包：skin-manager + maid-atelier + orca-link，按上游 INSTALL.md 顺序安装，并清理旧 `@dsh-external/*` 占位 scope 的残留键）
+- [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.66.5`；1.66.4 起把 `@deepseek-ai/dsh-settings` peer 纳入 0.2 线，属硬下限：1.65.3 的 peer 范围被 0.2.0-rc.2 的准入闸门拒绝，安装前置检查直接失败）
+- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**0.24.1** 的 14 条 `@deepseek-ai/dsh-*` peerDeps 全指 `^0.2.0-rc.1`，与本工程 pinned 的 `dsh-v0.2.0-rc.2` 匹配；0.21.1 的 `^0.1.7-rc.1` 上界不含 0.2.0，会被 0.2.0 的准入闸门整包拒绝），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.24.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），下方插件需确保依赖本插件，install.mjs 先装本插件再装下方两个插件，下方两插件同样 pin 到各自子模块 tag（`dsh-flowglass@0.7.3`、`dsh-sidebar-qa@1.1.0`）
+  - [dsh-flowglass](https://github.com/Iwctwbh/dsh-flowglass) npm包（pin `0.7.3`；0.7.x 适配 DSH 0.1.7 的工具结果与会话投影，0.6.x 的 `create` 工厂修复仍在其 peer 范围内，peer 为 `^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2`，三个 caret 分支的上界都在 0.2.0 之前、0.2.0-rc.2 的准入闸门会拒绝，而上游尚无适配 0.2 的发布，因此带精确版本例外继续挂载；v0.5.0 起以 DSH 0.1.5+ 原生右侧栏 page type 承载；对 `dsh-better-sidebar` 的 peer 为 `>=0.19.0`，与本 wrapper 固定的 0.24.1 匹配）
+  - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `1.1.0`；1.1.0 是纯元数据修复版，peer 由 `^0.1.0-rc.8` 改为纯下限 `>=0.1.0-rc.8`，caret 上界 `<0.2.0-0` 过不了 0.2.0 的准入闸门；v1.0.0 起收敛为原生单后端，并在 manifest 层移除了 `dsh-better-sidebar` peer；按 DSH 0.1.7 重命名后的图标集按名解析宿主图标）
+- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) npm包（pin 子模块 tag `v0.1.6`，分包 pin：skin-manager `0.1.5`（该 tag 内未发布 0.1.6 的管理包）、maid-atelier 与 orca-link 各 `0.1.6`；`@smalltailqwq/dsh-client-ui-skin-*` 三包按上游 INSTALL.md 顺序安装，两块皮肤的 `@deepseek-ai/dsh` peer 为 `>=0.1.7-rc.1 <0.1.8-0`，被 0.2.0-rc.2 的准入闸门拒绝，因此带精确版本例外，manager 的 peer `>=0.1.7-rc.1` 由 0.2.0-rc.2 满足、无需例外；并清理旧 `@dsh-external/*` 占位 scope 的残留键）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
-  - [@linxin666/dsh-client-ui-web-ui-settings@0.4.2](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
-  - [@linxin666/dsh-client-ui-skill-explorer@0.4.2](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
-  - [@linxin666/dsh-usage@0.4.2](dsh-web-ui/packages/dsh-usage/README.zh.md) npm包
-  - [@linxin666/dsh-client-ui-model-capabilities@0.4.2](dsh-web-ui/packages/dsh-model-capabilities/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-web-ui-settings@0.4.4](dsh-web-ui/packages/dsh-web-settings/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-skill-explorer@0.4.4](dsh-web-ui/packages/dsh-skill-explorer/README.zh.md) npm包
+  - [@linxin666/dsh-usage@0.4.4](dsh-web-ui/packages/dsh-usage/README.zh.md) npm包
+  - [@linxin666/dsh-client-ui-model-capabilities@0.4.4](dsh-web-ui/packages/dsh-model-capabilities/README.zh.md) npm包
     （插件管理器 Tab `@linxin666/dsh-client-ui-plugin-manager`、会话归档管理
     `@linxin666/dsh-session-archive` 与任务板
     `@linxin666/dsh-client-ui-task-board` 已从本工程移除，不再安装；见
     `dsh-web-ui/README.md`「已移除插件」一节）
 - harness（dsh 工程官方插件组，平铺脚本见 [harness/README.md](harness/README.md)）：
-  - Agent Teams（无本地包）npm包 ×1 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.7-rc.2`（自 0.1.7-rc.2 起上游把原 `...-agent-team-web-profile` 合并进这一个 bundle 并删除该包），另按上游 preset 声明派生 `<id>-team` 声明行
-  - Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.1.7-rc.2`，与 pinned 的 dsh-v0.1.7-rc.2 harness 配套
-  - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.1.7-rc.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.7-rc.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。0.1.7-rc.2 起默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
-  - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.1.7-rc.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.7-rc.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
+  - Agent Teams（无本地包）npm包 ×1 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.2.0-rc.2`（自 0.1.7-rc.2 起上游把原 `...-agent-team-web-profile` 合并进这一个 bundle 并删除该包），另按上游 preset 声明派生 `<id>-team` 声明行
+  - Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.2.0-rc.2`，与 pinned 的 dsh-v0.2.0-rc.2 harness 配套
+  - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.2.0-rc.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.0-rc.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
+  - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.0-rc.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.0-rc.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.12；子模块
-  checkout 仅作源码参考），默认安装：host 半 inject 与 0.2.6 起相同，
+  checkout 仅作源码参考；9 条 `@deepseek-ai/dsh*` peer 全为 `^0.1.1-rc.2`，
+  上界 `<0.2.0-0` 在 0.2.0-rc.2 的准入闸门下被拒，而上游 npm 无适配 0.2 的更新
+  版本，因此带精确版本例外继续挂载），默认安装：host 半 inject 与 0.2.6 起相同，
   `agentDefaultModel` 由 base bundle 提供；client 半自 0.2.8 起把 `commandUi`
   （官方 dsh-client-ui-commands 的「/」命令服务，随 web-app bundle 挂载）加进
   本地 inject，本 harness 提供该服务，`/pet` 选择框注册有保障；系统通知自 0.2.9
@@ -169,12 +188,13 @@ tree with `duplicate loader entry id`.
   (`omdsh-dev/DSH-better-sidebar`), `better-sidebar/dsh-flowglass`
   (`Iwctwbh/dsh-flowglass`) and `better-sidebar/dsh-sidebar-qa`
   (`ChenRuoT/dsh-sidebar-qa`); its `install.mjs` installs the three packages
-  in order — `dsh-better-sidebar@0.21.1` FIRST (0.21.1 is the DSH
-  0.1.7-rc.1 适配版, peerDeps 全指 `^0.1.7-rc.1`。固定精确版本而非 `@latest`，
+  in order — `dsh-better-sidebar@0.24.1` FIRST (0.24.1 is the DSH
+  0.2.0-rc.1 适配版, peerDeps 全指 `^0.2.0-rc.1`；0.21.1 的 `^0.1.7-rc.1` 上界
+  不含 0.2.0，会被 0.2.0 的准入闸门整包拒绝。固定精确版本而非 `@latest`，
   因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在
   `@latest` 之外、静默回退到更旧版本；子模块 checkout 在 pinned tag 处保留作
   源码参考),
-  then `dsh-flowglass@0.7.2`, then `dsh-sidebar-qa@1.0.2`
+  then `dsh-flowglass@0.7.3`, then `dsh-sidebar-qa@1.1.0`
   (flowglass declares better-sidebar as a peer dependency, so it must land first;
   the same order ends up in `dsh.profile.bundles`; all three are pinned to exact
   versions matching their submodule tags. `dsh-sidebar-qa` dropped that peer in
@@ -194,10 +214,13 @@ tree with `duplicate loader entry id`.
     lanes (user/assistant trunk, tool-call branches, subagent left-column
     branches), parallel-group frames, drill-down with breadcrumbs, and a
     hot-reloadable session toolbox drawer (21 mini-tools). Installed from npm
-    as `dsh-flowglass@0.7.2` (pinned to the submodule tag; 0.7.x adapts DSH
+    as `dsh-flowglass@0.7.3` (pinned to the submodule tag; 0.7.x adapts DSH
     0.1.7 tool results and session projections, while 0.6.x supplied the `create`
     factory that the alpha.2 gateway's strict codec validation requires, and the
-    peer range `^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2` covers both);
+    peer range `^0.1.5-rc.1 || ^0.1.6-alpha.2 || ^0.1.7-alpha.2` covers both; all
+    three caret branches end below 0.2.0, so 0.2.0-rc.2's admission gate rejects
+    it and the wrapper grants an exact-version exemption, upstream having no
+    0.2-compatible release);
     declares
     `dsh.bundle.patch` (self-mounting;
     the repo checkout is kept as a source reference only). Since v0.5.0 the
@@ -205,7 +228,7 @@ tree with `duplicate loader entry id`.
     the DSH 0.1.5+ native right sidebar first (page type
     `dsh-flowglass:flow`, exactly one registration path active), then the
     optional `dsh-better-sidebar` bridge (peer `>=0.19.0`; this wrapper pins
-    0.21.1) when the native sidebar is unavailable, then the plugin's own
+    0.24.1) when the native sidebar is unavailable, then the plugin's own
     fixed right panel. See its `README.md`.
   - `dsh-sidebar-qa` — select conversation text → right-panel follow-up
     question → a dedicated same-workspace session (`❓追问·<主题>`) that never
@@ -216,8 +239,11 @@ tree with `duplicate loader entry id`.
     `README.md`.
 - `plugin-market` — git submodule (`dsh-market/dsh-market`) at
   `plugin-market/dsh-market`: visual plugin market (browse/search/one-click
-  install community plugins). It is installed from npm as `dshmarket@1.65.3`
-  (pinned to the submodule tag; per the 安装方式 section; the submodule
+  install community plugins). It is installed from npm as `dshmarket@1.66.5`
+  (pinned to the submodule tag; per the 安装方式 section; the version is a hard
+  floor, because 1.66.4 admitted the 0.2 line and 1.65.3's
+  `@deepseek-ai/dsh-settings` peer range is rejected by 0.2.0-rc.2's admission
+  gate, which fails the install preflight; the submodule
   checkout is kept as a source
   reference only), declares `dsh.bundle.patch`, so `dsh plugin add` mounts it
   through its own bundle layer. See its `README.md`.
@@ -240,7 +266,13 @@ tree with `duplicate loader entry id`.
   mutually exclusive skins `maid-atelier` and `orca-link`
   (`@smalltailqwq/dsh-client-ui-skin-maid-atelier` /
   `@smalltailqwq/dsh-client-ui-skin-orca-link`, each MIT for its code and
-  CC BY-NC-SA 4.0 for its artwork), all pinned to exact `0.1.5`. Every tarball
+  CC BY-NC-SA 4.0 for its artwork), pinned per package to the exact version each
+  carries in the pinned `v0.1.6` tag — the manager at `0.1.5` (that tag never
+  published a `0.1.6` manager) and both skins at `0.1.6`. The two skins carry an
+  exact-version exemption because their `@deepseek-ai/dsh: >=0.1.7-rc.1 <0.1.8-0`
+  peer is rejected by 0.2.0-rc.2's admission gate and upstream has no
+  0.2-compatible skin; the manager's `>=0.1.7-rc.1` peer is satisfied, so it
+  needs none. Every tarball
   ships its prebuilt `lib/` and its own `cordis.patch.yml`, so nothing is
   compiled or linked locally and each mounts through its own bundle layer (entry
   ids `ui-skin-deep-whale-manager`, `ui-skin-maid-atelier`, `ui-skin-orca-link`).
@@ -255,7 +287,7 @@ tree with `duplicate loader entry id`.
   `deep-whale/dsh-deep-whale/README.md` and the per-skin `README.md` files.
 - `dsh-web-ui` — git submodule (`zhu1090093659/dsh-web-ui`) at
   `dsh-web-ui/dsh-web-ui`. Installs four plugin packages of the distribution
-  repo pinned to exact versions matching the git tag (`0.4.2`) (per the
+  repo pinned to exact versions matching the git tag (`0.4.4`) (per the
   安装方式 section above): the `dsh-web-ui-settings` compatibility bundle
   (`@linxin666/dsh-client-ui-web-ui-settings`, ordered first),
   `dsh-skill-explorer` (`@linxin666/dsh-client-ui-skill-explorer`),
@@ -270,7 +302,10 @@ tree with `duplicate loader entry id`.
 - `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.12)
   at `dsh-pet/dsh-pet`: a floating desktop pet whose host half runs inside
   DSH and whose optional desktop mode spawns per-pet transparent Electron
-  windows. The wrapper installs the package from npm as `dsh-pet@0.2.12`, then
+  windows. The wrapper installs the package from npm as `dsh-pet@0.2.12` (its
+  nine `@deepseek-ai/dsh*` peers are `^0.1.1-rc.2`, rejected by 0.2.0-rc.2's
+  admission gate, and upstream npm has no 0.2-compatible release, so the wrapper
+  grants an exact-version exemption), then
   injects a user-layer default pet with `display:"web"` into
   `$DSH_HOME/dsh-pet/main-config.json` (unless a `display` is already
   configured) — so no pet resolves to `desktop`/`both` and no Electron helper
@@ -292,9 +327,10 @@ tree with `duplicate loader entry id`.
   See `harness/README.md`.
   - `agent-team` — `harness/agent-team.mjs` installs the
     official experimental Agent Teams bundle from npm
-    (`@deepseek-ai/dsh-experimental-agent-team-profile@0.1.7-rc.2`; an exact
-    prerelease pin, because npm `latest` still points at `0.1.5-alpha.2` and the
-    Community Market cannot carry a prerelease). Since `0.1.7-rc.2` upstream
+    (`@deepseek-ai/dsh-experimental-agent-team-profile@0.2.0-rc.2`; an exact
+    prerelease pin, because the npm `latest` dist-tag of the dsh-family
+    experimental packages trails the released prerelease and the Community Market
+    cannot carry a prerelease). Since `0.1.7-rc.2` upstream
     merged the former `...-agent-team-web-profile` into this one bundle and
     deleted that package, so the wrapper installs a single spec. It then derives
     a Team-aware sibling `<id>-team` for every shipped agent preset that carries
@@ -312,9 +348,9 @@ tree with `duplicate loader entry id`.
     Agent Teams.
   - `browser-use` — `harness/browser-use.mjs` installs the Playwright MCP
     browser provider from npm as two plain (non-bundle) packages:
-    `@deepseek-ai/dsh-browser-use@0.1.7-rc.2` (the exclusive browser-use
+    `@deepseek-ai/dsh-browser-use@0.2.0-rc.2` (the exclusive browser-use
     provider registration service, `ctx.browserUse`) and
-    `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.7-rc.2`
+    `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.0-rc.2`
     (per-Session Chromium tools via `@playwright/mcp`, surfaced as
     `mcp__playwright-mcp__<tool>`). Neither declares `dsh.bundle.patch`, so the
     wrapper mounts both plain packages by hand: two
@@ -322,15 +358,15 @@ tree with `duplicate loader entry id`.
     `browser-use-playwright-mcp`), the provider row carrying a `config:` block
     (`mode: launch`, `headless: true`, and a system Chromium `executablePath`
     resolved at install time — override with `DSH_BROWSER_EXECUTABLE`).
-    Installed by default since 0.1.7-rc.2: `mode: launch` gives every live
+    Installed by default: `mode: launch` gives every live
     Session its own browser client, and the profile resolves a single
     `@deepseek-ai/dsh-scope` instance (the duplicate-instance failure upstream
     issue #4573 describes). See `harness/README.md`.
   - `computer-use` — `harness/computer-use.mjs` installs the Cua Driver
     native desktop provider from npm as two plain (non-bundle) packages:
-    `@deepseek-ai/dsh-computer-use@0.1.7-rc.2` (the exclusive computer-use
+    `@deepseek-ai/dsh-computer-use@0.2.0-rc.2` (the exclusive computer-use
     provider registration service, `ctx.computerUse`) and
-    `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.7-rc.2`
+    `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.0-rc.2`
     (in-process desktop tools via the Cua Driver native npm SDK
     `@trycua/cua-driver@0.28.0`, surfaced as `cua_driver_native__<tool>`).
     Neither declares `dsh.bundle.patch`, so the wrapper mounts both plain
@@ -342,9 +378,9 @@ tree with `duplicate loader entry id`.
     See `harness/README.md`.
   - `auto-review` — `harness/auto-review.mjs` installs the
     official experimental per-call LLM authorization layer
-    (`@deepseek-ai/dsh-experimental-auto-review@0.1.7-rc.2`; exact prerelease
-    pin matching the pinned `dsh-v0.1.7-rc.2` harness, whose
-    peerDependencies all point at `^0.1.7-rc.1`), declaring
+    (`@deepseek-ai/dsh-experimental-auto-review@0.2.0-rc.2`; exact prerelease
+    pin matching the pinned `dsh-v0.2.0-rc.2` harness, whose
+    peerDependencies all point at `0.2.0-rc.2`), declaring
     `dsh.bundle.patch` so it self-mounts through its own bundle layer. The layer
     adds a current-session-only `Auto review EXP` option to the permission
     selector; every native and started PTC inner tool call is reviewed once by

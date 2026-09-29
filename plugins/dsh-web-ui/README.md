@@ -2,29 +2,28 @@
 
 `dsh-web-ui` 的 git submodule wrapper。这个 wrapper 安装该仓库中的**插件本体**，
 全部以 npm 包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的
-「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.3.22`）：
+「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.4.4`）：
 
 1. **`dsh-web-ui-settings` 兼容设置桥**
-   （`@linxin666/dsh-client-ui-web-ui-settings@0.3.22`，排在最前）；
+   （`@linxin666/dsh-client-ui-web-ui-settings@0.4.4`，排在最前）；
 2. **`dsh-skill-explorer` 技能中心面板**
-   （`@linxin666/dsh-client-ui-skill-explorer@0.3.22`）；
+   （`@linxin666/dsh-client-ui-skill-explorer@0.4.4`）；
 3. **`dsh-usage` 使用统计**
-   （`@linxin666/dsh-usage@0.3.22`）；
+   （`@linxin666/dsh-usage@0.4.4`）；
 4. **`dsh-model-capabilities` 模型能力**
-   （`@linxin666/dsh-client-ui-model-capabilities@0.3.22`）。
+   （`@linxin666/dsh-client-ui-model-capabilities@0.4.4`）。
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
 保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 版本号。
 
-四个包要求 `dsh >= 0.1.5-rc.1`，本工程 pinned 的 `dsh-v0.1.5-rc.2` 满足该声明。
+四个包要求 `@deepseek-ai/dsh >= 0.2.0-rc.1`，本工程 pinned 的 `dsh-v0.2.0-rc.2` 满足该声明。
 
-> **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）已不再安装。**
-> 自 harness 升到 `dsh-v0.1.6-alpha.2` 起，官方 `@deepseek-ai/dsh-web-app` bundle
-> 自带 `ui-plugin-manager` loader 行，与该包 bundle patch 的 id 冲突（启动报
-> `duplicate loader entry id: ui-plugin-manager`）。官方插件管理器已覆盖内置
-> 插件页；若日后要恢复上游包，需以独立 loader entry id 挂载（见
-> `dsh-plugin-uninstall` skill）。
+> **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper 安装。**
+> 官方 `@deepseek-ai/dsh-web-app` bundle 自带同名 `ui-plugin-manager` loader 行，同 id
+> 覆盖会连带抹掉官方 Plugins 页座位，而 v0.4.4 的上游包改把自己的
+> `plugins.detail.section` 块加进该页；官方插件管理器已覆盖内置插件页。详见「已移除
+> 插件」一节。
 
 不安装 dsh-web-ui 的其他任何包、插件、皮肤，也不安装其 agent preset（agent
 preset 属于 `presets/` 流程，不在本 wrapper）。`dsh-liangshen`（梁神模式）与其
@@ -85,10 +84,10 @@ renderer 服务，作为独立 bundle 层自挂载。面板提供搜索框（按
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
-dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.3.22
-dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.3.22
-dsh plugin --profile web add @linxin666/dsh-usage@0.3.22
-dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.3.22
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.4
+dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.4
+dsh plugin --profile web add @linxin666/dsh-usage@0.4.4
+dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.4
 ```
 
 四个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
@@ -114,23 +113,24 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.3.22
   见「已移除插件」一节；
 - `@linxin666/dsh-pet`（鲸鱼娘桌宠）——由
   `plugins/dsh-pet/`（PC2005-cloud 的 dsh-pet）独立 wrapper 安装；
-- `@linxin666/dsh-client-ui-plugin-manager`（插件管理器 Tab）——已从本工程移除：
-  与 pinned harness dsh-v0.1.6-alpha.2 官方 `@deepseek-ai/dsh-web-app` bundle 的
-  `ui-plugin-manager` loader id 冲突（启动即失败），官方插件管理器已覆盖内置插件页，
-  见「已移除插件」一节；
+- `@linxin666/dsh-client-ui-plugin-manager`（插件管理器 Tab）——不安装：官方
+  `@deepseek-ai/dsh-web-app` bundle 自带同名 `ui-plugin-manager` loader 行，重复 id
+  不再是启动错误，但同 id 覆盖会连带抹掉官方 Plugins 页座位，而 v0.4.4 的上游包把
+  自己的 `plugins.detail.section` 块加进该页，见「已移除插件」一节；
 - 对四个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
   bundle patch 挂载；
 - 对上游 submodule 的任何修改。
 
 ## 已移除插件（dsh-task-board / dsh-session-archive / dsh-plugin-manager）
 
-`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）曾由本 wrapper
-安装进 web profile，现已移除：harness 升级到 `dsh-v0.1.6-alpha.2` 后官方
-`@deepseek-ai/dsh-web-app` bundle 自带 `ui-plugin-manager` loader 行，与该包
-bundle patch 的 id 冲突，启动报 `duplicate loader entry id: ui-plugin-manager`。
-官方插件管理器（侧边栏 Plugins 页 + pluginManager 服务）继续可用，但上游包的
-`family-plugins` 设置 Tab（冲突对账 / 失败修复会话等）随之移除——这是本次取舍的
-结果。若日后要恢复，需以独立 loader entry id 挂载。
+`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper
+安装：官方 `@deepseek-ai/dsh-web-app` bundle 自带 `ui-plugin-manager` loader 行，与该
+包 bundle patch 的 id 相同。重复 id 不再是启动错误（loader 按 id 复用 Entry、后写者
+生效），但同 id 覆盖会连带抹掉官方 Plugins 页座位，而 v0.4.4 的上游包改把自己的
+`plugins.detail.section` 块加进该页，覆盖即摘掉它自己的 UI 所依赖的页面。官方插件
+管理器（侧边栏 Plugins 页 + pluginManager 服务）继续可用，上游包的 `family-plugins`
+设置 Tab（冲突对账 / 失败修复会话等）不在安装范围内。若日后要恢复，需以独立
+loader entry id 挂载（完整流程见 skill `dsh-plugin-uninstall`）。
 
 `dsh-task-board`（`@linxin666/dsh-client-ui-task-board`）与
 `dsh-session-archive`（`@linxin666/dsh-session-archive`）曾由 dsh-web-ui 全家桶随
@@ -160,19 +160,19 @@ dsh-web-ui 上游子模块中的 `packages/dsh-task-board/` 与
 ```text
 --- E:\Git\dsh-gui\plugins\dsh-web-ui\install.mjs
 
-==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.3.22 from npm)
+==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.4.4 from npm)
   ...
 installed plugin 'dsh-web-ui-settings' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.3.22 from npm)
+==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.4.4 from npm)
   ...
 installed plugin 'dsh-skill-explorer' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.3.22 from npm)
+==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.4 from npm)
   ...
 installed plugin 'dsh-usage' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-model-capabilities' (@linxin666/dsh-client-ui-model-capabilities@0.3.22 from npm)
+==> install plugin 'dsh-model-capabilities' (@linxin666/dsh-client-ui-model-capabilities@0.4.4 from npm)
   ...
 installed plugin 'dsh-model-capabilities' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
@@ -185,7 +185,7 @@ node plugins/dsh-web-ui/install.mjs
 
 ## 幂等性
 
-`dsh plugin add <pkg>@0.3.22`（npm，精确版本）可重复执行；bundle 层挂载由受管
+`dsh plugin add <pkg>@0.4.4`（npm，精确版本）可重复执行；bundle 层挂载由受管
 安装器 reconcile 保证幂等。
 
 ## 更新源

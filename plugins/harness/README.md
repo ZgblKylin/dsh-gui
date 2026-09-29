@@ -27,11 +27,11 @@ plugin add` 会自动把它们 reconcile 进 `dsh.profile.bundles`，由各自�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-experimental-agent-team-profile@0.1.7-rc.2` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 + 浏览器 roster 与任务板面板 |
+| `@deepseek-ai/dsh-experimental-agent-team-profile@0.2.0-rc.2` | web profile | Team 领域服务 + Remote 方法 + 九个 scoped 模型工具 + 浏览器 roster 与任务板面板 |
 | `<id>-team`，每个含 delegation 行且不挂进程级工具集的官方 preset 各一个 | `$DSH_HOME/profiles/web/cordis.patch.yml` 的 `@deepseek-ai/dsh-agent-preset` 声明行 | 由官方同名 preset 的声明派生的 Team-aware 组合。当前为 `standard-team` / `ptc-team`；官方 `cordis` 不派生，原因见「派生 preset 的规则」 |
 
 版本必须精确 pin：npm `latest` dist-tag 仍落后于已发布的 prerelease，与本仓库
-pinned 的 `dsh-v0.1.7-rc.2` 对应的是同版本号；它是 prerelease，这也是它进不了
+pinned 的 `dsh-v0.2.0-rc.2` 对应的是同版本号；它是 prerelease，这也是它进不了
 Community Market 的原因。自 `0.1.7-rc.2` 起上游把原先的
 `@deepseek-ai/dsh-experimental-agent-team-web-profile` 合并进这一个 bundle 并删除了
 那个包，所以这里只安装一个 spec。
@@ -94,10 +94,10 @@ delegation 行，同样跳过。
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-experimental-auto-review@0.1.7-rc.2` | web profile | 逐调用 LLM 授权审查层 |
+| `@deepseek-ai/dsh-experimental-auto-review@0.2.0-rc.2` | web profile | 逐调用 LLM 授权审查层 |
 
-版本必须精确 pin：`0.1.7-rc.2` 与本仓库 pinned 的 `dsh-v0.1.7-rc.2` 运行时
-配套，包的 peerDependencies 全部指向 `^0.1.7-rc.1`；prerelease，进不了
+版本必须精确 pin：`0.2.0-rc.2` 与本仓库 pinned 的 `dsh-v0.2.0-rc.2` 运行时
+配套，包的 peerDependencies 全部指向 `0.2.0-rc.2`；prerelease，进不了
 Community Market。
 
 ### 用途
@@ -132,13 +132,13 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-browser-use@0.1.7-rc.2` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.1.7-rc.2` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
+| `@deepseek-ai/dsh-browser-use@0.2.0-rc.2` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.0-rc.2` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
 
-两个包都精确 pin `0.1.7-rc.2`，与本仓库 pinned 的 `dsh-v0.1.7-rc.2` 运行时
-配套（peerDependencies 精确指向 `0.1.7-rc.2`）——npm `latest` 仍指向
-`0.1.6-alpha.1`，不能通过 `@latest` 或范围解析。均为 prerelease，进不了
-Community Market。核心服务先装：提供方 inject `browserUse`。
+两个包都精确 pin `0.2.0-rc.2`，与本仓库 pinned 的 `dsh-v0.2.0-rc.2` 运行时
+配套（peerDependencies 精确指向 `0.2.0-rc.2`）——dsh 家族实验包的 npm `latest`
+dist-tag 落后于已发布的 prerelease，不能通过 `@latest` 或范围解析。均为
+prerelease，进不了 Community Market。核心服务先装：提供方 inject `browserUse`。
 
 ### 挂载与配置
 
@@ -183,7 +183,7 @@ npm run install:plugins        # 或 npm run build
 
 ### 已知限制
 
-- **每个存活 Session 各持一份浏览器客户端（0.1.7-rc.2 起）**：提供方通过
+- **每个存活 Session 各持一份浏览器客户端**：提供方通过
   `SessionResources` 为每个存活 Agent 惰性获取一份 mcp-client，并把它挂进
   `createScope(ctx, agent)` 生成的 Agent 作用域，因此工具（`mcp__playwright-mcp__*`）、
   提示词段（`mcp:playwright-mcp`）与资源服务器（`playwright-mcp`）只对该 Agent 可见。
@@ -217,11 +217,11 @@ npm run install:plugins        # 或 npm run build
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-computer-use@0.1.7-rc.2` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.1.7-rc.2` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
+| `@deepseek-ai/dsh-computer-use@0.2.0-rc.2` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.0-rc.2` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
 
-两个包都精确 pin `0.1.7-rc.2`，与本仓库 pinned 的 `dsh-v0.1.7-rc.2` 运行时
-配套（peerDependencies 全部指向 `^0.1.7-rc.1`）。均为 prerelease，进不了
+两个包都精确 pin `0.2.0-rc.2`，与本仓库 pinned 的 `dsh-v0.2.0-rc.2` 运行时
+配套（peerDependencies 全部指向 `0.2.0-rc.2`）。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `computerUse`。
 
 ### 挂载与配置
@@ -338,3 +338,5 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
   各自写入两行 insert（Browser Use 提供方行带 `config`）；Agent Teams 与 Auto
   review 仍是 bundle 自挂载。任一 installer 都可用 `DSH_PLUGIN_SKIP=<wrapper id>`
   临时跳过，`DSH_PLUGIN_FORCE_INSTALL=1` 反过来强制安装。
+- 这一组六个包都不传 `exempt`：它们的 peer 已被 0.2.0-rc.2 的准入闸门接受，不需要
+  版本例外（例外只用于上游尚未适配 0.2 的包，见 `plugins/README.md`）。

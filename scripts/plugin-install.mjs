@@ -424,6 +424,37 @@ function exactSpecVersion(spec) {
   return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) ? version : null
 }
 
+/**
+ * Grant one plugin version the profile's exact-version compatibility exemption.
+ *
+ * Since harness dsh-v0.2.0-rc.2 the app-boot admission gate compares every
+ * `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer with the running dsh version:
+ * a package whose range predates that version is refused by `dsh plugin add`
+ * (exit 1) and its bundle layer is skipped at boot. The exemption is the only
+ * way to keep such a package mounted. It is keyed by exact package version and
+ * exact runtime version, so a later harness upgrade invalidates it instead of
+ * carrying the accepted risk forward. `--accept-risk` is the CLI contract for
+ * that acknowledgement.
+ * @param {string} dshHome - the harness home whose web profile is written.
+ * @param {string} profileDir - absolute web profile directory.
+ * @param {string} packageSpec - exact npm spec, e.g. `dsh-flowglass@0.7.3`.
+ * @param {string} reason - why this version is accepted despite its peers.
+ */
+function grantVersionExemption(dshHome, profileDir, packageSpec, reason) {
+  if (exactSpecVersion(packageSpec) === null) {
+    throw new Error(`a version exemption needs an exact version, got ${packageSpec}`)
+  }
+  // Fails loud when the pinned dsh CLI is not installed for the configured
+  // runtime (`harness.json`), with the runtime-specific remedy.
+  const cli = requireHarnessRuntime(ROOT)
+  pinProfileStore(profileDir)
+  console.log(`\n==> accept the compatibility risk for ${packageSpec} on dsh ${cli.version}`)
+  console.log(`  ${reason}`)
+  run('node', [cli.bin, 'plugin', '--profile', 'web', 'allow-version', packageSpec, '--dsh-version', cli.version, '--accept-risk'], {
+    env: { DSH_HOME: dshHome, PATH: pinnedPath() },
+  })
+}
+
 /** The web profile directory inside one harness home. */
 function webProfileDir(dshHome) {
   return join(dshHome, 'profiles', 'web')
@@ -629,12 +660,18 @@ function removeForeignNestedNodeModules(profileDir, packageName) {
  *
  * @param {{ id: string, packageSpec: string,
  *   mount?: { id: string, name: string, config?: object | null } | null,
- *   skip?: boolean | string | null }} options
+ *   skip?: boolean | string | null,
+ *   exempt?: string | null }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
  *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@0.19.1`.
  *   - mount: explicit mount entry for packages without a bundle patch;
  *     `config` becomes the row's `config:` block (e.g. a browser-use
  *     provider's per-row settings).
+ *   - exempt: the reason an incompatible exact version is accepted for this
+ *     package. When given, its exact-version exemption is granted in the
+ *     profile before the install (see grantVersionExemption), which is what
+ *     lets the admission gate accept a package whose `@deepseek-ai/dsh*`
+ *     peers predate the pinned runtime; the reason is echoed in the log.
  *   - skip: wrapper-declared default skip — `true` (unversioned skip) or a
  *     string reason. The wrapper owns WHAT is being skipped and WHY (e.g. a
  *     version incompatible with the pinned harness); the shared pipeline only
@@ -642,7 +679,7 @@ function removeForeignNestedNodeModules(profileDir, packageName) {
  *     checker, honors `DSH_PLUGIN_SKIP` additions, and lets
  *     `DSH_PLUGIN_FORCE_INSTALL=1` override. See skipInstall().
  */
-export function installNpmPlugin({ id, packageSpec, mount = null, skip = null }) {
+export function installNpmPlugin({ id, packageSpec, mount = null, skip = null, exempt = null }) {
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
   const name = packageNameFromSpec(packageSpec)
   // Record before the skip check: even a currently skipped package belongs to
@@ -655,6 +692,7 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null })
     return
   }
   const profileDir = webProfileDir(dshHome)
+  if (exempt !== null) grantVersionExemption(dshHome, profileDir, packageSpec, exempt)
   // Up-to-date fast path: `dsh plugin add` re-resolves the whole profile graph
   // (its own node + pnpm spawn) even when the exact version is already there, so
   // a `npm run build` over an unchanged profile pays tens of seconds for nothing.

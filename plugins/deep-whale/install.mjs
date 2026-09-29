@@ -17,6 +17,21 @@
  * ui-skin-maid-atelier / ui-skin-orca-link) — no manual cordis.patch.yml insert
  * is added (that would double-mount them) and nothing is compiled locally.
  *
+ * Each package carries its own version in the pinned `v0.1.6` tag: the two skins
+ * moved to 0.1.6, while the manager is still 0.1.5 there and was never published
+ * at 0.1.6 (`@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@0.1.6` does not
+ * exist on npm). One shared version constant would therefore 404 on the manager,
+ * so the pins are per package.
+ *
+ * The two skins declare `@deepseek-ai/dsh: >=0.1.7-rc.1 <0.1.8-0`; the harness
+ * dsh-v0.2.0-rc.2 admission gate compares that range with the running version and
+ * rejects it, which fails `dsh plugin add` (exit 1) and drops the bundle layer at
+ * boot. Upstream has not published a 0.2-compatible skin, so the two skins carry
+ * an exact-version exemption (installNpmPlugin's `exempt`); the manager declares
+ * `>=0.1.7-rc.1`, which 0.2.0-rc.2 satisfies, so it needs none. An exemption is
+ * recorded per exact package version and runtime version, so the next harness
+ * change invalidates it and the gate blocks the skins again.
+ *
  * Skin mutual exclusion is the manager's own job: on the first restart after
  * installing it detects "two skins enabled at once" and atomically falls back
  * to the official default, after which a skin is chosen in 设置→皮肤管理. The
@@ -46,17 +61,20 @@ import { pinnedPath, ROOT, run, WEB_HOME } from '../../scripts/toolchain.mjs'
 /** Wrapper id: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'deep-whale'
 
+/** Why the two skins are accepted despite their rejected @deepseek-ai/dsh peer. */
+const SKIN_EXEMPTION = '两块皮肤的 @deepseek-ai/dsh peer 为 >=0.1.7-rc.1 <0.1.8-0，不含 0.2.0；上游在 v0.1.6 未发布适配 0.2 的皮肤包'
+
 /**
- * Exact npm pins matching the pinned submodule tag (`v0.1.5`), in upstream
- * install order (manager first, then the two skins). Exact versions bypass pnpm
- * 11's default supply-chain `minimumReleaseAge` gate, which would otherwise
- * silently fall back to an older release for `@latest` or a range.
+ * Exact npm pins matching each package's own version in the pinned submodule tag
+ * (`v0.1.6`), in upstream install order (manager first, then the two skins).
+ * Exact versions bypass pnpm 11's default supply-chain `minimumReleaseAge` gate,
+ * which would otherwise silently fall back to an older release for `@latest` or
+ * a range.
  */
-const SKIN_VERSION = '0.1.5'
 const SKIN_PACKAGES = [
-  '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager',
-  '@smalltailqwq/dsh-client-ui-skin-maid-atelier',
-  '@smalltailqwq/dsh-client-ui-skin-orca-link',
+  { name: '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager', version: '0.1.5' },
+  { name: '@smalltailqwq/dsh-client-ui-skin-maid-atelier', version: '0.1.6', exempt: SKIN_EXEMPTION },
+  { name: '@smalltailqwq/dsh-client-ui-skin-orca-link', version: '0.1.6', exempt: SKIN_EXEMPTION },
 ]
 
 /** Keys the retired `@dsh-external/*` placeholder scope left behind. */
@@ -118,8 +136,12 @@ function removeLegacyPlaceholderLinks(dshHome) {
   if (readdirSync(scopeDir).length === 0) rmSync(scopeDir, { recursive: true, force: true })
 }
 
-for (const packageName of SKIN_PACKAGES) {
-  installNpmPlugin({ id: ID, packageSpec: `${packageName}@${SKIN_VERSION}` })
+for (const skin of SKIN_PACKAGES) {
+  installNpmPlugin({
+    id: ID,
+    packageSpec: `${skin.name}@${skin.version}`,
+    exempt: skin.exempt ?? null,
+  })
 }
 
 const dshHome = process.env.DSH_HOME ?? WEB_HOME

@@ -67,7 +67,7 @@ const ID = 'agent-team'
  * install would take the wrong one. It is also a prerelease, which is why the
  * Community Market cannot carry it.
  */
-const TEAM_VERSION = '0.1.7-rc.2'
+const TEAM_VERSION = '0.2.0-rc.2'
 const TEAM_PROFILE = '@deepseek-ai/dsh-experimental-agent-team-profile'
 
 /** The preset-declaration plugin whose rows compose one agent. */
