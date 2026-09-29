@@ -93,6 +93,25 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
 并把进程判为异常退出。这条约定、根因与回归测试见
 [update-changelog.md](update-changelog.md)。
 
+## 子模块远端的路径自愈
+
+git 在 `git submodule update --init` 时会把解析出的 URL 固化进仓库的
+`submodule.<name>.url` 覆盖项与每个子模块的 `remote.origin.url`。检出迁移到新
+目录后，这些值仍指向旧位置的绝对路径（例如 `E:/Git/dsh-gui/<path>`），于是更新
+检查的每一行都报
+`fatal: '<旧路径>' does not appear to be a git repository`，全部 submodule 显示
+「不可检查」。
+
+`.gitmodules` 是权威来源：它就在检出内部，URL 相对**当前**仓库根（`DSH_GUI_ROOT`
+解析出的那个根）生效，不依赖任何记录下来的绝对路径。因此
+`src-tauri/src/update.rs` 的 `reconcile_submodule_remotes` 在每次检查前、以及弹窗
+内顶层「更新」的递归子模块同步前，把**本地路径形式**的覆盖项与子模块 `origin`
+改写成 `.gitmodules` 记录的 URL；远端形式的覆盖（镜像、fork）视为刻意配置，保持
+不动。修复计数写入 `.dsh/gui/gui.log`。
+
+`scripts/staging.mjs` 遵循同一规则：把子模块 URL 写进验证副本时忽略配置里的本地
+路径覆盖，`sync` 也按当前仓库根重写副本的 `origin`。
+
 ## 相关文件
 
 - `scripts/plugin-install.mjs` —— 安装期记录 npm 包名

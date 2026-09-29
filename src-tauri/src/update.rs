@@ -288,32 +288,50 @@ fn is_git_repo(dir: &Path) -> bool {
     git_output(dir, &["rev-parse", "--is-inside-work-tree"]).as_deref() == Some("true")
 }
 
+/// One `[submodule "<name>"]` entry of the repository's `.gitmodules`.
+pub(crate) struct SubmoduleEntry {
+    /// Submodule name, exactly as written in the section header.
+    pub name: String,
+    /// Working-tree path, already joined to the repository root.
+    pub path: PathBuf,
+    /// Upstream URL exactly as the manifest records it (possibly relative to
+    /// the superproject's origin); empty when the section has no `url`.
+    pub url: String,
+}
+
 /// Parse the top-level submodules from `.gitmodules`. Paths are checked for
 /// traversal before they are joined to the repository root.
-pub(crate) fn submodule_entries(root: &Path) -> Vec<(String, PathBuf)> {
+pub(crate) fn submodule_entries(root: &Path) -> Vec<SubmoduleEntry> {
     let text = fs::read_to_string(root.join(".gitmodules")).unwrap_or_default();
     let mut entries = Vec::new();
     let mut name: Option<String> = None;
     let mut path: Option<String> = None;
+    let mut url: Option<String> = None;
 
-    let flush =
-        |name: &Option<String>, path: &Option<String>, entries: &mut Vec<(String, PathBuf)>| {
-            if let (Some(name), Some(path)) = (name, path) {
-                let rel = Path::new(path);
-                let safe = !rel.is_absolute()
-                    && !rel
-                        .components()
-                        .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)));
-                if safe {
-                    entries.push((name.clone(), root.join(rel)));
-                }
+    let flush = |name: &Option<String>,
+                 path: &Option<String>,
+                 url: &Option<String>,
+                 entries: &mut Vec<SubmoduleEntry>| {
+        if let (Some(name), Some(path)) = (name, path) {
+            let rel = Path::new(path);
+            let safe = !rel.is_absolute()
+                && !rel
+                    .components()
+                    .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_)));
+            if safe {
+                entries.push(SubmoduleEntry {
+                    name: name.clone(),
+                    path: root.join(rel),
+                    url: url.clone().unwrap_or_default(),
+                });
             }
-        };
+        }
+    };
 
     for raw in text.lines() {
         let line = raw.trim();
         if line.starts_with("[submodule") {
-            flush(&name, &path, &mut entries);
+            flush(&name, &path, &url, &mut entries);
             let rest = line
                 .strip_prefix("[submodule")
                 .unwrap_or("")
@@ -322,14 +340,104 @@ pub(crate) fn submodule_entries(root: &Path) -> Vec<(String, PathBuf)> {
                 .trim_matches('"');
             name = Some(rest.to_string());
             path = None;
+            url = None;
         } else if line.starts_with("path") {
             if let Some((_, value)) = line.split_once('=') {
                 path = Some(value.trim().trim_matches('"').to_string());
             }
+        } else if line.starts_with("url") {
+            if let Some((_, value)) = line.split_once('=') {
+                url = Some(value.trim().trim_matches('"').to_string());
+            }
         }
     }
-    flush(&name, &path, &mut entries);
+    flush(&name, &path, &url, &mut entries);
     entries
+}
+
+/// Whether a configured submodule URL is a filesystem path rather than a remote
+/// URL — the signature of a path frozen by a checkout location that no longer
+/// exists. `file://` URLs count as local paths for the same reason.
+fn is_local_path_url(url: &str) -> bool {
+    let url = url.trim();
+    if url.is_empty() {
+        return false;
+    }
+    if url
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("file://"))
+    {
+        return true;
+    }
+    // Any real scheme (`https://`, `ssh://`, `git://`, …). An scp-like
+    // `git@host:path` remote has no `://` and is handled below.
+    if url.contains("://") {
+        return false;
+    }
+    if url.starts_with('.') || url.starts_with('/') || url.starts_with('\\') {
+        return true;
+    }
+    // Windows drive path (`E:/x`, `E:\x`) or UNC (`\\server\share`).
+    let bytes = url.as_bytes();
+    bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
+}
+
+/// Re-point submodules whose recorded remote is a stale filesystem path at the
+/// URL their `.gitmodules` entry records; returns how many values changed.
+///
+/// Git freezes the URL it resolved at `git submodule update --init` time into
+/// the repository's own `submodule.<name>.url` override and into each
+/// submodule's `remote.origin.url`. When the manifest carried a relative URL
+/// resolved against a local origin — or the checkout once lived at another
+/// location — those frozen values are absolute paths of a directory that no
+/// longer exists, so every check failed with `fatal: '<old path>' does not
+/// appear to be a git repository` for the affected submodules.
+///
+/// `.gitmodules` is the authoritative source: it lives inside the checkout, so
+/// its URL always resolves against the *current* repository root (the one
+/// `DSH_GUI_ROOT` selects) instead of depending on a recorded absolute path.
+/// Repairing the drift here also keeps the update launcher's and
+/// [`run_root_update`]'s `git submodule update --init --recursive` working.
+/// Only local-path values are repaired: a remote override (a mirror, a fork) is
+/// deliberate configuration.
+fn reconcile_submodule_remotes(root: &Path) -> usize {
+    let mut repaired = 0;
+    for entry in submodule_entries(root) {
+        let url = entry.url.trim();
+        // Nothing to fall back to; a manifest-relative URL is resolved by git
+        // against the superproject origin instead of being frozen as a path.
+        if url.is_empty() || is_local_path_url(url) {
+            continue;
+        }
+        let dir = entry.path.as_path();
+        if !dir.is_dir() || !is_git_repo(dir) {
+            continue;
+        }
+        let key = format!("submodule.{}.url", entry.name);
+        if let Some(configured) = git_output(root, &["config", "--get", &key]) {
+            if is_local_path_url(&configured) && configured != url {
+                if run_git_captured(root, &["config", &key, url]).is_some_and(|c| c.success) {
+                    repaired += 1;
+                }
+            }
+        }
+        if let Some(origin) = git_output(dir, &["remote", "get-url", "origin"]) {
+            if is_local_path_url(&origin) && origin != url {
+                if run_git_captured(dir, &["remote", "set-url", "origin", url])
+                    .is_some_and(|c| c.success)
+                {
+                    repaired += 1;
+                }
+            }
+        }
+    }
+    if repaired > 0 {
+        crate::log_status(
+            root,
+            &format!("repaired {repaired} stale submodule remote path(s) from .gitmodules"),
+        );
+    }
+    repaired
 }
 
 fn package_name(dir: &Path) -> Option<String> {
@@ -719,8 +827,13 @@ fn local_preview_project(root: &Path, id: &str, fallback_name: &str, path: &Path
 pub fn local_check(root: &Path) -> Vec<ProjectUpdate> {
     let mut projects = Vec::new();
     projects.push(local_preview_project(root, "dsh-gui", "dsh-gui", root));
-    for (name, path) in submodule_entries(root) {
-        projects.push(local_preview_project(root, &name, &name, &path));
+    for entry in submodule_entries(root) {
+        projects.push(local_preview_project(
+            root,
+            &entry.name,
+            &entry.name,
+            &entry.path,
+        ));
     }
     projects
 }
@@ -729,10 +842,14 @@ pub fn local_check(root: &Path) -> Vec<ProjectUpdate> {
 /// the pending plan has a deterministic order for the update launcher.
 pub fn check(root: &Path) -> UpdateStatus {
     let started = std::time::Instant::now();
+    // A checkout that was moved (or created from a local origin) can carry the
+    // previous location in its submodule remotes; realign them with
+    // `.gitmodules` before fetching, so the check never reports a stale path.
+    reconcile_submodule_remotes(root);
     let mut projects = Vec::new();
     projects.push(check_project(root, "dsh-gui", "dsh-gui", root));
-    for (name, path) in submodule_entries(root) {
-        projects.push(check_project(root, &name, &name, &path));
+    for entry in submodule_entries(root) {
+        projects.push(check_project(root, &entry.name, &entry.name, &entry.path));
     }
     let update_count = projects.iter().filter(|p| p.behind).count();
     let notify_count = projects.iter().filter(|p| p.behind && p.announce).count();
@@ -1050,6 +1167,14 @@ pub fn run_root_update(
     mode: &str,
     log: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
+    // Same realignment as the check: the recursive submodule sync below must
+    // not fetch through an absolute path from a previous checkout location.
+    let repaired = reconcile_submodule_remotes(root);
+    if repaired > 0 {
+        log(&format!(
+            "已按 .gitmodules 修正 {repaired} 个子模块的过期本地路径远端"
+        ));
+    }
     log("fetch origin（顶层工程）");
     git_fetch(root)?;
     let branch = remote_default_branch(root)
@@ -1108,11 +1233,130 @@ mod tests {
         let entries = submodule_entries(root);
         assert!(entries
             .iter()
-            .any(|(name, path)| name == "deepseek-harness" && path.ends_with("deepseek-harness")));
-        assert!(entries
-            .iter()
-            .any(|(name, path)| name == "plugins/dsh-web-ui/dsh-web-ui"
-                && path.ends_with("dsh-web-ui")));
+            .any(|entry| entry.name == "deepseek-harness"
+                && entry.path.ends_with("deepseek-harness")
+                && entry.url == "https://github.com/deepseek-ai/deepseek-harness"));
+        assert!(entries.iter().any(|entry| entry.name == "plugins/dsh-web-ui/dsh-web-ui"
+            && entry.path.ends_with("dsh-web-ui")));
+    }
+
+    #[test]
+    fn local_path_and_remote_submodule_urls_are_distinguished() {
+        for local in [
+            "E:/Git/dsh-gui/deepseek-harness",
+            "E:\\Git\\dsh-gui\\deepseek-harness",
+            "e:/git/checkout/sub",
+            "/home/me/checkout/sub",
+            "\\\\server\\share\\sub",
+            "../deepseek-harness",
+            "./deepseek-harness",
+            "file:///E:/Git/dsh-gui/sub",
+        ] {
+            assert!(
+                is_local_path_url(local),
+                "{local} must be treated as a local filesystem path"
+            );
+        }
+        for remote in [
+            "https://github.com/deepseek-ai/deepseek-harness",
+            "http://example.com/x.git",
+            "ssh://git@github.com/org/repo.git",
+            "git://example.com/repo.git",
+            "git@github.com:org/repo.git",
+            "",
+        ] {
+            assert!(
+                !is_local_path_url(remote),
+                "{remote} must be treated as a remote, not a path"
+            );
+        }
+    }
+
+    /// A checkout that moved (or whose submodule URLs were resolved against a
+    /// local origin) keeps the previous location in `.git/config` and in each
+    /// submodule's `origin`. The check must fall back to `.gitmodules` instead
+    /// of failing with "'<old path>' does not appear to be a git repository".
+    #[test]
+    fn stale_local_submodule_remotes_are_repointed_at_gitmodules() {
+        let dir = std::env::temp_dir().join(format!("dsh-gui-sub-url-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let root = dir.join("root");
+        let stale = "E:/Git/dsh-gui/deepseek-harness";
+        let manifest = "https://github.com/deepseek-ai/deepseek-harness";
+        let mirror = "https://mirror.example.com/dsh-deep-whale.git";
+        let manifest_mirror = "https://github.com/Small-tailqwq/dsh-deep-whale";
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::create_dir_all(root.join("mirror")).unwrap();
+
+        let git = |cwd: &Path, args: &[&str]| -> bool {
+            let output = crate::console::hidden_command("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .expect("git must run");
+            if !output.status.success() {
+                eprintln!(
+                    "git {:?} in {} failed:\n{}",
+                    args,
+                    cwd.display(),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            output.status.success()
+        };
+        let git_ok = |cwd: &Path, args: &[&str]| {
+            assert!(git(cwd, args), "git {args:?} failed in {}", cwd.display())
+        };
+
+        git_ok(&root, &["init", "-q", "-b", "main"]);
+        git_ok(&root.join("sub"), &["init", "-q", "-b", "main"]);
+        git_ok(&root.join("mirror"), &["init", "-q", "-b", "main"]);
+        fs::write(
+            root.join(".gitmodules"),
+            format!(
+                "[submodule \"sub\"]\n\tpath = sub\n\turl = {manifest}\n\
+                 [submodule \"mirror\"]\n\tpath = mirror\n\turl = {manifest_mirror}\n"
+            ),
+        )
+        .unwrap();
+
+        // `sub`: the previous checkout location frozen into the override and
+        // into the submodule's own origin.
+        git_ok(&root, &["config", "submodule.sub.url", stale]);
+        git_ok(&root.join("sub"), &["remote", "add", "origin", stale]);
+        // `mirror`: a deliberate remote override must survive untouched.
+        git_ok(&root, &["config", "submodule.mirror.url", mirror]);
+        git_ok(&root.join("mirror"), &["remote", "add", "origin", mirror]);
+
+        assert_eq!(
+            reconcile_submodule_remotes(&root),
+            2,
+            "both the config override and the submodule origin must be repaired"
+        );
+        assert_eq!(
+            git_output(&root, &["config", "--get", "submodule.sub.url"]).as_deref(),
+            Some(manifest)
+        );
+        assert_eq!(
+            git_output(&root.join("sub"), &["remote", "get-url", "origin"]).as_deref(),
+            Some(manifest)
+        );
+        assert_eq!(
+            git_output(&root, &["config", "--get", "submodule.mirror.url"]).as_deref(),
+            Some(mirror),
+            "a remote override is configuration, not drift"
+        );
+        assert_eq!(
+            git_output(&root.join("mirror"), &["remote", "get-url", "origin"]).as_deref(),
+            Some(mirror)
+        );
+        assert_eq!(
+            reconcile_submodule_remotes(&root),
+            0,
+            "the repair must be idempotent"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

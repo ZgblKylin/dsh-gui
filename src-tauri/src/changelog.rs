@@ -510,9 +510,9 @@ fn project_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
     if id == "dsh-gui" {
         return Ok(root.to_path_buf());
     }
-    for (name, path) in submodule_entries(root) {
-        if name == id {
-            return Ok(path);
+    for entry in submodule_entries(root) {
+        if entry.name == id {
+            return Ok(entry.path);
         }
     }
     Err(format!("未知工程：{id}"))

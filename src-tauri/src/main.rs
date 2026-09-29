@@ -339,7 +339,7 @@ fn loopback_listener_pid(port: u16) -> Result<Option<u32>, String> {
 
 /// Append a status line to `<root>/.dsh/gui/gui.log` (the only visible record
 /// once the console is gone) and mirror it to stderr for `cargo run`.
-fn log_status(root: &Path, msg: &str) {
+pub(crate) fn log_status(root: &Path, msg: &str) {
     eprintln!("[dsh-gui] {msg}");
     let dir = root.join(".dsh").join("gui");
     if fs::create_dir_all(&dir).is_ok() {

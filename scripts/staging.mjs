@@ -220,10 +220,34 @@ function resolveRelativeUrl(url, base) {
 }
 
 /**
- * Every submodule URL this repository can resolve: the values already written
- * to its config win (they are absolute), then relative `.gitmodules` URLs are
- * resolved against the origin so the clone never inherits a path that only
- * exists relative to the working copy.
+ * Whether a configured submodule URL is a local filesystem path rather than a
+ * remote URL: the signature of a path frozen by a checkout location that no
+ * longer exists. `file://` URLs count as local paths for the same reason.
+ * @param {string} url - configured submodule URL.
+ * @returns {boolean} true when the value names a directory instead of a remote.
+ */
+function isLocalPathUrl(url) {
+  const value = String(url ?? '').trim()
+  if (value === '') return false
+  if (value.slice(0, 7).toLowerCase() === 'file://') return true
+  if (value.includes('://')) return false // https://, ssh://, git://
+  if (value.startsWith('.') || value.startsWith('/') || value.startsWith('\\')) return true
+  // Windows drive path (`E:/x`, `E:\x`).
+  return value.length >= 2 && value[1] === ':' && /[a-zA-Z]/.test(value[0])
+}
+
+/**
+ * Every submodule URL this repository can resolve: a *remote* value already
+ * written to its config wins (a mirror or a fork is deliberate configuration),
+ * then relative `.gitmodules` URLs are resolved against the origin so the clone
+ * never inherits a path that only exists relative to the working copy.
+ *
+ * A local path recorded in the config is never forwarded: git freezes the URL
+ * it resolved at `git submodule update --init` time into
+ * `submodule.<name>.url`, so a checkout that once lived elsewhere keeps the old
+ * absolute path there, and seeding it into the clone makes every submodule
+ * operation in the clone fail. The `.gitmodules` value is used instead — it
+ * lives inside the checkout, so it always resolves against the current root.
  * @returns {Map<string, string>} config key (`submodule.<name>.url`) -> URL.
  */
 function resolvedSubmoduleUrls() {
@@ -231,7 +255,7 @@ function resolvedSubmoduleUrls() {
   const configured = git(['config', '--get-regexp', '^submodule\\..*\\.url$']) ?? ''
   for (const line of configured.split(/\r?\n/)) {
     const match = line.trim().match(/^(submodule\..*?\.url)\s+(.+)$/)
-    if (match) urls.set(match[1], match[2].trim())
+    if (match && !isLocalPathUrl(match[2])) urls.set(match[1], match[2].trim())
   }
   const origin = git(['remote', 'get-url', 'origin'])
   for (const entry of submoduleEntries()) {
@@ -328,6 +352,19 @@ function sync() {
   const sourceBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'])
   const sourceDirty = dirtyCount(ROOT)
   if (sourceHead === null) fail('cannot read this repository\'s HEAD')
+
+  // The clone's `origin` is this repository's working path, so a checkout moved
+  // since the clone was created leaves the previous location baked into that
+  // remote. Re-derive it from the current root instead of fetching through a
+  // recorded absolute path (the clone was cloned with `--from-origin` when the
+  // remote is not a local path — that one is left alone).
+  const cloneOrigin = git(['remote', 'get-url', 'origin'], CLONE)
+  if (cloneOrigin !== null && isLocalPathUrl(cloneOrigin) && resolve(cloneOrigin) !== resolve(ROOT)) {
+    console.log(`==> re-point the clone origin at this repository: ${ROOT}`)
+    if (git(['remote', 'set-url', 'origin', ROOT], CLONE) === null) {
+      fail(`cannot re-point the clone origin at ${ROOT}`)
+    }
+  }
 
   console.log('==> fetch origin (this repository)')
   const fetched = captureGitStdout(['fetch', '--prune', 'origin'], CLONE)
