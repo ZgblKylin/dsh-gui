@@ -168,11 +168,23 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
 
 - `docs/official`: 官方 DSH 文档与源码参考（`deepseek-harness/` 内的官方内容）：
   - `cordis-primer.md` — Cordis 五种核心思想、事件模式、waterfall 语义
+  - `cordis-tutorial/` — 分章的可运行 Cordis 插件教程，末章接入真实 harness 服务
+  - `cordis-api/` — Cordis 核心 API 参考（上下文、事件、Fiber、注册表、服务）
   - `develop-basic/` — 开发者基础教程目录（含 `publish.md` bundle 打包/发布教程、`config.md`、`index.md`、`tool.md` 等）
+  - `develop-framework/` — Fiber 生命周期、服务与 `inject`、事件系统
+  - `develop-practice/` — 能力的三种角色设计、运行时 Cordis、LLM 适配器
+  - `cookbook/` — 新增工具、内置包、设置卡片、LLM 适配器、会话格式版本等分步指南
+  - `subsystems/` — 逐个子系统一页的类型与语义参考，附生成的 Cordis API 小节
+  - `architecture.md` — profile 与组合包、核心包、轮次流程、能力 seam 与新行为归属位置
+  - `capability-seams.md` — 核心服务图与能力 seam 的三种角色
+  - `event-producer-consumer.md` — 事件生产方与消费方矩阵
+  - `tool-execution-pipeline.md` — 工具执行流水线
+  - `packages-readme.md` — `packages/` 的分组、命名与依赖规则
+  - `cordis-plugin-development/` — 官方插件开发 skill（`SKILL.md` 与 `references/`、`templates/` 模板）
+  - `cli-config-examples/` — 交付的可选功能 overlay 示例（`github-review`、`mcp-memory`）
   - `cli-reference.md` — profile 组合、`dsh plugin add` 与 bundles reconcile 行为
   - `app-boot-profile.ts` — profile 模板、profile 目录与 bundle 层加载契约（`loadProfileDirectory` / `loadProfile`）
   - `package-manifest-types.ts` — `package.json.dsh` 的声明类型，含 `DshBundleManifest`（bundle 层契约）
-  - `packages-bundle/` — 官方内置 bundle（base / web-app / headless）的 patch 层实例
-  - `examples/` — 官方示例（`deepseek-harness/examples`）
+  - `packages-bundle/` — 官方内置 bundle（base / web-app / headless / acp-app / sdk-app / sdk-minimal）的 patch 层实例
 - `docs/dsh-gui`: 本仓库（dsh-gui）文档
 - `plugins/<plugin-name>/<plugin-submodule>/docs`: 插件文档
