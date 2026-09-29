@@ -19,9 +19,15 @@
  *     of this installer. Plain-package rows use the wrapper's explicit `mount`
  *     entry (id/name plus an optional `config` rendered as the row's config
  *     block) when given, else one derived from the package manifest.
+ *
+ * Both install functions fast-path an already-satisfied profile: an npm package
+ * pinned to an exact version that is installed and mounted is left alone, and a
+ * `link:` package whose dependency and mount are recorded skips only the profile
+ * write (its build still runs). `npm run rebuild` (or `DSH_PLUGIN_REBUILD=1`)
+ * disables both fast paths for a full reinstall.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { requireHarnessRuntime } from './harness-runtime.mjs'
 import {
@@ -308,6 +314,11 @@ function mountEntry(profileDir, mount) {
 /**
  * Install one plugin package into the runtime-root web profile.
  *
+ * The package is always built (it is a `link:` install, so its sources decide
+ * what is current); the profile dependency write is skipped when the profile
+ * already links this exact directory and the mount state is intact. `npm run
+ * rebuild` (`DSH_PLUGIN_REBUILD=1`) disables that fast path.
+ *
  * @param {{ id: string, packageDir: string, sourceHint?: string | null,
  *   mount?: { id: string, name: string, config?: object | null } | null,
  *   build?: boolean }} options
@@ -341,12 +352,22 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null,
   }
 
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
-  const profileDir = join(dshHome, 'profiles', 'web')
+  const profileDir = webProfileDir(dshHome)
   pinProfileStore(profileDir)
 
   // Fails loud when the pinned dsh CLI is not installed for the configured
   // runtime (`harness.json`), with the runtime-specific remedy.
   requireHarnessRuntime(ROOT)
+
+  // The package is built above either way: a `link:` install has no version to
+  // compare, so only the build proves its sources current. What can be skipped
+  // is the profile dependency write, which pnpm would re-resolve for nothing.
+  if (!reinstallRequested() && linkDependencyUpToDate(profileDir, packageDir, packageName, manifest, mount)) {
+    console.log(`  profile already links ${packageName} at this directory — skipping "dsh plugin add"`)
+    console.log('  reinstall every plugin with "npm run rebuild" (or DSH_PLUGIN_REBUILD=1)')
+    console.log(`installed plugin '${id}' into ${profileDir}`)
+    return
+  }
   addDependency(dshHome, packageDir)
 
   if (manifest.dsh?.bundle?.patch !== undefined) {
@@ -376,6 +397,151 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null,
 function packageNameFromSpec(spec) {
   const at = spec.lastIndexOf('@')
   return at > 0 ? spec.slice(0, at) : spec
+}
+
+/** Read and parse a JSON file; null when it is missing or unparsable. */
+function readJsonFile(path) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The exact version of an npm spec (`name@1.2.3`, `name@1.2.3-rc.1`), or null
+ * when the spec is a tag, range, URL, or git reference.
+ *
+ * Only an exact pin can be verified against the installed tree; anything else
+ * has to go through the resolver, so it is never skipped.
+ * @param {string} spec - the npm package spec.
+ * @returns {string | null}
+ */
+function exactSpecVersion(spec) {
+  const name = packageNameFromSpec(spec)
+  if (!spec.startsWith(`${name}@`)) return null
+  const version = spec.slice(name.length + 1)
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) ? version : null
+}
+
+/** The web profile directory inside one harness home. */
+function webProfileDir(dshHome) {
+  return join(dshHome, 'profiles', 'web')
+}
+
+/** Whether two paths name the same directory (resolving links/junctions). */
+function sameDirectory(left, right) {
+  try {
+    const a = realpathSync(left)
+    const b = realpathSync(right)
+    return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a full reinstall was requested, disabling the up-to-date skip so every
+ * package is installed again (`npm run rebuild`, `DSH_PLUGIN_REBUILD=1`).
+ *
+ * `DSH_PLUGIN_FORCE_INSTALL=1` counts too: it already means "install this even
+ * though the pipeline would not", and it must not leave a stale package behind.
+ * Note the reverse is not true — this switch never overrides a wrapper-declared
+ * mask, which only `DSH_PLUGIN_FORCE_INSTALL=1` does (see skipInstall()).
+ * @returns {boolean}
+ */
+export function reinstallRequested() {
+  return process.env.DSH_PLUGIN_REBUILD === '1' || process.env.DSH_PLUGIN_FORCE_INSTALL === '1'
+}
+
+/**
+ * Whether the mount (or bundle) state of an installed package is intact, derived
+ * exactly like the install path derives it: a `dsh.bundle.patch` package must be
+ * listed in the profile's `dsh.profile.bundles` and must not carry an
+ * installer-owned legacy insert that the install path would drop (it would be a
+ * duplicate loader entry id); any other package must have the insert row that
+ * `mountEntry` looks for.
+ *
+ * `mountEntry`/`unmountLegacyEntry` treat an existing row as final, so checking
+ * for the row here cannot lose an update the install path would have applied.
+ * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {object | null} profile - parsed profile `package.json`.
+ * @param {string} installedName - package name as recorded in the profile.
+ * @param {object} manifest - the installed package's manifest.
+ * @param {{ id?: string, name?: string } | null} mount - explicit mount override.
+ * @returns {boolean}
+ */
+function mountStateCurrent(profileDir, profile, installedName, manifest, mount) {
+  const mountId = String(mount?.id ?? manifest?.dsh?.gui?.mountId ?? installedName.replace(/^dsh-/, ''))
+  const mountName = String(mount?.name ?? manifest?.name ?? installedName)
+  const patchPath = join(profileDir, 'cordis.patch.yml')
+  const text = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : ''
+  if (manifest?.dsh?.bundle?.patch !== undefined) {
+    const bundles = profile?.dsh?.profile?.bundles
+    if (!Array.isArray(bundles) || !bundles.includes(installedName)) return false
+    // Only a row `unmountLegacyEntry` would actually drop is a reason to install:
+    // any other row shape (a hand-authored top-level entry, for instance) is left
+    // alone by the install path, so it must not disable the fast path.
+    return removeLegacyInsertBlocks(text, { id: mountId, name: mountName }).removed === 0
+  }
+  // Same predicate `mountEntry` uses to decide the row is already there.
+  return parseInsertRows(text).some((row) => row.id === mountId)
+}
+
+/**
+ * Whether the profile already holds the requested npm package at exactly this
+ * version, so `dsh plugin add <spec>` would change nothing.
+ *
+ * Every part of the install that can go stale is re-checked, because the install
+ * is what repairs it:
+ *  - the recorded dependency must still be this exact version (a re-pin or a
+ *    hand-edited profile installs again);
+ *  - the installed manifest must be present at that version;
+ *  - a foreign nested `node_modules` inside the package must be gone (the install
+ *    path removes it — left in place, Node resolves stale peers from it);
+ *  - the mount/bundle state must be intact (see mountStateCurrent()).
+ *
+ * Exported for the wrapper-level checks and ad-hoc verification.
+ * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {string} spec - the npm install spec used by the wrapper.
+ * @param {{ id?: string, name?: string } | null} [mount] - explicit mount override.
+ * @returns {boolean}
+ */
+export function npmPluginUpToDate(profileDir, spec, mount = null) {
+  const version = exactSpecVersion(spec)
+  if (version === null) return false
+  const name = packageNameFromSpec(spec)
+  const profile = readJsonFile(join(profileDir, 'package.json'))
+  if (profile?.dependencies?.[name] !== version) return false
+  const packageDir = join(profileDir, 'node_modules', ...name.split('/'))
+  const installed = readJsonFile(join(packageDir, 'package.json'))
+  if (installed === null || installed.version !== version) return false
+  if (existsSync(join(packageDir, 'node_modules'))) return false
+  return mountStateCurrent(profileDir, profile, name, installed, mount)
+}
+
+/**
+ * Whether the profile already records `link:<packageDir>` for this package and
+ * the link resolves to that directory, so the `dsh plugin add` step would change
+ * nothing. The package itself is still built by installPlugin: its sources are
+ * not versioned by a spec, so only a rebuild proves them current.
+ *
+ * Exported alongside npmPluginUpToDate() so the wrapper-level checks and the
+ * test suite can exercise both predicates.
+ * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {string} packageDir - absolute path to the plugin package.
+ * @param {string} packageName - the package's manifest name.
+ * @param {object} manifest - the package's manifest.
+ * @param {{ id?: string, name?: string } | null} mount - explicit mount override.
+ * @returns {boolean}
+ */
+export function linkDependencyUpToDate(profileDir, packageDir, packageName, manifest, mount) {
+  const profile = readJsonFile(join(profileDir, 'package.json'))
+  if (profile?.dependencies?.[packageName] !== `link:${packageDir}`) return false
+  // A checkout that moved leaves the previous location in the link: the resolve
+  // check keeps `dsh plugin add` running until the link points here.
+  if (!sameDirectory(join(profileDir, 'node_modules', ...packageName.split('/')), packageDir)) return false
+  return mountStateCurrent(profileDir, profile, packageName, manifest, mount)
 }
 
 /**
@@ -455,6 +621,12 @@ function removeForeignNestedNodeModules(profileDir, packageName) {
  * Without a bundle patch the entry is appended like installPlugin does
  * (explicit `mount` when given, else derived from the installed manifest).
  *
+ * When the exact pinned version is already installed and mounted, the whole
+ * `dsh plugin add` is skipped: pnpm would re-resolve the profile graph for
+ * nothing, which is what makes `npm run build` slow on an unchanged checkout.
+ * `npm run rebuild` (`DSH_PLUGIN_REBUILD=1`) disables the fast path; so does
+ * `DSH_PLUGIN_FORCE_INSTALL=1`. See npmPluginUpToDate().
+ *
  * @param {{ id: string, packageSpec: string,
  *   mount?: { id: string, name: string, config?: object | null } | null,
  *   skip?: boolean | string | null }} options
@@ -482,7 +654,17 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null })
     console.log(`  skipping '${id}' (${packageSpec}) — ${reason}; set DSH_PLUGIN_FORCE_INSTALL=1 to override`)
     return
   }
-  const profileDir = join(dshHome, 'profiles', 'web')
+  const profileDir = webProfileDir(dshHome)
+  // Up-to-date fast path: `dsh plugin add` re-resolves the whole profile graph
+  // (its own node + pnpm spawn) even when the exact version is already there, so
+  // a `npm run build` over an unchanged profile pays tens of seconds for nothing.
+  if (!reinstallRequested() && npmPluginUpToDate(profileDir, packageSpec, mount)) {
+    console.log(`\n==> plugin '${id}' (${packageSpec}) is already installed at this version — skipping install`)
+    console.log('  reinstall every plugin with "npm run rebuild" (or DSH_PLUGIN_REBUILD=1)')
+    // Still (re)pin the store: the profile state itself is reused as-is.
+    pinProfileStore(profileDir)
+    return
+  }
   console.log(`\n==> install plugin '${id}' (${packageSpec} from npm)`)
   bootstrapPnpm()
   pinProfileStore(profileDir)

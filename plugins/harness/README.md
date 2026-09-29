@@ -330,7 +330,8 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
 
 - `DSH_HOME` 缺省 `<runtime-root>/.dsh`，只写该目录；**从不写官方 preset 安装目录**。
 - 幂等：重复执行结果一致（npm 安装由 `dsh plugin add` 去重，派生 preset 每次重新
-  生成）。
+  生成）；profile 已按精确版本装好且挂载完整时，`installNpmPlugin` 直接跳过该包的
+  安装，`npm run rebuild` / `DSH_PLUGIN_REBUILD=1` 可强制重装。
 - 依赖 `scripts/plugin-install.mjs` 的共享流水线；各包经 `installNpmPlugin`
   安装，每个 installer 也可单独运行。Browser Use 与 Computer Use 是仅有的两个用显式
   `mount` 的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），

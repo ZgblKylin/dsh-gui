@@ -58,6 +58,18 @@ source installs) skip the local build/link pipeline and call the shared
 own `dsh.bundle.patch` reconcile it into `dsh.profile.bundles` — no manual
 cordis insert.
 
+Both paths fast-path an already-satisfied profile. `installNpmPlugin` skips the
+`dsh plugin add` entirely when the package is pinned to an exact version, the
+profile's dependency and `node_modules` copy are at that version, no foreign
+nested `node_modules` is left in the package, and the mount state is intact (the
+bundle is listed in `dsh.profile.bundles`, or the wrapper's insert row is in
+`cordis.patch.yml`). `installPlugin` (a `link:` install) always builds the
+package — its sources, not a spec, decide what is current — and skips only the
+dependency write when the profile already links this exact directory and the
+mount state is intact. Use `npm run rebuild` (or `DSH_PLUGIN_REBUILD=1`) to
+install everything again even when the profile is already current; the per-plugin
+mask switches stay separate (`DSH_PLUGIN_SKIP`, `DSH_PLUGIN_FORCE_INSTALL`).
+
 `DSH_HOME` is pinned to the runtime root's `.dsh` by the desktop shell and by
 every install script, so installed plugins land under that directory — the
 checkout's parent in the nested layout — and nothing is written to `~/.dsh` or

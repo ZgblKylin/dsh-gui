@@ -14,6 +14,9 @@
  *            plugins/<id>/install.mjs) -> install agent presets -> install the
  *            global agent template
  *   install  run every plugins/<id>/install.mjs (alias: plugins)
+ *   rebuild  build with every skip disabled: the dsh runtime is reinstalled and
+ *            every plugin is installed again even when the profile already has
+ *            it at the pinned version (alias for `build --rebuild`)
  *   run      launch the entry exe detached; the invoking terminal returns at
  *            once and closing it never kills dsh-gui (or its dsh child)
  *   shortcut create a Windows desktop shortcut to the entry exe (Windows only)
@@ -37,6 +40,9 @@
  *   --force-harness  clean-reinstall the dsh runtime even when it is current
  *                    (removes .harness/node_modules + lockfile, re-resolves
  *                    from the registry)
+ *   --rebuild        no skips: --force-harness plus reinstalling every plugin
+ *                    even when the profile already has it at the pinned version
+ *                    (the plugins see DSH_PLUGIN_REBUILD=1; `npm run rebuild`)
  */
 
 import { spawn, spawnSync } from 'node:child_process'
@@ -338,7 +344,7 @@ function harnessNpmRuntime(runtime, force) {
  */
 function harnessRuntime(options) {
   const runtime = resolveHarnessRuntime(ROOT)
-  const force = options.forceHarness || process.env.DSH_HARNESS_REBUILD === '1'
+  const force = options.forceHarness || options.rebuild || process.env.DSH_HARNESS_REBUILD === '1'
   if (runtime.runtime === 'npm') harnessNpmRuntime(runtime, force)
   else harnessSourceRuntime(options.frozenHarness === true, force)
 }
@@ -408,8 +414,11 @@ function buildExe(debug) {
  * also write profile state beside their npm install. The CLI delegates the
  * work to the wrapper script, so adding one never touches this CLI. Scripts
  * run in directory-name order for a deterministic install sequence.
+ * @param {{ rebuild?: boolean }} [options] - `rebuild` re-installs every plugin
+ *   even when the profile already has it at the pinned version (the wrappers
+ *   read it as DSH_PLUGIN_REBUILD=1).
  */
-function installPluginScripts() {
+function installPluginScripts(options = {}) {
   if (!existsSync(PLUGINS)) return
   const scripts = readdirSync(PLUGINS, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -424,14 +433,21 @@ function installPluginScripts() {
     for (const script of scripts) {
       console.log(`--- ${script}`)
       // The same DSH_HOME pin the desktop shell and the preset installer use.
-      run('node', [script], { env: { DSH_HOME: WEB_HOME } })
+      // A rebuild additionally tells every wrapper to skip its up-to-date fast
+      // path, so the whole plugin set is installed again.
+      run('node', [script], {
+        env: { DSH_HOME: WEB_HOME, ...(options.rebuild ? { DSH_PLUGIN_REBUILD: '1' } : {}) },
+      })
     }
   })
 }
 
-function plugins() {
+function plugins(options = {}) {
   bootstrapPnpm()
-  installPluginScripts()
+  if (options.rebuild) {
+    console.log('rebuild: every plugin is installed again, even when the profile already has it at the pinned version.')
+  }
+  installPluginScripts(options)
   console.log('\nDone. Plugin install scripts ran against the runtime-root .dsh.')
   console.log('Restart dsh-gui for the composition and agent-preset roster to reload.')
 }
@@ -524,7 +540,7 @@ function setup(options) {
   // Before the plugin steps: the forwarder is independent of them, and a failed
   // install must not leave the runtime root without its entry point.
   writeForwarder()
-  plugins()
+  plugins(options)
   installPresets()
   installGlobalTemplate()
   smokeComposition()
@@ -538,7 +554,7 @@ function build(options) {
   // Before the plugin steps: the forwarder is independent of them, and a failed
   // install must not leave the runtime root without its entry point.
   writeForwarder()
-  plugins()
+  plugins(options)
   installPresets()
   installGlobalTemplate()
   smokeComposition()
@@ -641,6 +657,9 @@ Commands:
               (each plugins/<id>/install.mjs) -> agent presets ->
               global agent template
   install     run every plugins/*/install.mjs (alias: plugins)
+  rebuild     build with every skip disabled: the dsh runtime is reinstalled and
+              every plugin is installed again even when the profile already has
+              it at the pinned version (same as build --rebuild)
   run         launch the entry exe detached; the terminal returns immediately
   shortcut    create a Windows desktop shortcut (Windows only)
   help        show this help
@@ -659,6 +678,14 @@ Flags:
   --force-harness  clean-reinstall the dsh runtime even when it is current
                    (removes .harness/node_modules + lockfile, re-resolves
                    from the registry)
+  --rebuild        no skips: --force-harness plus reinstalling every plugin
+                   (the wrappers see DSH_PLUGIN_REBUILD=1); same as the
+                   "rebuild" command
+
+build reuses what is already current: an installed dsh runtime at the pinned
+version, and every plugin whose exact pinned version (or link: dependency and
+mount) the profile already holds. Use "npm run rebuild" after changing plugin
+sources, masks, or profile state by hand.
 
 Build also smoke-checks the web profile composition (--profile web
 --dump-config) after plugins install, so loader/bundle failures surface at
@@ -670,6 +697,7 @@ Examples:
   npm run build -- --skip-harness
   npm run build -- --skip-exe
   npm run build -- --force-harness
+  npm run rebuild
   npm run build:exe        (alias for build --skip-harness)
   npm run build:webui      (alias for build --skip-exe; runtime/plugins only, no desktop exe)
   npm run install:plugins
@@ -686,12 +714,14 @@ function main() {
     skipHarness: flags.has('--skip-harness'),
     skipExe: flags.has('--skip-exe'),
     forceHarness: flags.has('--force-harness'),
+    rebuild: flags.has('--rebuild'),
   }
   switch (command) {
     case 'setup': setup(options); break
     case 'build': build(options); break
+    case 'rebuild': build({ ...options, rebuild: true }); break
     case 'install':
-    case 'plugins': plugins(); break
+    case 'plugins': plugins(options); break
     case 'run': runApp(); break
     case 'shortcut': makeShortcut(argv[argv.indexOf('shortcut') + 1] ?? ''); break
     case 'help':

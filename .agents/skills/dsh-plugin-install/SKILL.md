@@ -91,6 +91,28 @@ node deepseek-harness/apps/cli/lib/bin.js --profile web --dump-config
 - `dsh.bundle.patch` 声明的包在下次启动时以 bundle 层进入 Loader 组合（重启
   dsh-gui / harness 生效）。
 
+## 重复构建：跳过与全量重建
+
+`npm run build` 会复用已经就绪的安装，避免每次都为同一批包重跑 `dsh plugin add`
+（它会重新解析整个 profile 依赖图，是构建时间的大头）：
+
+- **精确 pin 的 npm 插件**：profile 的依赖项与 `node_modules` 里的版本都等于该
+  pin、包内没有残留的外来嵌套 `node_modules`、挂载状态完整（声明了
+  `dsh.bundle.patch` 的包已在 `dsh.profile.bundles` 里，否则其 insert 行在
+  `cordis.patch.yml` 里）时，整条 `dsh plugin add` 直接跳过。
+- **`link:` 源码插件**：包本身仍然会构建（源码是否有改动由构建决定），只有已经
+  记录 `link:<同一目录>` 且挂载完整的依赖写入被跳过。
+- 任一条件不满足（改 pin、profile 被手改、检出移动导致 link 失效、挂载行缺失、
+  包内残留嵌套 `node_modules`）都会照常安装，因此跳过不会掩盖需要修复的状态。
+
+需要强制全量安装时用 **`npm run rebuild`**（等价 `npm run build -- --rebuild`，
+插件进程收到 `DSH_PLUGIN_REBUILD=1`）：它在 `--force-harness` 的基础上让每个插件
+重新安装一遍。跳过逻辑与屏蔽开关是两回事：`DSH_PLUGIN_SKIP` /
+`DSH_PLUGIN_FORCE_INSTALL` 仍只决定某个 wrapper 是否被屏蔽（见
+`scripts/plugin-install.mjs` 的 `skipInstall()`、`reinstallRequested()`），
+`rebuild` 不会解除屏蔽；日志里出现
+`is already installed at this version — skipping install` 即表示命中了跳过。
+
 ## 卸载
 
 ```powershell

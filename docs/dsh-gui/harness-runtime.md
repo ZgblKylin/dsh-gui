@@ -62,7 +62,7 @@ CLI 安装在 `<runtime-root>/.harness/`，入口是 `.harness/node_modules/@dee
 
 source 模式以 revision 为增量判据：`harness-build.json` 记录的 revision 与当前子模块一致、且 `apps/cli/lib/bin.js` 存在时，跳过 `pnpm install`、`pnpm run clean` 与 `pnpm run build`。revision 从子模块 `.git` gitfile 指向的 gitdir 的 `HEAD` 读取；检出停留在分支而非游离 HEAD 时读不到 revision，该构建按过期处理并重建。
 
-`--force-harness`（`npm run build -- --force-harness`）或 `DSH_HARNESS_REBUILD=1` 强制重装运行时——`--force-harness` 同样走干净重装（删 `node_modules` + lockfile 后重解析）；`--skip-harness` 跳过整个运行时步骤。
+`--force-harness`（`npm run build -- --force-harness`）或 `DSH_HARNESS_REBUILD=1` 强制重装运行时——`--force-harness` 同样走干净重装（删 `node_modules` + lockfile 后重解析）；`--skip-harness` 跳过整个运行时步骤。`npm run rebuild`（`build --rebuild`）等于 `--force-harness` 加上让每个插件也重新安装一遍，见 `plugins/README.md`。
 
 `<DSH_HOME>` 默认是运行时根的 `.dsh`，可用 `DSH_HOME` 覆盖，上述状态文件随之改址。
 

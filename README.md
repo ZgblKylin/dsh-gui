@@ -235,7 +235,9 @@ detailed sections marked in the table are expanded further down.
 | `npm run setup` / `npm run build` | `node scripts/dsh-gui.mjs setup` / `node scripts/dsh-gui.mjs build` | one-shot build: toolchain, harness runtime, entry exe, plugins, presets, global agent template (see [Build (one shot)](#build-one-shot)) |
 | `npm run build:exe` | `node scripts/dsh-gui.mjs build --skip-harness` | build the entry exe only, skipping the harness runtime step |
 | `npm run build:webui` | `node scripts/dsh-gui.mjs build --skip-exe` | harness runtime + plugin/preset installs only, skipping cargo |
+| `npm run rebuild` | `node scripts/dsh-gui.mjs rebuild` | full build with every skip disabled: runtime reinstalled, every plugin installed again (see [Build (one shot)](#build-one-shot)) |
 | `npm run install:plugins` / `npm run plugins` | `node scripts/dsh-gui.mjs install` | run every plugin install script under `plugins/` (see [Adding plugins at runtime](#adding-plugins-at-runtime)) |
+| `npm run test:scripts` | `node --test scripts/plugin-install.test.mjs` | unit tests for the plugin-install fast path and reinstall switches |
 | `npm run staging` | `node scripts/staging.mjs` | staging-clone workflow: `ensure`, `sync`, `status`, `clean --yes` (see [Validating an upgrade in the staging clone](#validating-an-upgrade-in-the-staging-clone)) |
 | `npm run harness` | `node scripts/harness.mjs` | foreground harness backend, no shell window or browser (see [Run](#run)) |
 | `npm start` | `node scripts/dsh-gui.mjs run` | detached desktop shell (see [Run](#run)) |
@@ -268,7 +270,11 @@ This is idempotent and writes only under the runtime root:
   `plugins/<id>/install.mjs` normally builds, installs, and mounts its plugin
   package into the web profile; `dsh-web-ui/install.mjs` installs its four
   npm bundles through the same profile pipeline (see
-  [Adding plugins](#adding-plugins-at-runtime)).
+  [Adding plugins](#adding-plugins-at-runtime)). A plugin the profile already
+  holds at its exact pinned version — installed, mounted, with its bundle row in
+  `dsh.profile.bundles` — is **skipped**: `dsh plugin add` would re-resolve the
+  whole profile graph for nothing. `link:` installs skip only that dependency
+  write; the package itself is still built.
 - Runs every agent-preset install script under `presets/` — since harness
   `dsh-v0.1.7-rc.2` each `presets/<id>/` directory lands as an
   `@deepseek-ai/dsh-agent-preset` declaration row in the profile patch and
@@ -287,9 +293,17 @@ output at `src-tauri\target\release\` or `target\debug\`).
 Flags (pass after `--`): `--debug` for a `cargo build` debug build,
 `--skip-harness` to skip the dsh runtime install/build, `--skip-exe` to skip
 cargo entirely (runtime/plugins only — useful on Linux without Tauri system
-deps), and `--force-harness` to reinstall or rebuild the runtime even when it is
-current (the same as `DSH_HARNESS_REBUILD=1`).
+deps), `--force-harness` to reinstall or rebuild the runtime even when it is
+current (the same as `DSH_HARNESS_REBUILD=1`), and `--rebuild` to disable every
+skip at once (`--force-harness` plus reinstalling every plugin; the plugin
+scripts see `DSH_PLUGIN_REBUILD=1`).
 Example: `npm run build -- --debug`.
+
+`npm run rebuild` is the same as `npm run build -- --rebuild`: use it after
+changing plugin sources, masks, or profile state by hand, or when a plugin needs
+to be installed again even though its pinned version is already in the profile.
+The global agent template is still never overwritten — that rule is about your
+edits, not about being current.
 
 > Packaging/installer generation is intentionally disabled (`bundle.active:
 > false` in `src-tauri/tauri.conf.json`). The app always runs from this
