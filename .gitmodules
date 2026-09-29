@@ -25,3 +25,6 @@
 [submodule "plugins/dsh-pet/dsh-pet"]
 	path = plugins/dsh-pet/dsh-pet
 	url = https://github.com/PC2005-cloud/dsh-pet.git
+[submodule "plugins/commandcode-provider/dsh-commandcode-provider"]
+	path = plugins/commandcode-provider/dsh-commandcode-provider
+	url = https://github.com/Mars-Sea/dsh-commandcode-provider.git
