@@ -42,9 +42,8 @@ Cordis 行列表。旧版按 `.dsh/.agent-presets/<id>/`（目录名即 id，外
    在每一层 bundle 之后应用，因此用户预设永远排在随包声明之后。安装方式归预设
    自己所有，将来某个预设需要生成文件、合并补丁或做校验，只改它自己的脚本即可，
    不必动共享工具链。
-   参考实现见 [`plugins/harness/agent-team.mjs`](../plugins/harness/agent-team.mjs)
-   的 `writeDerivedDeclarations()`：它以标记块（marker block）整体重写自己写入的
-   行，保留用户在同一文件里的其他内容。
+   写入时以标记块（marker block）整体重写自己写入的行，保留用户在同一文件里的
+   其他内容；重复执行因此结果一致。
 3. **构建统一安装**：`npm run build`（以及 `npm run setup`）在安装完插件后扫描
    `presets/*/install.mjs`，按目录名排序逐个执行（`scripts/dsh-gui.mjs` 的
    `installPresets()`）。新增预设 = 新增一个目录 + 安装脚本，构建自动带上它，无需
@@ -59,8 +58,8 @@ Cordis 行列表。旧版按 `.dsh/.agent-presets/<id>/`（目录名即 id，外
 - **安装脚本必须仓库内自托管**：只写 `$DSH_HOME`（构建时传入、缺省为
   `<runtime-root>/.dsh`），不碰系统全局位置。
 - **不要覆盖随包声明行**：随包 preset 的行 id 形如 `preset-standard`，由官方 bundle
-  提供。自己的预设用不同的行 id 与 `config.id`；需要派生（例如 Team 版）就整体
-  复制 `config.plugins` 再改，见 `agent-team.mjs`。
+  提供。自己的预设用不同的行 id 与 `config.id`；需要派生就整体复制
+  `config.plugins` 再改。
 - **外置源走 submodule**：第三方维护的预设以 git submodule 引入并 pin 到具体
   commit；更新先审阅上游变更再
   `git submodule update --remote presets/<id>/<repo>`；外置源安装脚本若对上游源做
@@ -90,9 +89,8 @@ npm run build -- --skip-harness --skip-exe
 
 ## 现有预设
 
-本仓库当前没有预设实例：`presets/` 下只有本说明，新增按上一节的步骤进行。
-`plugins/harness/agent-team.mjs` 会自行派生 `standard-team` / `ptc-team` 两条声明
-到 profile patch，那属于插件安装的一部分，不走本目录。
+本仓库当前没有预设实例：`presets/` 下只有本说明，新增按上一节的步骤进行。插件
+安装也不向 profile patch 写入派生预设声明。
 
 预设里若需要面向用户的指令或提示词（例如 `/review`），做成用户级 skill：源文件放
 `global_template.agents/skills/<name>/SKILL.md`，构建安装到 `.dsh/.agents/`

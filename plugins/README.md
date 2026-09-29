@@ -7,22 +7,19 @@ A wrapper may own several checkouts and install several npm
 packages in one script. Two wrappers own no package checkout at all:
 `dsh-web-ui` installs four npm bundles of its distribution repo —
 `dsh-web-ui-settings`, `dsh-skill-explorer`, `dsh-usage` and
-`dsh-model-capabilities` — and `harness` owns every
-official dsh-family plugin as one flat group: `agent-team.mjs` installs two
-Agent Teams bundles and derives Team-aware agent presets,
-`auto-review.mjs` installs the per-call LLM authorization layer,
-`browser-use.mjs` installs the Playwright MCP browser provider (the exclusive
-`dsh-browser-use` registration service + the experimental provider — see
-`harness/README.md`), and
-`computer-use.mjs` installs the Cua Driver native desktop provider (the
-exclusive `dsh-computer-use` registration service + the native SDK provider).
+`dsh-model-capabilities` — and `harness` owns the official dsh-family plugins it
+installs as one flat group: `browser-use.mjs` installs the Playwright MCP
+browser provider (the exclusive `dsh-browser-use` registration service + the
+experimental provider — see `harness/README.md`), and `computer-use.mjs`
+installs the Cua Driver native desktop provider (the exclusive
+`dsh-computer-use` registration service + the native SDK provider). The Agent
+Teams and Auto review bundles the plugin page switches on are runtime
+dependencies of the dsh installation and are not installed by any wrapper here.
 
 ```
 plugins/
 ├─ harness/
 │  ├─ install.mjs        # entry: loads each plugins/harness/*.mjs installer in order
-│  ├─ agent-team.mjs     # Agent Teams bundles + derived presets
-│  ├─ auto-review.mjs    # Auto review per-call authorization layer
 │  ├─ browser-use.mjs    # Browser Use: exclus. service + Playwright MCP provider
 │  └─ computer-use.mjs   # Computer Use: exclus. service + Cua Driver native provider
 ├─ <id>/
@@ -37,11 +34,10 @@ The harness installs plugins into a *profile* (for the web surface, the `web`
 profile). `npm run install:plugins` (alias `npm run plugins`) runs every
 `plugins/*/install.mjs` in directory-name order. The `harness` wrapper owns no
 install of its own: its `install.mjs` only loads the flat sibling installers
-(`agent-team.mjs`, `auto-review.mjs`, `browser-use.mjs`, `computer-use.mjs`),
-each of which also runs standalone, so the group stays one directory with no
-nesting. Plugin wrappers delegate the
-shared pipeline to `scripts/plugin-install.mjs` and only own their id, package
-directory, and submodule hint:
+(`browser-use.mjs`, `computer-use.mjs`), each of which also
+runs standalone, so the group stays one directory with no nesting. Plugin
+wrappers delegate the shared pipeline to `scripts/plugin-install.mjs` and
+only own their id, package directory, and submodule hint:
 
 1. build the package in place when it declares a `build` script (pinned
    toolchain pnpm + shared store),
@@ -158,8 +154,8 @@ tree with `duplicate loader entry id`.
     `@linxin666/dsh-client-ui-task-board` 已从本工程移除，不再安装；见
     `dsh-web-ui/README.md`「已移除插件」一节）
 - harness（dsh 工程官方插件组，平铺脚本见 [harness/README.md](harness/README.md)）：
-  - Agent Teams（无本地包）npm包 ×1 + 派生 agent preset：`@deepseek-ai/dsh-experimental-agent-team-profile@0.2.0-rc.2`（自 0.1.7-rc.2 起上游把原 `...-agent-team-web-profile` 合并进这一个 bundle 并删除该包），另按上游 preset 声明派生 `<id>-team` 声明行
-  - Auto review（无本地包）npm包：`@deepseek-ai/dsh-experimental-auto-review@0.2.0-rc.2`，与 pinned 的 dsh-v0.2.0-rc.2 harness 配套
+  - Agent Teams（无本地包，官方可选 bundle）：`@deepseek-ai/dsh-experimental-agent-team-profile` 随 dsh 安装提供并列入 harness 的 `OPTIONAL_BUNDLES`，由插件页「智能体团队」开关写入 `dsh.profile.bundles`，本 wrapper 既不安装它也不派生 preset。
+  - Auto review（无本地包，官方可选 bundle）：`@deepseek-ai/dsh-experimental-auto-review` 随 dsh 安装提供并列入 harness 的 `OPTIONAL_BUNDLES`，由插件页「自动授权审查」开关写入 `dsh.profile.bundles`，本 wrapper 不安装它
   - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.2.0-rc.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.0-rc.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
   - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.0-rc.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.0-rc.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.12；子模块
@@ -320,32 +316,16 @@ tree with `duplicate loader entry id`.
   API removed in DSH 0.1.5; the declared `@deepseek-ai/dsh-client-runtime`
   edge is module-graph ordering metadata only and its absence does not block
   loading. See `dsh-pet/README.md`.
-- `harness` — a single flat wrapper at `harness/` that owns every official
-  dsh-family plugin: `install.mjs` only loads the sibling installers
-  `agent-team.mjs`, `auto-review.mjs`, `browser-use.mjs` and
-  `computer-use.mjs`, so the group stays one directory with no nesting.
+- `harness` — a single flat wrapper at `harness/` that owns the official
+  dsh-family plugins it installs: `install.mjs` only loads the sibling installers
+  `browser-use.mjs` and `computer-use.mjs`, so the group stays
+  one directory with no nesting. Agent Teams and Auto review are not installed
+  here: `@deepseek-ai/dsh-experimental-agent-team-profile` and
+  `@deepseek-ai/dsh-experimental-auto-review` are dsh runtime dependencies
+  listed in the harness's `OPTIONAL_BUNDLES`, and the plugin page (插件 →
+  智能体团队 / 自动授权审查) switches them into `dsh.profile.bundles`; the
+  wrapper derives no preset declaration from them.
   See `harness/README.md`.
-  - `agent-team` — `harness/agent-team.mjs` installs the
-    official experimental Agent Teams bundle from npm
-    (`@deepseek-ai/dsh-experimental-agent-team-profile@0.2.0-rc.2`; an exact
-    prerelease pin, because the npm `latest` dist-tag of the dsh-family
-    experimental packages trails the released prerelease and the Community Market
-    cannot carry a prerelease). Since `0.1.7-rc.2` upstream
-    merged the former `...-agent-team-web-profile` into this one bundle and
-    deleted that package, so the wrapper installs a single spec. It then derives
-    a Team-aware sibling `<id>-team` for every shipped agent preset that carries
-    delegation rows.
-    Those siblings exist because the experimental bundle's own patch layer
-    disables the continuable-child control tools AND the direct delegation rows
-    (`tool-subagent`, `tool-subagent-fork`) at the PROFILE level, which never
-    reaches the preset rows that actually supply those tools — leaving
-    `send_message` Team-addressed (roster names only) while the model still
-    created continuable children the parent could no longer address. Since
-    `dsh-v0.1.7-rc.2` a preset is an `@deepseek-ai/dsh-agent-preset` declaration
-    row and the derived sibling is written into the profile patch as its own
-    declaration (the retired `.agent-presets/` directory is no longer
-    discovered), so the closure reaches the model. No shipped profile enables
-    Agent Teams.
   - `browser-use` — `harness/browser-use.mjs` installs the Playwright MCP
     browser provider from npm as two plain (non-bundle) packages:
     `@deepseek-ai/dsh-browser-use@0.2.0-rc.2` (the exclusive browser-use
@@ -376,13 +356,3 @@ tree with `duplicate loader entry id`.
     installed; the sibling installed-MCP computer-use provider is not, since
     both contend for the single `ctx.computerUse` registration slot.
     See `harness/README.md`.
-  - `auto-review` — `harness/auto-review.mjs` installs the
-    official experimental per-call LLM authorization layer
-    (`@deepseek-ai/dsh-experimental-auto-review@0.2.0-rc.2`; exact prerelease
-    pin matching the pinned `dsh-v0.2.0-rc.2` harness, whose
-    peerDependencies all point at `0.2.0-rc.2`), declaring
-    `dsh.bundle.patch` so it self-mounts through its own bundle layer. The layer
-    adds a current-session-only `Auto review EXP` option to the permission
-    selector; every native and started PTC inner tool call is reviewed once by
-    the current agent's model before its body, and allowed calls execute with
-    Full access.

@@ -69,9 +69,8 @@ preset 声明里每行插件怎么写、哪些服务能进 preset，以 deepseek
 真源（先读）：
 
 - 根目录 [`presets/README.md`](../../../presets/README.md) —— 声明式 preset 的源目录约定、落地目标与现有预设清单。
-- [`plugins/harness/agent-team.mjs`](../../../plugins/harness/agent-team.mjs) —— 派生预设的参考实现：读随包声明、按标记块幂等重写 profile patch（见 2.2）。
 - [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— `installPresets()` 的发现与执行逻辑。
-- 当前仓库没有 `presets/<id>/` 实例（`presets/` 下只剩 `README.md`）。
+- 当前仓库没有 `presets/<id>/` 实例（`presets/` 下只剩 `README.md`），也没有派生预设的脚本；Agent Teams 与 Auto review 是插件页开关管理的官方可选 bundle，不产生 preset 声明。
 
 ### 2.1 目录结构
 
@@ -126,9 +125,7 @@ profile patch 在每一层 bundle 之后应用，因此写进它的声明永远�
 按行 id 覆盖随包行也在这里生效。
 
 幂等靠**标记块整体替换**：脚本只重写自己标记包围的那段文本，保留同一文件里的
-其他内容。参考实现见
-[`plugins/harness/agent-team.mjs`](../../../plugins/harness/agent-team.mjs) 的
-`writeDerivedDeclarations()` 与 `BLOCK_START` / `BLOCK_END` 常量。
+其他内容，因此重复执行结果一致。
 
 安装约定：
 
@@ -348,7 +345,6 @@ persona 不发布服务，可以裸放。Windows 上同一 group 里另有 `term
 **dsh-gui 侧**
 
 - [`presets/README.md`](../../../presets/README.md) —— preset 源目录、落地目标与现有预设清单。
-- [`plugins/harness/agent-team.mjs`](../../../plugins/harness/agent-team.mjs) —— 派生声明的参考实现（`writeDerivedDeclarations()`）。
 - [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— 构建时安装 preset 与
   global_template.agents 的入口（`installPresets()` / `installGlobalTemplate()`）。
 - [`global_template.agents/`](../../../global_template.agents) —— 用户级 skill 与
