@@ -1,14 +1,14 @@
 ---
 name: dsh-gui-plugin-dev
-description: 'Use when adding, migrating, building, debugging, or reviewing a plugin under the dsh-gui `plugins/` tree, when writing or changing a `plugins/<id>/install.mjs` wrapper, when deciding how to wire a plugin git submodule, and when deciding whether a feature must depend on dsh-gui. Covers the current plugin directory/submodule layout and install-script pattern, then routes plugin-authoring questions to the deepseek-harness submodule docs and examples.'
-whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、审查插件，写或改 `plugins/<id>/install.mjs`，决定插件 git submodule 接线，或判断某功能是否必须依赖 dsh-gui 时使用。插件本体编写问题交给 deepseek-harness 子模块文档与 examples。
+description: 'Use when adding, migrating, building, debugging, or reviewing a plugin under the dsh-gui `plugins/` tree, when writing or changing a `plugins/<id>/install.mjs` wrapper, when deciding how to wire a plugin git submodule, and when deciding whether a feature must depend on dsh-gui. Covers the current plugin directory/submodule layout and install-script pattern, then routes plugin-authoring questions to the deepseek-harness submodule docs and reference examples.'
+whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、审查插件，写或改 `plugins/<id>/install.mjs`，决定插件 git submodule 接线，或判断某功能是否必须依赖 dsh-gui 时使用。插件本体编写问题交给 deepseek-harness 子模块文档与示例工程。
 ---
 
 # dsh-gui 插件开发
 
 本 skill 只负责 dsh-gui 这一层：插件如何放进 `plugins/`、如何以子模块引入、如何写
 `install.mjs`、如何挂载到 web profile。插件本体怎么写，以 `deepseek-harness/`
-子模块中的官方文档和 examples 为准（见下方「阅读地图」）。
+子模块中的官方文档与示例工程为准（见下方「阅读地图」）。
 
 ## 0. 首要设计规则：优先做纯净 harness 插件
 
@@ -20,7 +20,7 @@ whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、
 - 新功能默认做成一个普通 deepseek-harness 插件/bundle：只用 Cordis 的 `apply(ctx)`、
   `inject`、`ctx.*` 服务、`cordis.patch.yml` 和标准 `dsh.client`/`dsh.bundle` 声明。
 - 插件代码不得 import dsh-gui 仓库里的任何模块，不得假设进程由 `dsh-gui.exe` 启动、
-  不得假设 `DSH_HOME` 是仓库里的 `.dsh`、不得依赖 `src-tauri/` 或 `plugins/` 目录结构。
+  不得假设 `DSH_HOME` 是仓库根下的 `.dsh`（它属于运行时根）、不得依赖 `src-tauri/` 或 `plugins/` 目录结构。
 - dsh-gui 只负责「构建 + 安装 + 挂载」，是分发层，不是插件运行时的前置条件。
 - 只有当功能确实依赖其他插件协作，或必须接入 dsh-gui 原生壳（例如 Tauri 标题栏、
   `remote_call`、本地 backend 启动这类 GUI 对接）时，才允许写 dsh-gui 耦合。
@@ -133,11 +133,11 @@ installPlugin({
 
 1. **自托管构建**：先 bootstrap 仓库固定的 pnpm（`.toolchain/`，store 固定为
    `.pnpm-store/`）。包有 `build` 脚本且未 `build: false` 时，在包目录内执行
-   `pnpm install --store-dir <repo>/.pnpm-store` + `pnpm run build`；
+   `pnpm install --store-dir <runtime-root>/.pnpm-store` + `pnpm run build`；
    没有 `build` 脚本的包按已发布形态直接使用（预构建 `lib/` 或纯配置包）。
 2. **固定 profile store**：写 `.dsh/profiles/web/pnpm-workspace.yaml` 的
    `storeDir`，避免普通终端与桌面壳环境因 home 变量不同而 `ERR_PNPM_UNEXPECTED_STORE`。
-3. **链接依赖**：以 `DSH_HOME=<repo>/.dsh` 执行
+3. **链接依赖**：以 `DSH_HOME=<runtime-root>/.dsh` 执行
    `node deepseek-harness/apps/cli/lib/bin.js plugin --profile web add link:<packageDir>`。
    `link:` 使下一次启动直接看到包目录里的改动。
 4. **挂载 entry**：
@@ -151,7 +151,7 @@ installPlugin({
 约束：
 
 - 安装脚本必须幂等，重复执行结果一致（共享流水线按 entry id 去重）。
-- 只写 `DSH_HOME`（缺省 `<repo>/.dsh`），不写系统全局位置。
+- 只写 `DSH_HOME`（缺省 `<runtime-root>/.dsh`），不写系统全局位置。
 - 安装产物都在 gitignored 的 `.dsh/` 里；源码侧不要手改
   `.dsh/profiles/web/cordis.patch.yml` 后把运行时状态当源提交。
 - 插件集合变更通常要重启 dsh-gui（或 harness）后生效。
@@ -247,14 +247,14 @@ wrapper 约定误当成 harness 插件模型。
 - [`packages/host/webserver/README.md`](../../../deepseek-harness/packages/host/webserver/README.md) —— host HTTP/upgrade 路由。
 - [`docs/api-gateway.md`](../../../deepseek-harness/docs/api-gateway.md) —— host 服务暴露给 browser 半的机制（需要时）。
 
-**Examples（抄模式前先读）**
+**参考工程与示例（抄模式前先读）**
 
-- [`examples/README.md`](../../../deepseek-harness/examples/README.md) —— 全部可运行示例的入口。
-- [`examples/web-cordis/README.md`](../../../deepseek-harness/examples/web-cordis/README.md) —— 自指 Cordis 插件树检查/挂载示例。
-- [`examples/web-schedule/README.md`](../../../deepseek-harness/examples/web-schedule/README.md) —— 以 `--patch` 加入 web 覆盖层的完整示例。
-- [`examples/mcp-memory/README.md`](../../../deepseek-harness/examples/mcp-memory/README.md) —— 用 overlay 接第三方 MCP 的配置示例。
-- [`examples/headless-agent/README.md`](../../../deepseek-harness/examples/headless-agent/README.md) —— 无 GUI agent 形态，验证纯 harness 兼容性时尤其有用。
-- 各 example 自己的 `cordis.yml`/`cordis.patch.yml` 是比 README 更直接的复制起点。
+- [`apps/cli/config/examples/github-review/cordis.yml`](../../../deepseek-harness/apps/cli/config/examples/github-review/cordis.yml) —— 可选 overlay 接入 GitHub webhook 评审，配套指南 [`docs/user/guide/github-review.md`](../../../deepseek-harness/docs/user/guide/github-review.md)。
+- [`apps/cli/config/examples/mcp-memory/`](../../../deepseek-harness/apps/cli/config/examples/mcp-memory) —— 三份默认关闭的第三方记忆 MCP 参考配置，配套指南 [`docs/user/guide/mcp-memory.md`](../../../deepseek-harness/docs/user/guide/mcp-memory.md)。
+- [`docs/user/develop/practice/dynamic-cordis.md`](../../../deepseek-harness/docs/user/develop/practice/dynamic-cordis.md) —— 用提示词把持久化组合包写进当前 profile，运行时检查与挂载的自指示例。
+- [`docs/user/guide/schedule.md`](../../../deepseek-harness/docs/user/guide/schedule.md) —— Schedule 提醒的创建、修改与投递语义。
+- [`apps/cli/README.md`](../../../deepseek-harness/apps/cli/README.md) 的「入口模式」与「可选覆盖层」两节 —— `dsh` 各启动形态与 overlay 的权威清单；无 GUI 形态用 `dsh --profile headless` 验证。
+- 各 profile 的组合测试与 patch fixture 在 [`apps/cli/tests/profiles/`](../../../deepseek-harness/apps/cli/tests/profiles/)；这些 `cordis.yml`/`*.patch.yml` 与包内 `tests/fixtures/` 是比指南更直接的复制起点。
 
 ### 3.4 开发与验证顺序
 

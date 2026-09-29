@@ -45,6 +45,10 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
    - **副本内的每一条 `node` / `dsh` / `install.mjs` 调用都必须显式设置 `DSH_HOME`**：见第 9 节的同名条目。
 2. 在副本中把目标模块更新到目标修订，操作同第 2 节的两种目标。
 3. 分析该版本的影响：新增、变更或移除的功能、配置与依赖，以及本仓库插件需要跟进适配的点（组合方式、插件 API、bundle 契约）。以 `AGENTS.md` 与 [`docs/official/`](../../../docs/official) 为依据。
+   - **核对 `docs/official` 的每条链接仍可穿透**：目录链接要能列出子项，文件链接要能读到内容。子模块换代会让官方目录树移动或撤除（顶层 `examples/` 已被撤除，内容分散到 `apps/cli/config/examples/`、`docs/user/` 与各包 `tests/fixtures/`），悬空链接要改指当前修订的等价位置，没有等价位置的删除；`AGENTS.md` 的 `docs/official` 条目与目录内容逐项对齐。
+   - 失效并不总是「目标不存在」：目标是目录却被写成**文件型重解析点**时，`Test-Path` 仍返回真，但 shell 报 `Not a directory`、目录列举为空、子路径全部读不到。用 `(Get-Item <链接>).PSIsContainer` 判定：目标为目录却得到 `False` 的就是这种链接。
+   - 重建用 `New-Item -ItemType SymbolicLink -Path <链接> -Target <相对目标>`，目标按仓库约定写成正斜杠相对路径。不要用 .NET 的 `Directory.CreateSymbolicLink`：它对本仓库的相对目标写出的重解析点在 Windows 上不解析，子项无法访问。
+   - 重建只改文件系统：目标字符串不变时 git blob 不变，`git status` 不显示这些路径被修改，因此这一步不产生提交内容，只需在报告中记录链接清单。
 4. 在副本中完成适配修改并验证：改动本仓库侧的插件源码、适配代码与安装脚本（不涉及 `deepseek-harness/` 内文件），然后运行副本内的 `npm run build -- --skip-exe`，必须全绿；本次更新包含 `deepseek-harness` 时必须去掉该标记跑 `npm run build`，因为它要一并构建第 7 步验证的入口 exe。
    - `harness.json` 的 `runtime` 为 `npm`（仓库当前取值）时，本步按子模块 `apps/cli/package.json` 的版本从 registry 安装 dsh CLI，不编译子模块；子模块快进后必须重跑 build 才会换到新版本。
 5. 组合冒烟检查：用副本的 dsh CLI 以 `--profile web --dump-config` 渲染配置树（命令见副本说明文档），确认没有 `duplicate loader entry id`、缺失插件或 patch 报错。这一步只是验收的前置条件，通过它不等于验证通过。
@@ -105,6 +109,7 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
 
 - 副本内 `npm run build` 全绿，含 dsh 运行时的安装或构建与各插件安装脚本；
 - 副本的 `--profile web --dump-config` 能渲染组合；
+- **`docs/official` 的链接全部可穿透**：目录链接能列出子项、文件链接能读到内容，悬空项已改指当前修订的等价位置或被删除；
 - **副本的 WebUI 已实际加载验收通过**：在空闲端口启动副本 web 后端后，会话界面正常渲染、无插件或组合的加载报错；
 - **本次更新包含 `deepseek-harness` 时，副本的入口 exe 已用 computer use 验证能正常启动和运行**；
 - **用户已明确审批阶段二实装**；
@@ -126,7 +131,8 @@ git -C plugins\<id>\<package> checkout <旧修订>
 
 - 在 dsh 沙箱会话中，副本的 `ensure`、`sync` 以及副本内的子模块操作会被拦截（Windows 上 `git submodule` 与本地传输依赖 Cygwin `sh.exe`）。按 `AGENTS.md` 的提权规则，通过工具以最窄的足够宽模式申请一次放行；普通终端不需要提权。
 - 副本内的构建同样会被拦截：pnpm 执行依赖的生命周期脚本时 `spawn EPERM`。处理方式相同——申请提权，禁止用非标手段绕过。
-- 会话工作区必须是本仓库（含 `plugins/`、`presets/`、`deepseek-harness/` 的目录）；副本位于 `.staging/` 下，会话仍以本工程为工作区。
+- 会话工作区必须是**仓库根**（含 `plugins/`、`presets/`、`deepseek-harness/` 的目录），即嵌套布局里的 `<runtime-root>/dsh-gui`；副本位于 `<runtime-root>/.staging/dsh-gui`。
+- **禁止把运行时根（仓库根的父目录）作为 DSH 工作区**：沙箱会给工作区树打低完整性标签，`.dsh`、`.harness`、`.toolchain` 与入口 exe 一旦进入该范围，其中的可执行文件就以低完整性运行，随后环境临时目录不可写、`pwsh`、`grep`、`glob` 连带失效，入口 exe 还会触发 SmartScreen 提示。机制、观测症状与恢复步骤见 `docs/dsh-gui/windows-acl-low-integrity-label.md` 与 `docs/dsh-gui/nested-clone-layout.md`。
 
 ## 8. 相关 skill
 
@@ -150,3 +156,4 @@ git -C plugins\<id>\<package> checkout <旧修订>
 - **强杀副本构建会遗留陈旧的 atomic-write 锁**：在 `dsh plugin add` 写 `package.json` 期间用 `Stop-Process -Force` 终止副本构建，会留下陈旧的 `.dsh/profiles/web/package.json.lock`（内容是刚被杀进程的 PID）。之后每次 `dsh plugin add` 都等待该锁直到超时，报 `atomic-write: timed out waiting for the writer lock at ...package.json.lock`，整体表现为构建长时间静默挂起。清理：删除该锁文件后重跑 build。
 - **验收副本的 WebUI / GUI 与运行中的实例争用端口**：副本的 web 后端与入口 exe 都默认用 3080，而正在运行的 dsh-gui 正占着它，直接启动会报 `127.0.0.1:3080 is already in use`（[`src-tauri/src/main.rs`](../../../src-tauri/src/main.rs) 的 `ensure_loopback_port_available`）。验收一律显式把 `DSH_GUI_PORT` 设到空闲端口；验收结束后关闭该实例，避免残留进程占住端口，或被后续步骤误当成"副本实例还在跑"。
 - **把端口起来当成验证通过**：WebUI 验收看的是真实渲染结果（会话界面出来、无插件或组合的加载报错），不是进程存活、也不是 `dump-config` 无报错；harness 更新的 GUI 验收同样要用 computer use 看到窗口真正走到就绪。
+- **`docs/official` 的目录链接在 Windows 上可能是文件型重解析点**：它是 git 里正常的 `120000` 链接、目标字符串也对，但文件系统层面被写成文件型（`PSIsContainer` 为 `False`），于是 `ls`、`cd` 与子路径访问都报 `Not a directory`，而 `git status` 与 `Test-Path` 都不报异常。按第 3 节的方法用 `New-Item -ItemType SymbolicLink` 重建，重建后确认 `PSIsContainer` 为 `True` 且能列出子项。
