@@ -54,6 +54,10 @@
  *   --force-install  build-desktop: install the desktop source dependencies
  *                    again even when node_modules is complete
  *   --skip-shim      build-desktop: skip compiling the shortcut shim
+ *   --skip-plugins   build-desktop: skip installing the plugins into the
+ *                    desktop profile
+ *   --plugins-only   build-desktop: only install the plugins into the desktop
+ *                    profile (the app must already be landed)
  */
 
 import { spawn } from 'node:child_process'
@@ -638,7 +642,8 @@ Commands:
   run         launch the entry exe detached; the terminal returns immediately
   build-desktop  compile the Electron desktop app from the pinned harness
               checkout into <runtime-root>/desktop, and the console-less
-              shortcut shim <runtime-root>/dsh-gui-desktop.exe (not part of build)
+              shortcut shim <runtime-root>/dsh-gui-desktop.exe, then install
+              the plugins/ set into the desktop profile (not part of build)
   desktop     launch the app build-desktop landed, detached
   shortcut    create a Windows desktop shortcut (Windows only)
   help        show this help
@@ -650,7 +655,9 @@ Desktop:
   ELECTRON_BUILDER_BINARIES_MIRROR are passed through when set; the Electron and
   electron-builder caches land in <runtime-root>/.cache. It ends by compiling the
   shim (<runtime-root>/dsh-gui-desktop.exe), which is "npm run desktop" without a
-  console window. desktop launches with DSH_HOME at the runtime-root .dsh, so the
+  console window, and by running every plugins/*/install.mjs again against the
+  desktop profile (<runtime-root>/.dsh/profiles/desktop), which the desktop app's
+  own CLI manages. desktop launches with DSH_HOME at the runtime-root .dsh, so the
   desktop profile sits beside the web one. Run these in a session that permits
   git's local transport, cargo, and electron-builder (not a strict sandbox).
 
@@ -674,6 +681,10 @@ Flags:
   --force-source   build-desktop: delete and re-clone the source checkout
   --force-install  build-desktop: reinstall the source dependencies
   --skip-shim      build-desktop: skip the shortcut shim (dsh-gui-desktop.exe)
+  --skip-plugins   build-desktop: skip installing the plugins into the desktop
+                   profile
+  --plugins-only   build-desktop: only install the plugins into the desktop
+                   profile (requires the landed app)
 
 build reuses what is already current: an installed dsh runtime at the pinned
 version, and every plugin whose exact pinned version (or link: dependency and
@@ -694,6 +705,7 @@ Examples:
   npm run build:exe        (alias for build --skip-harness)
   npm run build:webui      (alias for build --skip-exe; runtime/plugins only, no desktop exe)
   npm run build:desktop
+  npm run build:desktop -- --plugins-only
   npm run desktop
   npm run install:plugins
   npm start
@@ -713,6 +725,8 @@ function main() {
     forceSource: flags.has('--force-source'),
     forceInstall: flags.has('--force-install'),
     skipShim: flags.has('--skip-shim'),
+    skipPlugins: flags.has('--skip-plugins'),
+    pluginsOnly: flags.has('--plugins-only'),
   }
   switch (command) {
     case 'setup': setup(options); break

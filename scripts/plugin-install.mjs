@@ -9,11 +9,12 @@
  *  1. build the package in place when it declares a `build` script (with the
  *     pinned toolchain pnpm and the repo-local store), unless the wrapper
  *     explicitly opts out with `build: false` (prebuilt distribution packages),
- *  2. pin the web profile's pnpm store so plain-terminal and desktop-shell
+ *  2. pin the target profile's pnpm store so plain-terminal and desktop-shell
  *     installs share `.pnpm-store`,
- *  3. `dsh plugin --profile web add link:<package dir>` records the dependency
- *     (a `link:` spec, so edits to the package show up on the next boot),
- *  4. append an idempotent insert row to `.dsh/profiles/web/cordis.patch.yml`
+ *  3. `dsh plugin --profile <profile> add link:<package dir>` records the
+ *     dependency (a `link:` spec, so edits to the package show up on the next
+ *     boot),
+ *  4. append an idempotent insert row to `<profile>/cordis.patch.yml`
  *     unless the package mounts itself through `dsh.bundle.patch`; bundle
  *     packages instead remove a matching legacy row written by older versions
  *     of this installer. Plain-package rows use the wrapper's explicit `mount`
@@ -25,11 +26,17 @@
  * `link:` package whose dependency and mount are recorded skips only the profile
  * write (its build still runs). `npm run rebuild` (or `DSH_PLUGIN_REBUILD=1`)
  * disables both fast paths for a full reinstall.
+ *
+ * `DSH_PLUGIN_PROFILE` selects the profile (default `web`), and
+ * `DSH_PLUGIN_DSH_CLI` replaces the repository's own CLI with a carrier that
+ * owns a reserved profile — the desktop app's CLI, which refuses the
+ * repository's `dsh` and ships the pnpm it needs. Wrappers stay profile-agnostic
+ * and only call the exported install functions.
  */
 
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { requireHarnessRuntime } from './harness-runtime.mjs'
+import { requireHarnessRuntime, submoduleVersion } from './harness-runtime.mjs'
 import {
   bootstrapPnpm,
   pinnedPath,
@@ -39,6 +46,61 @@ import {
   STORE,
   WEB_HOME,
 } from './toolchain.mjs'
+
+/** Profile the wrappers install into; the desktop build re-runs them with `desktop`. */
+const profileName = (process.env.DSH_PLUGIN_PROFILE ?? 'web').trim() || 'web'
+/**
+ * The `dsh` CLI carrier for `plugin` commands, or null for the repository's own.
+ *
+ * A reserved profile (the desktop app's) is only accepted by its own CLI, which
+ * already carries the pnpm it needs: selecting it here is what makes the shared
+ * pipeline profile-agnostic without teaching it about the desktop layout.
+ */
+const carrier = (process.env.DSH_PLUGIN_DSH_CLI ?? '').trim() || null
+
+/**
+ * Run one `dsh plugin ...` command against the selected profile.
+ *
+ * Without a carrier this is the repository runtime's CLI run through node, with
+ * the pinned toolchain prepended to PATH: `dsh plugin` forwards to `pnpm`, so
+ * the compatible pinned pnpm must win over any system install. With a carrier
+ * the carrier is spawned directly and PATH is left alone — it carries its own
+ * package manager and is the only CLI allowed to touch a reserved profile.
+ * @param {string} dshHome - the harness home holding the profile.
+ * @param {string[]} args - arguments after the CLI, e.g.
+ *   `['plugin', '--profile', 'web', 'add', spec]`.
+ */
+function runPluginCommand(dshHome, args) {
+  if (carrier !== null) {
+    run(carrier, args, { env: { DSH_HOME: dshHome } })
+    return
+  }
+  // Fails loud when the pinned dsh CLI is not installed for the configured
+  // runtime (`harness.json`), with the runtime-specific remedy.
+  const cli = requireHarnessRuntime(ROOT)
+  run('node', [cli.bin, ...args], {
+    env: {
+      DSH_HOME: dshHome,
+      PATH: pinnedPath(),
+    },
+  })
+}
+
+/**
+ * The dsh version a version exemption is keyed to.
+ *
+ * The repository CLI reports the version it runs; a carrier ships the pinned
+ * submodule's release, which is also what the desktop app was built from, so the
+ * pinned submodule is the authority there and the exemption needs no repository
+ * runtime install.
+ * @returns {string} the exact dsh version.
+ */
+function profileDshVersion() {
+  if (carrier === null) return requireHarnessRuntime(ROOT).version
+  const version = submoduleVersion(ROOT)
+  if (version === null) throw new Error(`cannot read the dsh version from the pinned submodule at ${ROOT}`)
+  return version
+}
 
 /**
  * Build the plugin package in place. A package without a `build` script ships
@@ -68,7 +130,15 @@ function buildPackage(packageDir) {
  * other with ERR_PNPM_UNEXPECTED_STORE. Exported so wrappers that add a package
  * through a direct `dsh plugin add` call (instead of installPlugin) keep the
  * same store/nodeLinker/allowBuilds guarantees.
- * @param {string} profileDir - absolute path to the web profile directory.
+ *
+ * A carrier (the desktop app's CLI) is the exception: every install into its
+ * reserved profile runs through that same carrier, its app already linked the
+ * profile's `node_modules` from the store its own environment resolves
+ * (`<project drive>/.pnpm-store` when its home sits on another drive), and
+ * pinning the repository store instead makes pnpm refuse the profile with
+ * ERR_PNPM_UNEXPECTED_STORE. The store line is therefore written only for
+ * installs that run the repository's own CLI.
+ * @param {string} profileDir - absolute path to the profile directory.
  */
 export function pinProfileStore(profileDir) {
   mkdirSync(profileDir, { recursive: true })
@@ -99,29 +169,25 @@ export function pinProfileStore(profileDir) {
     rest = [...lines.slice(0, allowIndex), ...tail]
   }
   section = section.filter((line) => !/^\s*node-pty\s*:/.test(line))
+  // The whole section is re-emitted on every install, so its trailing blank
+  // lines have to go: keeping them grows the file by one line per install.
+  while (section.length > 0 && section.at(-1) === '') section.pop()
   section.push('  node-pty: false')
   while (rest.length > 0 && rest.at(-1) === '') rest.pop()
-  rest.push('', `storeDir: '${STORE.replace(/'/g, "''")}'`, '', 'allowBuilds:', ...section, '')
+  if (carrier === null) rest.push('', `storeDir: '${STORE.replace(/'/g, "''")}'`)
+  rest.push('', 'allowBuilds:', ...section, '')
   writeFileSync(workspacePath, rest.join('\n'))
 }
 
 /**
- * Record the plugin as a `link:` dependency of the web profile.
+ * Record the plugin as a `link:` dependency of the selected profile.
  * `dsh plugin add` only writes the dependency; mounting happens separately
  * (or through the package's own bundle layer).
  * @param {string} dshHome - the harness home to install into.
  * @param {string} packageDir - absolute path to the plugin package.
  */
 function addDependency(dshHome, packageDir) {
-  const cli = requireHarnessRuntime(ROOT)
-  run('node', [cli.bin, 'plugin', '--profile', 'web', 'add', `link:${packageDir}`], {
-    env: {
-      DSH_HOME: dshHome,
-      // `dsh plugin` forwards to `pnpm` on PATH; prepend the pinned toolchain
-      // so the compatible pnpm is used no matter which system pnpm is installed.
-      PATH: pinnedPath(),
-    },
-  })
+  runPluginCommand(dshHome, ['plugin', '--profile', profileName, 'add', `link:${packageDir}`])
 }
 
 /**
@@ -257,7 +323,7 @@ function yamlObjectLines(object, indent) {
  * until a cordis.patch.yml insert turns it into an entry. Appends are
  * idempotent (existing rows are parsed back with parseInsertRows, so
  * reindented blocks still match); user content is preserved.
- * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {string} profileDir - absolute path to the profile directory.
  * @param {{ id: string, name: string, config?: object | null }} mount - the loader
  *   entry to insert; `config` becomes the row's `config:` block (a plain
  *   package whose entry needs per-row settings, e.g. a browser-use provider).
@@ -312,7 +378,8 @@ function mountEntry(profileDir, mount) {
 }
 
 /**
- * Install one plugin package into the runtime-root web profile.
+ * Install one plugin package into the runtime-root profile selected by
+ * `DSH_PLUGIN_PROFILE`.
  *
  * The package is always built (it is a `link:` install, so its sources decide
  * what is current); the profile dependency write is skipped when the profile
@@ -352,12 +419,13 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null,
   }
 
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
-  const profileDir = webProfileDir(dshHome)
+  const profileDir = pluginProfileDir(dshHome)
   pinProfileStore(profileDir)
 
   // Fails loud when the pinned dsh CLI is not installed for the configured
-  // runtime (`harness.json`), with the runtime-specific remedy.
-  requireHarnessRuntime(ROOT)
+  // runtime (`harness.json`), with the runtime-specific remedy. A carrier
+  // replaces that CLI, so it is not required then.
+  if (carrier === null) requireHarnessRuntime(ROOT)
 
   // The package is built above either way: a `link:` install has no version to
   // compare, so only the build proves its sources current. What can be skipped
@@ -435,8 +503,8 @@ function exactSpecVersion(spec) {
  * exact runtime version, so a later harness upgrade invalidates it instead of
  * carrying the accepted risk forward. `--accept-risk` is the CLI contract for
  * that acknowledgement.
- * @param {string} dshHome - the harness home whose web profile is written.
- * @param {string} profileDir - absolute web profile directory.
+ * @param {string} dshHome - the harness home whose profile is written.
+ * @param {string} profileDir - absolute profile directory.
  * @param {string} packageSpec - exact npm spec, e.g. `dsh-flowglass@0.7.3`.
  * @param {string} reason - why this version is accepted despite its peers.
  */
@@ -444,20 +512,16 @@ function grantVersionExemption(dshHome, profileDir, packageSpec, reason) {
   if (exactSpecVersion(packageSpec) === null) {
     throw new Error(`a version exemption needs an exact version, got ${packageSpec}`)
   }
-  // Fails loud when the pinned dsh CLI is not installed for the configured
-  // runtime (`harness.json`), with the runtime-specific remedy.
-  const cli = requireHarnessRuntime(ROOT)
+  const version = profileDshVersion()
   pinProfileStore(profileDir)
-  console.log(`\n==> accept the compatibility risk for ${packageSpec} on dsh ${cli.version}`)
+  console.log(`\n==> accept the compatibility risk for ${packageSpec} on dsh ${version}`)
   console.log(`  ${reason}`)
-  run('node', [cli.bin, 'plugin', '--profile', 'web', 'allow-version', packageSpec, '--dsh-version', cli.version, '--accept-risk'], {
-    env: { DSH_HOME: dshHome, PATH: pinnedPath() },
-  })
+  runPluginCommand(dshHome, ['plugin', '--profile', profileName, 'allow-version', packageSpec, '--dsh-version', version, '--accept-risk'])
 }
 
-/** The web profile directory inside one harness home. */
-function webProfileDir(dshHome) {
-  return join(dshHome, 'profiles', 'web')
+/** The selected profile directory inside one harness home. */
+function pluginProfileDir(dshHome) {
+  return join(dshHome, 'profiles', profileName)
 }
 
 /** Whether two paths name the same directory (resolving links/junctions). */
@@ -495,7 +559,7 @@ export function reinstallRequested() {
  *
  * `mountEntry`/`unmountLegacyEntry` treat an existing row as final, so checking
  * for the row here cannot lose an update the install path would have applied.
- * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {string} profileDir - absolute path to the profile directory.
  * @param {object | null} profile - parsed profile `package.json`.
  * @param {string} installedName - package name as recorded in the profile.
  * @param {object} manifest - the installed package's manifest.
@@ -533,7 +597,7 @@ function mountStateCurrent(profileDir, profile, installedName, manifest, mount) 
  *  - the mount/bundle state must be intact (see mountStateCurrent()).
  *
  * Exported for the wrapper-level checks and ad-hoc verification.
- * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {string} profileDir - absolute path to the profile directory.
  * @param {string} spec - the npm install spec used by the wrapper.
  * @param {{ id?: string, name?: string } | null} [mount] - explicit mount override.
  * @returns {boolean}
@@ -559,7 +623,7 @@ export function npmPluginUpToDate(profileDir, spec, mount = null) {
  *
  * Exported alongside npmPluginUpToDate() so the wrapper-level checks and the
  * test suite can exercise both predicates.
- * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {string} profileDir - absolute path to the profile directory.
  * @param {string} packageDir - absolute path to the plugin package.
  * @param {string} packageName - the package's manifest name.
  * @param {object} manifest - the package's manifest.
@@ -630,7 +694,7 @@ export function recordNpmInstall(dshHome, packageName) {
  * hoisted peers and the Loader fails at boot (`The requested module ... does
  * not provide an export named ...`). Removing it lets the package resolve the
  * profile's hoisted dependencies instead.
- * @param {string} profileDir - absolute path to the web profile directory.
+ * @param {string} profileDir - absolute path to the profile directory.
  * @param {string} packageName - the npm package name (may be scoped).
  */
 function removeForeignNestedNodeModules(profileDir, packageName) {
@@ -691,7 +755,7 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null, e
     console.log(`  skipping '${id}' (${packageSpec}) — ${reason}; set DSH_PLUGIN_FORCE_INSTALL=1 to override`)
     return
   }
-  const profileDir = webProfileDir(dshHome)
+  const profileDir = pluginProfileDir(dshHome)
   if (exempt !== null) grantVersionExemption(dshHome, profileDir, packageSpec, exempt)
   // Up-to-date fast path: `dsh plugin add` re-resolves the whole profile graph
   // (its own node + pnpm spawn) even when the exact version is already there, so
@@ -706,15 +770,7 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null, e
   console.log(`\n==> install plugin '${id}' (${packageSpec} from npm)`)
   bootstrapPnpm()
   pinProfileStore(profileDir)
-  // Fails loud when the pinned dsh CLI is not installed for the configured
-  // runtime (`harness.json`), with the runtime-specific remedy.
-  const cli = requireHarnessRuntime(ROOT)
-  run('node', [cli.bin, 'plugin', '--profile', 'web', 'add', packageSpec], {
-    env: {
-      DSH_HOME: dshHome,
-      PATH: pinnedPath(),
-    },
-  })
+  runPluginCommand(dshHome, ['plugin', '--profile', profileName, 'add', packageSpec])
   removeForeignNestedNodeModules(profileDir, name)
 
   const manifestPath = join(profileDir, 'node_modules', ...name.split('/'), 'package.json')

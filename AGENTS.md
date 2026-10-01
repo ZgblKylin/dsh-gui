@@ -30,7 +30,7 @@
 - desktop: 解包后的 desktop 应用，入口 `DeepSeek Harness.exe`
 - dsh-gui-desktop.exe: desktop 快捷方式 shim，等价于 `npm run desktop`，不弹控制台（由 `npm run build:desktop` 从 `src-tauri/desktop-shim` 编译）
 
-`npm run build:desktop` 构建 desktop 应用，把解包产物落位到运行时根的 `desktop` 并编译 `dsh-gui-desktop.exe`；`npm run desktop` 启动它；`npm run build` 不包含 desktop，见 [docs/dsh-gui/desktop-app.md](docs/dsh-gui/desktop-app.md)。
+`npm run build:desktop` 构建 desktop 应用，把解包产物落位到运行时根的 `desktop`，编译 `dsh-gui-desktop.exe`，并把 `plugins/` 的安装脚本装到 desktop profile（运行时根的 `.dsh\profiles\desktop`）；`npm run desktop` 启动它；`npm run build` 不包含 desktop，见 [docs/dsh-gui/desktop-app.md](docs/dsh-gui/desktop-app.md)。
 
 两条硬约束：**运行时根禁止作为 DSH 工作区**（会话工作区取仓库根，否则 `.dsh`、`.harness` 与入口 exe 会进入沙箱的低完整性打标范围）；**仓库内不放 `node_modules`**（pnpm 硬链接会让标签沿共享文件对象外溢到 store）。
 

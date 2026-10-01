@@ -2,7 +2,7 @@
 
 ## 用途
 
-`npm run build:desktop` 构建上游 `apps/desktop` 的 Electron 形态，把解包后的应用落位到运行时根的 `desktop/`，并编译快捷方式 shim `<runtime-root>\dsh-gui-desktop.exe`；`npm run desktop` 启动该应用。构建工作区与产物都位于运行时根，仓库内不产生依赖树与打包中间产物，布局契约见 [nested-clone-layout.md](nested-clone-layout.md)，低标签的继承与复制语义见 [windows-acl-low-integrity-label.md](windows-acl-low-integrity-label.md)。
+`npm run build:desktop` 构建上游 `apps/desktop` 的 Electron 形态，把解包后的应用落位到运行时根的 `desktop/`，编译快捷方式 shim `<runtime-root>\dsh-gui-desktop.exe`，并把 `plugins/` 的安装脚本装到 desktop profile；`npm run desktop` 启动该应用。构建工作区与产物都位于运行时根，仓库内不产生依赖树与打包中间产物，布局契约见 [nested-clone-layout.md](nested-clone-layout.md)，低标签的继承与复制语义见 [windows-acl-low-integrity-label.md](windows-acl-low-integrity-label.md)。
 
 Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用系统 WebView 承载 DSH Web UI；desktop 以 Electron 运行，拥有独立的依赖树，并在 `DSH_HOME` 下使用自己的 `profiles/desktop`。
 
@@ -20,8 +20,15 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 6. 执行 `pnpm run package:desktop:win:x64:unsigned -- --dir`。
 7. 把 `unsigned-artifacts\win-unpacked` 的内容落位到 `<runtime-root>\desktop`。
 8. 编译 shim，产出 `<runtime-root>\dsh-gui-desktop.exe`。
+9. 把 `plugins/<id>/install.mjs` 逐个安装到 desktop profile，目标目录是 `<runtime-root>\.dsh\profiles\desktop`。
 
-`npm run build:desktop -- --force-source` 删除并重建检出，`npm run build:desktop -- --force-install` 重装依赖树，`npm run build:desktop -- --skip-shim` 跳过 shim 编译并保留运行时根上已有的 shim。
+`npm run build:desktop` 的旗标：
+
+- `--force-source`：删除并重建 `.desktop\source` 检出。
+- `--force-install`：重装 `.desktop\source` 的依赖树。
+- `--skip-shim`：跳过 shim 编译，保留运行时根上已有的 shim。
+- `--skip-plugins`：跳过第 9 步的插件安装。
+- `--plugins-only`：只执行第 9 步，复用已有的 `<runtime-root>\desktop`，用于插件集合变化后的重装；与 `--skip-plugins` 互斥。
 
 `npm run build` 不包含 desktop：该命令只处理 dsh 运行时、Tauri 入口 exe、插件与 agent preset。
 
@@ -33,7 +40,21 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 
 `<runtime-root>\dsh-gui-desktop.exe` 是等价入口：双击它不弹出控制台，行为与 `npm run desktop` 一致。它优先执行 `<runtime-root>\run.cmd desktop`，`run.cmd` 不存在时在 `<runtime-root>\dsh-gui` 内执行 `npm run desktop`；启动失败时把一行诊断追加到 `<runtime-root>\.desktop\shim.log`。
 
-该 exe 由 `npm run build:desktop` 的最后一步产出：crate 位于 `src-tauri/desktop-shim`，cargo target 取 `<runtime-root>\.desktop\shim-target`，编译结果复制到运行时根。
+该 exe 由 `npm run build:desktop` 的第 8 步产出：crate 位于 `src-tauri/desktop-shim`，cargo target 取 `<runtime-root>\.desktop\shim-target`，编译结果复制到运行时根。
+
+## desktop profile 与插件安装
+
+第 9 步把 `plugins/<id>/install.mjs` 逐个安装到 desktop profile，目标目录是 `<runtime-root>\.dsh\profiles\desktop`。
+
+desktop profile 只能由 Desktop 自带的 CLI 管理，即 `<runtime-root>\desktop\resources\runtime\cli\bin\dsh.cmd`；普通 `dsh --profile desktop` 会被拒绝。profile 未初始化时该 CLI 同样拒绝并提示先启动一次 Desktop，因此第 9 步在 profile 缺失时以隐藏窗口启动一次落位的应用，等 profile 文件生成后结束该实例，再执行安装。
+
+插件包操作要求 Desktop 处于关闭状态：第 9 步在执行安装前一律检测 `DeepSeek Harness.exe` 是否在运行，检测到即报错并提示先关闭。
+
+安装脚本跑完后，第 9 步收尾核对 bundle 登记：对 desktop profile 的每个依赖，若其 `package.json` 声明了 `dsh.bundle.patch` 却不在 `dsh.profile.bundles` 中，就对该包执行 `dsh plugin remove` 再 `add`，复检仍缺失即报错。上游载体只在 `dsh plugin add` 改变依赖树时 reconcile bundles，依赖已记录时重复 `add` 是空操作，因此必须 remove 后重新 add，否则插件不会挂载。
+
+安装与 web profile 走同一套流水线 `scripts/plugin-install.mjs`，通过 `DSH_PLUGIN_PROFILE` 与 `DSH_PLUGIN_DSH_CLI` 切换目标 profile 与 CLI 载体；两个 profile 位于 `<runtime-root>\.dsh\profiles\` 下的不同目录，互不覆盖。
+
+载体模式下该流水线不向 desktop profile 的 `pnpm-workspace.yaml` 写入 `storeDir`：载体自带 pnpm，其应用已按载体环境解析的 store 链接 profile 的 `node_modules`，写入仓库 store 会让 pnpm 以 `ERR_PNPM_UNEXPECTED_STORE` 拒绝该 profile。
 
 ## 路径契约
 

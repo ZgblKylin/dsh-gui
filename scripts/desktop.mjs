@@ -12,6 +12,7 @@
  *   <runtime-root>/.desktop/shim-target        desktop shim cargo target
  *   <runtime-root>/desktop                     landed unpacked app
  *   <runtime-root>/dsh-gui-desktop.exe         landed console-less shim
+ *   <runtime-root>/.dsh/profiles/desktop       desktop profile the plugins install into
  *   <runtime-root>/.cache/electron             Electron binary cache
  *   <runtime-root>/.cache/electron-builder     electron-builder toolset cache
  *
@@ -43,6 +44,8 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import {
   HARNESS,
+  IS_WINDOWS,
+  PLUGINS,
   ROOT,
   RUNTIME_ROOT,
   STORE,
@@ -79,6 +82,12 @@ const SHIM_MANIFEST = join(ROOT, 'src-tauri', 'desktop-shim', 'Cargo.toml')
 const SHIM_TARGET = join(DESKTOP_ROOT, 'shim-target')
 /** Where the shim lands: the runtime root, beside the Tauri entry exe. */
 const SHIM_EXE = join(RUNTIME_ROOT, 'dsh-gui-desktop.exe')
+/** The desktop app's own CLI, the only carrier allowed to manage its profile. */
+const DESKTOP_CLI = join(LANDING, 'resources', 'runtime', 'cli', 'bin', IS_WINDOWS ? 'dsh.cmd' : 'dsh')
+/** The desktop harness home the app creates when it starts for the first time. */
+const DESKTOP_PROFILE = join(WEB_HOME, 'profiles', 'desktop')
+/** How long the first app start may take to write the profile, in milliseconds. */
+const PROFILE_INIT_TIMEOUT_MS = 120_000
 
 function step(name, fn) {
   console.log(`\n==> ${name}`)
@@ -96,6 +105,20 @@ function step(name, fn) {
  * @returns {{ ok: boolean, status: number|null, stdout: string, stderr: string, error: Error|undefined }}
  */
 function captureGit(args, dir) {
+  return capture('git', ['-C', dir, ...args], { GIT_TERMINAL_PROMPT: '0' })
+}
+
+/**
+ * Run a command with its stdout and stderr written to files instead of pipes.
+ * The dsh Windows sandbox rejects child processes that capture through pipes, so
+ * the file form keeps the captured diagnostics available inside a sandboxed
+ * session (the same reason `scripts/staging.mjs` captures this way).
+ * @param {string} command - executable to spawn.
+ * @param {string[]} args - arguments, verbatim.
+ * @param {NodeJS.ProcessEnv} [extraEnv] - environment overrides on top of `process.env`.
+ * @returns {{ ok: boolean, status: number|null, stdout: string, stderr: string, error: Error|undefined }}
+ */
+function capture(command, args, extraEnv = {}) {
   const scratch = mkdtempSync(join(tmpdir(), 'dsh-gui-desktop-'))
   const outPath = join(scratch, 'stdout')
   const errPath = join(scratch, 'stderr')
@@ -103,10 +126,10 @@ function captureGit(args, dir) {
   const errFd = openSync(errPath, 'w')
   let result
   try {
-    result = spawnSync('git', ['-C', dir, ...args], {
+    result = spawnSync(command, args, {
       cwd: ROOT,
       stdio: ['ignore', outFd, errFd],
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      env: { ...process.env, ...extraEnv },
     })
   } finally {
     closeSync(outFd)
@@ -121,6 +144,16 @@ function captureGit(args, dir) {
   }
   rmSync(scratch, { recursive: true, force: true })
   return captured
+}
+
+/**
+ * Block the current thread for `ms`. The desktop profile is polled
+ * synchronously, and `Atomics.wait` is the only wait Node allows on the main
+ * thread without turning the whole build chain into promises.
+ * @param {number} ms - milliseconds to wait.
+ */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
 /** `git <args>` in `dir`, failing with `what` when the command does not succeed. */
@@ -423,17 +456,238 @@ function buildShim(options) {
 }
 
 /**
+ * Whether a `DeepSeek Harness.exe` process is currently running. `tasklist`
+ * exits 0 with an informational line when nothing matches, so the name in the
+ * output is the answer.
+ * @returns {boolean}
+ */
+function desktopAppRunning() {
+  const result = capture('tasklist', ['/FI', 'IMAGENAME eq DeepSeek Harness.exe', '/NH'])
+  return result.ok && /DeepSeek Harness\.exe/i.test(result.stdout)
+}
+
+/**
+ * Initialize the desktop profile when the desktop app has never run.
+ *
+ * The desktop profile is reserved: only the desktop app's own CLI may manage it,
+ * and that CLI refuses an uninitialized profile ("Open DeepSeek Harness Desktop
+ * once to initialize its profile, then fully quit it before running dsh plugin
+ * --profile desktop"). `windowsHide` keeps the initialization start from
+ * flashing a window on the user's desktop; the instance is killed with its whole
+ * process tree afterwards, because the upstream README requires Desktop to be
+ * closed for package operations. The caller checks that no instance is running
+ * before this starts one.
+ */
+function ensureDesktopProfile() {
+  if (existsSync(join(DESKTOP_PROFILE, 'package.json'))) {
+    console.log(`desktop profile already initialized: ${DESKTOP_PROFILE}`)
+    return
+  }
+  const exe = join(LANDING, APP_EXE)
+  if (!existsSync(exe)) {
+    throw new Error(`desktop app not found at ${exe} — run "npm run build:desktop" first`)
+  }
+  console.log(`initializing the desktop profile: starting ${exe} once`)
+  const child = spawn(exe, [], {
+    cwd: LANDING,
+    env: { ...process.env, DSH_HOME: WEB_HOME },
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+  if (child.pid === undefined) throw new Error(`could not start ${exe}`)
+  child.unref()
+  const deadline = Date.now() + PROFILE_INIT_TIMEOUT_MS
+  const initialized = () =>
+    existsSync(join(DESKTOP_PROFILE, 'package.json')) && existsSync(join(DESKTOP_PROFILE, 'cordis.patch.yml'))
+  while (!initialized() && Date.now() < deadline) sleepSync(1000)
+  // Give the app a moment to finish writing both files before the profile is
+  // handed to the CLI.
+  sleepSync(3000)
+  const killed = capture('taskkill', ['/PID', String(child.pid), '/T', '/F'])
+  // taskkill returns before the process tree has released the profile directory.
+  sleepSync(2000)
+  if (!initialized()) {
+    const detail = [killed.stdout.trim(), killed.stderr.trim()].filter(Boolean).join('\n')
+    throw new Error(
+      `the desktop app did not initialize ${DESKTOP_PROFILE} within ${PROFILE_INIT_TIMEOUT_MS / 1000}s${detail === '' ? '' : `:\n${detail}`}`,
+    )
+  }
+  console.log(`desktop profile initialized: ${DESKTOP_PROFILE}`)
+}
+
+/** Discover the per-plugin install scripts in the same order `npm run install` runs them. */
+function pluginInstallScripts() {
+  if (!existsSync(PLUGINS)) return []
+  return readdirSync(PLUGINS, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(PLUGINS, entry.name, 'install.mjs'))
+    .filter((path) => existsSync(path))
+    .sort()
+}
+
+/** Read and parse a JSON file; null when it is missing or unparsable. */
+function readJsonFile(path) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/** The installed manifest of a profile dependency, or null. */
+function installedManifest(name) {
+  return readJsonFile(join(DESKTOP_PROFILE, 'node_modules', ...name.split('/'), 'package.json'))
+}
+
+/**
+ * Dependencies that declare `dsh.bundle.patch` but are missing from
+ * `dsh.profile.bundles`, with the spec that re-adds them.
+ * @returns {{ name: string, spec: string }[]}
+ */
+function missingBundleEntries() {
+  const profile = readJsonFile(join(DESKTOP_PROFILE, 'package.json'))
+  const bundles = Array.isArray(profile?.dsh?.profile?.bundles) ? profile.dsh.profile.bundles : []
+  const missing = []
+  for (const [name, spec] of Object.entries(profile?.dependencies ?? {})) {
+    if (bundles.includes(name)) continue
+    if (installedManifest(name)?.dsh?.bundle?.patch === undefined) continue
+    missing.push({ name, spec: /^(?:link|file):/.test(spec) ? spec : `${name}@${spec}` })
+  }
+  return missing
+}
+
+/**
+ * Re-register dependencies that declare `dsh.bundle.patch` but never reached
+ * `dsh.profile.bundles`.
+ *
+ * The desktop CLI reconciles the bundle list only while `dsh plugin add` changes
+ * the dependency tree. An add that fails after pnpm already wrote the dependency
+ * leaves the package in `dependencies` without its bundle entry, and every later
+ * add of that same spec is a no-op — so the plugin never mounts. `remove` then
+ * `add` forces the reconciliation.
+ * @returns {number} how many bundle entries were re-registered.
+ */
+function reconcileDesktopBundles() {
+  return step('Reconcile the desktop profile bundles', () => {
+    const missing = missingBundleEntries()
+    if (missing.length === 0) {
+      console.log('every dsh.bundle.patch dependency is registered in dsh.profile.bundles')
+      return 0
+    }
+    for (const entry of missing) {
+      console.log(
+        `re-registering ${entry.name} (${entry.spec}) — it declares dsh.bundle.patch but is missing from dsh.profile.bundles`,
+      )
+      try {
+        run(DESKTOP_CLI, ['plugin', '--profile', 'desktop', 'remove', entry.name], { env: { DSH_HOME: WEB_HOME } })
+        run(DESKTOP_CLI, ['plugin', '--profile', 'desktop', 'add', entry.spec], { env: { DSH_HOME: WEB_HOME } })
+      } catch (error) {
+        throw new Error(`could not re-register ${entry.name} (${entry.spec}): ${error.message}`)
+      }
+    }
+    const still = missingBundleEntries()
+    if (still.length > 0) {
+      throw new Error(`dsh.profile.bundles still misses: ${still.map((entry) => entry.name).join(', ')}`)
+    }
+    console.log(`bundles reconciled: ${missing.length}`)
+    return missing.length
+  })
+}
+
+/**
+ * Run every plugin install script again, against the desktop profile.
+ *
+ * The wrappers are profile-agnostic: `DSH_PLUGIN_PROFILE` selects the profile
+ * directory and `DSH_PLUGIN_DSH_CLI` makes them drive the desktop app's own CLI,
+ * which is the only carrier allowed to write that profile. The desktop profile
+ * starts empty, so every plugin is installed from scratch on the first run and
+ * takes the wrappers' fast path afterwards.
+ * @param {{ skipPlugins?: boolean }} options - `skipPlugins` leaves the profile alone.
+ * @returns {{ scripts: number, reconciled: number }} how many install scripts ran
+ *   and how many bundle entries the closing reconcile re-registered.
+ */
+function installDesktopPlugins(options) {
+  return step('Install the plugin set into the desktop profile', () => {
+    if (!existsSync(LANDING)) {
+      throw new Error(`desktop app not found at ${LANDING} — run "npm run build:desktop" first`)
+    }
+    if (options.skipPlugins) {
+      console.log(`skipped (--skip-plugins): ${DESKTOP_PROFILE}`)
+      return { scripts: 0, reconciled: 0 }
+    }
+    if (!existsSync(DESKTOP_CLI)) {
+      throw new Error(`desktop CLI not found: ${DESKTOP_CLI} — run "npm run build:desktop" first`)
+    }
+    // The upstream README requires Desktop to be fully quit for package
+    // operations, whatever the profile state is.
+    if (desktopAppRunning()) {
+      throw new Error(`a DeepSeek Harness instance is running — quit it before installing into ${DESKTOP_PROFILE}`)
+    }
+    ensureDesktopProfile()
+    const scripts = pluginInstallScripts()
+    if (scripts.length === 0) {
+      console.log('no plugin install scripts under plugins/ — nothing to install')
+      return { scripts: 0, reconciled: 0 }
+    }
+    for (const script of scripts) {
+      console.log(`--- ${script}`)
+      run('node', [script], {
+        env: {
+          DSH_HOME: WEB_HOME,
+          DSH_PLUGIN_PROFILE: 'desktop',
+          DSH_PLUGIN_DSH_CLI: DESKTOP_CLI,
+        },
+      })
+    }
+    const reconciled = reconcileDesktopBundles()
+    console.log(`installed ${scripts.length} plugin script(s) into ${DESKTOP_PROFILE}`)
+    return { scripts: scripts.length, reconciled }
+  })
+}
+
+/**
  * Build the Electron desktop app from the pinned harness checkout and land the
  * unpacked result at `<runtime-root>/desktop`, plus the shortcut shim at
- * `<runtime-root>/dsh-gui-desktop.exe`.
- * @param {{ forceSource?: boolean, forceInstall?: boolean, skipShim?: boolean }} [options] -
+ * `<runtime-root>/dsh-gui-desktop.exe`, then install the plugin set into the
+ * desktop profile under `<runtime-root>/.dsh/profiles/desktop`.
+ * @param {{ forceSource?: boolean, forceInstall?: boolean, skipShim?: boolean,
+ *   skipPlugins?: boolean, pluginsOnly?: boolean }} [options] -
  *   `forceSource` re-clones the source checkout, `forceInstall` reinstalls its
- *   dependencies, `skipShim` leaves the shim step out.
+ *   dependencies, `skipShim` leaves the shim step out, `skipPlugins` leaves the
+ *   desktop profile alone, `pluginsOnly` runs the plugin step against the
+ *   already landed app and nothing else.
  * @returns {{ workspace: string, source: string, revision: string, version: string|null,
  *   output: string, exe: string, files: number, bytes: number, exeBytes: number,
- *   shim: string, shimBytes: number|null }}
+ *   shim: string, shimBytes: number|null, profile: string, pluginScripts: number,
+ *   bundlesReconciled: number }}
  */
 export function buildDesktop(options = {}) {
+  if (options.pluginsOnly && options.skipPlugins) {
+    throw new Error('--plugins-only conflicts with --skip-plugins')
+  }
+  if (options.pluginsOnly) {
+    console.log('desktop plugins: reinstall the plugin set into the desktop profile (--plugins-only)')
+    const plugins = installDesktopPlugins(options)
+    const pluginsOnly = {
+      workspace: DESKTOP_ROOT,
+      source: SOURCE,
+      revision: submoduleRevision(ROOT),
+      version: submoduleVersion(ROOT),
+      output: LANDING,
+      exe: join(LANDING, APP_EXE),
+      shim: SHIM_EXE,
+      shimBytes: null,
+      profile: DESKTOP_PROFILE,
+      pluginScripts: plugins.scripts,
+      bundlesReconciled: plugins.reconciled,
+    }
+    console.log('\ndesktop plugins complete:')
+    console.log(`  output    : ${pluginsOnly.exe}`)
+    console.log(`  plugins   : ${pluginsOnly.pluginScripts} script(s) -> ${pluginsOnly.profile}`)
+    console.log(`  bundles   : ${pluginsOnly.bundlesReconciled} re-registered`)
+    return pluginsOnly
+  }
   console.log('desktop build: the pinned harness checkout is compiled under the runtime root; "npm run build" never runs this chain.')
   bootstrapPnpm()
   const revision = syncSource(options)
@@ -444,12 +698,16 @@ export function buildDesktop(options = {}) {
   packageDesktop()
   const landed = landUnpacked()
   const shim = buildShim(options)
+  const plugins = installDesktopPlugins(options)
   const result = {
     workspace: DESKTOP_ROOT,
     source: SOURCE,
     revision,
     version: submoduleVersion(ROOT),
     output: LANDING,
+    profile: DESKTOP_PROFILE,
+    pluginScripts: plugins.scripts,
+    bundlesReconciled: plugins.reconciled,
     ...landed,
     ...shim,
   }
@@ -459,6 +717,8 @@ export function buildDesktop(options = {}) {
   console.log(`  output    : ${result.output} (${result.files} files, ${formatBytes(result.bytes)})`)
   console.log(`  entry     : ${result.exe} (${formatBytes(result.exeBytes)})`)
   console.log(`  shim      : ${result.shim}${result.shimBytes === null ? ' (skipped)' : ` (${formatBytes(result.shimBytes)})`}`)
+  console.log(`  plugins   : ${result.pluginScripts} script(s) -> ${result.profile}${result.pluginScripts === 0 ? ' (skipped)' : ''}`)
+  console.log(`  bundles   : ${result.bundlesReconciled} re-registered`)
   console.log('\nrun it with: npm run desktop')
   return result
 }
