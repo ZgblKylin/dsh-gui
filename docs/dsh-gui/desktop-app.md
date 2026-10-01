@@ -38,9 +38,9 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 
 ### shim 入口
 
-`<runtime-root>\dsh-gui-desktop.exe` 是等价入口：双击它不弹出控制台，行为与 `npm run desktop` 一致。它优先执行 `<runtime-root>\run.cmd desktop`，`run.cmd` 不存在时在 `<runtime-root>\dsh-gui` 内执行 `npm run desktop`；启动失败时把一行诊断追加到 `<runtime-root>\.desktop\shim.log`。
+`<runtime-root>\dsh-gui-desktop.exe` 是等价入口：双击它不弹出控制台，行为与 `npm run desktop` 一致。它在 `<runtime-root>\dsh-gui` 内执行 `npm run desktop`；启动失败时把一行诊断追加到 `<runtime-root>\.desktop\shim.log`。
 
-该 exe 由 `npm run build:desktop` 的第 8 步产出：crate 位于 `src-tauri/desktop-shim`，cargo target 取 `<runtime-root>\.desktop\shim-target`，编译结果复制到运行时根。
+该 exe 由 `npm run build:desktop` 的第 8 步产出：crate 位于 `src-shim`，cargo target 取 `<runtime-root>\.desktop\shim-target`，编译结果复制到运行时根。
 
 ## desktop profile 与插件安装
 
@@ -84,6 +84,7 @@ Electron 二进制与 electron-builder 工具集的下载缓存分别取运行�
 - Electron 二进制。
 - primary runtime 资产。
 - electron-builder 工具集。
+- `@deepseek-ai/libreoffice-kit-win32-x64`（约 71 MB）。它由 `prepare:dsh` 在安装生产树时经 pnpm 拉取，不属 primary runtime 的锁定资产；该包传输慢时 pnpm 会在重试耗尽后以 `desktop runtime: missing required LibreOffice engine win32-x64` 中止构建。
 
 ## 已知上游缺陷与规避
 

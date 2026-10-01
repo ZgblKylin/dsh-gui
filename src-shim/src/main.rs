@@ -1,24 +1,21 @@
-//! dsh-gui desktop shim: a console-less launcher for the desktop build.
+//! dsh-gui desktop shim: a console-less launcher for `npm run desktop`.
 //!
-//! Building/running the Tauri shell needs `npm run desktop` from the repository
-//! root, but a user starting the desktop app from Explorer (or a shortcut)
-//! should not get a console window flashing up first, nor a console that stays
-//! around for the lifetime of the app. This exe is that launcher: it never
-//! allocates a console itself, spawns the real command with `CREATE_NO_WINDOW`,
-//! and adopts the child's exit code.
+//! The desktop app is started by `npm run desktop` from the repository
+//! checkout, but a user starting it from Explorer (or a shortcut) should not
+//! get a console window flashing up first, nor a console that stays around for
+//! the lifetime of the app. This exe is that launcher: it never allocates a
+//! console itself, spawns the command with `CREATE_NO_WINDOW`, and adopts the
+//! child's exit code.
 //!
-//! Layout it relies on (see `docs/dsh-gui/nested-clone-layout.md`): the runtime
-//! root holds the entry exes and `run.cmd`, and its `dsh-gui` subdirectory is
-//! the source checkout. "Runtime root" is therefore simply the directory this
-//! exe sits in — the shim never needs to know an absolute repository path.
+//! Layout it relies on (see `docs/dsh-gui/nested-clone-layout.md`): the shim is
+//! installed at the runtime root, whose `dsh-gui` subdirectory is the source
+//! checkout. "Runtime root" is therefore simply the directory this exe lives in
+//! — the shim never needs to know an absolute repository path, and it needs no
+//! generated helper script next to it to work.
 //!
-//! Launcher resolution:
-//!   1. `<runtime root>\run.cmd desktop` — the forwarding script the build
-//!      writes next to the entry exe. It `cd`s to the repository it was
-//!      generated for, so a stale `PATH`/`npm` resolution order cannot select a
-//!      different project.
-//!   2. `npm run desktop` in `<runtime root>\dsh-gui` — fallback for a runtime
-//!      root that has not been built yet (no `run.cmd`).
+//! Launch: `cmd.exe /d /s /c "npm run desktop"` with the working directory set
+//! to `<runtime root>\dsh-gui`, so `npm` resolves against the checkout that
+//! belongs to this runtime root rather than against the caller's directory.
 //!
 //! Diagnostics: there is no console to print to, so failures are appended, best
 //! effort, to `<runtime root>\.desktop\shim.log`; a failure to log is ignored
@@ -76,27 +73,22 @@ mod shim {
             .map(Path::to_path_buf)
     }
 
-    /// Run `run.cmd desktop` (preferred) or `npm run desktop` (fallback).
+    /// Run `npm run desktop` in `<runtime root>\dsh-gui`.
     ///
     /// `raw_arg` is used for the `/c` payload because `cmd.exe` parses its own
     /// command line instead of following Rust's argv quoting rules: a value
     /// passed through `arg()` would be re-quoted with `\"` escapes that `cmd.exe`
-    /// does not read back as quotes. The command lines below are exactly the
-    /// documented `cmd.exe /d /s /c "..."` forms.
+    /// does not read back as quotes. The command line below is exactly the
+    /// documented `cmd.exe /d /s /c "..."` form.
     fn spawn_launcher(root: &Path) -> std::io::Result<ExitStatus> {
-        let run_cmd = root.join("run.cmd");
-
         let mut command = Command::new("cmd.exe");
-        command.arg("/d").arg("/s").arg("/c").creation_flags(CREATE_NO_WINDOW);
-
-        if run_cmd.is_file() {
-            command.raw_arg(format!("\"\"{}\" desktop\"", run_cmd.display()));
-            command.current_dir(root);
-        } else {
-            command.raw_arg("\"npm run desktop\"");
-            command.current_dir(root.join("dsh-gui"));
-        }
-
+        command
+            .arg("/d")
+            .arg("/s")
+            .arg("/c")
+            .raw_arg("\"npm run desktop\"")
+            .creation_flags(CREATE_NO_WINDOW);
+        command.current_dir(root.join("dsh-gui"));
         command.spawn()?.wait()
     }
 

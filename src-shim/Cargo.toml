@@ -7,10 +7,11 @@ edition = "2021"
 publish = false
 
 # This crate is deliberately standalone: it must build on its own with
-# `cargo build --release --manifest-path src-tauri/desktop-shim/Cargo.toml`,
-# independent of the Tauri shell crate next door. `src-tauri/Cargo.toml` is a
-# plain package with no `[workspace]` table, so declaring an empty workspace
-# root here keeps this shim from being inferred into a parent workspace.
+# `cargo build --release --manifest-path src-shim/Cargo.toml`, independent of
+# the Tauri shell crate under `src-tauri/`. It lives at the repository root
+# rather than inside `src-tauri/` because the shim is not part of the dsh-gui
+# program itself; the empty `[workspace]` table below makes it its own
+# workspace root, so a parent workspace can never capture it by inference.
 [workspace]
 
 # No dependencies: the shim only needs `std` (plus `CommandExt::creation_flags`

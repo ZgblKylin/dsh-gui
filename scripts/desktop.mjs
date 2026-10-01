@@ -77,7 +77,7 @@ const PACKAGE_ENV_FILE = join(SOURCE, 'apps', 'desktop', '.env.windows')
 const ELECTRON_CACHE = join(RUNTIME_ROOT, '.cache', 'electron')
 const BUILDER_CACHE = join(RUNTIME_ROOT, '.cache', 'electron-builder')
 /** Standalone crate of the console-less launcher that starts `npm run desktop`. */
-const SHIM_MANIFEST = join(ROOT, 'src-tauri', 'desktop-shim', 'Cargo.toml')
+const SHIM_MANIFEST = join(ROOT, 'src-shim', 'Cargo.toml')
 /** Cargo target directory of the shim, kept inside the desktop workspace. */
 const SHIM_TARGET = join(DESKTOP_ROOT, 'shim-target')
 /** Where the shim lands: the runtime root, beside the Tauri entry exe. */
@@ -421,7 +421,7 @@ function landUnpacked() {
  *
  * The crate is standalone and dependency-free, so this is seconds of cargo.
  * `CARGO_TARGET_DIR` keeps its target directory inside the desktop workspace
- * rather than `src-tauri/desktop-shim/target/`; cargo and its rustup overrides
+ * rather than `src-shim/target/`; cargo and its rustup overrides
  * resolve through the same helpers the Tauri entry exe uses.
  * @param {{ skipShim?: boolean }} options - `skipShim` leaves any existing shim untouched.
  * @returns {{ shim: string, shimBytes: number|null }} the landed path and its size,
