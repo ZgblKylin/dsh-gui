@@ -16,7 +16,6 @@
 ├─ .cache/                构建缓存
 ├─ .staging/dsh-gui/      升级验证副本
 ├─ .desktop/              desktop 构建工作区：出仓的 deepseek-harness 检出、已检出 commit 与 shim 的 cargo target
-├─ run.cmd                转发脚本：等价于在仓库内执行 npm run
 ├─ desktop/               解包后的 desktop 应用，入口 DeepSeek Harness.exe
 ├─ dsh-gui-desktop.exe    desktop 快捷方式 shim，等价于 npm run desktop
 └─ dsh-gui/               git 仓库根，也是 DSH 工作区
@@ -62,7 +61,6 @@
 | `scripts/harness.mjs` | 传入两个根；`DSH_HOME` 取运行时根的 `.dsh` |
 | `scripts/plugin-install.mjs` | 核对 `ROOT`、`WEB_HOME` 的使用并传入两个根 |
 | `scripts/staging.mjs` | 副本位置改到运行时根的 `.staging/dsh-gui`，否则副本自身的入口 exe 与运行时目录会落在工作区内 |
-| 新增 `run.cmd` | 运行时根下的转发脚本：接收 npm 脚本名与附加参数，等价于在仓库内执行 `npm run <脚本> -- <参数>` |
 
 ### 插件与文档
 

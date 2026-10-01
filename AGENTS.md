@@ -26,7 +26,6 @@
 - .desktop: desktop 构建工作区（出仓的 deepseek-harness 检出、已检出 commit 与 shim 的 cargo target）
 - .toolchain、.pnpm-store: pinned pnpm 与共享 store
 - dsh-gui.exe: 入口 exe，由 `npm run build` 产出后拷贝到此处
-- run.cmd: 由 `npm run build` 生成的转发脚本，等价于在仓库根执行 `npm run <脚本> -- <参数>`
 - desktop: 解包后的 desktop 应用，入口 `DeepSeek Harness.exe`
 - dsh-gui-desktop.exe: desktop 快捷方式 shim，等价于 `npm run desktop`，不弹控制台（由 `npm run build:desktop` 从 `src-tauri/desktop-shim` 编译）
 
