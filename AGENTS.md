@@ -23,9 +23,14 @@
 - .dsh: dsh配置目录（会话、profile、凭据、GUI 日志）
 - .harness: npm 运行时的 dsh CLI 安装目录（由 `npm run build` 按 `harness.json` 生成）
 - .staging: 升级验证工作区（持久化 clone 副本，由 `scripts/staging.mjs` 维护，见 `dsh-gui-update` skill）
+- .desktop: desktop 构建工作区（出仓的 deepseek-harness 检出、已检出 commit 与 shim 的 cargo target）
 - .toolchain、.pnpm-store: pinned pnpm 与共享 store
 - dsh-gui.exe: 入口 exe，由 `npm run build` 产出后拷贝到此处
 - run.cmd: 由 `npm run build` 生成的转发脚本，等价于在仓库根执行 `npm run <脚本> -- <参数>`
+- desktop: 解包后的 desktop 应用，入口 `DeepSeek Harness.exe`
+- dsh-gui-desktop.exe: desktop 快捷方式 shim，等价于 `npm run desktop`，不弹控制台（由 `npm run build:desktop` 从 `src-tauri/desktop-shim` 编译）
+
+`npm run build:desktop` 构建 desktop 应用，把解包产物落位到运行时根的 `desktop` 并编译 `dsh-gui-desktop.exe`；`npm run desktop` 启动它；`npm run build` 不包含 desktop，见 [docs/dsh-gui/desktop-app.md](docs/dsh-gui/desktop-app.md)。
 
 两条硬约束：**运行时根禁止作为 DSH 工作区**（会话工作区取仓库根，否则 `.dsh`、`.harness` 与入口 exe 会进入沙箱的低完整性打标范围）；**仓库内不放 `node_modules`**（pnpm 硬链接会让标签沿共享文件对象外溢到 store）。
 

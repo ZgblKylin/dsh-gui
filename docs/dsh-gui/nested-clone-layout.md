@@ -15,7 +15,10 @@
 ├─ .pnpm-store/           shared pnpm store
 ├─ .cache/                构建缓存
 ├─ .staging/dsh-gui/      升级验证副本
+├─ .desktop/              desktop 构建工作区：出仓的 deepseek-harness 检出、已检出 commit 与 shim 的 cargo target
 ├─ run.cmd                转发脚本：等价于在仓库内执行 npm run
+├─ desktop/               解包后的 desktop 应用，入口 DeepSeek Harness.exe
+├─ dsh-gui-desktop.exe    desktop 快捷方式 shim，等价于 npm run desktop
 └─ dsh-gui/               git 仓库根，也是 DSH 工作区
    ├─ .git/  deepseek-harness/  plugins/  presets/  src-tauri/  scripts/  docs/
    └─ src-tauri/target/    cargo 构建目录
@@ -30,7 +33,7 @@
 | 名称 | 内容 | 解析顺序 |
 |---|---|---|
 | 仓库根 | `harness.json`、`deepseek-harness/`、`plugins/`、`presets/`、`src-tauri/`、`scripts/` | `DSH_GUI_ROOT` → 从 exe 所在目录向上查找 `harness.json` 与 `src-tauri/tauri.conf.json` → exe 同级的 `dsh-gui/` 子目录 |
-| 运行时根 | `.dsh/`、`.harness/`、`.toolchain/`、`.pnpm-store/`、`.cache/`、`.staging/`、入口 exe | `DSH_GUI_RUNTIME_ROOT` → 若父目录含 `.dsh` 或 `.harness` 则取父目录 → 仓库根本身 |
+| 运行时根 | `.dsh/`、`.harness/`、`.toolchain/`、`.pnpm-store/`、`.cache/`、`.staging/`、`.desktop/`、`desktop/`、入口 exe 与 desktop shim | `DSH_GUI_RUNTIME_ROOT` → 若父目录含 `.dsh` 或 `.harness` 则取父目录 → 仓库根本身 |
 
 第三种解析结果保留了对既有单目录布局的兼容：仓库根同时充当运行时根。
 
@@ -75,6 +78,7 @@
 
 - **运行时根禁止作为 DSH 工作区。** 会话工作区取仓库根；以外层目录建立工作区会让 `.dsh`、`.harness` 与入口 exe 重新进入打标范围，[windows-acl-low-integrity-label.md](windows-acl-low-integrity-label.md) 描述的全部症状随即复现。
 - **仓库内不放 `node_modules`。** pnpm 以硬链接把 store 文件链接进 `node_modules`，硬链接共享同一个文件对象；仓库内的别名被打标时，store 中的同一对象连同其在别处的别名一并变为低标签。
+- **desktop 的构建工作区与产物都位于运行时根。** `.desktop/`、`desktop/` 与 `dsh-gui-desktop.exe` 都在运行时根之下，仓库内不产生依赖树与打包中间产物。低标签按目标父目录的可继承标签继承，在工作区内构建会让产物与 pnpm 硬链接共享的文件对象带上低标签，见 [desktop-app.md](desktop-app.md)。
 - **`npm run build` 由运行时根一侧执行。** 构建写入运行时根下的 `.harness`、`.toolchain`、`.pnpm-store` 与入口 exe；在仓库内以受限会话执行时这些写入位于工作区之外，需要按沙箱策略申请提权。
 
 ## 验证清单

@@ -13,12 +13,14 @@
     "rebuild": "node scripts/dsh-gui.mjs rebuild",
     "build:exe": "node scripts/dsh-gui.mjs build --skip-harness",
     "build:webui": "node scripts/dsh-gui.mjs build --skip-exe",
+    "build:desktop": "node scripts/dsh-gui.mjs build-desktop",
     "install:plugins": "node scripts/dsh-gui.mjs install",
     "plugins": "node scripts/dsh-gui.mjs install",
     "test:scripts": "node --test scripts/plugin-install.test.mjs",
     "staging": "node scripts/staging.mjs",
     "harness": "node scripts/harness.mjs",
     "start": "node scripts/dsh-gui.mjs run",
+    "desktop": "node scripts/dsh-gui.mjs desktop",
     "shortcut": "node scripts/dsh-gui.mjs shortcut"
   }
 }

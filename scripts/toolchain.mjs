@@ -11,8 +11,8 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolveRuntimeRoot } from './harness-runtime.mjs'
 
@@ -157,4 +157,55 @@ export function fillTreeFromTemplate(source, target) {
     }
   }
   return written
+}
+
+/**
+ * Resolve a spawnable cargo/rustc pair.
+ *
+ * On Windows, `cargo` on PATH is often a rustup PROXY SYMLINK
+ * (cargo.exe -> rustup.exe). Some restricted execution contexts (the dsh-gui
+ * shell hosting this build) refuse to spawn through that reparse point
+ * (EPERM), while the real toolchain binary under
+ * `<rustupHome>/toolchains/<tc>/bin/cargo.exe` spawns fine. When the PATH
+ * `cargo` cannot be spawned, prefer the real toolchain binary; the caller then
+ * also pins RUSTC/RUSTUP_TOOLCHAIN through {@link cargoToolchainEnv} so cargo
+ * resolves rustc to a real binary as well.
+ * @returns {string|null} absolute path to a real cargo.exe, or null to keep bare `cargo`.
+ */
+export function resolveCargo() {
+  if (!IS_WINDOWS) return null
+  // Prefer a bare `cargo` that actually spawns (normal terminals, non-rustup installs).
+  const probe = spawnSync('cargo', ['--version'], { stdio: 'ignore', shell: false })
+  if (probe.error === undefined || probe.error.code !== 'EPERM') return null
+  // Bare cargo is blocked: hunt the rustup toolchains for a real cargo.exe.
+  const homes = [join(process.env.USERPROFILE ?? '', '.rustup'), join(process.env.RUSTUP_HOME ?? '', '').trim(), 'D:\\.rustup']
+    .filter((p) => p !== '' && p !== '.')
+  for (const home of homes) {
+    const tc = join(home, 'toolchains')
+    if (!existsSync(tc)) continue
+    let entries = []
+    try { entries = readdirSync(tc) } catch { continue }
+    const candidates = entries
+      .map((name) => join(tc, name, 'bin', 'cargo.exe'))
+      .filter((p) => { try { return existsSync(p) && statSync(p).size > 0 } catch { return false } })
+    if (candidates.length > 0) return candidates[0]
+  }
+  return null
+}
+
+/**
+ * The RUSTC/RUSTUP_TOOLCHAIN overrides that a resolved real `cargo.exe` needs,
+ * or an empty object for a bare cargo. `cargoBinary` is
+ * `<rustupHome>/toolchains/<tc>/bin/cargo.exe`, so the toolchain directory
+ * carries both the matching rustc and the toolchain name.
+ * @param {string|null} cargoBinary - result of {@link resolveCargo}.
+ * @returns {NodeJS.ProcessEnv} environment overrides to merge into the spawn env.
+ */
+export function cargoToolchainEnv(cargoBinary) {
+  if (cargoBinary === null) return {}
+  const toolchainDir = dirname(dirname(cargoBinary))
+  return {
+    RUSTC: join(toolchainDir, 'bin', 'rustc.exe'),
+    RUSTUP_TOOLCHAIN: basename(toolchainDir),
+  }
 }

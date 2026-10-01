@@ -19,6 +19,12 @@
  *            it at the pinned version (alias for `build --rebuild`)
  *   run      launch the entry exe detached; the invoking terminal returns at
  *            once and closing it never kills dsh-gui (or its dsh child)
+ *   build-desktop
+ *            compile the Electron desktop app from the pinned harness checkout
+ *            under `<runtime-root>/.desktop/`, land the unpacked build in
+ *            `<runtime-root>/desktop`, and compile the console-less shortcut
+ *            shim to `<runtime-root>/dsh-gui-desktop.exe` (never part of `build`)
+ *   desktop  launch the app `build-desktop` landed, detached
  *   shortcut create a Windows desktop shortcut to the entry exe (Windows only)
  *
  * The dsh runtime is selected by `harness.json` (environment overrides win;
@@ -43,11 +49,16 @@
  *   --rebuild        no skips: --force-harness plus reinstalling every plugin
  *                    even when the profile already has it at the pinned version
  *                    (the plugins see DSH_PLUGIN_REBUILD=1; `npm run rebuild`)
+ *   --force-source   build-desktop: delete and re-clone the desktop source
+ *                    checkout instead of moving it onto the pinned revision
+ *   --force-install  build-desktop: install the desktop source dependencies
+ *                    again even when node_modules is complete
+ *   --skip-shim      build-desktop: skip compiling the shortcut shim
  */
 
-import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { spawn } from 'node:child_process'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import {
   HARNESS_BUILD_STATE_FILE,
   HARNESS_NPM_PACKAGE,
@@ -69,11 +80,14 @@ import {
   STORE,
   WEB_HOME,
   bootstrapPnpm,
+  cargoToolchainEnv,
   fillTreeFromTemplate,
   pnpm,
+  resolveCargo,
   run,
 } from './toolchain.mjs'
 import { recordNpmInstall } from './plugin-install.mjs'
+import { buildDesktop, runDesktop } from './desktop.mjs'
 
 const SRC_TAURI = join(ROOT, 'src-tauri')
 /** Marker identifying the generated npm forwarder at the runtime root. */
@@ -349,49 +363,10 @@ function harnessRuntime(options) {
   else harnessSourceRuntime(options.frozenHarness === true, force)
 }
 
-/**
- * Resolve a spawnable cargo/rustc pair.
- *
- * On Windows, `cargo` on PATH is often a rustup PROXY SYMLINK
- * (cargo.exe -> rustup.exe). Some restricted execution contexts (the dsh-gui
- * shell hosting this build) refuse to spawn through that reparse point
- * (EPERM), while the real toolchain binary under
- * `<rustupHome>/toolchains/<tc>/bin/cargo.exe` spawns fine. When the PATH
- * `cargo` cannot be spawned, prefer the real toolchain binary and pin the
- * RUSTC/RUSTUP_TOOLCHAIN env so cargo also resolves rustc to a real binary.
- * @returns {string|null} absolute path to a real cargo.exe, or null to keep bare `cargo`.
- */
-function resolveCargo() {
-  if (!IS_WINDOWS) return null
-  // Prefer a bare `cargo` that actually spawns (normal terminals, non-rustup installs).
-  const probe = spawnSync('cargo', ['--version'], { stdio: 'ignore', shell: false })
-  if (probe.error === undefined || probe.error.code !== 'EPERM') return null
-  // Bare cargo is blocked: hunt the rustup toolchains for a real cargo.exe.
-  const homes = [join(process.env.USERPROFILE ?? '', '.rustup'), join(process.env.RUSTUP_HOME ?? '', '').trim(), 'D:\\.rustup']
-    .filter((p) => p !== '' && p !== '.')
-  for (const home of homes) {
-    const tc = join(home, 'toolchains')
-    if (!existsSync(tc)) continue
-    let entries = []
-    try { entries = readdirSync(tc) } catch { continue }
-    const candidates = entries
-      .map((name) => join(tc, name, 'bin', 'cargo.exe'))
-      .filter((p) => { try { return existsSync(p) && statSync(p).size > 0 } catch { return false } })
-    if (candidates.length > 0) return candidates[0]
-  }
-  return null
-}
-
 function buildExe(debug) {
   const profile = debug ? 'debug' : 'release'
   const cargoBinary = resolveCargo()
-  const env = { ...process.env }
-  if (cargoBinary !== null) {
-    // cargoBinary = <rustupHome>/toolchains/<tc>/bin/cargo.exe
-    const toolchainDir = dirname(dirname(cargoBinary))
-    env.RUSTC = join(toolchainDir, 'bin', 'rustc.exe')
-    env.RUSTUP_TOOLCHAIN = basename(toolchainDir)
-  }
+  const env = { ...process.env, ...cargoToolchainEnv(cargoBinary) }
   step(`Build entry exe (cargo build ${debug ? '--debug' : '--release'})`, () => {
     run(cargoBinary ?? 'cargo', ['build', ...(debug ? [] : ['--release'])], { cwd: SRC_TAURI, env })
   })
@@ -661,8 +636,23 @@ Commands:
               every plugin is installed again even when the profile already has
               it at the pinned version (same as build --rebuild)
   run         launch the entry exe detached; the terminal returns immediately
+  build-desktop  compile the Electron desktop app from the pinned harness
+              checkout into <runtime-root>/desktop, and the console-less
+              shortcut shim <runtime-root>/dsh-gui-desktop.exe (not part of build)
+  desktop     launch the app build-desktop landed, detached
   shortcut    create a Windows desktop shortcut (Windows only)
   help        show this help
+
+Desktop:
+  build-desktop clones the pinned submodule into <runtime-root>/.desktop/source
+  (a full checkout, detached at the submodule revision) and builds there, so the
+  repository root stays free of build products. ELECTRON_MIRROR and
+  ELECTRON_BUILDER_BINARIES_MIRROR are passed through when set; the Electron and
+  electron-builder caches land in <runtime-root>/.cache. It ends by compiling the
+  shim (<runtime-root>/dsh-gui-desktop.exe), which is "npm run desktop" without a
+  console window. desktop launches with DSH_HOME at the runtime-root .dsh, so the
+  desktop profile sits beside the web one. Run these in a session that permits
+  git's local transport, cargo, and electron-builder (not a strict sandbox).
 
 Runtime:
   harness.json selects the dsh runtime. "npm" installs @deepseek-ai/dsh@<version>
@@ -681,6 +671,9 @@ Flags:
   --rebuild        no skips: --force-harness plus reinstalling every plugin
                    (the wrappers see DSH_PLUGIN_REBUILD=1); same as the
                    "rebuild" command
+  --force-source   build-desktop: delete and re-clone the source checkout
+  --force-install  build-desktop: reinstall the source dependencies
+  --skip-shim      build-desktop: skip the shortcut shim (dsh-gui-desktop.exe)
 
 build reuses what is already current: an installed dsh runtime at the pinned
 version, and every plugin whose exact pinned version (or link: dependency and
@@ -700,6 +693,8 @@ Examples:
   npm run rebuild
   npm run build:exe        (alias for build --skip-harness)
   npm run build:webui      (alias for build --skip-exe; runtime/plugins only, no desktop exe)
+  npm run build:desktop
+  npm run desktop
   npm run install:plugins
   npm start
   npm run shortcut -- "D:\\x.lnk"`)
@@ -715,6 +710,9 @@ function main() {
     skipExe: flags.has('--skip-exe'),
     forceHarness: flags.has('--force-harness'),
     rebuild: flags.has('--rebuild'),
+    forceSource: flags.has('--force-source'),
+    forceInstall: flags.has('--force-install'),
+    skipShim: flags.has('--skip-shim'),
   }
   switch (command) {
     case 'setup': setup(options); break
@@ -723,6 +721,8 @@ function main() {
     case 'install':
     case 'plugins': plugins(options); break
     case 'run': runApp(); break
+    case 'build-desktop': buildDesktop(options); break
+    case 'desktop': runDesktop(); break
     case 'shortcut': makeShortcut(argv[argv.indexOf('shortcut') + 1] ?? ''); break
     case 'help':
     case '--help':

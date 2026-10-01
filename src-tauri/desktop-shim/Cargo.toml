@@ -1,0 +1,21 @@
+[package]
+name = "dsh-gui-desktop"
+version = "0.1.0"
+description = "Console-less launcher shim that runs the dsh-gui desktop build (`npm run desktop`)"
+license = "Unlicense"
+edition = "2021"
+publish = false
+
+# This crate is deliberately standalone: it must build on its own with
+# `cargo build --release --manifest-path src-tauri/desktop-shim/Cargo.toml`,
+# independent of the Tauri shell crate next door. `src-tauri/Cargo.toml` is a
+# plain package with no `[workspace]` table, so declaring an empty workspace
+# root here keeps this shim from being inferred into a parent workspace.
+[workspace]
+
+# No dependencies: the shim only needs `std` (plus `CommandExt::creation_flags`
+# and `raw_arg` from `std::os::windows::process`), which keeps the produced exe
+# tiny and the build offline.
+
+[profile.release]
+strip = true
