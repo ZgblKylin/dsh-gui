@@ -8,8 +8,9 @@
   </head>
   <body>
     <!-- Custom title bar replacing the OS frame (the window is decorations:false).
-         The empty space is a drag region; the connection tabs live here VSCode-style,
-         and the hamburger menu carries the connection controls. -->
+         The empty space is a drag region; the connection tabs live here VSCode-style
+         with the new-connection button at the end of the strip, and the hamburger
+         menu carries the connection controls. -->
     <header id="titlebar" class="titlebar">
       <div id="titlebar-drag" class="titlebar-drag">
         <button id="btn-window-icon" class="titlebar-icon" title="窗口菜单" aria-label="窗口菜单">
@@ -17,9 +18,9 @@
         </button>
         <span class="titlebar-title">DeepSeek Harness</span>
         <div id="remote-tabs" class="remote-tabs" role="tablist" aria-label="连接"></div>
+        <button id="btn-newconn" class="titlebar-btn newconn" title="新建连接" aria-label="新建连接">+</button>
       </div>
       <div class="titlebar-controls">
-        <button id="btn-newconn" class="titlebar-btn newconn" title="新建连接" aria-label="新建连接">+</button>
         <div id="config-wrap" class="config-wrap">
           <button id="btn-config" class="titlebar-btn" title="菜单" aria-label="菜单" aria-haspopup="menu">
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">

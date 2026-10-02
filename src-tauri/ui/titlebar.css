@@ -168,11 +168,17 @@ body {
   color: var(--titlebar-theme-text);
 }
 
+/* New-connection button: a compact square at the end of the tab strip, like the
+   trailing "+" of a browser. It sits inside the drag region, which exempts
+   buttons from window dragging. */
 .titlebar-btn.newconn {
-  width: 38px;
-  font-size: 19px;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  margin-left: 3px;
+  border-radius: 6px;
+  font-size: 16px;
   line-height: 1;
-  padding-bottom: 2px;
 }
 
 .titlebar-controls {
