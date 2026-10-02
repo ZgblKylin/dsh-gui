@@ -19,9 +19,6 @@
 [submodule "plugins/plugin-market/dsh-market"]
 	path = plugins/plugin-market/dsh-market
 	url = https://github.com/dsh-market/dsh-market
-[submodule "plugins/better-sidebar/dsh-flowglass"]
-	path = plugins/better-sidebar/dsh-flowglass
-	url = https://github.com/Iwctwbh/dsh-flowglass
 [submodule "plugins/dsh-pet/dsh-pet"]
 	path = plugins/dsh-pet/dsh-pet
 	url = https://github.com/PC2005-cloud/dsh-pet.git

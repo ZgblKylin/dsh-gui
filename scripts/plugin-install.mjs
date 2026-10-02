@@ -505,7 +505,7 @@ function exactSpecVersion(spec) {
  * that acknowledgement.
  * @param {string} dshHome - the harness home whose profile is written.
  * @param {string} profileDir - absolute profile directory.
- * @param {string} packageSpec - exact npm spec, e.g. `dsh-flowglass@0.7.3`.
+ * @param {string} packageSpec - exact npm spec, e.g. `dsh-sidebar-qa@1.1.0`.
  * @param {string} reason - why this version is accepted despite its peers.
  */
 function grantVersionExemption(dshHome, profileDir, packageSpec, reason) {
@@ -816,7 +816,7 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null, e
  * the wrapper's `skip` string when given (see
  * docs/dsh-gui/harness-upgrade-build-failure.md).
  *
- * @param {string} id - the plugin wrapper id ('flowglass', 'dsh-pet', ...).
+ * @param {string} id - the plugin wrapper id ('sidebar-qa', 'dsh-pet', ...).
  * @param {boolean | string | null} defaultSkip - the wrapper-declared default
  *   skip: `true` skips for an unversioned reason; a string is a truthy skip
  *   whose value is used as the human-readable reason.
