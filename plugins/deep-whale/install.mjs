@@ -17,20 +17,21 @@
  * ui-skin-maid-atelier / ui-skin-orca-link) — no manual cordis.patch.yml insert
  * is added (that would double-mount them) and nothing is compiled locally.
  *
- * Each package carries its own version in the pinned `v0.1.6` tag: the two skins
- * moved to 0.1.6, while the manager is still 0.1.5 there and was never published
- * at 0.1.6 (`@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@0.1.6` does not
- * exist on npm). One shared version constant would therefore 404 on the manager,
- * so the pins are per package.
+ * Each package carries its own version in the pinned `v0.1.7` tag: the two skins
+ * moved to 0.1.7, while the manager stays one release behind at 0.1.6 (upstream's
+ * release commit prepares "0.1.7 skins and 0.1.6 skin manager"). One shared
+ * version constant would therefore pin the manager to a version that does not
+ * exist, so the pins are per package.
  *
- * The two skins declare `@deepseek-ai/dsh: >=0.1.7-rc.1 <0.1.8-0`; the harness
- * dsh-v0.2.0-rc.2 admission gate compares that range with the running version and
- * rejects it, which fails `dsh plugin add` (exit 1) and drops the bundle layer at
- * boot. Upstream has not published a 0.2-compatible skin, so the two skins carry
- * an exact-version exemption (installNpmPlugin's `exempt`); the manager declares
- * `>=0.1.7-rc.1`, which 0.2.0-rc.2 satisfies, so it needs none. An exemption is
- * recorded per exact package version and runtime version, so the next harness
- * change invalidates it and the gate blocks the skins again.
+ * The harness dsh-v0.2.0-rc.2 admission gate compares each package's
+ * `@deepseek-ai/dsh` peer range with the running version and refuses a package
+ * whose range predates it, which fails `dsh plugin add` (exit 1) and drops the
+ * bundle layer at boot. At v0.1.7 both skins widened that range to
+ * `>=0.1.7-rc.1 <0.3.0-0` and record `dshCompatibility: 0.2.0rc2` in their
+ * `skin.json`, so they admit 0.2.0-rc.2 and need no exemption; the manager's
+ * `>=0.1.7-rc.1` was already satisfied. The v0.1.6 skins still declared
+ * `>=0.1.7-rc.1 <0.1.8-0`, which is why that tag carried an exact-version
+ * exemption (installNpmPlugin's `exempt`); this tag retires it.
  *
  * Skin mutual exclusion is the manager's own job: on the first restart after
  * installing it detects "two skins enabled at once" and atomically falls back
@@ -61,20 +62,17 @@ import { pinnedPath, ROOT, run, WEB_HOME } from '../../scripts/toolchain.mjs'
 /** Wrapper id: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'deep-whale'
 
-/** Why the two skins are accepted despite their rejected @deepseek-ai/dsh peer. */
-const SKIN_EXEMPTION = '两块皮肤的 @deepseek-ai/dsh peer 为 >=0.1.7-rc.1 <0.1.8-0，不含 0.2.0；上游在 v0.1.6 未发布适配 0.2 的皮肤包'
-
 /**
  * Exact npm pins matching each package's own version in the pinned submodule tag
- * (`v0.1.6`), in upstream install order (manager first, then the two skins).
+ * (`v0.1.7`), in upstream install order (manager first, then the two skins).
  * Exact versions bypass pnpm 11's default supply-chain `minimumReleaseAge` gate,
  * which would otherwise silently fall back to an older release for `@latest` or
  * a range.
  */
 const SKIN_PACKAGES = [
-  { name: '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager', version: '0.1.5' },
-  { name: '@smalltailqwq/dsh-client-ui-skin-maid-atelier', version: '0.1.6', exempt: SKIN_EXEMPTION },
-  { name: '@smalltailqwq/dsh-client-ui-skin-orca-link', version: '0.1.6', exempt: SKIN_EXEMPTION },
+  { name: '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager', version: '0.1.6' },
+  { name: '@smalltailqwq/dsh-client-ui-skin-maid-atelier', version: '0.1.7' },
+  { name: '@smalltailqwq/dsh-client-ui-skin-orca-link', version: '0.1.7' },
 ]
 
 /** Keys the retired `@dsh-external/*` placeholder scope left behind. */
@@ -140,7 +138,6 @@ for (const skin of SKIN_PACKAGES) {
   installNpmPlugin({
     id: ID,
     packageSpec: `${skin.name}@${skin.version}`,
-    exempt: skin.exempt ?? null,
   })
 }
 
