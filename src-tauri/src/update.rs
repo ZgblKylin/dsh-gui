@@ -117,6 +117,14 @@ pub struct ProjectUpdate {
     /// when the row offers a newer tag and the wrapper installs from npm.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub npm: Option<NpmUpdateInfo>,
+    /// The repository's GitHub Releases list page
+    /// (`https://github.com/<owner>/<repo>/releases`), resolved from the row's
+    /// `origin`; the dialog renders the module name as a link to it. `None`
+    /// for a non-GitHub remote (or no remote at all), which leaves the name as
+    /// plain text. Deliberately the releases *list*, never a per-tag subpage:
+    /// a row is not tied to one version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_url: Option<String>,
 }
 
 /// npm-side publish state for one update row.
@@ -687,8 +695,28 @@ pub(crate) fn remote_default_branch(dir: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The GitHub Releases list page for one update row's module name, or `None`
+/// when the row has no GitHub origin.
+///
+/// The row's own `git remote get-url origin` wins (that is the repository the
+/// update will actually fetch from); `manifest_url` — the `.gitmodules` entry
+/// for a submodule — is the fallback for a checkout that is not initialized
+/// yet, where git cannot answer. A local-path or non-GitHub remote resolves to
+/// `None`, leaving the module name as plain text.
+fn release_page_for(path: &Path, manifest_url: Option<&str>) -> Option<String> {
+    let origin = git_output(path, &["remote", "get-url", "origin"])
+        .or_else(|| manifest_url.map(str::to_string));
+    crate::changelog::releases_page_url(origin.as_deref())
+}
+
 /// Compare one repository against its `origin` default branch.
-fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> ProjectUpdate {
+fn check_project(
+    root: &Path,
+    id: &str,
+    fallback_name: &str,
+    path: &Path,
+    manifest_url: Option<&str>,
+) -> ProjectUpdate {
     let mut project = ProjectUpdate {
         id: id.to_string(),
         name: package_name(path).unwrap_or_else(|| fallback_name.to_string()),
@@ -709,6 +737,7 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
         checking: false,
         error: None,
         npm: None,
+        release_url: release_page_for(path, manifest_url),
     };
 
     if !path.is_dir() {
@@ -791,7 +820,13 @@ fn check_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> Pro
 /// Local-only preview of one repository: package name, path, and current
 /// version are available immediately; `latest` stays a placeholder until the
 /// network check finishes.
-fn local_preview_project(root: &Path, id: &str, fallback_name: &str, path: &Path) -> ProjectUpdate {
+fn local_preview_project(
+    root: &Path,
+    id: &str,
+    fallback_name: &str,
+    path: &Path,
+    manifest_url: Option<&str>,
+) -> ProjectUpdate {
     let mut project = ProjectUpdate {
         id: id.to_string(),
         name: package_name(path).unwrap_or_else(|| fallback_name.to_string()),
@@ -812,6 +847,9 @@ fn local_preview_project(root: &Path, id: &str, fallback_name: &str, path: &Path
         checking: true,
         error: None,
         npm: None,
+        // Resolved locally in the skeleton state too, so the name is a link
+        // from the first paint, not only after the network check lands.
+        release_url: release_page_for(path, manifest_url),
     };
     if path.is_dir() && is_git_repo(path) {
         if let Some(sha) = git_output(path, &["rev-parse", "HEAD"]) {
@@ -826,13 +864,14 @@ fn local_preview_project(root: &Path, id: &str, fallback_name: &str, path: &Path
 /// before the slow network fetch starts.
 pub fn local_check(root: &Path) -> Vec<ProjectUpdate> {
     let mut projects = Vec::new();
-    projects.push(local_preview_project(root, "dsh-gui", "dsh-gui", root));
+    projects.push(local_preview_project(root, "dsh-gui", "dsh-gui", root, None));
     for entry in submodule_entries(root) {
         projects.push(local_preview_project(
             root,
             &entry.name,
             &entry.name,
             &entry.path,
+            Some(&entry.url),
         ));
     }
     projects
@@ -847,9 +886,15 @@ pub fn check(root: &Path) -> UpdateStatus {
     // `.gitmodules` before fetching, so the check never reports a stale path.
     reconcile_submodule_remotes(root);
     let mut projects = Vec::new();
-    projects.push(check_project(root, "dsh-gui", "dsh-gui", root));
+    projects.push(check_project(root, "dsh-gui", "dsh-gui", root, None));
     for entry in submodule_entries(root) {
-        projects.push(check_project(root, &entry.name, &entry.name, &entry.path));
+        projects.push(check_project(
+            root,
+            &entry.name,
+            &entry.name,
+            &entry.path,
+            Some(&entry.url),
+        ));
     }
     let update_count = projects.iter().filter(|p| p.behind).count();
     let notify_count = projects.iter().filter(|p| p.behind && p.announce).count();
@@ -1360,6 +1405,102 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A throwaway git repository with one `origin` remote: the tests below
+    /// need a real `git remote get-url origin` answer, not a stub.
+    fn temp_repo(name: &str, origin: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("dsh-gui-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            let output = crate::console::hidden_command("git")
+                .current_dir(&dir)
+                .args(args)
+                .output()
+                .expect("git must run");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed in {}:\n{}",
+                dir.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["remote", "add", "origin", origin]);
+        dir
+    }
+
+    /// Every update row links its module name to the repository's GitHub
+    /// Releases **list**. The row's own `origin` wins — it is what an update
+    /// actually fetches from — and `.gitmodules` is only the fallback for a
+    /// submodule whose checkout is not initialized yet.
+    #[test]
+    fn module_name_links_resolve_to_the_github_releases_list() {
+        let ssh = temp_repo("release-link-ssh", "git@github.com:ZgblKylin/dsh-gui.git");
+        assert_eq!(
+            release_page_for(&ssh, None).as_deref(),
+            Some("https://github.com/ZgblKylin/dsh-gui/releases"),
+            "an ssh origin must still resolve to the https releases list"
+        );
+
+        let gitlab = temp_repo("release-link-gitlab", "https://gitlab.com/x/y.git");
+        assert_eq!(
+            release_page_for(&gitlab, Some("https://github.com/omdsh-dev/dsh-gui")),
+            None,
+            "a non-GitHub origin must not borrow the manifest's link"
+        );
+
+        let missing = std::env::temp_dir().join(format!(
+            "dsh-gui-release-link-missing-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&missing);
+        assert_eq!(
+            release_page_for(
+                &missing,
+                Some("https://github.com/zhu1090093659/dsh-web-ui.git")
+            )
+            .as_deref(),
+            Some("https://github.com/zhu1090093659/dsh-web-ui/releases"),
+            "an uninitialized submodule still links through .gitmodules"
+        );
+        assert_eq!(
+            release_page_for(&missing, None),
+            None,
+            "no origin and no manifest entry stays plain text"
+        );
+        let _ = fs::remove_dir_all(&ssh);
+        let _ = fs::remove_dir_all(&gitlab);
+    }
+
+    /// The cold-start preview row already carries the link (it resolves
+    /// locally, without the network check), and the wire field is
+    /// `releaseUrl` — the name `ui/app.js` reads. A row without a GitHub origin
+    /// omits the field instead of sending `null`.
+    #[test]
+    fn project_rows_carry_the_release_page_as_camel_case() {
+        let repo = temp_repo(
+            "release-link-row",
+            "https://github.com/zhu1090093659/dsh-web-ui.git",
+        );
+        let row = local_preview_project(&repo, "dsh-web-ui", "dsh-web-ui", &repo, None);
+        let value = serde_json::to_value(&row).unwrap();
+        assert_eq!(
+            value["releaseUrl"],
+            "https://github.com/zhu1090093659/dsh-web-ui/releases"
+        );
+
+        let plain = temp_repo("release-link-plain", "https://gitlab.com/x/y.git");
+        let row = local_preview_project(&plain, "other", "other", &plain, None);
+        let value = serde_json::to_value(&row).unwrap();
+        assert!(
+            value.get("releaseUrl").is_none(),
+            "unexpected payload: {value}"
+        );
+        assert_eq!(row.release_url, None);
+        let _ = fs::remove_dir_all(&repo);
+        let _ = fs::remove_dir_all(&plain);
     }
 
     #[test]

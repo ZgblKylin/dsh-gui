@@ -84,7 +84,13 @@ browser.
   browser.
 - **Update dialog** — checks every in-repo project for updates, lets you choose
   which ones to update and their target (latest commit / latest tag), then
-  exits, updates in a console window, and restarts. The dialog recommends
+  exits, updates in a console window, and restarts. Each row's module name
+  links to that repository's **Releases list** page
+  (`https://github.com/<owner>/<repo>/releases`) whenever its origin is a
+  GitHub repository — resolved locally, so the link is there from the first
+  paint and stays plain text for a non-GitHub or missing remote; as with the
+  changelog title, the row name is not selectable, so a plain click opens the
+  system default browser. The dialog recommends
   AI-sync updates: each updatable row and the bottom bar offer an **AI 更新**
   button that returns to the project home screen, selects the dsh-gui
   directory there, selects the 「创造模式」(cordis) preset, and prefills a

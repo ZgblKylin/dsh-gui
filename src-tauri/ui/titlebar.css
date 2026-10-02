@@ -526,6 +526,20 @@ body {
   font-size: 14px;
 }
 
+/* Rows whose origin is a GitHub repository link the module name to that
+   repository's Releases list page. Like the changelog title, the update dialog
+   disables text selection (the shell does so globally), so a plain click opens
+   the system browser instead of reading as a selection gesture. */
+.update-item-name a {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.update-item-name a:hover {
+  text-decoration: underline;
+}
+
 /* Version comparison stays fully visible: wraps instead of clipping, so a
    long tag name / hash never truncates at the dialog edge. */
 .update-item-versions {

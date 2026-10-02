@@ -52,7 +52,8 @@ Agent/Session），不可用时回退到一次性 headless 运行（会话存储
 - 点击行为：标题行不可选中（外壳全局 `user-select: none`），因此**普通单击**就经
   `open_external` 交给系统浏览器；Ctrl/Cmd+点击由 document 级捕获监听器处理，
   本地处理器在带修饰键时直接放行，避免同一次点击开两个标签页。正文里的链接仍保
-  持原有的「Ctrl+点击打开」约定。
+  持原有的「Ctrl+点击打开」约定。该构造函数（`releasePageAnchor`）与更新对话框
+  行内模块名的链接共用，见 [update-check.md](update-check.md)。
 - 线协议由 `#[serde(rename_all = "camelCase")]` 定名：Rust 的 `release_url`
   序列化为 `releaseUrl`（`None` → `null`），有测试
   `changelog_serializes_the_release_page_under_the_frontend_field_name` 钉住。
@@ -158,7 +159,8 @@ Release 正文里的原生 HTML（例如 dsh-web-ui 用的 `<details>` 英文镜
   `run_node_captured`
 - `src-tauri/src/update.rs` —— npm 版本核对脚本与 `emitted_npm_json`
 - `src-tauri/ui/app.js` —— `openChangelog`：加载态、副标题与错误文本渲染；
-  `renderChangelogTitle`：标题里的 Release 页链接
+  `renderChangelogTitle`：标题里的 Release 页链接；`releasePageAnchor`：标题与更新
+  对话框行内模块名共用的链接构造函数
 - `src-tauri/ui/titlebar.css` —— `.changelog-sub` / `.changelog-loading` 可选中文案；
   `.changelog-dialog h2 a` 标题链接样式
 - `docs/dsh-gui/update-check.md` —— 更新检查与 npm 发布状态

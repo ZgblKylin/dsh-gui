@@ -1553,7 +1553,12 @@ function updateRow(project, checking) {
   info.className = "update-item-info";
   const name = document.createElement("div");
   name.className = "update-item-name";
-  name.textContent = project.name || project.id || "工程";
+  // Every row whose origin is a GitHub repository links its module name to
+  // that repository's Releases list (root and submodules alike; a row with a
+  // non-GitHub or missing remote keeps the plain name).
+  const nameLink = releasePageAnchor(project.name || project.id || "工程", project.releaseUrl);
+  if (nameLink) name.appendChild(nameLink);
+  else name.textContent = project.name || project.id || "工程";
   const versions = document.createElement("div");
   versions.className = "update-item-versions";
   const latest = document.createElement("code");
@@ -1918,11 +1923,44 @@ function changelogEscape(text) {
     .replace(/"/g, "&quot;");
 }
 
-function changelogSafeUrl(url, text) {
+/**
+ * The URL guard shared by every external link the shell renders (changelog
+ * bodies, the changelog title, and the update rows' module names): http(s) and
+ * mailto only, so untrusted remote text can never inject a `javascript:` (or
+ * any other scheme) link. Anything else returns `""`, and the caller falls
+ * back to plain text.
+ */
+function externalSafeUrl(url) {
   const value = String(url || "").trim();
   if (/^(https?:\/\/|mailto:)/i.test(value)) return value;
   // Invalid scheme: keep the markdown as plain text, never as a link.
   return "";
+}
+
+/**
+ * A clickable module name pointing at a repository's GitHub Releases list page,
+ * or `null` when the URL fails the `externalSafeUrl` guard (the caller then
+ * renders the name as plain text).
+ *
+ * Two call sites share it: the changelog dialog title and the update dialog's
+ * per-module rows. The shell disables text selection on its own chrome, so a
+ * **plain click** opens the system browser; Ctrl/Cmd+click is deliberately let
+ * through to the document-level capture handler, which opens the same URL — if
+ * both handled it, one gesture would open two tabs.
+ */
+function releasePageAnchor(label, releaseUrl) {
+  const href = externalSafeUrl(releaseUrl);
+  if (!href) return null;
+  const link = document.createElement("a");
+  link.href = href;
+  link.textContent = label;
+  link.title = "点击在浏览器打开 GitHub Releases：" + href;
+  link.addEventListener("click", (e) => {
+    if (e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    void openExternal(href);
+  });
+  return link;
 }
 
 /**
@@ -1960,17 +1998,17 @@ function changelogInline(text) {
     } else if (strike !== undefined) {
       out += "<del>" + changelogInline(strike) + "</del>";
     } else if (imgUrl !== undefined) {
-      const safe = changelogSafeUrl(imgUrl, imgAlt);
+      const safe = externalSafeUrl(imgUrl);
       out += safe
         ? '<img src="' + changelogEscape(safe) + '" alt="' + changelogEscape(imgAlt) + '" loading="lazy" />'
         : changelogEscape(match[0]);
     } else if (linkUrl !== undefined) {
-      const safe = changelogSafeUrl(linkUrl, linkText);
+      const safe = externalSafeUrl(linkUrl);
       out += safe
         ? changelogAnchor(safe, changelogInline(linkText))
         : changelogEscape(match[0]);
     } else if (autoUrl !== undefined) {
-      const safe = changelogSafeUrl(autoUrl, autoUrl);
+      const safe = externalSafeUrl(autoUrl);
       out += safe
         ? changelogAnchor(safe, changelogEscape(autoUrl))
         : changelogEscape(match[0]);
@@ -2159,28 +2197,16 @@ let changelogRawText = "";
  * The dialog title: the module name plus a fixed suffix. When the Rust side
  * actually found a GitHub release for this update it also returns the
  * repository's Releases page, and the module name becomes a link to it — the
- * releases *list* (`…/releases`), never a `/releases/tag/…` subpage. A dialog
- * window has no popup handler, so a plain click is routed to the system
- * browser here; Ctrl/Cmd+click is left to the document-level anchor handler,
- * which opens the same URL (handling both would open two tabs).
+ * releases *list* (`…/releases`), never a `/releases/tag/…` subpage.
  */
 function renderChangelogTitle(name, releaseUrl) {
   const label = name || "工程";
-  const href = changelogSafeUrl(releaseUrl);
+  const link = releasePageAnchor(label, releaseUrl);
   changelogTitle.textContent = "";
-  if (!href) {
+  if (!link) {
     changelogTitle.textContent = label + " · 更新日志";
     return;
   }
-  const link = document.createElement("a");
-  link.href = href;
-  link.textContent = label;
-  link.title = "点击在浏览器打开 GitHub Releases：" + href;
-  link.addEventListener("click", (e) => {
-    if (e.ctrlKey || e.metaKey) return;
-    e.preventDefault();
-    void openExternal(href);
-  });
   changelogTitle.append(link, document.createTextNode(" · 更新日志"));
 }
 

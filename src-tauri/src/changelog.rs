@@ -887,7 +887,10 @@ fn github_repo(url: Option<&str>) -> Option<(String, String)> {
 /// per-tag `/releases/tag/<tag>` subpage: one changelog covers every release
 /// the update brings in, so the link lands on the list the reader can pick a
 /// version from. Non-GitHub remotes yield `None`.
-fn releases_page_url(origin: Option<&str>) -> Option<String> {
+///
+/// Shared with the update dialog: `src-tauri/src/update.rs` resolves every
+/// project row's `origin` through this to link the row's module name.
+pub(crate) fn releases_page_url(origin: Option<&str>) -> Option<String> {
     let (owner, repo) = github_repo(origin)?;
     Some(format!("https://github.com/{owner}/{repo}/releases"))
 }

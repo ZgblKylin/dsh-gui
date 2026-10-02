@@ -71,6 +71,30 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
   checkout，已安装插件需等 npm 发布后重新执行插件安装」。npm 核对失败只显示
   提示，不影响 git 更新检测结果。
 
+## 行内模块名的 Releases 页链接
+
+更新对话框每一行的**模块名**都链接到该仓库的 GitHub Releases 列表页
+（`https://github.com/<owner>/<repo>/releases`），便于在更新前直接查看上游发布了
+哪些版本。链接由 Rust 侧构造每一行时解析（`src-tauri/src/update.rs` 的
+`release_page_for`），骨架行（`local_check` → `local_preview_project`）同样携带，
+因此第一帧就是链接，不依赖网络检查结果。
+
+解析顺序与取舍：
+
+- 优先取该行自己的 `git remote get-url origin`：更新实际拉取的就是这个远端；
+- 该行还不是 git 仓库（submodule 尚未初始化）时回退到 `.gitmodules` 记录的 `url`；
+- 远端不是 GitHub（自建 GitLab、镜像、本地路径）时值为 `None`，模块名保持纯文本；
+- 链接目标是 **Releases 列表页**，不是 `/releases/tag/<tag>` 子页面：一行并不绑定
+  某一个版本。
+
+线协议字段为 `releaseUrl`（`ProjectUpdate.release_url` 经 camelCase 序列化），
+`None` 时整个字段省略。前端（`src-tauri/ui/app.js` 的 `updateRow`）在 URL 通过
+`externalSafeUrl` 的 http(s)/mailto 校验后才渲染成 `<a>`；普通单击经
+`open_external` 交给系统默认浏览器，Ctrl/Cmd+点击由 document 级捕获监听器处理，
+本地处理器在带修饰键时放行，避免同一次点击打开两个标签页。更新日志弹窗标题的链接
+复用同一个 `releasePageAnchor` 构造函数，但触发条件不同（见
+[update-changelog.md](update-changelog.md)）。
+
 ## 生效路径
 
 1. 上游发布新 tag 后，更新对话框先显示「tag 版本 npm 未发布」标注；
@@ -115,6 +139,8 @@ git 在 `git submodule update --init` 时会把解析出的 URL 固化进仓库�
 ## 相关文件
 
 - `scripts/plugin-install.mjs` —— 安装期记录 npm 包名
-- `src-tauri/src/update.rs` —— registry 读取、submodule 扫描、npm 查询
-- `src-tauri/ui/app.js`、`src-tauri/ui/titlebar.css` —— 行内标注渲染
+- `src-tauri/src/update.rs` —— registry 读取、submodule 扫描、npm 查询、
+  `release_page_for` 的行内链接解析
+- `src-tauri/src/changelog.rs` —— `releases_page_url`（行内与标题链接共用的 URL 解析）
+- `src-tauri/ui/app.js`、`src-tauri/ui/titlebar.css` —— 行内标注与模块名链接渲染
 - `scripts/staging.mjs`、`docs/dsh-gui/upgrade-staging-workspace.md` —— 升级验证副本
