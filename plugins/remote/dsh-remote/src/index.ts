@@ -6,14 +6,14 @@
  *  - `local.start` — spawn an additional self-hosted `dsh web` backend on a
  *    free port (checked by `probe` first; started only when the port is dead),
  *  - `ssh.connect` — secure remote mode: the remote backend is started with a
- *    configurable command (default `npx '@deepseek-ai/dsh' web`) and kept
- *    running inside a `dsh-gui` tmux session. No code is deployed to the
- *    remote — the startup command owns how dsh is run there. The frontend is
- *    reached over an SSH local port forward (pure-JS `ssh2`, no native ssh
- *    binary): the pipeline establishes the session, checks the remote
- *    toolchain, starts/restarts the tmux session, discovers the session's
- *    serving port, forwards it to a free local loopback port, and only then
- *    reports the local URL as loadable,
+ *    configurable command (default `npx '@deepseek-ai/dsh' web`) inside an
+ *    optional remote work directory, and kept running inside a `dsh-gui` tmux
+ *    session. No code is deployed to the remote — the startup command owns how
+ *    dsh is run there. The frontend is reached over an SSH local port forward
+ *    (pure-JS `ssh2`, no native ssh binary): the pipeline establishes the
+ *    session, checks the remote toolchain, starts/restarts the tmux session,
+ *    discovers the session's serving port, forwards it to a free local loopback
+ *    port, and only then reports the local URL as loadable,
  *  - `docker.connect` — Docker backend mode: starts (or reuses) dsh inside a
  *    running container with `docker exec -d`, then bridges the container's
  *    loopback port to a local 127.0.0.1 port via a `docker exec -i` stdio
@@ -22,10 +22,10 @@
  *    Linux gpg; keys and filenames carry `ZgblKylin+dsh-gui+<连接名>`), plus the
  *    uploaded SSH private-key files.
  *
- * Connection records (name/address/port/ssh fields) are kept by the browser
- * half in localStorage — dsh-gui manages the connection config; the remote
- * owns its own DSH_HOME (default `~/.dsh`, or whatever the configured startup
- * command sets) and plugin configuration.
+ * Connection records (name / SSH target / port / work directory / start
+ * command) are kept by the browser half in localStorage — dsh-gui manages the
+ * connection config; the remote owns its own DSH_HOME (default `~/.dsh`, or
+ * whatever the configured startup command sets) and plugin configuration.
  *
  * Security posture: `/remote-api` is an unauthenticated local RPC, so this
  * half refuses to serve when the web server is bound to anything but the
@@ -1626,13 +1626,13 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
       try {
         const conn = (args.conn ?? {}) as Record<string, unknown>
         const logLines: Array<{ step: string; ok: boolean; detail?: string }> = []
-        if (!conn.address || !conn.port) {
-          return { ok: false, log: [{ step: 'connect', ok: false, detail: 'address and port required' }] }
+        // The SSH connection card has no direct-web path: the SSH host IS the
+        // target. A record without `sshHost` still yields a host through its
+        // `addr` field.
+        const sshHost = String(conn.sshHost ?? conn.address ?? '').trim()
+        if (sshHost === '' || !conn.port) {
+          return { ok: false, log: [{ step: 'connect', ok: false, detail: 'ssh host and port required' }] }
         }
-        // SSH target is its own field (an ssh-config alias like `ASUS` or an
-        // explicit host), distinct from the DSH frontend address. When left
-        // empty it falls back to the DSH address.
-        const sshHost = String(conn.sshHost ?? conn.address)
         const auth: SshAuth = {
           user: conn.sshUser ? String(conn.sshUser) : '',
           host: sshHost,
@@ -1651,14 +1651,24 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
             'ssh config 认证检查',
             probeRes.ok,
             probeRes.ok
-              ? '通过（复用 ~/.ssh/config' + (auth.host !== String(conn.address) ? ` 别名 ${auth.host}` : '') + '）'
+              ? '通过（复用 ~/.ssh/config' + (auth.host !== sshHost ? ` 别名 ${auth.host}` : '') + '）'
               : (probeRes.detail ?? '该主机需要认证，请填写用户名/密码或密钥'),
           )
           if (!probeRes.ok) {
             return { ok: false, authRequired: true, log: logLines }
           }
         }
-        return connectRemote(ctx, auth, conn as { address: string; port: number; startCommand?: string }, logLines, connectToken)
+        return connectRemote(
+          ctx,
+          auth,
+          {
+            port: Number(conn.port),
+            startCommand: conn.startCommand ? String(conn.startCommand) : undefined,
+            workdir: conn.workdir ? String(conn.workdir) : undefined,
+          },
+          logLines,
+          connectToken,
+        )
       } finally {
         remoteProgress.running = false
       }
@@ -1837,7 +1847,8 @@ async function waitFrontendReady(
  *   2. ensure the `dsh-gui` tmux session is ALIVE; start/restart it bound to
  *      127.0.0.1 when missing or stale, using the configured start command
  *      (default `npx '@deepseek-ai/dsh' web`,
- *      env override `DSH_REMOTE_START_COMMAND`),
+ *      env override `DSH_REMOTE_START_COMMAND`) inside the configured work
+ *      directory (empty = the remote `$HOME`),
  *   3. discover the port the session's backend is serving on,
  *   4. open an SSH local port forward and wait until the local loopback URL is
  *      loadable (2xx) — never a direct address probe.
@@ -1849,7 +1860,7 @@ async function waitFrontendReady(
 async function connectRemote(
   ctx: Context,
   auth: SshAuth,
-  conn: { address: string; port: number; startCommand?: string },
+  conn: { port: number; startCommand?: string; workdir?: string },
   log: Array<{ step: string; ok: boolean; detail?: string }>,
   token: number,
 ): Promise<{ ok: boolean; authRequired?: boolean; cancelled?: boolean; log: Array<{ step: string; ok: boolean; detail?: string }>; url?: string; tunnelKey?: string }> {
@@ -1918,8 +1929,13 @@ async function connectRemote(
     // detached pane as an INTERACTIVE login bash (`-l -i`) so the profile
     // AND rc load exactly like the user's interactive ssh terminal. `node -v`
     // is captured first so the log proves which runtime the start used.
+    // Work directory: the configured path wins, and an empty setting uses the
+    // remote `$HOME`. `cd` failures land in the tail log (see remoteTail)
+    // instead of failing the tmux start silently.
     const serveFlags = appendServeFlags(startCommand, conn.port)
-    const paneCommand = `{ node -v; cd "$HOME" && ${serveFlags}; } > ${REMOTE_LOG} 2>&1`
+    const workdir = String(conn.workdir ?? '').trim()
+    const cwd = workdir === '' ? '"$HOME"' : JSON.stringify(workdir)
+    const paneCommand = `{ node -v; cd ${cwd} && ${serveFlags}; } > ${REMOTE_LOG} 2>&1`
     const inner = `bash -l -i -c ${JSON.stringify(paneCommand)}`
     pushLog(log, '启动远端 dsh', false, inner)
     const start = await sshRun(ctx, auth, [

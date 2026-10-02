@@ -565,6 +565,57 @@ let connectEditId = null;
 // "launch" (直接启动 → update, button stays 连接).
 let connectMode = "new";
 
+// Preset remote start commands offered by the SSH card's dropdown. Picking one
+// writes it into the field, which stays editable afterwards.
+const SSH_START_COMMAND_PRESETS = [
+  { cmd: `npx '@deepseek-ai/dsh' web`, note: "默认" },
+  { cmd: `npm '@deepseek-ai/dsh' web`, note: "预设" },
+  { cmd: "npm run harness", note: "预设" },
+];
+
+/** Render the preset rows; the one matching the field is checked and marked 当前. */
+function renderStartCmdMenu() {
+  const menu = $("conn-ssh-startcmd-menu");
+  if (!menu) return;
+  const current = $("conn-ssh-startcmd").value.trim();
+  menu.innerHTML = "";
+  for (const preset of SSH_START_COMMAND_PRESETS) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "conn-cmd-item";
+    item.setAttribute("role", "option");
+    item.dataset.cmd = preset.cmd;
+    const check = document.createElement("span");
+    check.className = "cmd-check";
+    check.textContent = preset.cmd === current ? "✓" : "";
+    const cmd = document.createElement("span");
+    cmd.textContent = preset.cmd;
+    const note = document.createElement("span");
+    note.className = "cmd-note";
+    note.textContent = preset.cmd === current ? "当前" : preset.note;
+    item.append(check, cmd, note);
+    menu.appendChild(item);
+  }
+}
+
+function openStartCmdMenu() {
+  renderStartCmdMenu();
+  $("conn-ssh-startcmd-menu").classList.remove("hidden");
+  $("conn-ssh-startcmd-presets").setAttribute("aria-expanded", "true");
+}
+
+function closeStartCmdMenu() {
+  const menu = $("conn-ssh-startcmd-menu");
+  if (!menu || menu.classList.contains("hidden")) return;
+  menu.classList.add("hidden");
+  $("conn-ssh-startcmd-presets").setAttribute("aria-expanded", "false");
+}
+
+function toggleStartCmdMenu() {
+  if ($("conn-ssh-startcmd-menu").classList.contains("hidden")) openStartCmdMenu();
+  else closeStartCmdMenu();
+}
+
 function setConnType(type) {
   connType = type;
   for (const card of document.querySelectorAll(".conn-type-card")) {
@@ -572,33 +623,35 @@ function setConnType(type) {
   }
   const remote = type === "remote";
   const docker = type === "docker";
-  $("conn-addr-wrap").classList.toggle("hidden", !remote);
-  $("conn-ssh-toggle").classList.toggle("hidden", !remote);
-  const sshOn = remote && $("conn-ssh-on").checked;
-  $("conn-ssh-auth").classList.toggle("hidden", !sshOn);
-  $("conn-ssh-port-wrap").classList.toggle("hidden", !sshOn);
-  $("conn-ssh-startcmd-wrap").classList.toggle("hidden", !sshOn);
-  $("conn-creds").classList.toggle("hidden", !sshOn);
-  $("conn-save-wrap").classList.toggle("hidden", !sshOn);
+  // The SSH card has no opt-in toggle: its parameters are always shown and the
+  // connection always runs through an SSH session (never a direct web probe).
+  $("conn-ssh-auth").classList.toggle("hidden", !remote);
+  $("conn-ssh-port-wrap").classList.toggle("hidden", !remote);
+  $("conn-ssh-workdir-wrap").classList.toggle("hidden", !remote);
+  $("conn-ssh-startcmd-wrap").classList.toggle("hidden", !remote);
+  $("conn-creds").classList.toggle("hidden", !remote);
+  $("conn-save-wrap").classList.toggle("hidden", !remote);
   $("conn-docker-container-wrap").classList.toggle("hidden", !docker);
   $("conn-docker-user-workdir-wrap").classList.toggle("hidden", !docker);
   $("conn-docker-env-wrap").classList.toggle("hidden", !docker);
   $("conn-docker-startcmd-wrap").classList.toggle("hidden", !docker);
-  // Track the layout mode on the panel so CSS can adapt and the fit logic
-  // can measure the right content size.
-  const panel = document.querySelector(".conn-dialog");
-  if (panel) panel.classList.toggle("ssh-active", sshOn);
+  // `端口` means a different thing per backend, so the label follows the card.
+  $("conn-port-label").textContent = remote
+    ? "端口（远端 dsh 监听）"
+    : docker
+      ? "端口（容器内 dsh 监听）"
+      : "端口";
+  closeStartCmdMenu();
   if (DIALOG_VIEW) scheduleFit();
 }
 
 function resetConnForm() {
   $("conn-name").value = "";
   $("conn-port").value = String(defaultPort);
-  $("conn-addr").value = "";
-  $("conn-ssh-on").checked = false;
   $("conn-ssh-host").value = "";
   $("conn-ssh-user").value = "";
   $("conn-ssh-port").value = "";
+  $("conn-ssh-workdir").value = "";
   $("conn-ssh-startcmd").value = "";
   $("conn-docker-container").value = "";
   $("conn-docker-user").value = "";
@@ -650,15 +703,12 @@ function readForm() {
     port: Number($("conn-port").value) || defaultPort,
   };
   if (connType === "remote") {
-    entry.addr = $("conn-addr").value.trim();
-    entry.sshOn = $("conn-ssh-on").checked;
-    if (entry.sshOn) {
-      entry.sshUser = $("conn-ssh-user").value.trim() || undefined;
-      entry.sshHost = $("conn-ssh-host").value.trim() || undefined;
-      entry.sshPort = Number($("conn-ssh-port").value) || undefined;
-      entry.startCommand = $("conn-ssh-startcmd").value.trim() || undefined;
-      entry.saveAuth = $("conn-save-auth").checked;
-    }
+    entry.sshHost = $("conn-ssh-host").value.trim() || undefined;
+    entry.sshUser = $("conn-ssh-user").value.trim() || undefined;
+    entry.sshPort = Number($("conn-ssh-port").value) || undefined;
+    entry.workdir = $("conn-ssh-workdir").value.trim() || undefined;
+    entry.startCommand = $("conn-ssh-startcmd").value.trim() || undefined;
+    entry.saveAuth = $("conn-save-auth").checked;
   } else if (connType === "docker") {
     entry.container = $("conn-docker-container").value.trim() || undefined;
     entry.user = $("conn-docker-user").value.trim() || undefined;
@@ -672,18 +722,23 @@ function readForm() {
 
 /** Fill the form from a saved record and switch to its config page. */
 function fillFormFromSaved(entry) {
+  const docker = entry.type === "docker";
   $("conn-name").value = entry.name || "";
   $("conn-port").value = String(entry.port ?? defaultPort);
-  $("conn-addr").value = entry.addr || "";
-  $("conn-ssh-on").checked = !!entry.sshOn;
-  $("conn-ssh-host").value = entry.sshHost || "";
+  // The SSH target is `sshHost`; `addr` is accepted as a fallback source so a
+  // saved record without `sshHost` still fills in a host.
+  $("conn-ssh-host").value = entry.sshHost || entry.addr || "";
   $("conn-ssh-user").value = entry.sshUser || "";
   $("conn-ssh-port").value = entry.sshPort ? String(entry.sshPort) : "";
-  $("conn-ssh-startcmd").value = entry.startCommand || "";
+  // The work directory and the start command exist once per backend but are
+  // stored under one record key, so each is written to the field of the
+  // record's own type: a container path must never reach the SSH form.
+  $("conn-ssh-workdir").value = docker ? "" : entry.workdir || "";
+  $("conn-ssh-startcmd").value = docker ? "" : entry.startCommand || "";
   $("conn-docker-container").value = entry.container || "";
   $("conn-docker-user").value = entry.user || "";
-  $("conn-docker-workdir").value = entry.workdir || "";
-  $("conn-docker-startcmd").value = entry.startCommand || "";
+  $("conn-docker-workdir").value = docker ? entry.workdir || "" : "";
+  $("conn-docker-startcmd").value = docker ? entry.startCommand || "" : "";
   setDockerEnvRows(entry.env || []);
   $("conn-password").value = "";
   $("conn-keyfile").value = "";
@@ -722,8 +777,13 @@ function renderSavedList() {
   for (const c of savedConnections) {
     const item = document.createElement("div");
     item.className = "conn-list-item" + (c.id === connectEditId ? " active" : "");
-    const kind = c.type === "docker" ? "Docker" : c.type === "remote" ? (c.sshOn ? "远程 · SSH" : "远程") : "本地";
-    const target = c.type === "docker" ? (c.container || "容器") : c.type === "remote" ? (c.addr || "远端") : "本机";
+    const kind = c.type === "docker" ? "Docker" : c.type === "remote" ? "SSH" : "本地";
+    const target =
+      c.type === "docker"
+        ? (c.container || "容器")
+        : c.type === "remote"
+          ? (c.sshHost || c.addr || "远端")
+          : "本机";
     item.title = `${kind} · ${target}:${c.port ?? ""}`;
     const name = document.createElement("span");
     name.className = "item-name";
@@ -884,6 +944,9 @@ async function doConnect() {
   btn.disabled = true;
   btn.textContent = "连接中…";
   $("conn-log").innerHTML = "";
+  // The connect log repaints through scheduleFit; keeping the absolutely
+  // positioned preset menu out of that measurement avoids a window resize.
+  closeStartCmdMenu();
   try {
     if (connType === "local") await connectLocal(gen);
     else if (connType === "docker") await connectDocker(gen);
@@ -980,7 +1043,7 @@ function paintConnLog(lines) {
 async function connectRemote(gen) {
   const name = $("conn-name").value.trim();
   const p = Number($("conn-port").value);
-  const addr = $("conn-addr").value.trim().replace(/^https?:\/\//i, "");
+  const sshHost = $("conn-ssh-host").value.trim();
   const lines = [];
   const show = () => paintConnLog(lines);
   const push = (step, ok, detail) => {
@@ -991,40 +1054,24 @@ async function connectRemote(gen) {
     push("校验", false, "请填写连接名");
     return;
   }
-  if (addr === "") {
-    push("校验", false, "请填写地址");
+  if (sshHost === "") {
+    push("校验", false, "请填写 SSH 主机");
     return;
   }
   if (!Number.isInteger(p) || p <= 0 || p > 65535) {
     push("校验", false, "端口无效");
     return;
   }
-  const url = `http://${addr}:${p}/`;
-  push("检查 " + url);
-  const probe = await rpc("probe", { url });
-  if (gen !== connectGen) return;
-  if (probe.reachable === true && probe.loadable === true) {
-    push("远端可加载", true, `HTTP ${probe.status}`);
-    recordSuccessfulConnection();
-    addTab(name, url, { type: "remote", address: addr, port: p });
-    return;
-  }
-  push(
-    "远端不可加载，尝试通过 SSH 启动并转发",
-    undefined,
-    probe.error ?? (probe.reachable ? `HTTP ${probe.status} 非 2xx` : "不可达")
-  );
-  if (!$("conn-ssh-on").checked) {
-    push("需要 ssh", false, "请开启 SSH 启动并配置认证");
-    return;
-  }
 
+  // SSH is the only path on this card (no direct-web probe): the host half
+  // starts or reuses the remote dsh inside an SSH session, forwards the remote
+  // loopback port, and returns the local URL to load.
   const sshConn = {
-    address: addr,
     port: p,
+    sshHost,
     sshUser: $("conn-ssh-user").value.trim() || undefined,
-    sshHost: $("conn-ssh-host").value.trim() || undefined,
     sshPort: Number($("conn-ssh-port").value) || undefined,
+    workdir: $("conn-ssh-workdir").value.trim() || undefined,
     startCommand: $("conn-ssh-startcmd").value.trim() || undefined,
     password: $("conn-password").value || undefined,
     keyFile: serverKeyPath,
@@ -1045,11 +1092,14 @@ async function connectRemote(gen) {
       push("无已保存认证", true, "将尝试 ~/.ssh/config");
     }
   }
-  if (!sshConn.sshUser && !sshConn.password && !sshConn.keyFile && !sshConn.sshHost) {
-    push("缺少认证", false, "请填写 SSH 用户名（或 SSH 主机别名）与密码/密钥");
-    return;
-  }
-  push("建立 SSH 会话", undefined, sshConn.sshHost || addr);
+  // No client-side credential check: a bare SSH host is a valid target when
+  // ~/.ssh/config supplies the user and key. The host half probes that config
+  // and answers `authRequired` when the host really needs a credential.
+  push(
+    "建立 SSH 会话",
+    undefined,
+    `${sshConn.sshUser !== undefined ? sshConn.sshUser + "@" : ""}${sshConn.sshHost}`
+  );
   const preamble = lines.slice();
 
   // The host pipeline runs in ONE ssh.connect RPC; live-stream its progress
@@ -1089,10 +1139,7 @@ async function connectRemote(gen) {
   const finalSteps = Array.isArray(res && res.log) ? res.log : [];
   paintConnLog([...preamble, ...finalSteps]);
   if (res && res.ok === true) {
-    if (
-      $("conn-save-auth").checked &&
-      ($("conn-password").value !== "" || serverKeyPath !== null || $("conn-ssh-host").value.trim() !== "")
-    ) {
+    if ($("conn-save-auth").checked && ($("conn-password").value !== "" || serverKeyPath !== null)) {
       await rpc("creds.save", {
         name,
         payload: {
@@ -1104,8 +1151,17 @@ async function connectRemote(gen) {
         },
       });
     }
+    // The tunnel URL is the only loadable address now: without it the pipeline
+    // reported success but nothing can be opened, so keep the dialog on screen.
+    // `connLog` appends one line instead of repainting from `lines`, which holds
+    // only the client-side preamble.
+    const url = typeof res.url === "string" ? res.url : "";
+    if (url === "") {
+      connLog("加载前端", false, "SSH 会话已建立，但未返回可加载地址");
+      return;
+    }
     recordSuccessfulConnection();
-    addTab(name, res.url ?? url, { type: "remote", address: addr, port: p });
+    addTab(name, url, { type: "remote", address: sshHost, port: p });
   } else if (res && res.authRequired === true) {
     connLog(
       "回退到连接配置",
@@ -2625,7 +2681,35 @@ document.addEventListener(
 for (const card of document.querySelectorAll(".conn-type-card")) {
   card.addEventListener("click", () => setConnType(card.dataset.type));
 }
-$("conn-ssh-on").addEventListener("change", () => setConnType(connType));
+$("conn-ssh-startcmd-presets").addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleStartCmdMenu();
+});
+$("conn-ssh-startcmd-menu").addEventListener("click", (e) => {
+  const item = e.target && e.target.closest ? e.target.closest(".conn-cmd-item") : null;
+  if (!item) return;
+  $("conn-ssh-startcmd").value = item.dataset.cmd || "";
+  closeStartCmdMenu();
+});
+$("conn-ssh-startcmd").addEventListener("input", () => {
+  if (!$("conn-ssh-startcmd-menu").classList.contains("hidden")) renderStartCmdMenu();
+});
+// A click anywhere else (or Escape) closes the preset menu. The menu is
+// absolutely positioned, so opening/closing never resizes the dialog window.
+document.addEventListener("click", (e) => {
+  const t = e.target;
+  if (t && t.closest && t.closest("#conn-ssh-startcmd-wrap")) return;
+  closeStartCmdMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  // The shell's own Escape handler closes the dialog; while the preset menu is
+  // open, Escape dismisses the menu only.
+  if ($("conn-ssh-startcmd-menu").classList.contains("hidden")) return;
+  closeStartCmdMenu();
+  e.stopImmediatePropagation();
+});
+
 function cancelConnection() {
   // Abort any in-flight connect: invalidate the client generation, stop the
   // live-progress poll, and tell the host to cancel + clean up its remote

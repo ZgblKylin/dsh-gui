@@ -94,8 +94,9 @@
       </div>
     </div>
 
-    <!-- New-connection dialog: local (probe/start on this host) or remote
-         (load or SSH-deploy to another host), with the SSH credential step. -->
+    <!-- New-connection dialog: local (probe/start on this host), SSH (always
+         start the remote dsh over an SSH session and forward its port), or
+         Docker (docker exec into a container), with the SSH credential step. -->
     <div id="conn-overlay" class="overlay hidden">
       <div class="conn-dialog" role="dialog" aria-modal="true" aria-labelledby="conn-title">
         <div class="conn-dialog-head">
@@ -111,8 +112,8 @@
                 <small>在本机端口加载或启动 DSH 前端</small>
               </div>
               <div class="conn-type-card" data-type="remote">
-                <b>远程连接</b>
-                <small>通过 SSH 启动远端 dsh 并转发端口访问</small>
+                <b>SSH 连接</b>
+                <small>固定通过 SSH 会话启动远端 dsh 并转发端口</small>
               </div>
               <div class="conn-type-card" data-type="docker">
                 <b>Docker 连接</b>
@@ -125,13 +126,9 @@
                 <input id="conn-name" class="conn-input" placeholder="例如：办公机" />
               </div>
               <div class="conn-field">
-                <label for="conn-port">端口</label>
+                <label for="conn-port" id="conn-port-label">端口</label>
                 <input id="conn-port" class="conn-input" inputmode="numeric" placeholder="3080" />
               </div>
-            </div>
-            <div class="conn-field" id="conn-addr-wrap">
-              <label for="conn-addr">地址（不含 http://）</label>
-              <input id="conn-addr" class="conn-input" placeholder="192.168.1.10" />
             </div>
             <div class="conn-field" id="conn-docker-container-wrap">
               <label for="conn-docker-container">容器名或 ID（运行中）</label>
@@ -152,12 +149,9 @@
               <div id="conn-docker-env-list" class="conn-docker-env-list"></div>
               <button id="conn-docker-env-add" type="button" class="conn-docker-env-add">＋ 添加变量</button>
             </div>
-            <label class="conn-check" id="conn-ssh-toggle">
-              <input type="checkbox" id="conn-ssh-on" /> 通过 SSH 启动并转发端口（端口不可加载时使用）
-            </label>
             <div class="conn-field-row" id="conn-ssh-auth">
               <div class="conn-field">
-                <label for="conn-ssh-host">SSH 主机（留空用连接地址）</label>
+                <label for="conn-ssh-host">SSH 主机（必填，可填 ~/.ssh/config 别名）</label>
                 <input id="conn-ssh-host" class="conn-input" placeholder="ASUS 或 192.168.1.10" />
               </div>
               <div class="conn-field">
@@ -184,9 +178,17 @@
             </label>
           </div>
           <div class="conn-right">
-            <div class="conn-field" id="conn-ssh-startcmd-wrap">
+            <div class="conn-field" id="conn-ssh-workdir-wrap">
+              <label for="conn-ssh-workdir">远程启动的工作目录（留空用 $HOME）</label>
+              <input id="conn-ssh-workdir" class="conn-input" spellcheck="false" placeholder="/srv/dsh 或 $HOME/dsh" />
+            </div>
+            <div class="conn-field conn-cmd-wrap" id="conn-ssh-startcmd-wrap">
               <label for="conn-ssh-startcmd">远端启动 dsh 的命令（留空用默认）</label>
-              <input id="conn-ssh-startcmd" class="conn-input" spellcheck="false" placeholder="npx '@deepseek-ai/dsh' web" />
+              <div class="conn-cmd-row">
+                <input id="conn-ssh-startcmd" class="conn-input" spellcheck="false" placeholder="npx '@deepseek-ai/dsh' web" />
+                <button id="conn-ssh-startcmd-presets" class="conn-cmd-caret" type="button" title="选择预设指令" aria-haspopup="listbox" aria-expanded="false">▾</button>
+              </div>
+              <div id="conn-ssh-startcmd-menu" class="conn-cmd-menu hidden" role="listbox" aria-label="预设启动指令"></div>
             </div>
             <div class="conn-field" id="conn-docker-startcmd-wrap">
               <label for="conn-docker-startcmd">容器内启动 dsh 的命令（留空用默认）</label>
