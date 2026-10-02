@@ -71,7 +71,7 @@
 
 复核方法：读 `views.rs:1-14` 并确认连接标签与新建连接对话框的实际驱动位置。
 
-证据：`views.rs:1-14` 描述的是每个连接标签页由独立子 webview 承载，以及子 webview 的 cookie jar 与弹窗语义；标签栏与新建连接对话框的驱动在 `src-tauri/ui/app.js`（`app.js:455` 调 `remote_call`，`app.js:318` 调 `view_create`）。T10 全文未引用 `src-tauri/ui/`。
+证据：`views.rs:1-14` 描述的是每个连接标签页由独立子 webview 承载，且每个 tab 运行在自己的 WebView2 profile 上（`src-tauri/src/roots.rs` 的 `tab_webview_data_dir`），cookie 不跨 host 可见；标签栏与新建连接对话框的驱动在 `src-tauri/ui/app.js`（`app.js:455` 调 `remote_call`，`app.js:318` 调 `view_create`）。T10 全文未引用 `src-tauri/ui/`。
 
 判定：需修正（引用位置不精确，方向不误）。
 

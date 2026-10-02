@@ -114,3 +114,33 @@ pub(crate) fn dsh_home(repo: &Path) -> PathBuf {
 pub(crate) fn webview_data_dir(repo: &Path) -> PathBuf {
     dsh_home(repo).join("gui").join("webview2")
 }
+
+/// WebView2 user-data folder for one connection tab.
+///
+/// Cookies ignore the port, so tabs on different loopback ports would otherwise
+/// write their session cookies into the shell's single jar and send every host
+/// the other hosts' cookies. One profile per tab keeps each host's session
+/// private to its own tab.
+///
+/// The folder is keyed by the shell's tab id, which the wrapper page persists,
+/// so a tab restored after a restart reopens the same profile and keeps its
+/// session. The suffix is a hash of the raw id: ids arrive over IPC, and the
+/// digest keeps a crafted id from escaping this directory.
+pub(crate) fn tab_webview_data_dir(repo: &Path, tab_id: &str) -> PathBuf {
+    dsh_home(repo).join("gui").join("tab-profiles").join(tab_profile_name(tab_id))
+}
+
+/// Filesystem-safe profile folder name for a tab id.
+fn tab_profile_name(tab_id: &str) -> String {
+    use std::hash::{Hash as _, Hasher as _};
+
+    let readable: String = tab_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(32)
+        .collect();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    tab_id.hash(&mut hasher);
+    let prefix = if readable.is_empty() { "tab" } else { readable.as_str() };
+    format!("{prefix}-{:016x}", hasher.finish())
+}

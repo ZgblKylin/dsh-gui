@@ -39,7 +39,7 @@ dsh-gui 的远程连接能力分布在 Rust 壳（Tauri）、插件宿主半与�
 
 Rust 壳走裸 TCP 而不是页面 `fetch` 的原因写在插件文档里：壳页面位于应用源（app origin），与 `http://127.0.0.1:<port>` 跨源，页面不能直接访问 `/remote-api`（`plugins/remote/dsh-remote/docs/README.md:110`；`src-tauri/src/main.rs:1172-1176` 把该源记作 "the app origin"，插件文档把它记作 `tauri://`，`src-tauri/` 内没有该 scheme 字面量）。同一文档也记录了本地转发必须有一个回环监听端点的取舍（`plugins/remote/dsh-remote/docs/README.md:56`）。
 
-子 webview 相对 iframe 的收益写在 Rust 侧的模块注释里：子 webview 是真实的顶层文档，认证流程在它自己的 cookie jar 中完成，不需要代理或 iframe 的 SameSite 变通（`src-tauri/src/views.rs:5-10`）；同时窗口级的 cookie 也由壳单独获取并注入自己的 HTTP 调用（`src-tauri/src/main.rs:661-667`、`src-tauri/src/main.rs:675-694`、`src-tauri/src/main.rs:1391`）。这段注释是判断 iframe 承载风险的第一手旁证，但它描述的是 WebView2 环境，不能直接外推到 Electron。
+子 webview 相对 iframe 的收益写在 Rust 侧的模块注释里：子 webview 是真实的顶层文档，认证流程（`?token=` → 303 → `Set-Cookie`）在页面自身走完，不需要代理或 iframe 的 SameSite 变通（`src-tauri/src/views.rs`）；每个 tab 运行在自己的 WebView2 profile 上（`src-tauri/src/roots.rs` 的 `tab_webview_data_dir`），因此 cookie 不跨 host 可见。同时窗口级的 cookie 也由壳单独获取并注入自己的 HTTP 调用（`src-tauri/src/main.rs:661-667`、`src-tauri/src/main.rs:675-694`、`src-tauri/src/main.rs:1391`）。这段注释是判断 iframe 承载风险的第一手旁证，但它描述的是 WebView2 环境，不能直接外推到 Electron。
 
 ## 2. 要素到官方 desktop 的映射
 
@@ -94,7 +94,7 @@ desktop 没有把窗口创建或协议注册开放给插件：`dsh-app://` 的 `
 
 `webPreferences` 只声明了 `preload`、`nodeIntegration`、`contextIsolation`、`sandbox`、`webSecurity`（`main.ts:89-95`），未声明 `webviewTag`；全仓检索 `webviewTag` 无命中。Electron 文档写明 `webPreferences.webviewTag` 默认 `false`，开启后 `<webview>` 的 preload 会带 node integration，必须用 `will-attach-webview` 剥离 preload 并校验初始设置（[WebPreferences 文档](https://www.electronjs.org/docs/latest/api/structures/web-preferences)，文档声称）。因此需要改的是 `createWindow` 的 `webPreferences` 与新增 `will-attach-webview` 监听（`main.ts:82-102`）。
 
-语义上 `<webview>` 与现有 Rust 子 webview 最接近：独立顶层文档与独立 cookie jar（对照 `src-tauri/src/views.rs:5-10`）。
+语义上 `<webview>` 与现有 Rust 子 webview 最接近：都是独立顶层文档，且各自持有独立 cookie jar（子 webview 按 tab 一个 WebView2 profile，见 `src-tauri/src/roots.rs` 的 `tab_webview_data_dir`）。
 
 ### 3.3 同页 iframe
 
@@ -138,12 +138,14 @@ desktop 没有把窗口创建或协议注册开放给插件：`dsh-app://` 的 `
 
 纯插件做不到：创建 `BrowserWindow`、使用 `<webview>`、为远端 UI 取得独立 cookie jar、新增 `dsh-app://` 宿主名、注册 `/api/` 之外的路径前缀、把远端 SPA 反代到本机同源、以及注入或读取 Electron session 的 cookie。
 
+本节按 `dsh-v0.1.5-rc.2` 判定；当前修订（`dsh-v0.2.0-rc.2`）下 `<webview>` 已开启并可由插件经租约通道挂载、guest 分区提供独立（内存）cookie jar，见 [2026-10-02-desktop-plugin-injection.md](2026-10-02-desktop-plugin-injection.md)。
+
 ### 4.3 与官方设计的冲突与维护成本
 
 - 与「不开监听端口」冲突（部分）。官方把「应用不开监听 Web 端口」写成已决决策（`deepseek-harness/apps/desktop/README.md:16`），而端口转发必须在本机回环上监听一个随机端口，仅存在于隧道存活期。同一取舍在 dsh-gui 文档中已明确记录（`plugins/remote/dsh-remote/docs/README.md:56`）。
 - 与「只有两个受控窗口、`dsh-app://` 单源」冲突（取决于承载方式）。新窗口或 `<webview>` 增加窗口与源（`main.ts:315-326`、`main.ts:343-349`）；iframe 保持窗口数量不变，但把远端源引入主页面，且被嵌入内容与主页面共享同一个 renderer 进程与网络栈。
 - 安装面约束。desktop 插件必须是能从 Desktop registry 离线解析的普通 npm 依赖（`README.md:13`），带依赖 lifecycle script 的包受 `allowBuilds` 策略约束（`README.md:179`）；`ssh2` 的可选原生依赖是否能在桌面 profile 中安装需实测。
-- 维护成本。`main.ts` 的窗口与导航策略属 `apps/desktop` 内部实现，未声明为跨包契约，改动需要随 upstream tag 重新合并；插件侧使用的 `connection.fetch.register`、`slots.register`、`credentials` 是包级公开面，升级面较小。不改上游则无法获得独立窗口或独立 cookie jar。
+- 维护成本。`main.ts` 的窗口与导航策略属 `apps/desktop` 内部实现，未声明为跨包契约，改动需要随 upstream tag 重新合并；插件侧使用的 `connection.fetch.register`、`slots.register`、`credentials` 是包级公开面，升级面较小。不改上游则无法获得独立窗口；独立 cookie jar 只能经 guest 分区的 `<webview>` 取得，且该分区不持久（见 [2026-10-02-desktop-plugin-injection.md](2026-10-02-desktop-plugin-injection.md)）。
 
 ## 5. 需实测项
 

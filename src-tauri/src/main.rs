@@ -70,10 +70,10 @@ use dialogs::{
     save_dialog_size, show_dialog,
 };
 // Root discovery (see `roots`); plain imports keep the call sites in this file
-// unqualified, and the re-export keeps `crate::webview_data_dir` working for the
-// window modules.
+// unqualified, and the re-exports keep `crate::webview_data_dir` and
+// `crate::tab_webview_data_dir` working for the window modules.
 use roots::{repo_root, runtime_root};
-pub(crate) use roots::webview_data_dir;
+pub(crate) use roots::{tab_webview_data_dir, webview_data_dir};
 
 #[cfg(windows)]
 mod job {

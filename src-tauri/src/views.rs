@@ -6,8 +6,11 @@
 //! document, so:
 //!
 //! - the harness browser-auth flow works exactly like a browser tab: loading
-//!   the `?token=` URL mints the session cookie inside the webview's own
-//!   cookie jar, no proxy or SameSite iframe tricks needed;
+//!   the `?token=` URL completes the 303 + `Set-Cookie` handshake inside the
+//!   webview itself, so no proxy or SameSite iframe tricks are needed. Each tab
+//!   runs on its own WebView2 profile and therefore its own cookie jar (see
+//!   `tab_webview_data_dir`), so cookies — which ignore the port — never cross
+//!   from one host to another;
 //! - WebView2 new-window requests (popups, `target=_blank`) open a plain
 //!   WebView2 window — the shell registers no custom popup handling;
 //! - switching tabs keeps every page alive (hide/show, never reload) — the
@@ -181,13 +184,29 @@ pub fn ensure(
         // `install_webview_permissions` handler (below) instead of wry's
         // built-in clipboard-only handler, so the consent dialog can prompt.
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Allow);
-    // Same repo-local WebView2 profile as the shell window and dialogs (see
-    // `webview_data_dir`), so every environment shares one folder.
-    if let Some(data_dir) = window
+    // One WebView2 profile per tab: cookies ignore the port, so a shared
+    // profile would send every host the other hosts' session cookies (see
+    // `tab_webview_data_dir`). A folder that cannot be created falls back to the
+    // shell's shared profile rather than failing the whole tab.
+    if let Some(profile) = window
         .try_state::<crate::ShellState>()
-        .map(|s| crate::webview_data_dir(&s.root))
+        .map(|s| crate::tab_webview_data_dir(&s.root, tab_id))
     {
-        builder = builder.data_directory(data_dir);
+        match std::fs::create_dir_all(&profile) {
+            Ok(()) => builder = builder.data_directory(profile),
+            Err(error) => {
+                log::warn!(
+                    "tab {tab_id}: per-tab webview profile {} unavailable: {error}; falling back to the shared profile",
+                    profile.display()
+                );
+                if let Some(shared) = window
+                    .try_state::<crate::ShellState>()
+                    .map(|s| crate::webview_data_dir(&s.root))
+                {
+                    builder = builder.data_directory(shared);
+                }
+            }
+        }
     }
 
     let (x, y, w, h) = bounds;
@@ -225,6 +244,20 @@ pub fn close(window: &Window, tab_id: &str) -> Result<(), String> {
     if let Some(view) = registry.remove(tab_id) {
         view.close()
             .map_err(|e| format!("failed to close the tab webview: {e}"))?;
+    }
+    // Drop the tab's private profile with the tab: the wrapper page persists
+    // only the tabs that are still open, so a closed tab never comes back and
+    // its WebView2 profile would only accumulate. Best effort — WebView2 may
+    // still hold the folder briefly after `close`.
+    if let Some(profile) = window
+        .try_state::<crate::ShellState>()
+        .map(|s| crate::tab_webview_data_dir(&s.root, tab_id))
+    {
+        if let Err(error) = std::fs::remove_dir_all(&profile) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("tab {tab_id}: could not remove {}: {error}", profile.display());
+            }
+        }
     }
     Ok(())
 }

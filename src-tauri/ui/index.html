@@ -67,10 +67,11 @@
 
     <!-- Harness content slot: each tab's harness page is hosted by its own
          child webview (src-tauri/src/views.rs) placed exactly over this div's
-         bounding box — a real top-level document with its own cookie jar, so
-         the browser-auth token flow works like a browser tab. The shell
-         (app.js) creates/repositions those webviews; this div only marks the
-         layout area and renders the empty state when no tab is open. -->
+         bounding box — a real top-level document on its own WebView2 profile,
+         so the browser-auth token flow works like a browser tab and no two
+         hosts share a cookie jar. The shell (app.js) creates/repositions those
+         webviews; this div only marks the layout area and renders the empty
+         state when no tab is open. -->
     <div id="harness-frame" class="harness-frame">
       <!-- Loading page: the window is created before `dsh web` boots (its cold
            start takes ~10 s), so the shell paints this card until the Rust side
