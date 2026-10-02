@@ -7,17 +7,17 @@
 模型选择、推理强度、图片输入、联网搜索承载与多账户轮换。
 
 来源形态：**git submodule（整仓库，仅作源码参考）+ npm 安装**。子模块 pin 到
-tag `v0.12.0`，安装走 npm 受管安装器 `installNpmPlugin`，精确版本
-`@mars-sea/dsh-commandcode-provider@0.12.0`；本 wrapper **不构建、不 link** 本地
+tag `v0.12.2`，安装走 npm 受管安装器 `installNpmPlugin`，精确版本
+`@mars-sea/dsh-commandcode-provider@0.12.2`；本 wrapper **不构建、不 link** 本地
 checkout。
 
 ## 目录
 
 ```text
 plugins/commandcode-provider/
-├─ install.mjs                              # npm 安装 0.12.0（bundle 自挂载）
+├─ install.mjs                              # npm 安装 0.12.2（bundle 自挂载）
 ├─ README.md                                # 本说明
-└─ dsh-commandcode-provider/                # Mars-Sea/dsh-commandcode-provider（git submodule，pin v0.12.0）
+└─ dsh-commandcode-provider/                # Mars-Sea/dsh-commandcode-provider（git submodule，pin v0.12.2）
    ├─ package.json                          # dsh.bundle.patch 指向 ./cordis.patch.yml
    ├─ cordis.patch.yml                      # bundle 层：insert id llm-commandcode
    ├─ src/ lib/ locale/ assets/ …            # 源码与预构建产物（仅源码参考）
@@ -31,29 +31,29 @@ plugins/commandcode-provider/
   `deep-whale` 的形态一致。
 - 固定 **精确版本**（而非 `@latest`）：pinned pnpm 11.7 的 supply-chain
   `minimumReleaseAge`（1440 分钟）会把发布不足 24h 的版本挡在 `@latest` 之外并
-  **静默回退到上一版**，命令照样成功；`0.12.0` 发布于 2026-09-29T02:14Z，正好落在
-  该窗口内（pnpm 已把它写入 profile 的 `minimumReleaseAgeExclude`）。精确 pin 同时
-  让版本与子模块 tag 对齐。
+  **静默回退到上一版**，命令照样成功；精确 pin 绕过这一回退，同时让版本与子模块
+  tag 对齐。`0.12.2` 发布于 2026-10-01T01:54Z，安装时已超出该窗口（`0.12.0` 发布于
+  2026-09-29T02:14Z，当时仍在窗口内，精确 pin 安装成功）。
 - 包声明了 `dsh.bundle.patch`，于是 `dsh plugin add` 把它 reconcile 进
   `dsh.profile.bundles`，由包自己的 `cordis.patch.yml` 挂载 entry——本 wrapper
   **不写** `cordis.patch.yml` insert（手写会双挂载）。
 
 ## 兼容性状态
 
-上游 0.12.0 只针对 **dsh 0.2.0-rc.1** 维护：其 `@deepseek-ai/dsh-*` peer 全部为
-`^0.2.0-rc.1`，`dsh.compatibility.dshReleases` 也只记录该版本，`engines.dsh` 同为
-`^0.2.0-rc.1`。本仓库 pin 的 harness 为 **dsh-v0.2.0-rc.2**，按 semver 优先级满足
-`^0.2.0-rc.1`，因此 app-boot 的准入闸门接纳该包，**无需**精确版本例外
-（`exempt`）。已实测安装通过：
+上游 0.12.2 与 **dsh 0.2.0-rc.2** 精确配对：其 `@deepseek-ai/dsh-*` peer 全部写成
+精确版本 `0.2.0-rc.2`（不再是 `^` 范围），`dsh.compatibility.dshReleases` 只记录该
+版本，`engines.dsh` 同为 `0.2.0-rc.2`。本仓库 pin 的 harness 正是
+**dsh-v0.2.0-rc.2**，与 peer 完全一致，因此 app-boot 的准入闸门接纳该包，**无需**
+精确版本例外（`exempt`）。已实测安装通过：
 
-- `dsh plugin add` 成功，profile 依赖写入 `0.12.0`，bundles 追加
+- `dsh plugin add` 成功，profile 依赖写入 `0.12.2`，bundles 保留
   `@mars-sea/dsh-commandcode-provider`；
-- `dsh --profile web --dump-config` 退出码 0，组合层出现该 bundle 的
-  `- id: llm-commandcode` 行（含默认 `config.apiKeyEnv: COMMANDCODE_API_KEY`），
-  无重复 entry id、无加载错误、无跳过 bundle 报告。
+- 组合层仍是单行 `- id: llm-commandcode`（含默认
+  `config.apiKeyEnv: COMMANDCODE_API_KEY`），无重复 entry id、无跳过 bundle 报告。
 
-> 更早的插件版本与本运行时**不配套**：0.11.17 是 dsh 0.1.7 线的最后一版，0.11.11
-> 对应 0.1.2–0.1.6，0.9.1 对应 0.5.0 线。要跟着运行时走，应移动子模块指针 + 改
+> 0.12.0 是 **dsh 0.2.0-rc.1** 线的最后一版（peer 为 `^0.2.0-rc.1`）；更早的插件
+> 版本与本运行时**不配套**：0.11.17 是 dsh 0.1.7 线的最后一版，0.11.11 对应
+> 0.1.2–0.1.6，0.9.1 对应 0.5.0 线。要跟着运行时走，应移动子模块指针 + 改
 > `install.mjs` 的精确版本，而不是回退版本号。
 
 ## 默认配置
