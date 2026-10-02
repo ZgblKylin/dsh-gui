@@ -14,9 +14,9 @@
 | 形态 | 浏览器 overlay，无桌面模式 | 浏览器 overlay + **可选** Electron 透明桌面小窗 |
 | Loader entry id | `pet` | `pet` |
 | webserver 路由 | `/api/pet` | `/dsh-pet-7340`（v0.1.8 起；旧版 `/pet`） |
-| 本仓库 wrapper | ~~`plugins/dsh-web-ui`~~（已移除安装） | `plugins/dsh-pet`（npm `dsh-pet@0.2.9`） |
+| 本仓库 wrapper | ~~`plugins/dsh-web-ui`~~（已移除安装） | `plugins/dsh-pet`（npm `dsh-pet@0.3.1`） |
 | 安装状态 | 未安装 | **默认安装**（wrapper 不再传 `skip`；安装后注入 `display:"web"` 桌面屏蔽） |
-| 用户配置 | `$DSH_HOME/pet.json` | `$DSH_HOME/dsh-pet/main-config.json` |
+| 用户配置 | `$DSH_HOME/pet.json` | `$DSH_HOME/dsh-pet/main-config.jsonc`（旧的 `main-config.json` 仍被读取并在启动时迁移） |
 
 > 本仓库默认 profile（检测于 2026-09-13）：PC2005 `dsh-pet` 已安装（依赖 `dsh-pet`、
 > bundles 含 `dsh-pet`、`node_modules/dsh-pet` 存在）；鲸鱼娘 `@linxin666/dsh-pet`
@@ -27,11 +27,11 @@
 | 症状（启动/运行） | 可能原因 | 处置 |
 | --- | --- | --- |
 | `duplicate loader entry id: pet` / `failed to apply loader entry pet`，Harness 无法启动 | 同一 profile 里 `@linxin666/dsh-pet` 与 `dsh-pet`（或手工 patch 行）**同时**用 entry `pet` | §3.1 → 卸载其一（建议卸鲸鱼），§4.1 |
-| `webserver: duplicate prefix route "/pet"` | 装了 **<0.1.8** 的 PC2005 `dsh-pet`（旧路由 `/pet`）且与其它 `/pet` 插件共存 | 升级到 ≥0.1.8（现 v0.2.9）；参考上游 issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)（已修复，0.1.8 起 `/dsh-pet-7340`） |
-| 加载 plugin `dsh-pet` 报 `missed the module table` / client 失败 | 早期记录（v0.1.2-rc.1 harness）下，发布包声明层 `dsh.client.inject` 里的 `@deepseek-ai/dsh-client-runtime` 边 | 当前 pinned harness（dsh-v0.1.5-rc.2）下默认安装即可：该边只是模块图排序信息，client 半的本地 inject 不含该运行时（§4.2） |
-| `pet` 插件行停在 PENDING / 不激活 | 本 harness（dsh-v0.1.5-rc.2）中 `agentDefaultModel` 服务由 base bundle 提供，host 半可激活 | 若仍 PENDING，按 `dsh --dump-config` 核对其余 inject 服务（webServer/credentials/llm/commands）；注意 v0.2.8 起 client 半本地 inject 增加了 `commandUi`（§4.2） |
-| 系统通知不弹 / 控制台报 `api.events` 相关错误 | v0.2.9 起通知改走 host 转发（`session/event` / `agent/error` → `/dsh-pet-7340/notify` 轮询）；旧版本仍用 DSH 0.1.5 已移除的 `ctx.connection.api.events.mux/host` | 升级到 v0.2.9 并重启；浏览器权限由 dsh-gui 壳层 WebView2 授权弹窗处理（见 `src-tauri/src/views.rs`） |
-| 碎碎念 / 对话没有配图 | v0.2.9 新开关 `whisperImageEnabled` / `chatImageEnabled` 默认**关闭**；开启后还需发布包内含 `assets/memes/`（上游 `prepack-check.js` 强制校验） | 属正常默认；需要配图时在设置页开启对应开关 |
+| `webserver: duplicate prefix route "/pet"` | 装了 **<0.1.8** 的 PC2005 `dsh-pet`（旧路由 `/pet`）且与其它 `/pet` 插件共存 | 升级到 ≥0.1.8（现 v0.3.1）；参考上游 issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)（已修复，0.1.8 起 `/dsh-pet-7340`） |
+| 加载 plugin `dsh-pet` 报 `missed the module table` / client 失败 | 发布包的 `dsh.client.inject` 声明了模块表里没有的模块 | 当前 pinned harness（dsh 0.2.0-rc.2）下默认安装即可：`dsh.client.inject` 只是模块图排序信息（client-modules 只解析 `dsh.client.external` 边），缺失不影响加载；v0.3.1 该声明只列 `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载），client 半的本地 inject 为 `slots / locale / connection / remote / remote.commands / commandUi`（§4.2） |
+| `pet` 插件行停在 PENDING / 不激活 | host 半 inject 为 `webServer / agentDefaultModel / credentials / llm / commands`，服务由 base 与 web-app bundle 提供，正常组合下可激活 | 若仍 PENDING，按 `dsh --dump-config` 核对上述 inject 服务是否缺失；`commandUi` 由 web-app bundle 挂载，`/pet` 选择框需其就绪（§4.2） |
+| 系统通知不弹 / 控制台报 `api.events` 相关错误 | 通知走 host 转发（`session/event` / `agent/error` → `/dsh-pet-7340/notify` 轮询）；装了用 DSH 0.1.5 已移除的 `ctx.connection.api.events.mux/host` 的旧版本 | 升级到 v0.3.1 并重启；浏览器权限由 dsh-gui 壳层 WebView2 授权弹窗处理（见 `src-tauri/src/views.rs`） |
+| 碎碎念 / 对话没有配图 | 配图开关 `whisperImageEnabled` / `chatImageEnabled` 上游内置默认**开启**；取图还要求发布包内含 `assets/memes/`（上游 `prepack-check.js` 强制校验），用户层显式写 `false` 即关闭 | 需要配图时在设置页开启对应开关；确认用户层未把该字段写成 `false` |
 | 意外出现独立 Electron 小窗 / 自动下载 Electron 到 `$DSH_HOME/electron/` | 某宠物 `display` 为 `desktop`/`both`（内置默认是 `both`） | §3.2 注入 `display:"web"`；已有窗口需重启或保存一次设置页才停 |
 | 设置卡提示"命名空间未暴露" | 只有鲸鱼娘 family 插件依赖 `webUiSettings` 桥；PC2005 `dsh-pet` 用自己的 `/dsh-pet-7340/config`，不依赖该桥 | 与 `dsh-pet` 无关；若要鲸鱼娘设置卡需装 `@linxin666/dsh-client-ui-web-ui-settings`（由 `plugins/dsh-web-ui` wrapper 默认安装 `0.3.22`） |
 
@@ -45,9 +45,10 @@ $p.dsh.profile.bundles | Select-String 'pet'                        # bundle 层
 Select-String -Path .dsh\profiles\web\cordis.patch.yml -Pattern 'pet' -SimpleMatch   # 手工行
 
 # 3.2 桌面模式当前生效宠物（display 决定是否拉 Electron）
-Get-Content .dsh\dsh-pet\main-config.json                          # 不存在 = 未注入
-$cfg = Get-Content .dsh\dsh-pet\main-config.json -Raw | ConvertFrom-Json
-$cfg.pets | Select-Object id, display, size
+# 生效文件优先 main-config.jsonc，回落到迁移前的 main-config.json
+$f = '.dsh\dsh-pet\main-config.jsonc'; if (-not (Test-Path $f)) { $f = '.dsh\dsh-pet\main-config.json' }
+Get-Content $f -ErrorAction SilentlyContinue                          # 不存在 = 未注入
+(Get-Content $f -Raw | ConvertFrom-Json).pets | Select-Object id, display, size   # 文件含 JSONC 注释时改用文本查看
 
 # 3.3 node_modules 残留
 Test-Path .dsh\profiles\web\node_modules\dsh-pet
@@ -77,19 +78,23 @@ node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove @linxin666
 
 ```powershell
 $env:DSH_HOME = 'E:\Git\dsh-gui\.dsh'
-node plugins/dsh-pet/install.mjs        # npm 受管安装 dsh-pet@0.2.9 + 注入桌面屏蔽配置
+node plugins/dsh-pet/install.mjs        # npm 受管安装 dsh-pet@0.3.1 + 注入桌面屏蔽配置
 ```
 
-> 自 v0.2.6 起 wrapper 不再向 `installNpmPlugin` 传 `skip`：`npm run install:plugins`
-> / `npm run build` 默认安装，无需 `DSH_PLUGIN_FORCE_INSTALL`。v0.2.9 的 host 半
-> inject 与 0.2.6 起相同（未新增服务）；client 半本地 inject 增加 `commandUi`（官方
-> `dsh-client-ui-commands` 的「/」命令服务，随 web-app bundle 挂载）——本 harness
-> 提供该服务，`/pet` 选择框注册有保障。系统通知自 v0.2.9 起改走 host 转发通道
-> （host 半监听 `session/event` / `agent/error`，浏览器半轮询 `/dsh-pet-7340/notify`），
-> 不再使用 DSH 0.1.5 已移除的 `ctx.connection.api.events.mux/host`；v0.2.9 新增的
-> 配图开关与 `memes` 段由内置默认值提供，wrapper 不注入。client 半声明层的
-> `@deepseek-ai/dsh-client-runtime` 只是模块图排序信息（client-modules 只解析
-> `dsh.client.external` 边），缺失不影响加载。
+> wrapper 不向 `installNpmPlugin` 传 `skip`：`npm run install:plugins` /
+> `npm run build` 默认安装，无需 `DSH_PLUGIN_FORCE_INSTALL`。v0.3.1 的 8 条
+> `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖当前 pinned harness
+> （dsh 0.2.0-rc.2）的准入闸门，因此不需要精确版本例外；升级后可在 profile 的
+> `compatibility.json` 里删掉 `dsh-pet@<旧版本>` 的例外条目。host 半 inject 为
+> `webServer / agentDefaultModel / credentials / llm / commands`；client 半本地
+> inject 为 `slots / locale / connection / remote / remote.commands / commandUi`，
+> `commandUi`（官方 `dsh-client-ui-commands` 的「/」命令服务，随 web-app bundle
+> 挂载）就绪后 `/pet` 选择框才注册。系统通知走 host 转发通道（host 半监听
+> `session/event` / `agent/error`，浏览器半轮询 `/dsh-pet-7340/notify`）。用户层
+> 配置为 `main-config.jsonc`，迁移前的 `main-config.json` 由插件在启动时重命名。
+> client 半声明层的 `dsh.client.inject` 只列
+> `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载），是模块图排序
+> 信息（client-modules 只解析 `dsh.client.external` 边），缺失不影响加载。
 
 ### 4.3 清理 npm 安装登记残留（运行时缓存，仅美观）
 
@@ -109,9 +114,10 @@ Set-Content $f ($arr | ConvertTo-Json) -Encoding utf8
 
 ```powershell
 # 重新注入（删除后重跑 install.mjs 会重建 display:"web" 的默认宠物）
+Remove-Item .dsh\dsh-pet\main-config.jsonc -ErrorAction SilentlyContinue
 Remove-Item .dsh\dsh-pet\main-config.json -ErrorAction SilentlyContinue
 node plugins/dsh-pet/install.mjs        # 仅当插件已装进 profile 才写
-# 手动改 display 即恢复桌面：把 main-config.json 里宠物的 display 改为 desktop / both
+# 手动改 display 即恢复桌面：把用户层配置里宠物的 display 改为 desktop / both
 ```
 
 > 时序提醒：`hasDesktopPet` 只在插件**激活**与设置页保存（PUT/DELETE，触发
@@ -134,13 +140,14 @@ Test-Path .dsh\profiles\web\node_modules\dsh-pet          # True
 Test-Path .dsh\profiles\web\node_modules\@linxin666\dsh-pet  # False（鲸鱼娘已不安装）
 Select-String -Path .dsh\profiles\web\cordis.patch.yml -Pattern 'pet' -SimpleMatch  # 无输出（bundle 层挂载，无手工行）
 # 桌面屏蔽生效
-(Get-Content .dsh\dsh-pet\main-config.json -Raw | ConvertFrom-Json).pets.display  # web
+$f = '.dsh\dsh-pet\main-config.jsonc'; if (-not (Test-Path $f)) { $f = '.dsh\dsh-pet\main-config.json' }
+(Get-Content $f -Raw | ConvertFrom-Json).pets.display  # web
 # 重启后无 pet 相关 FAILED / PENDING fiber
 ```
 
 ## 6. 相关文件速查
 
-- wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；子模块 `plugins/dsh-pet/dsh-pet`（pin v0.2.9）
+- wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；子模块 `plugins/dsh-pet/dsh-pet`（pin v0.3.1）
 - 安装实现（wrapper 内）：`plugins/dsh-pet/install.mjs` 的 `installNpmPlugin` 调用（精确版本，不传 `skip`）；登记与通用机制：`scripts/plugin-install.mjs`（`recordNpmInstall`、`skipInstall`）
 - 更新检查：`docs/dsh-gui/update-check.md`、`src-tauri/src/update.rs`
 - 上游：`https://github.com/PC2005-cloud/dsh-pet`（issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16) = 路由冲突，已修）

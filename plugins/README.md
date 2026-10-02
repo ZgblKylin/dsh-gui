@@ -66,8 +66,9 @@ exemption is keyed by exact package version and exact runtime version, so the
 next harness change invalidates it instead of carrying the accepted risk
 forward. No wrapper currently grants one: a package whose
 installed version already admits the 0.2 line does not — the deep-whale skins
-needed one at `v0.1.6` and their `v0.1.7` peers admit 0.2.0-rc.2, so this
-wrapper no longer grants it.
+needed one at `v0.1.6` and their `v0.1.7` peers admit 0.2.0-rc.2, so that
+wrapper no longer grants it, and `dsh-pet`'s `v0.3.1` peers admit 0.2.0-rc.2, so
+its wrapper no longer does either.
 
 Both paths fast-path an already-satisfied profile. `installNpmPlugin` skips the
 `dsh plugin add` entirely when the package is pinned to an exact version, the
@@ -159,19 +160,19 @@ tree with `duplicate loader entry id`.
   - Auto review（无本地包，官方可选 bundle）：`@deepseek-ai/dsh-experimental-auto-review` 随 dsh 安装提供并列入 harness 的 `OPTIONAL_BUNDLES`，由插件页「自动授权审查」开关写入 `dsh.profile.bundles`，本 wrapper 不安装它
   - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.2.0-rc.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.0-rc.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
   - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.0-rc.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.0-rc.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
-- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.2.12；子模块
-  checkout 仅作源码参考；9 条 `@deepseek-ai/dsh*` peer 全为 `^0.1.1-rc.2`，
-  上界 `<0.2.0-0` 在 0.2.0-rc.2 的准入闸门下被拒，而上游 npm 无适配 0.2 的更新
-  版本，因此带精确版本例外继续挂载），默认安装：host 半 inject 与 0.2.6 起相同，
-  `agentDefaultModel` 由 base bundle 提供；client 半自 0.2.8 起把 `commandUi`
-  （官方 dsh-client-ui-commands 的「/」命令服务，随 web-app bundle 挂载）加进
-  本地 inject，本 harness 提供该服务，`/pet` 选择框注册有保障；系统通知自 0.2.9
-  起改走 host 转发通道（`session/event` / `agent/error` + `/dsh-pet-7340/notify`
-  轮询），不再用 DSH 0.1.5 已移除的 `api.events.mux/host`；声明层的
-  `@deepseek-ai/dsh-client-runtime` 只是模块图排序信息（client-modules 只解析
-  `dsh.client.external` 边），缺失不影响加载。0.2.10–0.2.12 是桌面 helper 的
-  健壮性修复与素材加载/设置页保存修复，host 半 inject 未变。安装后自动向用户配置
-  注入 `display:"web"` 屏蔽桌面 Electron 模式（见
+- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.3.1；子模块
+  checkout 仅作源码参考；8 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，
+  覆盖 0.2.0-rc.2 的准入闸门，无需精确版本例外），默认安装：host 半 inject 为
+  `webServer / agentDefaultModel / credentials / llm / commands`，
+  `agentDefaultModel` 由 base bundle 提供；client 半的本地 inject
+  （`src/client/app.ts`）为 `slots / locale / connection / remote /
+  remote.commands / commandUi`，其中 `commandUi`（官方 dsh-client-ui-commands
+  的「/」命令服务，随 web-app bundle 挂载）就绪后 `/pet` 选择框才注册；声明层
+  `dsh.client.inject` 只列 `@deepseek-ai/dsh-client-connection`（随 web-app
+  bundle 挂载）；系统通知走 host 转发通道（host 半监听 `session/event` /
+  `agent/error`，把帧落在 `/dsh-pet-7340/notify`，浏览器半每秒轮询该路由）。
+  用户层配置为 `$DSH_HOME/dsh-pet/main-config.jsonc`，安装后自动注入
+  `display:"web"` 屏蔽桌面 Electron 模式（见
   [dsh-pet/README.md](dsh-pet/README.md)）
 
 ## Current plugins
@@ -277,27 +278,24 @@ tree with `duplicate loader entry id`.
   (`@linxin666/dsh-session-archive`) are no longer installed. It does not
   install agent presets or any other dsh-web-ui package. See
   `dsh-web-ui/README.md`.
-- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.2.12)
+- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.3.1)
   at `dsh-pet/dsh-pet`: a floating desktop pet whose host half runs inside
   DSH and whose optional desktop mode spawns per-pet transparent Electron
-  windows. The wrapper installs the package from npm as `dsh-pet@0.2.12` (its
-  nine `@deepseek-ai/dsh*` peers are `^0.1.1-rc.2`, rejected by 0.2.0-rc.2's
-  admission gate, and upstream npm has no 0.2-compatible release, so the wrapper
-  grants an exact-version exemption), then
+  windows. The wrapper installs the package from npm as `dsh-pet@0.3.1` (its
+  eight `@deepseek-ai/dsh*` peers are `^0.2.0-rc.1`, so 0.2.0-rc.2's admission
+  gate admits it and no exact-version exemption is granted), then
   injects a user-layer default pet with `display:"web"` into
-  `$DSH_HOME/dsh-pet/main-config.json` (unless a `display` is already
+  `$DSH_HOME/dsh-pet/main-config.jsonc` (or the legacy `main-config.json` when
+  that is the file on disk, unless a `display` is already
   configured) — so no pet resolves to `desktop`/`both` and no Electron helper
   process is launched or downloaded. It installs by default: the host half's
-  injection is unchanged from 0.2.6 (`agentDefaultModel` is provided by the base
-  bundle, and 0.2.12 adds no injected service), and 0.2.8's client half adds
-  `commandUi` to its own inject — the `/` command service
-  `dsh-client-ui-commands` mounts with the web-app bundle, so the `/pet`
-  selector registers; 0.2.9 relays system notifications through the host
+  injection is `webServer / agentDefaultModel / credentials / llm / commands`
+  (`agentDefaultModel` comes from the base bundle), the client half's own
+  inject adds `commandUi` — the `/` command service `dsh-client-ui-commands`
+  mounts with the web-app bundle, so the `/pet` selector registers — and
+  system notifications are relayed through the host
   (`session/event` / `agent/error` consumed by the host half, polled by the
-  browser half over `/dsh-pet-7340/notify`) instead of the `api.events.mux/host`
-  API removed in DSH 0.1.5; the declared `@deepseek-ai/dsh-client-runtime`
-  edge is module-graph ordering metadata only and its absence does not block
-  loading. See `dsh-pet/README.md`.
+  browser half over `/dsh-pet-7340/notify`). See `dsh-pet/README.md`.
 - `harness` — a single flat wrapper at `harness/` that owns the official
   dsh-family plugins it installs: `install.mjs` only loads the sibling installers
   `browser-use.mjs` and `computer-use.mjs`, so the group stays
