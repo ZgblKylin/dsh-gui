@@ -230,8 +230,25 @@ profile 中安装的 agent-team bundle、皮肤、插件市场系列等不会自
 - 不提供 Windows 端点、自动配置远端环境、重连或重放；连接丢失会使待处理操作失效，
   客户端如实报告未确认结果，绝不通过重连重放可能已执行的操作。Windows 上只能把
   harness 放进 POSIX 环境运行，或改用 dsh-remote 的「远端完整 dsh + SSH 端口转发」模型。
+- Windows 上的 Electron desktop 与该家族不能共存：desktop 的打包目标只有 `win-x64`、
+  `mac-arm64`、`mac-x64`，没有 Linux 目标，因此无法放进 WSL；它的 harness 又是 desktop
+  自带的 Electron（Node 模式）二进制拉起的平台原生子进程，并且没有连接外部 harness 的
+  能力。需要 GUI 与远端执行并存时，把 harness 放在 POSIX 环境（例如 WSL）运行，再由
+  Windows 侧经 dsh-remote 的远端连接，或经 WSL2 的 `127.0.0.1` 转发访问它的 Web UI。
 - Web 工作区视图仍假定可访问主机文件系统；SSH 组合面向 headless 与所有消费方都遵守
-  提供方路径语义的自定义组合。
+  提供方路径语义的自定义组合。具体表现是作用域分裂：工作区实体本身是主机目录——目录
+  选择器 `@deepseek-ai/dsh-directory-picker-browse` 用 `node:fs/promises` 与 `homedir()`
+  列主机目录，其契约也写明 `DirectoryEntry.path` 是主机绝对路径；`@deepseek-ai/dsh-workspace`
+  只注入 `storageDomain` 与 `sessionPersistence`，用 `node:fs` 的 `realpath` 与 `stat`
+  在主机上校验工作区路径（相对路径与不存在的目录都拒绝，自动初始化时还用 `mkdir` 建主机
+  目录）。而工作区里的文件面板、变更视图与文件 API 走 `ctx.fs`，作用于远端。因此远端
+  独有的路径无法建成工作区，只有两端存在同名路径时才自洽。上游决策记录把缺失的部分记为
+  「更广泛的 Web 支持需要由提供方负责的工作区资源」，见
+  `.agents/notes/implemented/architecture/2026-09-11-posix-ssh-runtime.zh.md` 的「延后工作」。
+- SSH 家族本身不开放任何监听端口。要让 harness 对外提供 Web UI，profile 里必须有 Web
+  app 层（`@deepseek-ai/dsh-web-app` 的 `webserver` 行，默认 `127.0.0.1:3080`，可用
+  `--port` 改端口）。这样的组合可以启动（Web app 与 SSH 提供方同 profile 共存），但
+  `dsh web` 的页面需要启动时打印的 `?token=` 才能加载，裸端口返回 401。
 - 文件效果限制不约束网络访问或进程可见性；远端 `partial` 沙箱后端仍属于部分执行。
   SSH 主机与已安装辅助程序属于可信基础设施，摘要检查与文件效果限制不构成对抗恶意
   主机的安全边界。
