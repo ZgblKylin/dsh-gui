@@ -551,7 +551,9 @@ async function rpc(op, args) {
 }
 
 /* ── New-connection dialog ─────────────────────────────────── */
-let connType = "local";
+// Selected connection card. The dialog offers the SSH and Docker cards; saved
+// records may still carry `local`, whose backend the host half keeps serving.
+let connType = "remote";
 let serverKeyPath = null;
 // Generation counter invalidates in-flight connect attempts when the user
 // cancels, so a late-resolving RPC never adds a tab or repaints a closed dialog.
@@ -635,7 +637,8 @@ function setConnType(type) {
   $("conn-docker-user-workdir-wrap").classList.toggle("hidden", !docker);
   $("conn-docker-env-wrap").classList.toggle("hidden", !docker);
   $("conn-docker-startcmd-wrap").classList.toggle("hidden", !docker);
-  // `端口` means a different thing per backend, so the label follows the card.
+  // `端口` means a different thing per backend, so the label follows the card;
+  // a saved `local` record selects no card and keeps the plain label.
   $("conn-port-label").textContent = remote
     ? "端口（远端 dsh 监听）"
     : docker
@@ -666,7 +669,8 @@ function resetConnForm() {
   serverKeyPath = null;
   $("conn-connect").disabled = false;
   $("conn-connect").textContent = "连接";
-  setConnType("local");
+  // A new connection starts on the first card of the dialog.
+  setConnType("remote");
 }
 
 function openConnection() {
