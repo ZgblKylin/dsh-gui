@@ -142,7 +142,7 @@ tree with `duplicate loader entry id`.
 未标注源码安装的，均使用`dsh plugin --profile <profile> add <package>`安装npm包，package参数见列表。
 标注源码安装的，基于源码编译后，基于link模式引入源码安装。
 
-- [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.66.5`；1.66.4 起把 `@deepseek-ai/dsh-settings` peer 纳入 0.2 线，属硬下限：1.65.3 的 peer 范围被 0.2.0-rc.2 的准入闸门拒绝，安装前置检查直接失败）
+- [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.66.8`；1.66.4 起把 `@deepseek-ai/dsh-settings` peer 纳入 0.2 线，属硬下限：1.65.3 的 peer 范围被 0.2.0-rc.2 的准入闸门拒绝，安装前置检查直接失败）
 - [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**0.24.1** 的 14 条 `@deepseek-ai/dsh-*` peerDeps 全指 `^0.2.0-rc.1`，与本工程 pinned 的 `dsh-v0.2.0-rc.2` 匹配；0.21.1 的 `^0.1.7-rc.1` 上界不含 0.2.0，会被 0.2.0 的准入闸门整包拒绝），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.24.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），install.mjs 先装本插件再装下方的 dsh-sidebar-qa
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `1.1.0`；1.1.0 是纯元数据修复版，peer 由 `^0.1.0-rc.8` 改为纯下限 `>=0.1.0-rc.8`，caret 上界 `<0.2.0-0` 过不了 0.2.0 的准入闸门；v1.0.0 起收敛为原生单后端，并在 manifest 层移除了 `dsh-better-sidebar` peer；按 DSH 0.1.7 重命名后的图标集按名解析宿主图标）
 - [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) npm包（pin 子模块 tag `v0.1.7`，分包 pin：maid-atelier 与 orca-link 各 `0.1.7`、skin-manager `0.1.6`（上游该 tag 的发布提交即「0.1.7 皮肤 + 0.1.6 管理包」）；`@smalltailqwq/dsh-client-ui-skin-*` 三包按上游 INSTALL.md 顺序安装，两块皮肤在此 tag 把 `@deepseek-ai/dsh` peer 放宽到 `>=0.1.7-rc.1 <0.3.0-0`、`skin.json` 记 `dshCompatibility: 0.2.0rc2`，0.2.0-rc.2 的准入闸门不再拒绝，v0.1.6 用的精确版本例外随之撤销；manager 的 peer `>=0.1.7-rc.1` 无需例外；并清理旧 `@dsh-external/*` 占位 scope 的残留键）
@@ -216,7 +216,7 @@ tree with `duplicate loader entry id`.
     `README.md`.
 - `plugin-market` — git submodule (`dsh-market/dsh-market`) at
   `plugin-market/dsh-market`: visual plugin market (browse/search/one-click
-  install community plugins). It is installed from npm as `dshmarket@1.66.5`
+  install community plugins). It is installed from npm as `dshmarket@1.66.8`
   (pinned to the submodule tag; per the 安装方式 section; the version is a hard
   floor, because 1.66.4 admitted the 0.2 line and 1.65.3's
   `@deepseek-ai/dsh-settings` peer range is rejected by 0.2.0-rc.2's admission
