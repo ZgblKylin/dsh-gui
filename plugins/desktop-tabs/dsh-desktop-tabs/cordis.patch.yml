@@ -1,0 +1,7 @@
+# dsh-desktop-tabs bundle patch: registers the desktop tab-strip loader entry.
+# Applied when a profile lists dsh-desktop-tabs in dsh.profile.bundles; the
+# host half serves `/desktop-tabs/api/tabs` and the browser half mounts the
+# strip. The row id matches `dsh.gui.mountId` in package.json.
+- insert:
+    - id: desktop-tabs
+      name: dsh-desktop-tabs

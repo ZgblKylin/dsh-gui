@@ -1,0 +1,43 @@
+{
+  "name": "dsh-desktop-tabs",
+  "description": "Desktop-shell prototype: a host tab strip anchored to the Windows caption menu, where each remote tab is one leased <webview> that is destroyed when switched away from",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    },
+    "gui": {
+      "mountId": "desktop-tabs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "watch": "tsdown --watch"
+  },
+  "license": "Unlicense",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.6.0"
+  }
+}
