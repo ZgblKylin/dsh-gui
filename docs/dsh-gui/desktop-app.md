@@ -20,7 +20,7 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 6. 执行 `pnpm run package:desktop:win:x64:unsigned -- --dir`。
 7. 把 `unsigned-artifacts\win-unpacked` 的内容落位到 `<runtime-root>\desktop`。
 8. 编译 shim，产出 `<runtime-root>\dsh-gui-desktop.exe`。
-9. 把 `plugins/<id>/install.mjs` 逐个安装到 desktop profile，目标目录是 `<runtime-root>\.dsh\profiles\desktop`。
+9. 把 `plugins/<id>/install.mjs` 逐个安装到 desktop profile，目标目录是 `<runtime-root>\.dsh\profiles\desktop`；其中 `plugins/auto-update/install.mjs` 是 desktop-only 插件，非 desktop profile 只打印 skip 并退出 0（见下节）。
 
 `npm run build:desktop` 的旗标：
 
@@ -34,7 +34,7 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 
 ### `npm run desktop`
 
-该命令以 `DSH_HOME=<runtime-root>\.dsh` 启动 `<runtime-root>\desktop\DeepSeek Harness.exe`。
+该命令以 `DSH_HOME=<runtime-root>\.dsh` 启动 `<runtime-root>\desktop\DeepSeek Harness.exe`，并注入 `DSH_GUI_ROOT=<仓库根>`，让需要定位检出的插件（desktop 自动更新插件）无需从 `cwd` 向上查找。
 
 ### shim 入口
 
@@ -45,6 +45,8 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 ## desktop profile 与插件安装
 
 第 9 步把 `plugins/<id>/install.mjs` 逐个安装到 desktop profile，目标目录是 `<runtime-root>\.dsh\profiles\desktop`。
+
+安装脚本的 profile 范围由 wrapper 自己决定：`plugins/auto-update/install.mjs`（包 `dsh-auto-update`）是 desktop-only 插件，`DSH_PLUGIN_PROFILE` 不是 `desktop` 时只打印一行 skip 并退出 0，不写任何 profile，因此 `npm run install:plugins` 与 web profile 的组合都不受影响。它给 desktop 应用带来标题栏最右侧、窗口按键之前的「更新」入口与更新对话框（检测、就地 git 更新、更新日志、AI 更新），当前态见 [desktop-auto-update.md](desktop-auto-update.md)。
 
 desktop profile 只能由 Desktop 自带的 CLI 管理，即 `<runtime-root>\desktop\resources\runtime\cli\bin\dsh.cmd`；普通 `dsh --profile desktop` 会被拒绝。profile 未初始化时该 CLI 同样拒绝并提示先启动一次 Desktop，因此第 9 步在 profile 缺失时以隐藏窗口启动一次落位的应用，等 profile 文件生成后结束该实例，再执行安装。
 

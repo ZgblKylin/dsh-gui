@@ -731,6 +731,12 @@ export function buildDesktop(options = {}) {
  * desktop app use this installation's profile store: the app creates its own
  * `profiles/desktop` beside the existing `profiles/web` instead of starting an
  * unrelated home.
+ *
+ * `DSH_GUI_ROOT` points at the repository, the same pin `scripts/harness.mjs`
+ * exports for the shell's backend: plugins that need the checkout (the desktop
+ * auto-update plugin resolves the repository to run `git` against it) read this
+ * instead of walking up from `cwd`, which for a landed app under the runtime
+ * root would never reach the repository.
  */
 export function runDesktop() {
   const exe = join(LANDING, APP_EXE)
@@ -739,7 +745,7 @@ export function runDesktop() {
   }
   const child = spawn(exe, [], {
     cwd: LANDING,
-    env: { ...process.env, DSH_HOME: WEB_HOME },
+    env: { ...process.env, DSH_HOME: WEB_HOME, DSH_GUI_ROOT: ROOT },
     detached: true,
     stdio: 'ignore',
     // Deliberately no `windowsHide`: on Windows Node spawns with

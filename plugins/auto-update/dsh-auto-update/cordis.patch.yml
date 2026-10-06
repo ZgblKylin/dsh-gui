@@ -1,0 +1,7 @@
+# dsh-auto-update bundle patch: registers the desktop auto-update loader entry.
+# Applied when a profile lists dsh-auto-update in dsh.profile.bundles; the host
+# half serves the `/auto-update/api/*` routes and the browser half mounts the
+# update button and dialog. The row id matches `dsh.gui.mountId` in package.json.
+- insert:
+    - id: auto-update
+      name: dsh-auto-update

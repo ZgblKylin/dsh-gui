@@ -1,0 +1,134 @@
+# desktop 端的 auto update 迁移方案
+
+本文件记录把 dsh-gui 外壳的「自动更新」迁移到 desktop 端的现状核查、约束与分阶段范围。上游结论见 [2026-10-02-desktop-plugin-injection.md](2026-10-02-desktop-plugin-injection.md)。
+
+## 现状：更新逻辑在外壳里，不在插件里
+
+| 位置 | 规模 | 职责 |
+|---|---|---|
+| `src-tauri/src/update.rs` | 1813 行 | 模块发现（根仓库 + 子模块）、`.gitmodules` 解析与子模块 URL 漂移修复、npm registry 发布状态、标签/提交比较与「不降级」判定、默认分支解析、GitHub Releases 页面解析、冷启动预览与完整检查、待更新计划落盘、**生成并分离启动更新器脚本**（模板编译进二进制，临时副本执行，Windows 开独立 PowerShell 控制台，脚本内烘入 dsh-gui/harness 的 PID 以等待其退出）、按项目选择 commit/tag 目标、就地更新根仓库（`git submodule update --init --recursive`） |
+| `src-tauri/src/changelog.rs` | 1414 行 | 拉取并汇总更新日志 |
+| `src-tauri/ui/app.js` | 379 处 `update` 引用 | 更新对话框：模块行、本地/远端版本列、每行「更新 / AI 更新 / 更新日志」、总进度与日志、toast |
+| `src-tauri/src/main.rs` | 命令注册 | `local_update_projects` / `cached_update_status` / `check_updates` / `start_update` / `update_root` / `update_changelog` / `ai_update_request` / `ai_update_result` |
+
+`plugins/ai-update`（`dsh-ai-update`）已经是插件：它监听顶层 `window` 的 `dsh-gui:ai-update` 消息（协议 v1，字段 `requestId` / `prompt`），选中「创造模式」预设、把提示词填进 composer，并用 `dsh-gui:ai-update-result` 回执。**该插件已装在 desktop profile 里**（与 `dsh-desktop-tabs`、`dsh-remote` 同批，共 19 个依赖）。
+
+因此「AI 更新新建会话」这一半基本可以直接复用：迁移后的插件只需在顶层派发同样的消息（`window.parent === window`），回执走同一条通道。
+
+## 两个硬约束
+
+1. **无法往官方「应用」菜单里加入口**。该菜单由外壳 preload 创建（[preload-menu.ts](../../deepseek-harness/apps/desktop/src/preload-menu.ts)），只有固定的「应用 / 编辑」两个按钮，弹出的是外壳的原生菜单（`show_window_menu`），插件没有任何注入点——与标签页那条结论一致。入口只能落在插件自己的 UI：标题栏带内、紧挨菜单右侧（标签条的做法），或做成标签条上的一个控件。
+2. **「重启并更新」与「更新后要重 build」在 desktop 端不同**。外壳把更新器脚本分离启动、等自己退出后执行 git 更新再重启自己；desktop 应用是运行时根下解包好的产物，仓库更新后还需要 `npm run build`（重装 harness 运行时与插件）才能生效，`apps/desktop` 变更才需要 `npm run build:desktop`。这条流程要在方案里显式设计，不能照搬。
+
+## 可平移 vs 需要重写
+
+| 能力 | 判定 | 说明 |
+|---|---|---|
+| 更新对话框的交互与信息结构 | **可平移**（重写为客户端插件 UI） | 行模型（模块、当前版本、目标版本、状态、GitHub 链接）与「更新 / AI 更新 / 更新日志」动作都可照搬 |
+| 背景检测更新 | **需重写**（改为 host 半 Node） | 语义可平移（fetch + ahead/behind + 标签比较 + 不降级判定），但实现是 Rust 调 git；Node 侧直接调 git 更简单 |
+| 子模块 URL 漂移修复、npm 发布状态、默认分支解析 | **需重写**，可按需裁剪 | 属于长期踩坑积累，首版可先不做，遇到再补 |
+| 更新日志 | **需重写**（可选） | 1414 行里大量是抓取与摘要细节；首版可只给 GitHub Releases 链接 |
+| AI 更新新建会话 | **直接复用** | 派发 `dsh-gui:ai-update` 消息即可，`dsh-ai-update` 已具备 |
+| 分离式更新器 + 重启 | **需重新设计** | desktop 端要自己拉起分离进程、等应用退出、执行 git 更新与 `npm run build`，再重启应用 |
+| 就地更新根仓库（对话框内） | **可平移** | `git ff` + `git submodule update --init --recursive` 在 Node 里等价 |
+
+## 分阶段范围
+
+- **S1 检测 + 入口 + 对话框（只读）**：host 半新增 `GET /desktop-tabs/api/update/status`（或独立插件路由），做根仓库与子模块的 fetch / ahead-behind / 标签比较；client 半在标题栏带菜单右侧加「更新」入口与对话框，展示行与状态，提供「检测」「更新日志（外链）」「AI 更新」。不写仓库。
+- **S2 执行更新**：对话框内「更新」执行根仓库 ff + 子模块递归同步，逐行回显日志；完成后提示需要 `npm run build`（desktop 端还要重启应用）。是否遵循 [dsh-gui-update](../official/../../.agents/skills/dsh-gui-update/SKILL.md) 的「先在 `.staging/dsh-gui` 验证」策略由用户决定（外壳现在的流程是直接更新）。
+- **S3 分离式更新 + 重启 + AI 更新回执**：生成分离更新器（等应用退出 → git 更新 → `npm run build` → 重启应用），并把 `dsh-gui:ai-update` 的派发与回执接上（复用 `dsh-ai-update`）。
+
+## 范围冻结（2026-10-05 用户确认）
+
+- **只做 S1 + S2**：检测更新 + 对话框 + 就地执行更新。不做 S3 的分离式更新器与自动重启；更新完成后由用户手动执行 `npm run build:desktop`，与 dsh-gui 原有模式一致（外壳提示的是 `npm run build`，desktop 端换成 `build:desktop`）。
+- **入口位置**：标题栏**最右侧、窗口按键之前**（照搬 dsh-gui 的位置），不是菜单右侧。注意右侧宽度要避开原生窗口按键区（`titleBarOverlay` 占位，Windows 约 138px）。
+- **更新日志一并迁移**：每行可查看本次更新带来的内容——有 tag 且 origin 是 GitHub 时取该 release 的说明；否则回退到提交列表（`git log`）。首版不做 AI 摘要。
+- S2 更新策略：**直接 git 更新**（根仓库 ff + 子模块递归同步，按项目选择 commit/tag 目标），不强制走 `.staging` 验证。
+
+## 待确认（已由用户回答，保留备查）
+
+1. 按 S1 → S2 → S3 推进 → **改为只做 S1 + S2**。
+2. S2 策略 → **直接 git 更新**。
+3. 更新日志 → **要**。
+4. 入口位置 → **标题栏最右侧、窗口按键之前**。
+
+## 实现方案（2026-10-05 第二轮）
+
+新增插件 `plugins/auto-update/`（wrapper `install.mjs` + 包 `dsh-auto-update`），
+**仅安装到 desktop profile**（与 `plugins/desktop-tabs/install.mjs` 同构，其他 profile
+只打印 skip）。host 半提供检测/更新/更新日志三条路由；client 半在标题栏最右侧画入口
+按钮与对话框。接口契约、文件归属与验收判据冻结在
+[`.work/auto-update/00-contract.md`](../../.work/auto-update/00-contract.md)，
+两端实现者只以该文件为准。
+
+要点：
+
+- **入口位置**：`position: fixed; top: 0; right: var(--dsh-auto-update-controls-width,
+  138px)`，落在 40px 标题栏带内、窗口按键之前；`-webkit-app-region: no-drag`。
+- **AI 更新不重写**：client 半在顶层派发 `dsh-gui:ai-update`（v1）并等
+  `dsh-gui:ai-update-result` 回执，会话创建、工作区选择与「创造模式」预设由已装在
+  desktop profile 的 `dsh-ai-update` 承担。
+- **更新日志**：host 半收集 `git log` 提交列表；`mode=tag` 且 origin 为 GitHub 时优先取
+  该 release 的说明。首版不做 AI 摘要（`dsh-ai-update` 已有 `/dsh-gui-api/changelog`
+  路由，后续可作为可选增强接上）。
+- **不做**：分离式更新器、自动重启、npm 发布状态核对、待更新计划文件；更新完成后由
+  用户在已有 Desktop 实例关闭时手动执行 `npm run build:desktop`。
+- **仓库根解析**：`DSH_GUI_ROOT` → `dirname(DSH_HOME)/dsh-gui` → `dirname(DSH_HOME)`；
+  `scripts/desktop.mjs` 的 `runDesktop()` 增补注入 `DSH_GUI_ROOT`（对齐外壳
+  `runApp()` 的既有做法）。
+
+## 分工（2026-10-05 第二轮）
+
+| 任务 | 归属 | 写范围 | 产出 |
+|---|---|---|---|
+| 脚手架 + host 半 | `host-dev` | `plugins/auto-update/**`（除 `src/client/**`） | 路由、检测、就地更新、更新日志 |
+| client 半 | `client-dev` | `plugins/auto-update/dsh-auto-update/src/client/**` | 入口按钮、对话框、更新日志弹窗、AI 更新派发 |
+| 独立验证 | `verifier` | `.work/auto-update/**` | V1–V10 验证报告（fixture 仓库 + 隔离 desktop 实例） |
+| 脚本与文档 | `docs-scripts` | `scripts/desktop.mjs`、`docs/dsh-gui/**`、插件 README 复核 | `DSH_GUI_ROOT` 注入、文档同步 |
+
+## 进度日志
+
+- 2026-10-05 Lead（第一轮）：完成现状核查（update.rs 1813 行 / changelog.rs 1414 行 / app.js 379 处引用）、确认 `dsh-ai-update` 已装在 desktop profile、确认「应用菜单不可注入」与「重启+重 build 流程不同」两条约束，落地本方案待用户确认范围。
+- 2026-10-05 Lead（第二轮）：确认用户指令（agent team 实施、构建指令改 `build:desktop`、验证后由用户手动 build）；冻结接口契约与文件归属，派发 host/client/验证/文档四条任务。
+- 2026-10-05 verifier（第三轮）：首轮 V1–V10 全通过（278 检查 0 失败）；修复子模块日志文案后复验（V3–V6 191 检查 + V7–V10 62 检查）；补 reset --hard 代价警示后第三轮复验（V7–V10 77 + 惰性 10，0 失败）。
+- 2026-10-05 Lead（收尾）：误在仓库根执行了一次 `npm run build`（本意是构建插件包），已按原状恢复插件产物（与验证过的产物逐字节一致），未改动仓库跟踪文件；该次构建把运行时根的入口 exe 与 web profile 插件重装了一遍，属同一源码的重建，无行为变化。
+
+## 结论
+
+**完成。** 现状文档见 [desktop-auto-update.md](desktop-auto-update.md)，契约与验证判据见
+[`.work/auto-update/00-contract.md`](../../.work/auto-update/00-contract.md)，验证报告见
+[`.work/auto-update/04-verification.md`](../../.work/auto-update/04-verification.md)。
+
+| 项 | 结果 |
+|---|---|
+| 交付 | 新插件 `plugins/auto-update/`（wrapper + 包 `dsh-auto-update`）：三条 host 路由、标题栏入口、更新对话框、更新日志弹窗、AI 更新派发；`scripts/desktop.mjs` 注入 `DSH_GUI_ROOT`；新增 `docs/dsh-gui/desktop-auto-update.md` |
+| 构建 | pinned pnpm（`.toolchain`）`install` + `build` 通过；`lib/index.js` 42294 B、`lib/client.js` 83457 B；删产物重建后逐字节一致 |
+| 功能验证 | V3–V6：23 个 fixture 场景、191 检查、0 失败（含 NDJSON 行序、tag/commit 两种目标、子模块递归同步、changelog 的 Release/提交回退与截断） |
+| UI 验证 | 隔离 desktop 实例（独立 `DSH_HOME` + `--user-data-dir` + 端口覆盖）+ CDP：V7–V10 77 检查 0 失败；入口 `rect{top:0,right:1142,bottom:40}`、`env(titlebar-area-width)=1143` → 不覆盖窗口按键；AI 更新回执 `ok:true`、草稿含本次运行唯一 tag、预设「创造模式」 |
+| 惰性 | 无 `window.dshDesktop` 的页面 0 DOM / 0 样式 / 0 请求（正负向对照 10/10） |
+| 安装面 | 非 desktop profile 只 skip、退出 0、不写 profile（快照前后一致）；纯新隔离 profile 走官方安装后插件挂载正常 |
+| 仓库既有测试 | `npm run test:scripts` 12/12 |
+
+收尾流程与用户约定一致：更新只完成 git 层，对话框底部提示**关闭 Desktop 实例后手动执行
+`npm run build:desktop`**（该命令第 9 步会把本插件装进 desktop profile），随后重启应用。
+
+遗留与未覆盖：
+
+- 未做 AI 摘要版更新日志（首版按范围冻结），复用 `dsh-ai-update` 的
+  `/dsh-gui-api/changelog` 留作后续增强。
+- 未做分离式更新器、自动重启、npm 发布状态核对、待更新计划文件。
+- 未在 macOS/Linux 外壳、真实 `npm run build:desktop`（需关闭正在运行的实例）、
+  AI 更新 60s 无回执超时路径上验证。
+- 更新是 `reset --hard` 语义且**不加二次确认**（与外壳一致），靠对话框常驻警示与两个
+  按钮 tooltip 交代「未提交改动会被丢弃、未跟踪文件保留」。
+
+经验教训：
+
+1. **破坏性操作必须自带代价提示**：首版完整复刻了外壳的交互，但外壳的 `reset --hard`
+   没有二次确认、也没有警示；复核时才补上常驻警示。迁移 UI 时不能只对齐控件，要对齐
+   「用户点下去之前知道什么」。
+2. **契约要写验证者能构造的判据**：V6 原先写「伪造 GitHub origin 且无网络」，离线环境
+   无法构造（git 层先失败），实际改用 `DSH_AUTO_UPDATE_GITHUB_API_BASE` 桩覆盖。
+3. **共享包目录的构建命令必须显式指定 cwd**：Lead 漏了工作目录，在仓库根跑了
+   `npm run build`（全量 dsh-gui 构建）。跨包执行 pnpm 时始终传 `workdir`。
+
