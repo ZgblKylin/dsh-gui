@@ -4,14 +4,15 @@
  *
  * The half owns three exact paths under `/auto-update`:
  *
- * - `GET /auto-update/api/status?mode=local|check` — the dialog's row model
- *   (`./check.ts`); `local` is a network-free skeleton, `check` fetches the root
- *   and every submodule.
+ * - `GET /auto-update/api/status?mode=local|check|cached` — the dialog's row
+ *   model (`./check.ts`); `local` is a network-free skeleton, `check` runs one
+ *   recursive fetch and compares every row locally, and `cached` replays the
+ *   last finished check (204 before the first one).
  * - `POST /auto-update/api/update` — an NDJSON stream of one in-place update
  *   (`./update.ts`).
  * - `GET /auto-update/api/changelog?id=<projectId>&mode=tag|commit` — the
- *   commit list and, for a GitHub tag target, the Release notes
- *   (`./changelog.ts`).
+ *   commit list, the diffstat for the AI summary, and, for a GitHub tag target,
+ *   the Release notes (`./changelog.ts`).
  *
  * All three drive `git` inside the dsh-gui checkout the desktop runtime is
  * built from, so the routes are served only while the web server is bound to
@@ -31,7 +32,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 
-import { check, localCheck } from './check.ts'
+import { cachedCheck, check, localCheck } from './check.ts'
 import { buildChangelog, ChangelogRequestError } from './changelog.ts'
 import { GuiRootError, resolveGuiRoot } from './paths.ts'
 import { parseUpdateTargets, resolveUpdateTargets, runUpdate, UpdateRequestError } from './update.ts'
@@ -81,7 +82,7 @@ export function apply(ctx: Context): void {
       ctx.webServer.register({
         kind: 'exact',
         path: STATUS_PATH,
-        handler: (req, res) => { void handle(ctx, res, () => respondStatus(req, res)) },
+        handler: (req, res) => { void handle(ctx, res, () => respondStatus(req, res, ctx)) },
       }),
       ctx.webServer.register({
         kind: 'exact',
@@ -121,7 +122,7 @@ async function handle(ctx: Context, res: ServerResponse, run: () => Promise<void
 }
 
 /** Answer one status request. */
-async function respondStatus(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function respondStatus(req: IncomingMessage, res: ServerResponse, ctx: Context): Promise<void> {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     methodNotAllowed(res, 'GET, HEAD')
     return
@@ -131,12 +132,26 @@ async function respondStatus(req: IncomingMessage, res: ServerResponse): Promise
     return
   }
   const mode = new URL(req.url ?? '/', 'http://localhost').searchParams.get('mode') ?? 'check'
-  if (mode !== 'local' && mode !== 'check') {
-    json(res, 400, { error: `mode 参数必须是 local 或 check，收到「${mode}」` })
+  if (mode !== 'local' && mode !== 'check' && mode !== 'cached') {
+    json(res, 400, { error: `mode 参数必须是 local、check 或 cached，收到「${mode}」` })
+    return
+  }
+  if (mode === 'cached') {
+    // The dialog's reopen path: render the last finished check without touching
+    // git. No cache yet is 204, not an error.
+    const cached = cachedCheck()
+    if (cached === undefined) {
+      res.writeHead(204, { 'cache-control': 'no-store' })
+      res.end()
+      return
+    }
+    sendJson(res, 200, cached, req.method === 'HEAD')
     return
   }
   const root = resolveGuiRoot()
-  const status = mode === 'local' ? await localCheck(root) : await check(root)
+  const status = mode === 'local'
+    ? await localCheck(root)
+    : await check(root, { onWarn: (message) => { ctx.logger?.warn(`[dsh-auto-update] ${message}`) } })
   sendJson(res, 200, status, req.method === 'HEAD')
 }
 

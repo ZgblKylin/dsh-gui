@@ -21,6 +21,7 @@
  */
 
 import {
+  fetchCachedStatus,
   fetchStatus,
   streamUpdate,
   type UpdateProject,
@@ -84,6 +85,7 @@ const ROW_ATTR = 'data-dsh-auto-update-row'
 const ROW_INFO_ATTR = 'data-dsh-auto-update-row-info'
 const ROW_NAME_ATTR = 'data-dsh-auto-update-row-name'
 const ROW_VERSIONS_ATTR = 'data-dsh-auto-update-row-versions'
+const ROW_NPM_NOTE_ATTR = 'data-dsh-auto-update-row-npm-note'
 const ROW_ERROR_ATTR = 'data-dsh-auto-update-row-error'
 const ROW_ACTION_ATTR = 'data-dsh-auto-update-row-action'
 const MODE_ATTR = 'data-dsh-auto-update-mode'
@@ -116,6 +118,13 @@ const FOOTER_ATTR = 'data-dsh-auto-update-footer'
  * resident dialog warning and appended verbatim to the two buttons' titles.
  */
 const UPDATE_WARNING = '更新以 git reset --hard 检出目标版本：所选工程中未提交的改动会被丢弃（未跟踪文件保留）。'
+
+/**
+ * The most recent complete status this client rendered, kept at module scope so
+ * it survives the dialog's open/close cycle (contract §7.4). A page reload
+ * clears it, but the host keeps its own copy behind `?mode=cached`.
+ */
+let cachedStatus: UpdateStatus | undefined
 
 /**
  * Create the update dialog.
@@ -323,6 +332,27 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     const action = document.createElement('div')
     action.setAttribute(ROW_ACTION_ATTR, '')
 
+    /** The npm publish gap note (contract §7.2), or undefined when it does not apply. */
+    const npmNote = (): HTMLElement | undefined => {
+      const npm = project.npm
+      if (npm === undefined) return undefined
+      if (npm.complete === true && npm.error === undefined) return undefined
+      const note = document.createElement('div')
+      note.setAttribute(ROW_NPM_NOTE_ATTR, '')
+      // Verbatim from the shell's updateRow (app.js:1611-1613).
+      if (npm.error !== undefined && npm.error !== '') {
+        note.textContent = `npm 版本核对失败：${npm.error}（不影响 git 更新检测）`
+        return note
+      }
+      const missing = Array.isArray(npm.missing) ? npm.missing : []
+      const latestMap = npm.latest !== undefined && npm.latest !== null && typeof npm.latest === 'object'
+        ? npm.latest
+        : {}
+      const latestText = [...new Set(Object.values(latestMap).map(value => String(value)).filter(Boolean))].join(' / ')
+      note.textContent = `⚠ 上游 npm 尚未发布 ${project.latestTag !== undefined && project.latestTag !== '' ? project.latestTag : '新 tag'} 对应版本：${missing.join('、') !== '' ? missing.join('、') : '部分包'}（${latestText !== '' ? `npm 最新 ${latestText}` : 'npm 状态未知'}）。本行更新只移动源码 checkout，已安装插件需等 npm 发布后重新执行插件安装。`
+      return note
+    }
+
     if (asChecking) {
       versions.setAttribute(SKELETON_ATTR, '')
       const waiting = document.createElement('span')
@@ -332,6 +362,11 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
       row.append(info, action)
       return row
     }
+
+    // npm publish gap: rendered directly under the version line and before the
+    // row's error, exactly where the shell puts it.
+    const publishedGap = npmNote()
+    if (publishedGap !== undefined) info.append(publishedGap)
 
     if (project.error !== undefined && project.error !== '') {
       const failure = document.createElement('div')
@@ -424,6 +459,7 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
   /** Render one status document. */
   const render = (next: UpdateStatus, asChecking: boolean): void => {
     status = next
+    if (!asChecking) remember(next)
     const rows = [...next.projects]
     // A stored tag target that is no longer usable (the tag moved behind the
     // current commit) falls back to the commit, matching the disabled option.
@@ -458,33 +494,43 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
 
   /* ── Flows ─────────────────────────────────────────────────────────── */
 
-  /** Check updates: local skeleton first, then the full comparison. */
-  const check = async (): Promise<void> => {
-    if (disposed) return
+  /** Remember one complete status as the module-level cache (contract §7.4). */
+  const remember = (next: UpdateStatus): void => {
+    cachedStatus = next
+  }
+
+  /**
+   * Run the real comparison (`?mode=check`).
+   *
+   * Never blanks the rendered list: the rows on screen stay until the result
+   * lands and replaces them in place (the shell's `checkForUpdates` does the
+   * same for an open dialog). The explicit 「检查更新」 button and the
+   * post-update refresh both go through here.
+   *
+   * @param background - true for the silent refresh of a cached no-update
+   *   result: a failure then only toasts, leaving the visible list intact.
+   */
+  const check = async (background = false): Promise<void> => {
+    if (disposed || checking) return
     const request = ++generation
     checking = true
     refreshButton.disabled = true
     setNote('')
-    renderLoading('正在检查更新…')
-    try {
-      const local = await fetchStatus('local')
-      if (disposed || request !== generation) return
-      render(local, true)
-    } catch {
-      // The skeleton is only a convenience: the full check may still work.
-    }
     try {
       const next = await fetchStatus('check')
       if (disposed || request !== generation) return
+      remember(next)
       render(next, false)
       options.onNotifyCount?.(Number.isFinite(next.notifyCount) ? next.notifyCount : 0)
     } catch (error) {
       if (disposed || request !== generation) return
       const message = `检查更新失败：${messageOf(error)}`
-      renderLoading(message, true)
-      batchButton.hidden = true
-      aiAllButton.hidden = true
-      statusLine.textContent = ''
+      if (!background) {
+        renderLoading(message, true)
+        batchButton.hidden = true
+        aiAllButton.hidden = true
+        statusLine.textContent = ''
+      }
       showToast(message)
     } finally {
       if (request === generation) {
@@ -492,6 +538,41 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
         refreshButton.disabled = busy
       }
     }
+  }
+
+  /**
+   * The no-cache open path: ask the host's cache, else skeleton rows from
+   * `?mode=local` plus a full check — the order of the shell's
+   * `openUpdateDialogWithBestState`.
+   */
+  const openWithoutCache = async (): Promise<void> => {
+    const request = ++generation
+    renderLoading('正在检查更新…')
+    try {
+      const fromHost = await fetchCachedStatus()
+      if (disposed || request !== generation) return
+      if (fromHost !== undefined) {
+        remember(fromHost)
+        render(fromHost, false)
+        options.onNotifyCount?.(Number.isFinite(fromHost.notifyCount) ? fromHost.notifyCount : 0)
+        // A cached "no updates" result may be stale; a cached "has updates"
+        // one is fresh enough (same rule as the shell).
+        if (fromHost.hasUpdates !== true) void check(true)
+        return
+      }
+    } catch {
+      // No usable host cache: fall through to the local skeleton.
+    }
+    if (disposed || request !== generation) return
+    try {
+      const local = await fetchStatus('local')
+      if (disposed || request !== generation) return
+      render(local, true)
+    } catch {
+      // The skeleton is only a convenience: the full check may still work.
+    }
+    if (disposed || request !== generation) return
+    void check()
   }
 
   /** Run one update over the given rows and stream its log. */
@@ -620,14 +701,22 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
       statusLine.textContent = ''
       batchButton.hidden = true
       aiAllButton.hidden = true
-      renderLoading('正在检查更新…')
       setControlsDisabled(false)
-      void check()
+      // The module-level cache renders immediately: no skeleton, no blank
+      // list, and no automatic re-check when it already knows about updates.
+      if (cachedStatus !== undefined) {
+        render(cachedStatus, false)
+        options.onNotifyCount?.(Number.isFinite(cachedStatus.notifyCount) ? cachedStatus.notifyCount : 0)
+        if (cachedStatus.hasUpdates !== true) void check(true)
+        return
+      }
+      void openWithoutCache()
     },
     close,
     isOpen(): boolean {
       return !element.hidden
-    },    dispose(): void {
+    },
+    dispose(): void {
       disposed = true
       generation += 1
       element.remove()

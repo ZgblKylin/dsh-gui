@@ -114,9 +114,8 @@
 
 遗留与未覆盖：
 
-- 未做 AI 摘要版更新日志（首版按范围冻结），复用 `dsh-ai-update` 的
-  `/dsh-gui-api/changelog` 留作后续增强。
-- 未做分离式更新器、自动重启、npm 发布状态核对、待更新计划文件。
+- 未做分离式更新器、自动重启、待更新计划文件（npm 发布状态与更新日志 AI 摘要已在
+  v2 增补中补齐，见下节）。
 - 未在 macOS/Linux 外壳、真实 `npm run build:desktop`（需关闭正在运行的实例）、
   AI 更新 60s 无回执超时路径上验证。
 - 更新是 `reset --hard` 语义且**不加二次确认**（与外壳一致），靠对话框常驻警示与两个
@@ -131,4 +130,27 @@
    无法构造（git 层先失败），实际改用 `DSH_AUTO_UPDATE_GITHUB_API_BASE` 桩覆盖。
 3. **共享包目录的构建命令必须显式指定 cwd**：Lead 漏了工作目录，在仓库根跑了
    `npm run build`（全量 dsh-gui 构建）。跨包执行 pnpm 时始终传 `workdir`。
+
+## v2 增补（2026-10-07，用户实机反馈）
+
+用户实机试用后的三点要求：① 补 AI 摘要与 npm 状态核对；② 检查更新改单次递归 fetch；
+③ 打开对话框时工程列表与检查状态每次都空白重检，需要缓存。**功能一律对标外壳已有实现**，
+契约增补见 [`.work/auto-update/00-contract.md`](../../.work/auto-update/00-contract.md) §7。
+
+| 项 | 实现 | 关键证据 |
+|---|---|---|
+| 单次递归 fetch | `mode=check` 在顶层执行一次 `git fetch --prune --recurse-submodules origin`，逐行只做本地比较；递归 fetch 非零退出不算整体失败，仅「本地仍缺 `origin/<默认分支>` ref」的行退化为该行单独 fetch；远端默认分支仍先 `ls-remote --symref`（拿每行一次轻量往返换正确性） | verifier 用 `GIT_TRACE` 计数：正常路径 **1 次递归 fetch、0 次逐行 fetch**，子模块 `origin/main` 由该次 fetch 前进；不可达子模块场景 1 次递归 + 1 次该行退化 fetch（负向对照），其余行照常 |
+| npm 发布状态 | 新增 `src/npm.ts`：`<DSH_HOME>/gui/npm-installs.json` ∩ 工程清单名（根 + `apps/**` + `packages/**`），对 `registry.npmjs.org` 并发查询，字段 `{packages, latest, missing, complete, error?}` 与 Rust `NpmUpdateInfo` 一致；失败只写 `npm.error` | 桩覆盖命中/缺版本/HTTP/网络/不可解析五形态 + 门控矩阵；对话框两条文案与外壳逐字一致 |
+| 更新日志 AI 摘要 | commit 目标（或 tag 取不到 release）时按 `changelog.rs` 的 `build_prompt` 构造提示词，`POST /dsh-gui-api/changelog` 复用已装的 `dsh-ai-update`；副标题 `由 dsh AI 汇总 · N 条提交 · from → to`（`N` 用 host 新字段 `count`）；`release` 优先且不发 AI；失败回退提交列表 | 隔离实例内真实路由被调用 1 次、提示词含提交列表与 diffstat；404/502 降级、release 存在时 0 次 AI 请求 |
+| 结果缓存 | host 模块级缓存最近一次 `check`（部分失败也存），新增 `mode=cached`（200/204）；client 打开顺序对齐外壳 `openUpdateDialogWithBestState` | 首次开对话框恰好 1 次 `mode=cached`，**第二次开 0 请求**；「检查更新」仍发 `mode=check`；打桩 204 时回退骨架 → check |
+
+验证：Lead 亲自复跑 host 自测 **251/251**、client CDP 驱动 13 组断言全通过（几何 `right=1120=controlsLeft`、重开零请求、`pageErrors=[]`）、`npm run test:scripts` 12/12；verifier 独立复算 v2 判据 V11–V14 与 V3–V10 回归，合计 **411 项检查 0 失败**，期间发现并修复 1 个缺陷（registry 返回 2xx 但 body 不可解析时 `npm.error` 落成原始 JS 解析错误，现为「无法解析 npm registry 响应」）。产物：`lib/index.js` 53514 B、`lib/client.js` 95850 B（删产物重建逐字节一致）。
+
+遗留（v2 后）：
+
+- 真实 AI 摘要成功路径未在验证床跑通（床内无模型凭据），隔离实例内真实路由返回的是模型错误；成功渲染用页面级打桩覆盖，降级路径已在实例内验证。
+- 两个测试钩子（`DSH_AUTO_UPDATE_GITHUB_API_BASE` / `DSH_AUTO_UPDATE_NPM_REGISTRY_BASE`）不会随 desktop 启动链路到达 Host（`DSH_HOME`/`DSH_GUI_ROOT` 正常到达），因此钩子驱动的端到端只在路由级验证；生产路径用官方默认地址，不受影响。
+- 仍是「点更新即执行」的 `reset --hard`（沿例外壳），代价由常驻警示与 tooltip 交代。
+- 一个子模块 origin 不可达时该行报错、其余行正常、`allChecked=false`，不做自动重试。
+
 

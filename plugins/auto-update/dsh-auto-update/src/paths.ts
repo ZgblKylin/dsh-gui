@@ -92,6 +92,18 @@ export function resolveGuiRoot(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /**
+ * Resolve the Harness home directory from `DSH_HOME`. The desktop runtime pins
+ * it to `<runtime-root>/.dsh`; an unset or empty value yields `undefined` so
+ * callers can skip every home-relative read instead of guessing a location.
+ * @param env - process environment to read `DSH_HOME` from.
+ * @returns the absolute home path, or `undefined` when it is not configured.
+ */
+export function dshHomeDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const raw = env.DSH_HOME?.trim() ?? ''
+  return raw === '' ? undefined : resolve(raw)
+}
+
+/**
  * Parse the top-level `[submodule …]` entries of the repository's `.gitmodules`.
  * A section missing `path`, or whose path is absolute or escapes the root
  * (`..`), is dropped: every git write this plugin performs is confined to the

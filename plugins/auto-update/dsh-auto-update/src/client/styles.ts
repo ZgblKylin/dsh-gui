@@ -240,6 +240,14 @@ const CSS = `
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 12px;
 }
+/* npm publish gap under the version line (contract §7.2; the shell tints it
+   amber). It warns about the plugin install, never about the git update. */
+[data-dsh-auto-update-row-npm-note] {
+  color: var(--dsw-alias-state-warn-label, #d29922);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 [data-dsh-auto-update-row-error] {
   color: var(--dsw-alias-state-error-primary, #f85149);
   font-size: 12px;

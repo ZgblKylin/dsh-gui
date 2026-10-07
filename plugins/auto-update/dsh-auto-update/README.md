@@ -30,17 +30,32 @@ Host 半只依赖注入的 `webServer`（`inject = ['webServer']`），不 impor
 
 响应一律 `cache-control: no-store`；请求体上限 256 KiB。
 
-### `GET /auto-update/api/status?mode=local|check`
+### `GET /auto-update/api/status?mode=local|check|cached`
 
 - `mode=local`（默认 `check`）：只读本地信息，不发网络请求；每行 `checking: true`、
-  `latest: "检查中…"`、`checkedAt: null`。
-- `mode=check`：对顶层与每个 submodule `git fetch --prune origin` 后比较远端默认分支，
-  给出 `behind` / `latestTag` / `latestTagStale` / `announce`；返回聚合的
-  `hasUpdates`、`updateCount`、`notifyCount`、`allChecked`、`checkedAt`、`durationMs`、
-  `root`、`buildCommand`。
+  `latest: "检查中…"`、`checkedAt: null`；既不读也不写检测缓存。
+- `mode=check`：先按 `.gitmodules` 自愈子模块远端，然后在顶层执行**一次**
+  `git fetch --prune --recurse-submodules origin`；之后每一行只用本地命令比较
+  （远端默认分支仍先查 `git ls-remote --symref origin HEAD`，失败才回退本地 symref）。
+  递归 fetch 非零退出不算整体失败：仅对本地仍缺少 `origin/<默认分支>` ref 的行退化为
+  该行单独 `git fetch --prune origin`，该次失败即该行的 `error`。每行给出
+  `behind` / `latestTag` / `latestTagStale` / `announce` 与（满足条件时的）`npm` 状态；
+  聚合返回 `hasUpdates`、`updateCount`、`notifyCount`、`allChecked`、`checkedAt`、
+  `durationMs`、`root`、`buildCommand`。完成的 status 存入模块级缓存。
+- `mode=cached`：有缓存返回 `200` + 该 status，无缓存返回 `204`（无 body）；不触碰 git。
 
 `announce` 语义与外壳一致：检出正好落在某个 tag 上、远端只多了没有新 tag 的提交时，
 更新仍然显示在对话框里，但不计入角标。
+
+每行的 `npm` 字段仅在「该行 `behind`、`latestTag` 不是陈旧 tag、且该工程的 npm 包集合
+非空」时出现，用于提示 tag 版本尚未发布到 npm：`packages` 取 `<DSH_HOME>/gui/npm-installs.json`
+与该工程清单名（根 `package.json` + `apps/**` + `packages/**`，跳过
+`node_modules`/`.git`/`target`/`dist` 与点目录）的交集，`latest` 取 registry 的
+`dist-tags.latest`，`missing` 为 `versions` 中缺少目标版本（tag 去掉前缀 `v`）的包，
+`complete` 表示全部命中且无请求失败。registry 请求并发，请求头
+`accept: application/vnd.npm.install-v1+json`、`user-agent: dsh-gui-update-check`，
+单请求 15s 超时。任何失败只写进 `npm.error`（网络错误原文或 `HTTP <status>`），
+不影响该行的 git 检测结果。
 
 ### `POST /auto-update/api/update`
 
@@ -69,11 +84,15 @@ Host 半只依赖注入的 `webServer`（`inject = ['webServer']`），不 impor
 ### `GET /auto-update/api/changelog?id=<projectId>&mode=tag|commit`
 
 返回本地当前版本、更新目标、目标类型、提交列表（`git log --no-merges`，上限 400 条、
-单条 subject 上限 200 字符、`truncated` 标记），以及——仅当 `mode=tag` 且 `origin` 为
-GitHub 时可取到说明时的 `release`（tag / name / url / body）。
+单条 subject 上限 200 字符、`truncated` 标记）、`count`（`git rev-list --count <from>..<to>`，
+含 merge 提交且不受 400 条上限约束，无可用更新时为 0）、`diffstat`
+（`git diff --stat`，上限 3000 字符，超出截断并附 `…（已截断）`，无可用更新时为空串），
+以及——仅当 `mode=tag` 且 `origin` 为 GitHub 时可取到说明时的 `release`
+（tag / name / url / body）。
 
 `mode=tag` 但 GitHub 取不到 Release 时**只回退提交列表，不算错误**；`error` 只用于本地
-git 失败。远端与本地相同（无可展示更新）时返回 200 且 `commits: []`。
+git 失败。远端与本地相同（无可展示更新）时返回 200 且 `commits: []`、`count: 0`、
+`diffstat: ""`。
 
 ## 仓库根解析
 
@@ -92,24 +111,30 @@ Host 进程运行在解包的 desktop 应用里，检出不等于 `process.cwd()
 - 仅当 `window.dshDesktop?.protocolVersion === 1` 时挂载；`dsh web` 页面保持惰性。
 - 入口按钮：`position: fixed`，落在标题栏带内、窗口按键之前，`notifyCount > 0` 时显示
   角标。
-- 对话框：先 `?mode=local` 画骨架，再 `?mode=check` 拉完整结果；每行提供「更新 /
-  更新日志 / AI 更新」，顶部提供「全部更新 / AI 更新全部」，底部提示更新只完成 git 层，
-  完成后需手动执行 `buildCommand` 并重启 Desktop 应用。
+- 对话框：客户端缓存存在时立即渲染；否则先问 `?mode=cached`，有结果即渲染；都没有才
+  `?mode=local` 画骨架、再 `?mode=check` 拉完整结果（`hasUpdates === false` 时后台静默
+  重查）。「检查更新」始终执行 `mode=check`。每行提供「更新 / 更新日志 / AI 更新」，
+  顶部提供「全部更新 / AI 更新全部」，底部提示更新只完成 git 层，完成后需手动执行
+  `buildCommand` 并重启 Desktop 应用。
+- 更新日志：`mode=tag` 取到 GitHub Release 时直接渲染 `release.body`；否则把 `commits`
+  与 `diffstat` 交给 `dsh-ai-update` 的 `/dsh-gui-api/changelog` 汇总，副标题用 `count`
+  计提交数；AI 路由不可用时回退提交列表。
 - 「AI 更新」复用已装在 desktop profile 的 `dsh-ai-update`：在顶层 `window` 派发
   `{ type: 'dsh-gui:ai-update', version: 1, requestId, prompt }` 并等待
-  `dsh-gui:ai-update-result` 回执（60s 超时）。首版不做 AI 摘要。
+  `dsh-gui:ai-update-result` 回执（60s 超时）。
 
 ## 本版不做
 
-分离式更新器与自动重启、npm 发布状态核对、`pending-updates.json` 计划文件、更新日志的
-AI 摘要。更新完成后由用户在关闭 Desktop 实例后手动执行
-`npm run build:desktop`。
+分离式更新器与自动重启、`pending-updates.json` 计划文件。npm 发布状态与更新日志的
+AI 摘要由 host 的 `npm` 字段与 `diffstat`/`count` 支撑，汇总请求由 client 半发起。
+更新完成后由用户在关闭 Desktop 实例后手动执行 `npm run build:desktop`。
 
 ## 配置与测试钩子
 
-无用户可见配置项。仅有一个测试用环境变量：`DSH_AUTO_UPDATE_GITHUB_API_BASE` 覆盖
-GitHub API 基址（默认 `https://api.github.com`），供 fixture 测试在不依赖网络的情况下
-覆盖 Release 回退路径。
+无用户可见配置项。两个测试用环境变量：`DSH_AUTO_UPDATE_GITHUB_API_BASE` 覆盖 GitHub API
+基址（默认 `https://api.github.com`），`DSH_AUTO_UPDATE_NPM_REGISTRY_BASE` 覆盖 npm
+registry 基址（默认 `https://registry.npmjs.org`）；两者都供 fixture 测试在不依赖外网的
+情况下覆盖 Release 与 npm 的请求路径。
 
 ## 构建
 

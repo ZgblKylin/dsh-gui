@@ -10,6 +10,10 @@ dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同
 `harness.json` 选择 `npm` 运行时后，dsh 运行时本身也是 npm 安装型：该行同样
 先核对最新 tag 是否已有 `@deepseek-ai/dsh` 的 npm 发布，再决定是否安装。
 
+desktop 应用内的 `dsh-auto-update` 插件也做同一套检测，并自带每行 npm 发布状态与检测
+缓存（`mode=cached`）：其检测用一次递归 fetch、npm 查询由 Node 直接访问 registry，
+字段与判定语义对齐本节，差异与当前态见 [desktop-auto-update.md](desktop-auto-update.md)。
+
 ## AI 更新的 tag 保留规则
 
 「AI 更新全部」与行内「AI 更新」不会把 **tag 版本更新到非 tag 提交**：若某个

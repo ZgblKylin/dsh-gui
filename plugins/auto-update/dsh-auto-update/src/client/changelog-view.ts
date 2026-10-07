@@ -16,7 +16,7 @@
  * the shell links to), never a `/releases/tag/…` subpage.
  */
 
-import { fetchChangelog, type Changelog, type ChangelogCommit, type UpdateProject } from './api.ts'
+import { fetchAiSummary, fetchChangelog, type Changelog, type ChangelogCommit, type UpdateProject } from './api.ts'
 import type { UpdateMode } from './ai-prompt.ts'
 import { messageOf } from './bridge.ts'
 import { showToast } from './button.ts'
@@ -40,6 +40,19 @@ export interface ChangelogView {
 
 /** Switch the loading line to the long-run note after this delay. */
 const STALL_MS = 15_000
+
+/** Initial loading line (verbatim from the shell, app.js:2240-2241). */
+const CHANGELOG_LOADING_TEXT = '正在获取更新日志…（tag 目标优先读取 GitHub Release 说明；否则由 dsh AI 汇总提交变更）'
+
+/** After {@link STALL_MS} the line explains the slow part (verbatim from app.js:2247). */
+const CHANGELOG_AI_LOADING_TEXT = '正在调用 dsh AI 汇总提交变更，可能需要几分钟…'
+
+/**
+ * Prompt cap the dsh-ai-update route enforces (it answers 400 above this), kept
+ * in step with the shell's own commit-line bound; the commit list is trimmed
+ * from its tail until the prompt fits.
+ */
+const MAX_PROMPT_CHARS = 20_000
 
 /**
  * Create the changelog dialog.
@@ -166,10 +179,8 @@ export function createChangelogView(): ChangelogView {
     body.replaceChildren(list)
   }
 
-  /** Render one successful answer. */
-  const renderResult = (result: Changelog, project: UpdateProject): void => {
-    renderTitle(project.name !== '' ? project.name : project.id, project.releaseUrl)
-
+  /** The version/provenance subtitle, shared by the release and fallback paths. */
+  const renderVersionSub = (result: Changelog): void => {
     const subParts: Node[] = []
     subParts.push(document.createTextNode('当前 '))
     subParts.push(code(result.from !== '' ? result.from : 'unknown'))
@@ -183,37 +194,43 @@ export function createChangelogView(): ChangelogView {
       subParts.push(failure)
     }
     sub.replaceChildren(...subParts)
-
-    const releaseBody = typeof result.release?.body === 'string' ? result.release.body.trim() : ''
-    if (releaseBody !== '') {
-      try {
-        body.innerHTML = renderMarkdown(releaseBody)
-      } catch {
-        // Never lose the content to a renderer edge: fall back to plain text.
-        body.innerHTML = `<pre class="dsh-auto-update-plain">${escapeHtml(releaseBody)}</pre>`
-      }
-      if (result.commits.length > 0) {
-        const caption = document.createElement('h4')
-        caption.textContent = '本次包含的提交'
-        body.append(caption)
-        const list = document.createElement('ul')
-        list.setAttribute('data-dsh-auto-update-changelog-commits', '')
-        for (const commit of result.commits) {
-          const item = document.createElement('li')
-          const sha = document.createElement('code')
-          sha.textContent = commit.sha
-          item.append(sha, document.createTextNode(` ${commit.subject}`))
-          list.append(item)
-        }
-        body.append(list)
-      }
-    } else {
-      renderCommits(result.commits)
-    }
-    body.hidden = false
   }
 
-  /** Load one module's changelog. */
+  /** Render Markdown into the body, degrading to plain text on a renderer edge. */
+  const renderMarkdownInto = (text: string): void => {
+    try {
+      body.innerHTML = renderMarkdown(text)
+    } catch {
+      // Never lose the content to a renderer edge: fall back to plain text.
+      body.innerHTML = `<pre class="dsh-auto-update-plain">${escapeHtml(text)}</pre>`
+    }
+  }
+
+  /** Render a release body plus the commits it brings in. */
+  const renderReleaseBody = (result: Changelog, releaseBody: string): void => {
+    renderMarkdownInto(releaseBody)
+    if (result.commits.length > 0) {
+      const caption = document.createElement('h4')
+      caption.textContent = '本次包含的提交'
+      body.append(caption)
+      const list = document.createElement('ul')
+      list.setAttribute('data-dsh-auto-update-changelog-commits', '')
+      for (const commit of result.commits) {
+        const item = document.createElement('li')
+        const sha = document.createElement('code')
+        sha.textContent = commit.sha
+        item.append(sha, document.createTextNode(` ${commit.subject}`))
+        list.append(item)
+      }
+      body.append(list)
+    }
+  }
+
+  /**
+   * Load one module's changelog: the GitHub release notes when the host found
+   * them, otherwise a dsh AI summary of the commit range, otherwise (on any AI
+   * failure) the plain commit list so the content is never lost.
+   */
   const load = async (project: UpdateProject, mode: UpdateMode): Promise<void> => {
     const request = ++generation
     const label = project.name !== '' ? project.name : project.id
@@ -223,26 +240,70 @@ export function createChangelogView(): ChangelogView {
     body.replaceChildren()
     loading.hidden = false
     loading.removeAttribute('data-error')
-    loading.textContent = '正在获取更新日志…（tag 目标优先读取 GitHub Release 说明；否则列出该更新范围内的提交）'
+    loading.textContent = CHANGELOG_LOADING_TEXT
     element.hidden = false
 
     clearStall()
     stallTimer = setTimeout(() => {
-      loading.textContent = '正在读取远端提交列表，可能需要一会儿…'
+      loading.textContent = CHANGELOG_AI_LOADING_TEXT
     }, STALL_MS)
 
+    let result: Changelog
     try {
-      const result = await fetchChangelog(project.id, mode)
-      if (disposed || request !== generation) return
-      clearStall()
-      loading.hidden = true
-      renderResult(result, project)
+      result = await fetchChangelog(project.id, mode)
     } catch (error) {
       if (disposed || request !== generation) return
       clearStall()
       loading.hidden = false
       loading.setAttribute('data-error', '')
       loading.textContent = `无法获取更新日志：${messageOf(error)}`
+      return
+    }
+    if (disposed || request !== generation) return
+    renderTitle(label, project.releaseUrl)
+
+    const releaseBody = typeof result.release?.body === 'string' ? result.release.body.trim() : ''
+    if (releaseBody !== '') {
+      // A release exists: its notes win and no AI call is made (contract §7.3).
+      clearStall()
+      loading.hidden = true
+      renderVersionSub(result)
+      renderReleaseBody(result, releaseBody)
+      body.hidden = false
+      return
+    }
+    if (result.commits.length === 0) {
+      clearStall()
+      loading.hidden = true
+      renderVersionSub(result)
+      renderCommits(result.commits)
+      body.hidden = false
+      return
+    }
+
+    // No release notes: the commit range is summarized by the dsh AI.
+    try {
+      const summary = await fetchAiSummary(buildChangelogSummaryPrompt(result))
+      if (disposed || request !== generation) return
+      clearStall()
+      loading.hidden = true
+      // Provenance line shared with the shell's `summary_subtitle`: the count is
+      // the host's `rev-list --count` (merges included, not the capped list);
+      // an older host without the field falls back to the list length.
+      sub.textContent = `由 dsh AI 汇总 · ${changelogCount(result)} 条提交 · ${result.from} → ${result.to}`
+      renderMarkdownInto(summary)
+      body.hidden = false
+    } catch (error) {
+      if (disposed || request !== generation) return
+      clearStall()
+      renderVersionSub(result)
+      loading.hidden = false
+      loading.setAttribute('data-error', '')
+      loading.textContent = `AI 汇总失败：${messageOf(error)}`
+      // Degrade to the plain commit list: a failed summary must not hide the
+      // changes it was meant to describe.
+      renderCommits(result.commits)
+      body.hidden = false
     }
   }
 
@@ -264,6 +325,77 @@ export function createChangelogView(): ChangelogView {
       element.remove()
     },
   }
+}
+
+/* ── AI summary prompt (ported from src-tauri/src/changelog.rs build_prompt) ── */
+
+/**
+ * The commit count the AI subtitle reports.
+ *
+ * `count` is the host's `git rev-list --count <from>..<to>` (contract §7.3):
+ * merges included and unaffected by the 400-entry list cap, the same quantity
+ * the shell's `summary_subtitle` prints. A host that predates the field falls
+ * back to the commit list length.
+ *
+ * @param result - the changelog document being displayed.
+ * @returns the number of commits the summary covers.
+ */
+function changelogCount(result: Changelog): number {
+  return typeof result.count === 'number' && Number.isFinite(result.count)
+    ? result.count
+    : result.commits.length
+}
+
+/**
+ * Build the prompt for one changelog AI summary.
+ *
+ * The wording, the required output shape, and the two input blocks are ported
+ * from the shell's `build_prompt` (`src-tauri/src/changelog.rs`), so the same
+ * model instruction produces the same kind of answer through the reused
+ * `/dsh-gui-api/changelog` route: the commit list carries the facts and the
+ * model only reorganizes them (no tools, no workspace access).
+ *
+ * A prompt longer than the route's cap is trimmed by dropping commit lines from
+ * the tail (the shell bounds the range the same way); the rare leftover of a
+ * huge diffstat is cut with a truncation marker.
+ *
+ * @param result - the changelog document whose commits are being summarized.
+ * @returns the prompt text.
+ */
+function buildChangelogSummaryPrompt(result: Changelog): string {
+  const name = result.name !== '' ? result.name : result.id
+  const from = result.from !== '' ? result.from : 'unknown'
+  const to = result.to !== '' ? result.to : result.target
+  const label = result.target !== '' ? result.target : '最新提交'
+  const head = [
+    '你是 DeepSeek Harness（dsh-gui 桌面壳）的更新日志助手。',
+    `仓库「${name}」（${result.id}）即将从 ${from} 更新到 ${to}（${label}）。`,
+    '',
+    '请根据下面的 git 提交变更，用中文输出一份 Markdown「变更汇总」，要求：',
+    '- 先写一段不超过 3 句话的总览；',
+    '- 然后按主题分组（新增 / 改进 / 修复 / 其他），每组用列表条目（- ）逐条概括，只基于给出的提交信息概括，不要臆测；',
+    '- 提交列表为空时仅输出「无提交变更」；',
+    '- 不要调用任何工具；直接输出汇总正文，不要输出前言、说明或代码块围栏。',
+    '',
+    '提交列表（hash|作者|日期|主题）：',
+  ].join('\n')
+  const commitLines = result.commits.map(commit => `${commit.sha}|${commit.author}|${commit.date}|${commit.subject}`)
+  const diffstat = typeof result.diffstat === 'string' ? result.diffstat : ''
+  const assemble = (lines: readonly string[], stat: string): string =>
+    `${head}\n${lines.join('\n')}\n\n变更统计（diff --stat）：\n${stat}`
+
+  let kept = commitLines
+  let prompt = assemble(kept, diffstat)
+  while (kept.length > 0 && prompt.length > MAX_PROMPT_CHARS) {
+    kept = kept.slice(0, -1)
+    prompt = assemble(kept, diffstat)
+  }
+  if (prompt.length > MAX_PROMPT_CHARS) {
+    // Defensive: even the shortest prompt must fit the route's cap.
+    const room = MAX_PROMPT_CHARS - assemble(kept, '').length - 16
+    prompt = assemble(kept, `${diffstat.slice(0, Math.max(0, room))}\n…（已截断）`)
+  }
+  return prompt
 }
 
 /* ── Small DOM helpers ─────────────────────────────────────────────────── */

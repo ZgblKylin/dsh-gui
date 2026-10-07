@@ -14,6 +14,24 @@
  * reports each line as it lands.
  */
 
+/**
+ * One row's npm publish state (contract §7.2), mirroring the shell's
+ * `NpmUpdateInfo`. Present only when the row has a usable newer tag and the
+ * project provides npm-installed packages; absent means "render no npm note".
+ */
+export interface NpmUpdateInfo {
+  /** The npm-installed packages this project provides, in manifest order. */
+  readonly packages: readonly string[]
+  /** Each package's `dist-tags.latest`. */
+  readonly latest: Readonly<Record<string, string>>
+  /** Packages whose published versions do not include the target version. */
+  readonly missing: readonly string[]
+  /** True only when every package published the target version and no error occurred. */
+  readonly complete: boolean
+  /** A registry-side failure; the row itself is still updatable. */
+  readonly error?: string
+}
+
 /** One module row, as `GET /api/status` reports it. */
 export interface UpdateProject {
   /** Stable id: `dsh-gui` for the top-level checkout, the `.gitmodules` name otherwise. */
@@ -40,6 +58,8 @@ export interface UpdateProject {
   readonly error?: string
   /** GitHub Releases list page for the row's origin, when it has one. */
   readonly releaseUrl?: string
+  /** npm publish state of the row's npm-installed packages (contract §7.2). */
+  readonly npm?: NpmUpdateInfo
 }
 
 /** The whole `GET /api/status` document. */
@@ -126,13 +146,37 @@ export interface Changelog {
   readonly targetKind: 'tag' | 'commit'
   readonly release?: ChangelogRelease
   readonly commits: readonly ChangelogCommit[]
+  /**
+   * `git rev-list --count <from>..<to>` (contract §7.3): every commit in the
+   * range, merge commits included and unaffected by the 400-entry list cap.
+   * Zero when there is nothing to update. Optional here so the client still
+   * works against an older host and falls back to `commits.length`.
+   */
+  readonly count?: number
   readonly truncated: boolean
+  /**
+   * `git diff --stat <from>..<to>` verbatim (contract §7.3), the third input of
+   * the AI summary prompt; empty when there is nothing to show. Optional here
+   * so the client also works against a host that has not shipped v2 yet.
+   */
+  readonly diffstat?: string
   /** Local git failure only; a missing release is not an error. */
   readonly error?: string
 }
 
 /** Route prefix of the host half. */
 const API_BASE = '/auto-update/api'
+
+/** The dsh-ai-update host route reused for the changelog AI summary (contract §7.3). */
+const AI_SUMMARY_PATH = '/dsh-gui-api/changelog'
+
+/**
+ * How long the AI summary call may take before the client gives up. The route
+ * itself answers 504 after 300s, so this only fires when the connection stalls
+ * without an answer; it sits just above the host's own bound so the host's
+ * readable timeout message wins whenever it is alive to send one.
+ */
+export const AI_SUMMARY_TIMEOUT_MS = 310_000
 
 /**
  * Read the update status.
@@ -148,6 +192,82 @@ export async function fetchStatus(mode: 'local' | 'check'): Promise<UpdateStatus
     throw new Error(`${path} 未返回 projects 列表`)
   }
   return payload as unknown as UpdateStatus
+}
+
+/**
+ * Read the host's module-level cached status (`?mode=cached`, contract §7.4).
+ *
+ * @returns the cached status, or undefined when the host has none (204) — the
+ *   caller then falls back to the local skeleton plus a real check.
+ */
+export async function fetchCachedStatus(): Promise<UpdateStatus | undefined> {
+  const path = `${API_BASE}/status?mode=cached`
+  const response = await fetch(path, { headers: { accept: 'application/json' }, cache: 'no-store' })
+  if (response.status === 204) return undefined
+  if (!response.ok) throw new Error(await failure(response))
+  const payload: unknown = await response.json().catch(() => undefined)
+  if (!isRecord(payload) || !Array.isArray(payload.projects)) {
+    throw new Error(`${path} 未返回 projects 列表`)
+  }
+  return payload as unknown as UpdateStatus
+}
+
+/**
+ * Ask the dsh-ai-update host route for a changelog summary (contract §7.3).
+ *
+ * The prompt is built here (the route is a generic one-shot LLM call); the
+ * route answers `{ ok: true, text }` on success and `{ ok: false, error }` with
+ * a non-2xx status otherwise, so both shapes become a readable Error.
+ *
+ * @param prompt - the summary prompt built from the changelog document.
+ * @returns the Markdown summary text.
+ */
+export async function fetchAiSummary(prompt: string): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, AI_SUMMARY_TIMEOUT_MS)
+  let response: Response
+  try {
+    response = await fetch(AI_SUMMARY_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ prompt }),
+      signal: controller.signal,
+    })
+  } catch (error) {
+    throw new Error(controller.signal.aborted
+      ? `请求超时（超过 ${Math.round(AI_SUMMARY_TIMEOUT_MS / 1000)}s 无响应）`
+      : `无法连接 AI 汇总路由（${messageOf(error)}）`)
+  } finally {
+    clearTimeout(timer)
+  }
+
+  const payload: unknown = await response.json().catch(() => undefined)
+  if (!response.ok) throw new Error(await aiFailure(response, payload))
+  if (!isRecord(payload) || payload.ok !== true) {
+    throw new Error(aiErrorText(payload) ?? '更新日志生成结果为空')
+  }
+  const text = typeof payload.text === 'string' ? payload.text.trim() : ''
+  if (text === '') throw new Error('更新日志生成结果为空')
+  return text
+}
+
+/** @returns the route's `{ error: { message } }` text, or a status summary. */
+async function aiFailure(response: Response, payload: unknown): Promise<string> {
+  return aiErrorText(payload) ?? `HTTP ${response.status}`
+}
+
+/** Read the route's `{ ok: false, error: { message } }` reason. */
+function aiErrorText(payload: unknown): string | undefined {
+  if (!isRecord(payload)) return undefined
+  const error = payload.error
+  if (isRecord(error) && typeof error.message === 'string' && error.message !== '') return error.message
+  if (typeof error === 'string' && error !== '') return error
+  return undefined
+}
+
+/** Human-readable error text. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**

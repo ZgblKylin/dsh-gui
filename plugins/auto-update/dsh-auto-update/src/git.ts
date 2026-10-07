@@ -22,6 +22,12 @@ export const GIT_LOCAL_TIMEOUT_MS = 60_000
 /** Timeout for one network-touching git call (`fetch`, `ls-remote`). */
 export const GIT_NETWORK_TIMEOUT_MS = 120_000
 
+/**
+ * Timeout for the check's single recursive fetch: it reaches the root and every
+ * populated submodule, so it needs a larger budget than one plain fetch.
+ */
+export const GIT_RECURSIVE_FETCH_TIMEOUT_MS = 300_000
+
 /** Timeout for one recursive submodule sync (may clone over the network). */
 export const GIT_SUBMODULE_TIMEOUT_MS = 600_000
 

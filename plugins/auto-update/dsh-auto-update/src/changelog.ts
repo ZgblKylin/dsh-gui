@@ -1,12 +1,14 @@
 /**
  * Changelog collection for the auto-update host half.
  *
- * One request describes one row's pending update: `git log` over the local
- * `HEAD..<target>` range gives the commit list, and — only for a tag target
- * whose `origin` is GitHub — the tag's Release notes replace it. The semantics
- * are ported from `src-tauri/src/changelog.rs`, deliberately reduced to the
- * non-AI path: there is no summary model, no diffstat, and no headless harness
- * run in this version.
+ * One request describes one row's pending update. `git log` over the local
+ * `HEAD..<target>` range gives the commit list, `git rev-list --count` gives the
+ * range's full commit count, and `git diff --stat` gives the change statistics
+ * the summary prompt carries. For a tag target whose `origin` is GitHub, the
+ * tag's Release notes replace the commit list. The semantics are ported from
+ * `src-tauri/src/changelog.rs`, deliberately without its summary step: this half
+ * neither runs a model nor starts a headless harness session, because the client
+ * asks the already-installed `dsh-ai-update` route for the AI summary instead.
  *
  * Failure policy (contract §4.3): a GitHub lookup that fails, 404s, or returns
  * a release without a body is *not* an error — it silently falls back to the
@@ -31,6 +33,12 @@ export const MAX_COMMITS = 400
 
 /** Upper bound on one commit subject. */
 export const MAX_SUBJECT_CHARS = 200
+
+/** Upper bound on the returned diffstat, truncation marker included. */
+export const MAX_DIFFSTAT_CHARS = 3000
+
+/** Appended to a diffstat that hit {@link MAX_DIFFSTAT_CHARS}. */
+const DIFFSTAT_TRUNCATION_MARKER = '…（已截断）'
 
 /** Timeout for one GitHub API call. */
 const GITHUB_TIMEOUT_MS = 45_000
@@ -76,6 +84,17 @@ export interface ChangelogResult {
   targetKind: 'tag' | 'commit'
   release?: ReleaseNotes
   commits: CommitRow[]
+  /**
+   * `git rev-list --count <from>..<to>`: every commit in the range, merge
+   * commits included and unaffected by {@link MAX_COMMITS}. Zero when no update
+   * is available.
+   */
+  count: number
+  /**
+   * `git diff --stat` over the update range, capped at
+   * {@link MAX_DIFFSTAT_CHARS}; empty when no update is available.
+   */
+  diffstat: string
   /** True when the commit list was capped at {@link MAX_COMMITS}. */
   truncated: boolean
   /** A local git failure; absent on success. */
@@ -93,7 +112,7 @@ export interface ChangelogResult {
 export async function buildChangelog(root: string, id: string, mode: 'tag' | 'commit'): Promise<ChangelogResult> {
   const project = listProjects(root).find((row) => row.id === id)
   if (project === undefined) throw new ChangelogRequestError(`未知工程：${id}`)
-  const result: ChangelogResult = { id, name: project.name, targetKind: mode, commits: [], truncated: false }
+  const result: ChangelogResult = { id, name: project.name, targetKind: mode, commits: [], count: 0, diffstat: '', truncated: false }
 
   if (!isDirectory(project.dir)) {
     result.error = '目录不存在，请先初始化该 submodule'
@@ -151,12 +170,22 @@ export async function buildChangelog(root: string, id: string, mode: 'tag' | 'co
     result.error = gitFailure(log, 'git log')
     return result
   }
+  // The AI summary's subtitle counts every commit in the range (merges
+  // included) and is not bounded by the 400-row list cap.
+  const counted = await gitOutput(['rev-list', '--count', `${fromSha}..${toSha}`], project.dir)
+  const count = Number.parseInt(counted ?? '0', 10)
+  result.count = Number.isFinite(count) ? count : 0
+
   const lines = log.stdout.split(/\r?\n/).filter((line) => line.trim() !== '')
   result.truncated = lines.length > MAX_COMMITS
   result.commits = lines
     .slice(0, MAX_COMMITS)
     .map(parseCommitLine)
     .filter((row): row is CommitRow => row !== undefined)
+  // The AI summary prompt carries the change statistics next to the commit
+  // list; a failed or empty diff is not an error.
+  const diffstat = await runGit(['diff', '--stat', '--no-color', `${fromSha}..${toSha}`], project.dir)
+  if (diffstat.ok) result.diffstat = boundDiffstat(diffstat.stdout.trim())
 
   if (mode === 'tag') {
     const repo = githubRepo(origin)
@@ -166,6 +195,16 @@ export async function buildChangelog(root: string, id: string, mode: 'tag' | 'co
     }
   }
   return result
+}
+
+/**
+ * Cap the diffstat at {@link MAX_DIFFSTAT_CHARS} characters *including* the
+ * truncation marker, so the response field always honours the documented limit.
+ */
+function boundDiffstat(text: string): string {
+  if (text.length <= MAX_DIFFSTAT_CHARS) return text
+  const budget = MAX_DIFFSTAT_CHARS - DIFFSTAT_TRUNCATION_MARKER.length - 1
+  return `${text.slice(0, budget).replace(/\s+$/, '')}\n${DIFFSTAT_TRUNCATION_MARKER}`
 }
 
 /** Parse one `%h\t%s\t%an\t%ad` line; `undefined` when it is malformed. */
