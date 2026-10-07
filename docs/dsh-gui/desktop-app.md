@@ -88,6 +88,8 @@ Electron 二进制与 electron-builder 工具集的下载缓存分别取运行�
 - electron-builder 工具集。
 - `@deepseek-ai/libreoffice-kit-win32-x64`（约 71 MB）。它由 `prepare:dsh` 在安装生产树时经 pnpm 拉取，不属 primary runtime 的锁定资产；该包传输慢时 pnpm 会在重试耗尽后以 `desktop runtime: missing required LibreOffice engine win32-x64` 中止构建。
 
+Electron 与 electron-builder 的下载镜像不硬编码，而是从 npm registry 推导：`scripts/desktop.mjs` 读取 `npm_config_registry`（`npm run` 会把解析后的 npm 配置导出给脚本），缺省时再读仓库根与用户目录的 `.npmrc`；当该 registry 的宿主是 npmmirror（含旧域名 `npm.taobao.org`）时，按 `${registry origin}/-/binary/<project>/` 取镜像 —— Electron 与 electron-builder 归档的 GitHub release 资产在同一镜像树下，构建日志会打印实际来源（`electron source:` / `electron-builder toolset source:`）。优先级为：`ELECTRON_MIRROR` / `ELECTRON_BUILDER_BINARIES_MIRROR` 环境变量 → 同名 npm 配置（`electron_mirror` / `electron_builder_binaries_mirror`）→ registry 推导；设成空值即回到官方 GitHub release 宿主，registry 不是可识别镜像时不做任何替换。Electron 归档仍按 release 的 `SHASUMS256.txt` 校验。该推导只覆盖这两项：primary runtime 的 node/python/wheel 与 LibreOffice kit 不使用它。
+
 ## 已知上游缺陷与规避
 
 | 现象 | 根因 | 规避 |

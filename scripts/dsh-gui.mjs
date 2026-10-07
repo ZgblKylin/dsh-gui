@@ -611,8 +611,12 @@ Commands:
 Desktop:
   build-desktop clones the pinned submodule into <runtime-root>/.desktop/source
   (a full checkout, detached at the submodule revision) and builds there, so the
-  repository root stays free of build products. ELECTRON_MIRROR and
-  ELECTRON_BUILDER_BINARIES_MIRROR are passed through when set; the Electron and
+  repository root stays free of build products. Electron and electron-builder
+  download from a mirror derived from the configured npm registry when that
+  registry also mirrors release assets (npmmirror, taobao); ELECTRON_MIRROR and
+  ELECTRON_BUILDER_BINARIES_MIRROR (or the electron_mirror /
+  electron_builder_binaries_mirror npm config keys) override it, and an empty
+  value restores the official GitHub release hosts. The Electron and
   electron-builder caches land in <runtime-root>/.cache. It ends by compiling the
   shim (<runtime-root>/dsh-gui-desktop.exe), which is "npm run desktop" without a
   console window, and by running every plugins/*/install.mjs again against the

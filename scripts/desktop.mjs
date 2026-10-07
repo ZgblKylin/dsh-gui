@@ -40,7 +40,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import {
   HARNESS,
@@ -76,6 +76,15 @@ const UNPACKED = join(SOURCE, 'apps', 'desktop', '.desktop-build', 'targets', 'w
 const PACKAGE_ENV_FILE = join(SOURCE, 'apps', 'desktop', '.env.windows')
 const ELECTRON_CACHE = join(RUNTIME_ROOT, '.cache', 'electron')
 const BUILDER_CACHE = join(RUNTIME_ROOT, '.cache', 'electron-builder')
+/** Archived toolsets whose downloads can be served by a registry mirror, and how each is configured. */
+const DOWNLOAD_SOURCES = {
+  electron: { environmentVariable: 'ELECTRON_MIRROR', configKey: 'electron_mirror', project: 'electron' },
+  builder: {
+    environmentVariable: 'ELECTRON_BUILDER_BINARIES_MIRROR',
+    configKey: 'electron_builder_binaries_mirror',
+    project: 'electron-builder-binaries',
+  },
+}
 /** Standalone crate of the console-less launcher that starts `npm run desktop`. */
 const SHIM_MANIFEST = join(ROOT, 'src-shim', 'Cargo.toml')
 /** Cargo target directory of the shim, kept inside the desktop workspace. */
@@ -312,12 +321,113 @@ function writePackageEnvironment() {
 }
 
 /**
+ * Read one npm config value from an `.npmrc`.
+ *
+ * Only `key=value` lines are honored, with the whitespace, surrounding quotes and
+ * inline comments npm tolerates stripped; keys match case-insensitively. A
+ * missing or unreadable file yields undefined.
+ * @param {string} file - `.npmrc` path.
+ * @param {string} key - config key to look up.
+ * @returns {string | undefined} Trimmed value, or undefined when unset.
+ */
+function readNpmrcValue(file, key) {
+  let content
+  try {
+    content = readFileSync(file, 'utf8')
+  } catch {
+    return undefined
+  }
+  for (const line of content.split(/\r?\n/u)) {
+    const match = /^\s*([^#;\s][^=]*?)\s*=\s*(.*?)\s*(?:[#;].*)?$/u.exec(line)
+    if (match === null || match[1].toLowerCase() !== key) continue
+    return match[2].replace(/^"(.*)"$/u, '$1').replace(/^'(.*)'$/u, '$1').trim()
+  }
+  return undefined
+}
+
+/**
+ * Resolve the npm registry the caller configured.
+ *
+ * `npm run` exports the resolved npm config to the script as `npm_config_registry`,
+ * covering `.npmrc`, environment and `--registry`; the config files are read too
+ * so a direct `node scripts/dsh-gui.mjs build-desktop` behaves the same.
+ * @returns {string | undefined} Registry URL, or undefined when none is configured.
+ */
+function npmRegistry() {
+  const fromEnvironment = process.env.npm_config_registry?.trim()
+  if (fromEnvironment) return fromEnvironment
+  for (const file of [join(ROOT, '.npmrc'), join(homedir(), '.npmrc')]) {
+    const value = readNpmrcValue(file, 'registry')?.trim()
+    if (value) return value
+  }
+  return undefined
+}
+
+/**
+ * Derive a project's binary mirror from a registry that also mirrors release assets.
+ *
+ * npmmirror and its legacy taobao host publish the GitHub release assets these
+ * tools download under `/-/binary/<project>/`; the host comes from the caller's
+ * registry, so no mirror host is hardcoded here. An unrecognized registry yields
+ * undefined, which leaves the tool on its official host.
+ * @param {string | undefined} registry - Configured npm registry.
+ * @param {string} project - Mirror directory name, for example `electron`.
+ * @returns {string | undefined} Mirror base URL, or undefined for an unrecognized registry.
+ */
+function registryBinaryMirror(registry, project) {
+  if (registry === undefined) return undefined
+  let url
+  try {
+    url = new URL(registry)
+  } catch {
+    return undefined
+  }
+  if (!/(?:^|\.)(?:npmmirror\.com|npm\.taobao\.org)$/u.test(url.hostname)) return undefined
+  return new URL(`-/binary/${project}/`, `${url.origin}/`).toString()
+}
+
+/**
+ * Resolve the download mirror for one archived toolset.
+ *
+ * Precedence: the tool's own environment variable, the same key through npm
+ * config (`electron_mirror` / `electron_builder_binaries_mirror`), then a mirror
+ * derived from the configured registry. A caller value always wins, including an
+ * empty one, which restores the official host.
+ * @param {{ environmentVariable: string, configKey: string, project: string }} source - Toolset identity.
+ * @returns {string | undefined} Mirror base URL, or undefined for the official host.
+ */
+function downloadMirror(source) {
+  const configured = process.env[source.environmentVariable] ?? process.env[`npm_config_${source.configKey}`]
+  if (configured !== undefined) return configured
+  return registryBinaryMirror(npmRegistry(), source.project)
+}
+
+/**
+ * Merge one toolset's resolved mirror into a child environment.
+ * @param {{ environmentVariable: string, configKey: string, project: string }} source - Toolset identity.
+ * @returns {Record<string, string>} Mirror override, or an empty object for the official host.
+ */
+function downloadMirrorEnv(source) {
+  const mirror = downloadMirror(source)
+  return mirror === undefined ? {} : { [source.environmentVariable]: mirror }
+}
+
+/**
+ * Name the download source a step is about to use, for the build log.
+ * @param {{ environmentVariable: string, configKey: string, project: string }} source - Toolset identity.
+ * @returns {string} Mirror URL, or the official-host placeholder.
+ */
+function downloadSourceLabel(source) {
+  return downloadMirror(source) || 'official GitHub releases'
+}
+
+/**
  * Download the Electron binary when the install did not.
  *
  * The workspace's `allowBuilds` does not list `electron`, so its postinstall
  * never runs and the archive is fetched explicitly. `electron_config_cache`
- * keeps the download under the runtime root; `ELECTRON_MIRROR` is inherited
- * from the caller's environment when set, so no mirror is hardcoded here.
+ * keeps the download under the runtime root; the mirror is resolved from the
+ * caller's environment, npm config and registry (see `downloadMirror`).
  */
 function ensureElectron() {
   const electronDir = join(SOURCE, 'apps', 'desktop', 'node_modules', 'electron')
@@ -329,7 +439,11 @@ function ensureElectron() {
     if (!existsSync(join(electronDir, 'install.js'))) {
       throw new Error(`${electronDir} has no install.js — run the dependency step first`)
     }
-    run('node', ['install.js'], { cwd: electronDir, env: { electron_config_cache: ELECTRON_CACHE } })
+    console.log(`electron source: ${downloadSourceLabel(DOWNLOAD_SOURCES.electron)}`)
+    run('node', ['install.js'], {
+      cwd: electronDir,
+      env: { electron_config_cache: ELECTRON_CACHE, ...downloadMirrorEnv(DOWNLOAD_SOURCES.electron) },
+    })
   })
 }
 
@@ -353,10 +467,12 @@ function buildOfficial() {
  *
  * This step goes through `run` and the pinned pnpm entry instead of `pnpm()`
  * because `pnpmEnv` pins PATH itself and would drop that prefix. `ELECTRON_BUILDER_CACHE`
- * keeps electron-builder's toolset under the runtime root, and `DSH_HOME` is
+ * keeps electron-builder's toolset under the runtime root, `DSH_HOME` is
  * unset explicitly: the step needs no harness home, and `run` merges
  * `process.env`, so the inherited value has to be overridden with `undefined`
- * rather than deleted.
+ * rather than deleted. Electron and electron-builder both download inside the
+ * packaging chain, so their resolved mirrors are merged into that child
+ * environment as well.
  */
 function packageDesktop() {
   step('Package the desktop app (win x64, unsigned, unpacked)', () => {
@@ -370,7 +486,11 @@ function packageDesktop() {
       // The pre-run dependency check would abort without a TTY; see buildOfficial.
       pnpm_config_verify_deps_before_run: 'warn',
       DSH_HOME: undefined,
+      ...downloadMirrorEnv(DOWNLOAD_SOURCES.electron),
+      ...downloadMirrorEnv(DOWNLOAD_SOURCES.builder),
     }
+    console.log(`electron source: ${downloadSourceLabel(DOWNLOAD_SOURCES.electron)}`)
+    console.log(`electron-builder toolset source: ${downloadSourceLabel(DOWNLOAD_SOURCES.builder)}`)
     run('node', [entry, 'run', 'package:desktop:win:x64:unsigned', '--', '--dir'], { cwd: SOURCE, env })
   })
 }
