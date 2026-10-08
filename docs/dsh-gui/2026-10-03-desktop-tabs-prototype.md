@@ -167,6 +167,7 @@
 ### 两个环境性发现（均已处理）
 
 1. **`npm run harness` 预设把远端端口固定在 3080**：`scripts/harness.mjs` 不把 `--port 0` 当临时端口，因此远端已有实例占用 3080 时新连接会 `EADDRINUSE`。已在 `up` 的失败文案里附带提示（默认启动命令走 `--port 0`，或先结束旧实例）；要多连接并存时用默认启动命令。
+   - 2026-10-08 更新：`scripts/harness.mjs` 现已接受 `--host` / `--port`（`--port 0` 表示让远端 OS 选空闲端口），该预设不再固定 3080；同时远端启动改经 `bash -l -i -c` 执行，使 nvm 管理的 Node/npm 进入 PATH——详见 `plugins/desktop-tabs/dsh-desktop-tabs/README.md` 的「远端启动使用的 shell 环境」。
 2. **远端进程会成孤儿**（已实现回收，见下）：实测 WSL 残留过 `bin.js web --port 3080`（用户环境）与两个 `--port 0`（Lead 强退自验时留下），都来自应用被直接关闭而未走 `down`。
 
 ### 孤儿回收（task-24，Lead 实现 + 自测）

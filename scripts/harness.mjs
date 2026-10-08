@@ -2,14 +2,17 @@
 /**
  * Start the same dsh web backend the Tauri shell starts, but keep it attached
  * to this terminal. The launch contract mirrors `spawn_harness` in
- * `src-tauri/src/main.rs`: web profile, DSH_GUI_PORT (or 3080), no browser
- * handoff, the resolved runtime's working directory, the runtime root's `.dsh`
- * as DSH_HOME, `DSH_GUI_ROOT` pointing at the repository, and the agent-config
- * home the build fills from `global_template.agents/` as DSH_AGENTS_HOME
- * (`harness.json` selects the npm or the source runtime). Both pins are
- * load-bearing: the skill provider reads `$DSH_AGENTS_HOME` and otherwise falls
- * back to the machine-wide `~/.agents`, so a backend started without it loses
- * the user-level skills and the always-loaded docs of this installation.
+ * `src-tauri/src/main.rs`: web profile, `--port` (or `DSH_GUI_PORT`, or 3080),
+ * no browser handoff, the resolved runtime's working directory, the runtime
+ * root's `.dsh` as DSH_HOME, `DSH_GUI_ROOT` pointing at the repository, and the
+ * agent-config home the build fills from `global_template.agents/` as
+ * DSH_AGENTS_HOME (`harness.json` selects the npm or the source runtime). Both
+ * pins are load-bearing: the skill provider reads `$DSH_AGENTS_HOME` and
+ * otherwise falls back to the machine-wide `~/.agents`, so a backend started
+ * without it loses the user-level skills and the always-loaded docs of this
+ * installation. `--host` is forwarded when given; `--port 0` means "pick a free
+ * port", which is what the remote-connection launchers append so a second
+ * backend never collides with an existing 3080 instance.
  */
 
 import { spawn } from 'node:child_process'
@@ -20,11 +23,39 @@ import { ROOT, WEB_HOME } from './toolchain.mjs'
 
 const DEFAULT_PORT = 3080
 
+/**
+ * Read one `--flag <value>` / `--flag=<value>` argument.
+ * @param args - arguments after the script name.
+ * @param name - flag to look for, `--` included.
+ * @returns the raw value, or undefined when the flag is absent.
+ */
+function argValue(args, name) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === name) return args[index + 1]
+    if (arg.startsWith(`${name}=`)) return arg.slice(name.length + 1)
+  }
+  return undefined
+}
+
+/**
+ * Resolve the listen port. An explicit `--port` wins over `DSH_GUI_PORT`; both
+ * accept `0`, which asks the OS for a free port — the remote-connection
+ * launchers append `--port 0` so a second backend never collides with one
+ * already on 3080. Anything unparsable falls back to {@link DEFAULT_PORT}.
+ * @returns the port to pass to the harness CLI.
+ */
 function resolvePort() {
-  const value = process.env.DSH_GUI_PORT?.trim()
-  if (value === undefined || !/^\d+$/.test(value)) return DEFAULT_PORT
-  const port = Number(value)
-  return Number.isInteger(port) && port <= 65535 ? port : DEFAULT_PORT
+  const raw = argValue(process.argv.slice(2), '--port')?.trim() ?? process.env.DSH_GUI_PORT?.trim()
+  if (raw === undefined || !/^\d+$/.test(raw)) return DEFAULT_PORT
+  const port = Number(raw)
+  return Number.isInteger(port) && port >= 0 && port <= 65535 ? port : DEFAULT_PORT
+}
+
+/** Read an explicit `--host`; absent means the CLI's own default bind. */
+function resolveHost() {
+  const host = argValue(process.argv.slice(2), '--host')?.trim()
+  return host === undefined || host === '' ? undefined : host
 }
 
 let cli
@@ -36,6 +67,7 @@ try {
 }
 
 const port = resolvePort()
+const host = resolveHost()
 
 // The agent-config home the shell pins too (`spawn_harness` in
 // `src-tauri/src/main.rs`): the tree `npm run build` fills from
@@ -43,7 +75,14 @@ const port = resolvePort()
 // `~/.agents`, which this installation never writes.
 const agentsHome = join(WEB_HOME, '.agents')
 
-const child = spawn('node', [cli.bin, 'web', '--port', String(port), '--no-open'], {
+const child = spawn('node', [
+  cli.bin,
+  'web',
+  '--port',
+  String(port),
+  ...(host === undefined ? [] : ['--host', host]),
+  '--no-open',
+], {
   cwd: cli.cwd,
   env: { ...process.env, DSH_HOME: WEB_HOME, DSH_AGENTS_HOME: agentsHome, DSH_GUI_ROOT: ROOT },
   stdio: 'inherit',
