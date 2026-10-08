@@ -113,11 +113,14 @@ export function probeScript(): string {
 /** Remote command: detach the backend and report the pid and process group. */
 export function startScript(target: RemoteTarget, logPath: string): string {
   const cwd = cwdWord(target)
-  return [
+  const script = [
     `tabs_log=${quotePosix(logPath)}`,
     'rm -f $tabs_log',
     `cd ${cwd} || { printf '${CD_FAILED_MARKER}%s\\n' ${cwd} >&2; exit 6; }`,
-    `${launchCommand(target)} > $tabs_log 2>&1 < /dev/null &`,
+    // After the `cd`: a failed `cd` must not leave a log behind, and the runtime
+    // line names the exact Node the launch will use.
+    "printf 'TABS_LAUNCH_RUNTIME=%s %s\\n' \"$(command -v node)\" \"$(node -v 2>&1)\" >> $tabs_log",
+    `${launchCommand(target)} >> $tabs_log 2>&1 < /dev/null &`,
     'tabs_pid=$!',
     // `ps -o pgid=` pads its column and the remote shell may not word-split an
     // unquoted expansion, so the padding is stripped here rather than downstream.
@@ -125,6 +128,16 @@ export function startScript(target: RemoteTarget, logPath: string): string {
     "printf 'TABS_PID=%s\\n' $tabs_pid",
     "printf 'TABS_PGID=%s\\n' $tabs_pgid",
   ].join('\n')
+  // The launch must see the user's FULL login+interactive environment: an
+  // nvm-managed Node/npm only reaches PATH from `~/.bashrc`, and a guarded rc
+  // (`case $- in *i*) ;; *) return;; esac`) refuses to load in a non-interactive
+  // shell — so a plain `ssh <host> <script>` stays on the bare system Node.
+  // With Node 20 that silently breaks the harness CLI entry
+  // (`if (import.meta.main) await runCli()`, and `import.meta.main` does not
+  // exist there): npm prints its banner, the backend exits 0, no launch URL.
+  // `bash -l -i -c` mirrors `plugins/remote/dsh-remote/src/index.ts`
+  // (`startSession`), which connects to the same hosts.
+  return `bash -l -i -c ${quotePosix(script)}`
 }
 
 /**

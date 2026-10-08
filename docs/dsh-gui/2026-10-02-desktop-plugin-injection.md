@@ -23,10 +23,12 @@ desktop 端有没有办法注入插件？官方尚未提供标准插件 API，�
 
 | 任务 | 归属 | 产出 |
 |---|---|---|
-| Electron 层注入面 | `injection-analyst` | `.work/desktop-injection/01-electron-surface.md` |
-| 官方插件通道能力边界 | `plugin-channel-analyst` | `.work/desktop-injection/02-plugin-channel.md` |
-| 目标功能规格（对照 dsh-gui） | `feature-spec-analyst` | `.work/desktop-injection/03-feature-spec.md` |
-| 独立复核关键论断 | `injection-verifier` | `.work/desktop-injection/04-verification.md` |
+| Electron 层注入面 | `injection-analyst` | `01-electron-surface.md` |
+| 官方插件通道能力边界 | `plugin-channel-analyst` | `02-plugin-channel.md` |
+| 目标功能规格（对照 dsh-gui） | `feature-spec-analyst` | `03-feature-spec.md` |
+| 独立复核关键论断 | `injection-verifier` | `04-verification.md` |
+
+上表产出文件位于任务期间的任务 scratch `.work/desktop-injection/`（被 `.gitignore` 排除，任务收尾后已清理）。
 
 ## Lead 实测（landed 应用 `D:\git\dsh-gui-home\desktop\DeepSeek Harness.exe`）
 

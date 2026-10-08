@@ -516,6 +516,10 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     checking = true
     refreshButton.disabled = true
     setNote('')
+    // An explicit check says so in the header while it runs (a cold check can
+    // take a minute or more); the rows on screen stay until the result lands.
+    // The silent background refresh leaves the previous line in place.
+    if (!background) statusLine.textContent = '正在检查更新…'
     try {
       const next = await fetchStatus('check')
       if (disposed || request !== generation) return
@@ -548,6 +552,11 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
   const openWithoutCache = async (): Promise<void> => {
     const request = ++generation
     renderLoading('正在检查更新…')
+    // The status line must never read as blank while the dialog is still
+    // acquiring data: a cold start can be waiting on the host's 45s+ check
+    // (contract §8.4), and a user opening the dialog mid-check has to see that
+    // a check is running rather than an empty header.
+    statusLine.textContent = '正在检查更新…'
     try {
       const fromHost = await fetchCachedStatus()
       if (disposed || request !== generation) return

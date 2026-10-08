@@ -35,14 +35,19 @@ Host 半只依赖注入的 `webServer`（`inject = ['webServer']`），不 impor
 - `mode=local`（默认 `check`）：只读本地信息，不发网络请求；每行 `checking: true`、
   `latest: "检查中…"`、`checkedAt: null`；既不读也不写检测缓存。
 - `mode=check`：先按 `.gitmodules` 自愈子模块远端，然后在顶层执行**一次**
-  `git fetch --prune --recurse-submodules origin`；之后每一行只用本地命令比较
-  （远端默认分支仍先查 `git ls-remote --symref origin HEAD`，失败才回退本地 symref）。
-  递归 fetch 非零退出不算整体失败：仅对本地仍缺少 `origin/<默认分支>` ref 的行退化为
-  该行单独 `git fetch --prune origin`，该次失败即该行的 `error`。每行给出
+  `git fetch --prune --recurse-submodules -j 8 origin`；该 git 不认 `-j` 时去掉它重试一次。
+  递归 fetch 与每一行的远端默认分支解析同时发起（`ls-remote --symref origin HEAD`，
+  失败才回退本地 symref），随后逐行只用本地命令比较，最后统一探测 npm。递归 fetch
+  非零退出不算整体失败：仅对本地仍缺少 `origin/<默认分支>` ref 的行退化为该行单独
+  `git fetch --prune origin`，该次失败即该行的 `error`。每行给出
   `behind` / `latestTag` / `latestTagStale` / `announce` 与（满足条件时的）`npm` 状态；
   聚合返回 `hasUpdates`、`updateCount`、`notifyCount`、`allChecked`、`checkedAt`、
   `durationMs`、`root`、`buildCommand`。完成的 status 存入模块级缓存。
 - `mode=cached`：有缓存返回 `200` + 该 status，无缓存返回 `204`（无 body）；不触碰 git。
+
+`mode=check` 单飞：并发到达的检查共享同一次运行与同一份结果，运行结束即释放；
+`mode=local` 与 `mode=cached` 不参与单飞、不被阻塞。并发只改变调度：`projects` 始终按
+`.gitmodules` 顺序、顶层在前，各字段与串行实现逐字段一致。
 
 `announce` 语义与外壳一致：检出正好落在某个 tag 上、远端只多了没有新 tag 的提交时，
 更新仍然显示在对话框里，但不计入角标。
@@ -52,10 +57,16 @@ Host 半只依赖注入的 `webServer`（`inject = ['webServer']`），不 impor
 与该工程清单名（根 `package.json` + `apps/**` + `packages/**`，跳过
 `node_modules`/`.git`/`target`/`dist` 与点目录）的交集，`latest` 取 registry 的
 `dist-tags.latest`，`missing` 为 `versions` 中缺少目标版本（tag 去掉前缀 `v`）的包，
-`complete` 表示全部命中且无请求失败。registry 请求并发，请求头
+`complete` 表示全部命中且无请求失败。请求头
 `accept: application/vnd.npm.install-v1+json`、`user-agent: dsh-gui-update-check`，
-单请求 15s 超时。任何失败只写进 `npm.error`（网络错误原文或 `HTTP <status>`），
-不影响该行的 git 检测结果。
+单请求 15s 超时。
+
+所有行的 npm 探测属于同一个阶段：跨行最多 8 个探测并发，首个（且仅首个）探测先单独
+发起，registry 不可达时因此只消耗一次尝试；首个**传输层**失败（连接/超时/DNS）立即
+熔断，其余未完成的探测不再等待并复用同一错误文案，非 2xx 与不可解析 body 不熔断。
+该阶段整体预算 10s，超时按 `npm.error` 记录。任何 npm 结果只写进 `npm.error`
+（网络错误原文、`HTTP <status>` 或 `无法解析 npm registry 响应`），不影响该行的 git
+状态与 `allChecked`。
 
 ### `POST /auto-update/api/update`
 
@@ -111,11 +122,14 @@ Host 进程运行在解包的 desktop 应用里，检出不等于 `process.cwd()
 - 仅当 `window.dshDesktop?.protocolVersion === 1` 时挂载；`dsh web` 页面保持惰性。
 - 入口按钮：`position: fixed`，落在标题栏带内、窗口按键之前，`notifyCount > 0` 时显示
   角标。
-- 对话框：客户端缓存存在时立即渲染；否则先问 `?mode=cached`，有结果即渲染；都没有才
-  `?mode=local` 画骨架、再 `?mode=check` 拉完整结果（`hasUpdates === false` 时后台静默
-  重查）。「检查更新」始终执行 `mode=check`。每行提供「更新 / 更新日志 / AI 更新」，
-  顶部提供「全部更新 / AI 更新全部」，底部提示更新只完成 git 层，完成后需手动执行
-  `buildCommand` 并重启 Desktop 应用。
+- 对话框：客户端缓存存在时立即渲染、不等网络；否则先问 `?mode=cached`，有结果即渲染；
+  都没有才 `?mode=local` 画骨架、再 `?mode=check` 拉完整结果。每行提供「更新 /
+  更新日志 / AI 更新」，顶部提供「全部更新 / AI 更新全部」，底部提示更新只完成 git 层，
+  完成后需手动执行 `buildCommand` 并重启 Desktop 应用。
+- 首屏与静默重查：页面挂载时先 `?mode=cached` 填角标，命中则零网络，未命中才发一次
+  `?mode=check`。打开对话框后，缓存 `hasUpdates === true` 时不再发请求，`hasUpdates === false`
+  时才发一次不阻塞渲染、不出骨架的静默重查（与外壳 `openUpdateDialogWithBestState` 一致）。
+  「检查更新」按钮是唯一的用户主动刷新入口，始终执行 `mode=check`。
 - 更新日志：`mode=tag` 取到 GitHub Release 时直接渲染 `release.body`；否则把 `commits`
   与 `diffstat` 交给 `dsh-ai-update` 的 `/dsh-gui-api/changelog` 汇总，副标题用 `count`
   计提交数；AI 路由不可用时回退提交列表。

@@ -406,7 +406,7 @@ reply { ok: true }；composer 编辑器内容包含预填充的提示词
 插件浏览器半升级 harness 后先核对客户端服务目录
 （`packages/extensions/cordis-client-runner/src/client/api-catalog.ts`
 列出 AI 插件可用的 `ctx.*` 服务与方法签名），再跑一次上述探针脚本
-（`.work/ai-update-probe-pw.mjs`）确认 `ok: true`。
+（任务期间放在 `.work/` scratch 下，已清理）确认 `ok: true`。
 
 探针副作用：探针流程会执行 `sessions.clear()`，页面回到 home 后应用的标准
 导航策略自动补位连接最近工作区，可能留下一个空白会话（后续探针/真实点击会
@@ -554,7 +554,7 @@ webview 改造（iframe → 独立子 webview）后，点开标题栏汉堡菜�
 
 - `cargo check` 通过；`cargo test` 通过（沙箱内 2 个 git 用例受
   "couldn't create signal pipe" 环境限制失败，无沙箱复跑全部通过）。
-- 窗口级实测（截图见 `.work/dsh-gui-smoke/`）：原生汉堡菜单打开时
+- 窗口级实测（截图当时落在 `.work/dsh-gui-smoke/` scratch，已清理）：原生汉堡菜单打开时
   harness 内容保持可见；「检查更新」与「新建连接」弹窗卡片正常渲染、
   可关闭；关闭后主界面与 harness 内容均正常，无黑屏/卡死。
 - 细节见 `docs/dsh-gui/gui-window-frame.md` 的行条目更新。

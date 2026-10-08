@@ -33,8 +33,10 @@
 
 | 任务 | 归属 | 产出 |
 |---|---|---|
-| 实现原型插件 | `tabs-plugin-dev` | `plugins/desktop-tabs/`、`.work/desktop-tabs/01-plugin.md` |
-| 独立验证 V1–V7 | `tabs-verifier` | `.work/desktop-tabs/02-verification.md` |
+| 实现原型插件 | `tabs-plugin-dev` | `plugins/desktop-tabs/`、任务 scratch `.work/desktop-tabs/01-plugin.md` |
+| 独立验证 V1–V7 | `tabs-verifier` | 任务 scratch `.work/desktop-tabs/02-verification.md` |
+
+（本任务 scratch `.work/desktop-tabs/` 被 `.gitignore` 排除，任务收尾后已清理。）
 
 ## 进度日志
 
@@ -42,7 +44,7 @@
 
 ## 结论
 
-原型在隔离的 desktop 实例里跑通，**V1–V7 全部通过**，验收报告见 `.work/desktop-tabs/02-verification.md`。
+原型在隔离的 desktop 实例里跑通，**V1–V7 全部通过**，当时的验收报告见任务 scratch `.work/desktop-tabs/02-verification.md`（已清理）。
 
 | # | 结论 | 关键实测 |
 |---|---|---|
@@ -86,7 +88,7 @@
 
 ## 远程连接与凭据：调研结论与决定（task-9）
 
-现状（详见 `.work/desktop-tabs/03-remote-store.md`）：
+现状（详细调研记录当时落在任务 scratch `.work/desktop-tabs/03-remote-store.md`，已清理）：
 
 - 非敏感连接记录存在**外壳页面的 localStorage**（`tauri.localhost` 源，键 `dsh.remote.saved.v1`），字段形如 `{name,type,port,sshHost?,sshUser?,sshPort?,workdir?,startCommand?,saveAuth?}`；本机当前**没有**记录。
 - 凭据存在 `<DSH_HOME>\gui\credentials\<user>+dsh-gui+<名>.bin`（DPAPI/gpg）；本机无该目录。远端 token 仍是远端 `$HOME/.dsh-gui-remote.token`。
@@ -101,7 +103,7 @@
 
 ## A + B + C 验收结果（task-10 / task-13）
 
-在隔离 desktop 实例 + **真实 WSL 远程**下端到端验收，结论见 `.work/desktop-tabs/06-integration-verification.md` 与 `09-fix-verification.md`。
+在隔离 desktop 实例 + **真实 WSL 远程**下端到端验收，当时的结论记录在任务 scratch `.work/desktop-tabs/06-integration-verification.md` 与 `09-fix-verification.md`（已清理）。
 
 | 项 | 结果 | 关键证据 |
 |---|---|---|
@@ -165,6 +167,7 @@
 ### 两个环境性发现（均已处理）
 
 1. **`npm run harness` 预设把远端端口固定在 3080**：`scripts/harness.mjs` 不把 `--port 0` 当临时端口，因此远端已有实例占用 3080 时新连接会 `EADDRINUSE`。已在 `up` 的失败文案里附带提示（默认启动命令走 `--port 0`，或先结束旧实例）；要多连接并存时用默认启动命令。
+   - 2026-10-08 更新：`scripts/harness.mjs` 现已接受 `--host` / `--port`（`--port 0` 表示让远端 OS 选空闲端口），该预设不再固定 3080；同时远端启动改经 `bash -l -i -c` 执行，使 nvm 管理的 Node/npm 进入 PATH——详见 `plugins/desktop-tabs/dsh-desktop-tabs/README.md` 的「远端启动使用的 shell 环境」。
 2. **远端进程会成孤儿**（已实现回收，见下）：实测 WSL 残留过 `bin.js web --port 3080`（用户环境）与两个 `--port 0`（Lead 强退自验时留下），都来自应用被直接关闭而未走 `down`。
 
 ### 孤儿回收（task-24，Lead 实现 + 自测）
@@ -176,7 +179,7 @@
 - `session.ts`：启动成功写记录；失败路径 `stopRemote` 后删记录；`down()` 删记录；`dispose()` **故意保留**记录（detached 清理失败时由下次启动接手）；`up` 失败含 `EADDRINUSE` 时追加提示。
 - `index.ts`：`registerRemoteConnections` 注册后 `void reapStaleRemoteProcesses(...)`。
 
-自测（真实 WSL，见 `.work/desktop-tabs/20-orphan-reap.md`）：①制造孤儿（杀本地隧道后退出）→ 回收报 `killed`、远端进程消失、记录清空；②**负向对照**——用真实存在的 `sleep 300` 进程组写记录 → 报 `foreign`、诱饵存活；③**绝不泛杀**——远端一个未记录的 dsh（`--port 3081`）在回收后仍存活。远程模块 `tsc --strict` exit 0、`npm run test:scripts` 12/12。
+自测（真实 WSL，当时的记录在任务 scratch `.work/desktop-tabs/20-orphan-reap.md`，已清理）：①制造孤儿（杀本地隧道后退出）→ 回收报 `killed`、远端进程消失、记录清空；②**负向对照**——用真实存在的 `sleep 300` 进程组写记录 → 报 `foreign`、诱饵存活；③**绝不泛杀**——远端一个未记录的 dsh（`--port 3081`）在回收后仍存活。远程模块 `tsc --strict` exit 0、`npm run test:scripts` 12/12。
 
 ### 连接中覆盖修复（task-22，Lead 自验）
 

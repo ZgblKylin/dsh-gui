@@ -153,6 +153,19 @@ SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参
 远端启动因端口被占失败（`EADDRINUSE`）时，错误文案会附带提示：默认启动命令会走
 `--port 0`，或先结束旧实例（多数情况下上面的回收已经处理）。
 
+## 远端启动使用的 shell 环境
+
+启动脚本经 `bash -l -i -c` 执行（与 `plugins/remote/dsh-remote` 的 `startSession` 同款），
+不是 `ssh <host> <command>` 的默认非登录非交互 shell。原因是远端常把 Node/npm 装在
+nvm 之类的版本管理器下，而它们的 PATH 只由交互式 `~/.bashrc` 注入；被守卫的 rc
+（`case $- in *i*) ;; *) return;; esac`）在非交互 shell 里直接返回，于是启动会退回系统
+Node。系统 Node 过旧时这种失败是**静默**的：dsh CLI 入口写作
+`if (import.meta.main) await runCli()`，Node 20 上 `import.meta.main` 为 `undefined`，
+进程不打印任何内容并以 0 退出，表现为「远端进程已启动」但永远等不到启动 URL。
+
+远端日志的第一行是 `TABS_LAUNCH_RUNTIME=<node 路径> <node 版本>`，用来直接确认这次启动
+用的是哪个 Node。
+
 `dispose()` 故意**保留**记录：它的远端清理是 detached 的尽力而为，若没执行成功，下次启动
 的回收会接手。
 

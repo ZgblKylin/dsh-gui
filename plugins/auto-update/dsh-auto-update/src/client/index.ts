@@ -17,14 +17,15 @@
  * effect disposer removes everything this half created — including the owned
  * `<style>` tag.
  *
- * One background check runs at mount to fill the entry badge from the host's
- * `notifyCount`; there is no polling, and a failure leaves the entry usable
- * (the reason surfaces in the dialog when it is opened).
+ * One background pass runs at mount to fill the entry badge from the host's
+ * `notifyCount` — `?mode=cached` first, a real `?mode=check` only on a cold
+ * start (contract §8.4); there is no polling, and a failure leaves the entry
+ * usable (the reason surfaces in the dialog when it is opened).
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 
-import { fetchStatus } from './api.ts'
+import { fetchCachedStatus, fetchStatus, type UpdateStatus } from './api.ts'
 import { desktopCarrier } from './bridge.ts'
 import { BUTTON_ATTR, TOAST_ATTR, createUpdateButton, disposeToast } from './button.ts'
 import { CHANGELOG_ATTR, createChangelogView } from './changelog-view.ts'
@@ -87,12 +88,27 @@ function mountAutoUpdate(): () => void {
   }
   window.addEventListener('keydown', onKeyDown)
 
-  // Fill the badge once; the dialog refreshes it after every completed check.
+  // Fill the badge once (contract §8.4). The host cache is asked first: when it
+  // is warm — a page reload, or a check the shell already ran in this host
+  // process — the badge needs no network at all, whereas a cold `mode=check`
+  // fetches every submodule and can take minutes. Only a cold start runs the
+  // real check. The dialog refreshes the badge after every completed check.
   void (async () => {
+    let status: UpdateStatus | undefined
     try {
-      const status = await fetchStatus('check')
-      if (disposed) return
+      status = await fetchCachedStatus()
+    } catch {
+      // No usable cache route (an older host): fall through to a real check.
+    }
+    if (disposed) return
+    if (status !== undefined) {
       button.setNotifyCount(Number.isFinite(status.notifyCount) ? status.notifyCount : 0)
+      return
+    }
+    try {
+      const fresh = await fetchStatus('check')
+      if (disposed) return
+      button.setNotifyCount(Number.isFinite(fresh.notifyCount) ? fresh.notifyCount : 0)
     } catch {
       // No badge without a successful check; the dialog reports the reason.
     }

@@ -40,7 +40,7 @@ Electron 二进制不会被自动安装：仓库 `pnpm-workspace.yaml` 的 `allo
 
 产物位于 `apps\desktop\.desktop-build\targets\win-x64\unsigned-artifacts\win-unpacked\`：整目录 0.99 GB、9819 个文件，入口 `DeepSeek Harness.exe` 为 233.14 MB，`Get-AuthenticodeSignature` 报 `NotSigned`，`unsigned-artifacts` 下没有 `-release.json`。用 `robocopy /E /MT:8` 整体复制到 `D:\git\dsh-gui-home\.staging\desktop`，1013.56 MB、0 个失败文件。
 
-从落位目录启动成功：`list_windows` 得到 `DeepSeek Harness.exe (pid 26052) "DeepSeek Harness"` 且窗口在屏，截图有真实渲染，Host 在 19387 返回 200、35,578 字节的页面与 `assets/index-5SrrfWpU.js`。该资产在「本机构建的 `apps\web\dist\assets\`」「dev 实例 Host」「打包实例 Host」三处的字节内容一致，说明落位后的应用服务的确实是本次构建的客户端。资产大小为 633,282 字节；`.work/desktop-research/03-build.md` 三处写作 633,245，相差 37 字节，以复核重算值为准。
+从落位目录启动成功：`list_windows` 得到 `DeepSeek Harness.exe (pid 26052) "DeepSeek Harness"` 且窗口在屏，截图有真实渲染，Host 在 19387 返回 200、35,578 字节的页面与 `assets/index-5SrrfWpU.js`。该资产在「本机构建的 `apps\web\dist\assets\`」「dev 实例 Host」「打包实例 Host」三处的字节内容一致，说明落位后的应用服务的确实是本次构建的客户端。资产大小为 633,282 字节；任务 scratch `.work/desktop-research/03-build.md` 三处写作 633,245，相差 37 字节，以复核重算值为准。
 
 落位只新增 `desktop` 一个目录，与 `.dsh`、`.harness`、`.toolchain`、`.pnpm-store`、`dsh-gui`、`run.cmd` 均不同名。回滚方式是关闭进程后删除该目录；`npm run staging -- clean --yes` 不会清理它。安装器形态（NSIS）是 per-user 辅助式安装器，可用 `/S /D=<path>` 定向到 `.staging\desktop`，但它会额外写 HKCU 安装记录、卸载项与两个快捷方式，本次未采用。
 
@@ -131,7 +131,7 @@ $env:DSH_HOME = 'D:\git\dsh-gui-home\.staging\.desktop-home'
 
 ## 九、独立复核
 
-静态结论与 staging 重建结果由 `verifier` 逐条独立复核，结论见 `.work/desktop-research/05-verification-static.md`。复核指出的问题集中在引用精度与措辞边界，不改变上表结论。
+静态结论与 staging 重建结果由 `verifier` 逐条独立复核，结论见任务 scratch `.work/desktop-research/05-verification-static.md`（已清理）。复核指出的问题集中在引用精度与措辞边界，不改变上表结论。
 
 | 编号 | 问题 | 处理 |
 |---|---|---|
@@ -153,10 +153,10 @@ $env:DSH_HOME = 'D:\git\dsh-gui-home\.staging\.desktop-home'
 
 | 任务 | 承担者 | 产出 |
 |---|---|---|
-| 副本重建与自举构建 | `staging-sync` | `.work/desktop-research/00-staging-sync.md` |
-| desktop 构建链与安装器语义 | `desktop-pipeline` | `.work/desktop-research/01-pipeline.md`、`04-install-layout.md` |
-| profile 与 `DSH_HOME` 解析 | `desktop-profile` | `.work/desktop-research/02-profile.md` |
-| desktop 实跑（编译、启动、落位） | `desktop-builder` | `.work/desktop-research/03-build.md` |
-| 独立复核 | `verifier` | `.work/desktop-research/05-verification-static.md` |
+| 副本重建与自举构建 | `staging-sync` | `00-staging-sync.md` |
+| desktop 构建链与安装器语义 | `desktop-pipeline` | `01-pipeline.md`、`04-install-layout.md` |
+| profile 与 `DSH_HOME` 解析 | `desktop-profile` | `02-profile.md` |
+| desktop 实跑（编译、启动、落位） | `desktop-builder` | `03-build.md` |
+| 独立复核 | `verifier` | `05-verification-static.md` |
 
-`.work/` 已被 `.gitignore` 排除，上述中间产物不进入版本管理。本工程仓库根在任务期间未执行任何构建或安装：`git status --porcelain` 仅剩任务开始前既有的 `docs/dsh-gui/remote-ssh-broker-in-shell.md` 一处改动。
+上述产出文件全部位于任务期间的任务 scratch `.work/desktop-research/`（被 `.gitignore` 排除、不进入版本管理，任务收尾后已清理）。本工程仓库根在任务期间未执行任何构建或安装：`git status --porcelain` 仅剩任务开始前既有的 `docs/dsh-gui/remote-ssh-broker-in-shell.md` 一处改动。

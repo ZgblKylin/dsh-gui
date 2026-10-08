@@ -3,7 +3,7 @@
  * install.mjs — install the `better-sidebar` plugin group into the web profile.
  *
  * DSH-better-sidebar 从 npm 安装：v0.24.1 的 peerDeps 全部指向 ^0.2.0-rc.1，
- * 与本工程 pinned 的 dsh-v0.2.0-rc.2 harness 匹配；上游自 v0.21.1 起把右列交由
+ * 与本工程 pinned 的 dsh-v0.2.1-alpha.1 harness 匹配；上游自 v0.21.1 起把右列交由
  * DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与
  * `ctx.betterSidebar` 服务。固定精确版本而非 @latest，是因为 pinned pnpm 11.7
  * 默认的 supply-chain minimumReleaseAge 会把过新的版本挡在 @latest 之外、静默回退到

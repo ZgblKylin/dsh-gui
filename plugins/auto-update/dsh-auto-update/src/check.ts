@@ -1,27 +1,28 @@
 /**
  * Update detection for the auto-update host half.
  *
- * Three modes, mirroring the shell's `local_check` / `check` plus the dialog's
- * cached reopen:
+ * Modes, mirroring the shell's `local_check` / `check` plus the dialog's cached
+ * reopen:
  *
  * - {@link localCheck} reads only local state (project list, package names,
  *   current version, GitHub releases page). It never touches the network, so
  *   the dialog can paint skeleton rows immediately, and it neither reads nor
  *   writes the cache.
- * - {@link check} realigns the submodule remotes, runs **one** recursive
- *   `git fetch --prune --recurse-submodules origin` at the top level, and then
- *   compares every row against its remote default branch with local commands
- *   only: `behind`, the newest tag reachable from that branch (`latestTag`),
- *   whether that tag is a usable target (`latestTagStale`), whether the row is
- *   worth a badge (`announce`), and — for a row whose newest tag is a usable
- *   update — the npm publish state of the packages it installs. The finished
- *   status is kept as the module's cache.
+ * - {@link check} runs the real detection, single-flighted: concurrent callers
+ *   share one run and one result, so the startup badge probe and the dialog's
+ *   own probe never fetch twice. It realigns the submodule remotes, starts the
+ *   top-level recursive fetch and every row's remote-branch resolution together,
+ *   compares each row against its remote default branch with local commands
+ *   only, and finally probes the npm registry for every row in one bounded
+ *   phase. The finished status is kept as the module's cache.
  * - {@link cachedCheck} returns the last finished `check` status (partial
  *   failures included), or `undefined` before the first one.
  *
- * The comparison semantics are ported from `src-tauri/src/update.rs`
- * (`check_project` / `local_preview_project`); the fetch strategy is the v2
- * contract's single recursive fetch, and the npm state lives in `./npm.ts`.
+ * Concurrency changes only the scheduling: `projects` keeps the manifest order
+ * (root first), and every field is computed by the same local git reads the
+ * serial implementation used. The comparison semantics are ported from
+ * `src-tauri/src/update.rs` (`check_project` / `local_preview_project`); the
+ * fetch strategy is the contract's single recursive fetch.
  */
 
 import { isDirectory, listProjects, type ProjectRef } from './paths.ts'
@@ -37,12 +38,16 @@ import {
   runGit,
   tagIsStale,
   GIT_RECURSIVE_FETCH_TIMEOUT_MS,
+  type GitCapture,
 } from './git.ts'
 import { releasesPageUrl } from './changelog.ts'
-import { npmPackagesForProject, npmUpdateCheck, type NpmUpdateInfo } from './npm.ts'
+import { npmPackagesForProject, npmUpdateChecks, type NpmRequestSpec, type NpmUpdateInfo } from './npm.ts'
 
 /** The command the user runs after an update; the dialog prints it verbatim. */
 export const BUILD_COMMAND = 'npm run build:desktop'
+
+/** Git work running at once within one check phase. */
+const CHECK_CONCURRENCY = 8
 
 /** One repository row of the status response. */
 export interface ProjectUpdate {
@@ -103,8 +108,17 @@ export interface CheckOptions {
   onWarn?: (message: string) => void
 }
 
+/** One row's comparison result plus the npm probe it still needs. */
+interface RowOutcome {
+  row: ProjectUpdate
+  npm?: NpmRequestSpec
+}
+
 /** The last finished `check` status; `undefined` before the first one. */
 let cachedStatus: UpdateStatus | undefined
+
+/** The check currently running, if any; concurrent callers share it. */
+let inFlightCheck: Promise<UpdateStatus> | undefined
 
 /**
  * The last finished `check` status, partial failures included — the dialog
@@ -117,35 +131,76 @@ export function cachedCheck(): UpdateStatus | undefined {
 
 /**
  * The cold-start preview: the full project list plus local versions, every row
- * marked `checking`, and no network access at all.
+ * marked `checking`, and no network access at all. The rows are read with the
+ * same bound as the full check — one `git` spawn per read, seven rows of them,
+ * is what would otherwise leave the dialog blank for half a minute.
  * @param root - repository root.
  */
 export async function localCheck(root: string): Promise<UpdateStatus> {
   const started = Date.now()
-  const projects: ProjectUpdate[] = []
-  for (const project of listProjects(root)) projects.push(await localPreview(project))
+  const projects = await mapBounded(listProjects(root), CHECK_CONCURRENCY, (project) => localPreview(project))
   return summarize(root, projects, null, started)
 }
 
 /**
  * Check the root repository and every submodule.
+ *
+ * Concurrent callers share the run in flight with the first caller and receive
+ * the same status object; the shared run is released as soon as it settles, so
+ * the next explicit check starts a fresh one.
+ *
  * @param root - repository root.
  * @param options - diagnostics sink for the recursive fetch.
  */
 export async function check(root: string, options: CheckOptions = {}): Promise<UpdateStatus> {
+  if (inFlightCheck !== undefined) return await inFlightCheck
+  let shared: Promise<UpdateStatus>
+  shared = runCheck(root, options).finally(() => {
+    if (inFlightCheck === shared) inFlightCheck = undefined
+  })
+  inFlightCheck = shared
+  return await shared
+}
+
+/** Run one detection without joining a run already in flight. */
+async function runCheck(root: string, options: CheckOptions): Promise<UpdateStatus> {
   const started = Date.now()
   // A checkout that was moved (or created from a local origin) can carry the
   // previous location in its submodule remotes; realign them with `.gitmodules`
   // before fetching, so the check never reports a stale path.
   await reconcileSubmoduleRemotes(root)
-  // One recursive fetch refreshes the root and every populated submodule's
-  // remote-tracking refs. A non-zero exit is recorded, not fatal: the rows that
-  // did not get their ref are repaired individually below.
-  const capture = await runGit(['fetch', '--prune', '--recurse-submodules', 'origin'], root, GIT_RECURSIVE_FETCH_TIMEOUT_MS)
-  if (!capture.ok) options.onWarn?.(gitFailure(capture, 'git fetch --recurse-submodules'))
-  const projects: ProjectUpdate[] = []
-  for (const project of listProjects(root)) projects.push(await checkProject(project))
-  const status = summarize(root, projects, Math.floor(Date.now() / 1000), started)
+  const projects = listProjects(root)
+
+  // Phase one: the recursive fetch and every row's remote-branch resolution
+  // start together — `ls-remote` does not depend on the fetch result, and the
+  // fetch dominates the wall clock.
+  const fetchTask = fetchRecursive(root)
+  const branches = await mapBounded(projects, CHECK_CONCURRENCY, (project) => resolveRemoteBranch(project))
+  const fetchError = await fetchTask
+  if (fetchError !== undefined) options.onWarn?.(fetchError)
+
+  // Phase two: per-row local comparison, bounded; rows keep their manifest order.
+  const rows: ProjectUpdate[] = new Array(projects.length)
+  const npmRequests: Array<{ row: number; spec: NpmRequestSpec }> = []
+  await forEachBounded(projects, CHECK_CONCURRENCY, async (project, index) => {
+    try {
+      const outcome = await checkProject(project, branches[index])
+      rows[index] = outcome.row
+      if (outcome.npm !== undefined) npmRequests.push({ row: index, spec: outcome.npm })
+    } catch (error: unknown) {
+      rows[index] = failedRow(project, error)
+    }
+  })
+
+  // Phase three: every npm probe across all rows, in one bounded phase with its
+  // own budget; npm never affects a row's git state.
+  if (npmRequests.length > 0) {
+    npmRequests.sort((left, right) => left.row - right.row)
+    const infos = await npmUpdateChecks(npmRequests.map((entry) => entry.spec))
+    npmRequests.forEach((entry, index) => { rows[entry.row]!.npm = infos[index]! })
+  }
+
+  const status = summarize(root, rows, Math.floor(Date.now() / 1000), started)
   cachedStatus = status
   return status
 }
@@ -172,8 +227,20 @@ async function localPreview(project: ProjectRef): Promise<ProjectUpdate> {
   return row
 }
 
+/**
+ * The remote default branch of one row, or `undefined` when the row cannot
+ * answer it (missing directory, not a repository, no origin, or no branch).
+ * Runs while the recursive fetch is still in flight.
+ */
+async function resolveRemoteBranch(project: ProjectRef): Promise<string | undefined> {
+  if (!isDirectory(project.dir)) return undefined
+  if (!await isGitRepo(project.dir)) return undefined
+  if (await gitOriginUrl(project.dir) === undefined) return undefined
+  return await remoteDefaultBranch(project.dir)
+}
+
 /** Compare one repository against its `origin` default branch. */
-async function checkProject(project: ProjectRef): Promise<ProjectUpdate> {
+async function checkProject(project: ProjectRef, branch: string | undefined): Promise<RowOutcome> {
   const row: ProjectUpdate = {
     id: project.id,
     name: project.name,
@@ -190,30 +257,29 @@ async function checkProject(project: ProjectRef): Promise<ProjectUpdate> {
 
   if (!isDirectory(project.dir)) {
     row.error = '目录不存在，请先初始化该 submodule'
-    return row
+    return { row }
   }
   if (!await isGitRepo(project.dir)) {
     row.error = '不是 git 仓库'
-    return row
+    return { row }
   }
   if (await gitOriginUrl(project.dir) === undefined) {
     row.error = '没有 origin 远程'
-    return row
+    return { row }
   }
 
   const currentSha = await gitOutput(['rev-parse', 'HEAD'], project.dir)
   if (currentSha === undefined) {
     row.error = '无法读取本地 HEAD'
-    return row
+    return { row }
   }
   row.current = await gitVersion(project.dir, currentSha)
 
-  // The remote is asked first so a stale local `refs/remotes/origin/HEAD`
-  // symbolic ref can never point the row at an old branch.
-  const branch = await remoteDefaultBranch(project.dir)
+  // Resolved in phase one: against the remote when it answers, against the local
+  // `refs/remotes/origin/HEAD` when it does not.
   if (branch === undefined) {
     row.error = '无法确定远端默认分支'
-    return row
+    return { row }
   }
   const latestRef = `origin/${branch}`
   let latestSha = await gitOutput(['rev-parse', latestRef], project.dir)
@@ -224,12 +290,12 @@ async function checkProject(project: ProjectRef): Promise<ProjectUpdate> {
     const fetchError = await gitFetch(project.dir)
     if (fetchError !== undefined) {
       row.error = fetchError
-      return row
+      return { row }
     }
     latestSha = await gitOutput(['rev-parse', latestRef], project.dir)
     if (latestSha === undefined) {
       row.error = `远端缺少 ${latestRef}`
-      return row
+      return { row }
     }
   }
   row.latest = await gitVersion(project.dir, latestRef)
@@ -253,20 +319,98 @@ async function checkProject(project: ProjectRef): Promise<ProjectUpdate> {
       row.announce = !(onExactTag && !hasNewerTag)
       // npm-installed packages: report whether the tag's version is already
       // published, so the dialog can warn that the installed plugins lag behind
-      // the source checkout. A failure here never fails the git row.
+      // the source checkout. The probes run in phase three, across all rows.
       if (hasNewerTag && row.latestTag !== undefined) {
         const packages = npmPackagesForProject(project.dir)
-        if (packages.length > 0) row.npm = await npmUpdateCheck(packages, row.latestTag)
+        if (packages.length > 0) return { row, npm: { packages, tag: row.latestTag } }
       }
     }
   }
-  return row
+  return { row }
+}
+
+/**
+ * A row whose comparison threw unexpectedly: the response keeps one row per
+ * project and reports the failure instead of failing the whole request.
+ */
+function failedRow(project: ProjectRef, error: unknown): ProjectUpdate {
+  return {
+    id: project.id,
+    name: project.name,
+    path: project.path,
+    current: 'unknown',
+    latest: '—',
+    latestTagStale: false,
+    announce: true,
+    behind: false,
+    checking: false,
+    error: `检查失败：${error instanceof Error ? error.message : String(error)}`,
+  }
 }
 
 /** The row's GitHub Releases list page, from its origin (manifest URL fallback). */
 async function releasePageFor(project: ProjectRef): Promise<string | undefined> {
   const origin = await gitOriginUrl(project.dir) ?? project.url
   return releasesPageUrl(origin)
+}
+
+/**
+ * The check's single recursive fetch, with the git-side parallel job count.
+ * A git that does not know `-j` is retried once without it, so the flag never
+ * turns a working fetch into a failed row.
+ * @returns `undefined` on success, else the failure summary.
+ */
+async function fetchRecursive(root: string): Promise<string | undefined> {
+  const withJobs = await runGit(
+    ['fetch', '--prune', '--recurse-submodules', '-j', '8', 'origin'],
+    root,
+    GIT_RECURSIVE_FETCH_TIMEOUT_MS,
+  )
+  if (withJobs.ok) return undefined
+  if (!rejectsJobsFlag(withJobs)) return gitFailure(withJobs, 'git fetch --recurse-submodules')
+  const withoutJobs = await runGit(
+    ['fetch', '--prune', '--recurse-submodules', 'origin'],
+    root,
+    GIT_RECURSIVE_FETCH_TIMEOUT_MS,
+  )
+  return withoutJobs.ok ? undefined : gitFailure(withoutJobs, 'git fetch --recurse-submodules')
+}
+
+/** Whether a failed fetch rejected the `-j` flag itself. */
+function rejectsJobsFlag(capture: GitCapture): boolean {
+  const detail = `${capture.stderr}\n${capture.stdout}`
+  return /unknown option/i.test(detail) || /usage:/i.test(detail)
+}
+
+/** Run `worker` over `items` with at most `limit` in flight at once. */
+async function forEachBounded<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  let cursor = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      await worker(items[index]!, index)
+    }
+  })
+  await Promise.all(runners)
+}
+
+/** {@link forEachBounded} keeping the results in the input's order. */
+async function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  await forEachBounded(items, limit, async (item, index) => {
+    results[index] = await worker(item, index)
+  })
+  return results
 }
 
 /** Fold the finished rows into the wire status. */

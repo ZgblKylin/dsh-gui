@@ -23,12 +23,12 @@
  * version constant would therefore pin the manager to a version that does not
  * exist, so the pins are per package.
  *
- * The harness dsh-v0.2.0-rc.2 admission gate compares each package's
+ * The harness dsh-v0.2.1-alpha.1 admission gate compares each package's
  * `@deepseek-ai/dsh` peer range with the running version and refuses a package
  * whose range predates it, which fails `dsh plugin add` (exit 1) and drops the
  * bundle layer at boot. At v0.1.7 both skins widened that range to
  * `>=0.1.7-rc.1 <0.3.0-0` and record `dshCompatibility: 0.2.0rc2` in their
- * `skin.json`, so they admit 0.2.0-rc.2 and need no exemption; the manager's
+ * `skin.json`, so they admit 0.2.1-alpha.1 and need no exemption; the manager's
  * `>=0.1.7-rc.1` was already satisfied. The v0.1.6 skins still declared
  * `>=0.1.7-rc.1 <0.1.8-0`, which is why that tag carried an exact-version
  * exemption (installNpmPlugin's `exempt`); this tag retires it.

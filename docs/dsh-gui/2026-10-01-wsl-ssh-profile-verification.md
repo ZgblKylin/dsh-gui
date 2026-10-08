@@ -27,7 +27,7 @@
 
 远端产物：在 `~/dsh-ssh-verify/helper` 下 `npm install @deepseek-ai/dsh-ssh@0.2.0-rc.2`（连带解析 41 个包，含 `dsh-fs-local`、`dsh-subprocess-local`、`dsh-sandbox-local` 等 peer），辅助程序入口为 `node_modules/@deepseek-ai/dsh-ssh/lib/helper.js`，`sha256sum` 得 `42373bff731239ab5e50bfd908fba8d7e9b9f127463586fa346715135a8ada0b`。
 
-profile：`dsh plugin --profile ssh add` 依次安装四个 SSH 包与 `@deepseek-ai/dsh-headless@0.2.0-rc.2`，随后写入组合改写。工作脚本与验收程序位于仓库内被 `.gitignore` 排除的 `.work/ssh-remote-verify/`。
+profile：`dsh plugin --profile ssh add` 依次安装四个 SSH 包与 `@deepseek-ai/dsh-headless@0.2.0-rc.2`，随后写入组合改写。工作脚本与验收程序位于仓库内被 `.gitignore` 排除的任务 scratch `.work/ssh-remote-verify/`（任务收尾后已清理）。
 
 ## 证据
 

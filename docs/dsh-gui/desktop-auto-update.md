@@ -6,7 +6,7 @@
 
 它只装在 desktop profile（`plugins/auto-update/install.mjs` 在 `DSH_PLUGIN_PROFILE !== 'desktop'` 时只打印 skip 并退出 0），web profile 的组合与外壳的更新对话框都不受影响；两套更新 UI 在此期间并存，外壳侧的行为见 [update-check.md](update-check.md) 与 [update-changelog.md](update-changelog.md)。
 
-当前范围是「检测 + 对话框 + 就地更新」：更新只完成 git 层，不做分离式更新器、自动重启与待更新计划文件。检测策略、每行 npm 发布状态与更新日志的 AI 摘要均已对标外壳已有功能（v2，2026-10-07），见下文各节。
+当前范围是「检测 + 对话框 + 就地更新」：更新只完成 git 层，不做分离式更新器、自动重启与待更新计划文件。检测策略、每行 npm 发布状态与更新日志的 AI 摘要已对标外壳已有功能（v2，2026-10-07）；检测调度（并行、单飞、npm 熔断与启动后台检查）及其实测耗时归因见下文（v3）。
 
 ## 入口位置
 
@@ -14,7 +14,7 @@
 
 定位方式是 `position: fixed; top: 0; height: var(--dsh-windows-titlebar-height, 40px); right: var(--dsh-auto-update-controls-width, 138px)`，并设 `-webkit-app-region: no-drag`；右侧预留宽度默认 138px，可通过该 CSS 变量覆盖，插件不在 `:root` 声明它、样式足迹只落在自己的 `[data-dsh-auto-update-*]` 选择器上，Windows 实测不覆盖最小化/最大化/关闭三个按键。
 
-`z-index` 取 2147483001，与 desktop-tabs 标签条同层、低于外壳强制提示层 2147483647；`notifyCount > 0` 时按钮上显示一个小圆点角标，角标在挂载时做一次后台 `mode=check` 填充（不轮询，失败时入口仍可用，原因在打开对话框时显示）。
+`z-index` 取 2147483001，与 desktop-tabs 标签条同层、低于外壳强制提示层 2147483647；`notifyCount > 0` 时按钮上显示一个小圆点角标。角标在页面挂载时做一次后台检查填充：先问 `?mode=cached`，命中就只填角标、不发任何网络请求，未命中才跑 `mode=check`（不轮询；失败时入口仍可用，原因在打开对话框时显示）。
 
 client 半只在 `window.dshDesktop?.protocolVersion === 1` 存在时挂载，`dsh web` 页面保持完全惰性；所有 DOM 与 `<style>` 由 effect disposer 回收，重复挂载先清理旧实例。
 
@@ -22,7 +22,7 @@ client 半只在 `window.dshDesktop?.protocolVersion === 1` 存在时挂载，`d
 
 点击入口打开模态浮层（半透明遮罩 + 居中卡片），Esc 与遮罩点击关闭，关闭后入口恢复可点；打开顺序对齐外壳的 `openUpdateDialogWithBestState`：client 模块级缓存存在时立即渲染（不画骨架），否则先问 host 的 `?mode=cached`，有结果就渲染，两处都没有才 `?mode=local` 画骨架、再 `?mode=check` 拉完整结果，避免首屏空白。
 
-已有缓存时按同一规则决定是否重查：`hasUpdates === true` 打开不再自动重查，`hasUpdates === false` 则后台静默重查并就地刷新（不阻塞渲染）；「检查更新」按钮始终执行 `mode=check`，完成后就地刷新列表、角标与「上次检查」行并更新两处缓存。页面重新加载会丢 client 缓存，但同一宿主进程的 host 缓存仍在，重开对话框仍立即有内容、无需等网络检测。
+已有缓存时按外壳同款规则决定是否重查：`hasUpdates === true` 时打开对话框不发任何检查请求；`hasUpdates === false` 时打开对话框发一次静默后台重查（不阻塞渲染、不出骨架，完成后就地刷新）；「检查更新」按钮始终执行 `mode=check`，是唯一的用户主动刷新入口（受 host 单飞约束），完成后就地刷新列表、角标与「上次检查」行并更新两处缓存。页面重新加载会丢 client 缓存，但同一宿主进程的 host 缓存仍在，重开对话框仍立即有内容、无需等网络检测；应用启动后的检查在后台进行，因此打开对话框与重新加载都直接命中缓存、不再等网络。
 
 卡片内容对齐外壳的 `renderUpdateDialog`：头部是标题「自动更新」、上次检查时间与耗时、「检查更新」按钮与关闭「✕」；行内展示模块名（有 `releaseUrl` 时为外链，指向 GitHub Releases 列表页）、`当前 → 最新`、tag/commit 目标选择（`latestTagStale` 时 tag 项禁用并回退最新提交）、状态与错误，以及行内「更新」「更新日志」「AI 更新」；顶部提供「全部更新」与「AI 更新全部」。
 
@@ -43,16 +43,22 @@ client 半只在 `window.dshDesktop?.protocolVersion === 1` 存在时挂载，`d
 查询参数 `mode=local|check|cached`，默认 `check`。
 
 - `mode=local`：只读本地信息，不发网络请求（每行 `checking: true`、`latest` 为「检查中…」、`checkedAt: null`），既不读也不写检测缓存。
-- `mode=check`：先按 `.gitmodules` 自愈子模块远端，然后在顶层执行**一次** `git fetch --prune --recurse-submodules origin`，之后每一行只用本地命令比较（`rev-parse` / `describe --tags` / `merge-base --is-ancestor` / `rev-list --count`），不再逐行 fetch。递归 fetch 非零退出不算整体失败：记录错误摘要，仅对本地仍缺少 `origin/<默认分支>` ref 的行退化为该行单独 `git fetch --prune origin`（该次失败即该行 `error`）。完成的 status（含部分失败）存入 host 模块级缓存。
+- `mode=check`：先按 `.gitmodules` 自愈子模块远端，然后在顶层执行**一次** `git fetch --prune --recurse-submodules -j 8 origin`（`-j 8` 让 git 并行拉取子模块；若该 git 不认此参数，去掉 `-j 8` 原样重试一次）。随后每一行只用本地命令比较（`rev-parse` / `describe --tags` / `merge-base --is-ancestor` / `rev-list --count`），不再逐行 fetch。递归 fetch 非零退出不算整体失败：记录错误摘要，仅对本地仍缺少 `origin/<默认分支>` ref 的行退化为该行单独 `git fetch --prune origin`（该次失败即该行 `error`）。完成的 status（含部分失败）存入 host 模块级缓存。
 - `mode=cached`：有缓存返回 `200` + 该 status，无缓存返回 `204`（无 body），不触碰 git、也不需要解析仓库根。
 
+`mode=check` 单飞：host 用模块级 in-flight Promise 表示「正在跑的 check」，并发到达的请求共享同一次运行与同一份结果（不重复 fetch、不重复 npm 查询），运行结束即释放；`mode=cached` 与 `mode=local` 不参与单飞、也不被阻塞，运行期间再次请求等价于等待同一结果而不是报错。
+
 远端默认分支解析保持外壳的优先级：先 `git ls-remote --symref origin HEAD`，失败才回退本地 `refs/remotes/origin/HEAD`。这个取舍是拿每行一次轻量网络往返换正确性——本地 symref 可能陈旧并指向已改名的分支，宁可多问一次远端也不把整行检到错误分支上。
+
+该解析不依赖 fetch 结果，因此对每个「目录存在、是 git 仓库且有 origin」的行与顶层递归 fetch **同时**发起；随后的逐行本地比较也按行并行。两处并发都有界（≤8），并发只改变调度：`projects` 始终按 `.gitmodules` 顺序、顶层在前，各字段与串行实现逐字段一致。
 
 200 响应的行字段（camelCase，`undefined`/`null` 省略）：`id`（顶层固定 `dsh-gui`，子模块用 `.gitmodules` 的 name）、`name`（子包 `package.json` name，缺失回退 `id`）、`path`（相对仓库根的 POSIX 路径，顶层为空串）、`current`（精确 tag，否则 short sha，不可读时 `unknown`）、`latest`（远端默认分支上的版本；local 模式为「检查中…」，无法检查的行为 `—`）、`latestTag`、`latestTagStale`（tag 不严格新于本地 HEAD）、`announce`（计入角标；tag 上无更新 tag 的仅提交更新为 false）、`behind`、`checking`、`error`、`releaseUrl`（GitHub Releases 列表页）、可选 `npm`（见下）。
 
 顶层字段：`projects`、`hasUpdates`、`updateCount`（behind 的行数）、`notifyCount`（behind && announce 的行数）、`allChecked`（任一行有 error 即 false）、`checkedAt`（unix 秒，local 模式为 null）、`durationMs`、`root`、`buildCommand`（`npm run build:desktop`，对话框底部文案取自它）。
 
-每行的 `npm` 发布状态（对齐外壳的 `NpmUpdateInfo`）：字段为 `{packages, latest, missing, complete, error?}`；仅当该行 `behind && latestTag !== undefined && !latestTagStale` 且该工程的 npm 包集合非空时出现，否则响应里没有该字段、client 不渲染任何 npm 文案。包集合取 `<DSH_HOME>/gui/npm-installs.json`（缺失/损坏视为空集）与该工程清单名（根 `package.json` + `apps/**` + `packages/**` 递归采集，跳过 `node_modules`/`.git`/`target`/`dist` 与点目录）的交集，命中顺序即 `packages`。registry 查询 `https://registry.npmjs.org/<encodeURIComponent(name)>`，请求头 `accept: application/vnd.npm.install-v1+json`、`user-agent: dsh-gui-update-check`，单请求 15s 超时、同一行内多个包并发，目标版本是 tag 去掉前缀 `v`；`latest` 取 `dist-tags.latest`，`missing` 为 `versions` 中不含目标版本的包，`complete = missing.length === 0 && error === undefined`。失败只写 `npm.error`（网络错误原文、非 2xx 为 `HTTP <status>`、响应不可解析为可读文案），不使该行失败。
+每行的 `npm` 发布状态（对齐外壳的 `NpmUpdateInfo`）：字段为 `{packages, latest, missing, complete, error?}`；仅当该行 `behind && latestTag !== undefined && !latestTagStale` 且该工程的 npm 包集合非空时出现，否则响应里没有该字段、client 不渲染任何 npm 文案。包集合取 `<DSH_HOME>/gui/npm-installs.json`（缺失/损坏视为空集）与该工程清单名（根 `package.json` + `apps/**` + `packages/**` 递归采集，跳过 `node_modules`/`.git`/`target`/`dist` 与点目录）的交集，命中顺序即 `packages`。registry 查询 `https://registry.npmjs.org/<encodeURIComponent(name)>`，请求头 `accept: application/vnd.npm.install-v1+json`、`user-agent: dsh-gui-update-check`，单请求 15s 超时；所有行的探测属于同一个阶段、跨行有界并发（≤8），且首个探测先单独发起（registry 不可达时只消耗一次尝试），它正常返回后其余探测才入池。目标版本是 tag 去掉前缀 `v`；`latest` 取 `dist-tags.latest`，`missing` 为 `versions` 中不含目标版本的包，`complete = missing.length === 0 && error === undefined`。
+
+该阶段带传输层熔断与整体预算：首个**传输层**失败（连接/超时/DNS）立即熔断，其余尚未完成的探测不再等待并统一复用该错误文案；非 2xx（`HTTP <status>`）与不可解析 body 是 registry 的答复，不熔断。整个 npm 阶段预算 10s，超时按 `npm.error` 记录（`npm 版本核对超时（10 秒预算）`），被预算中止的探测也记该文案。npm 的任何结果只写进 `npm.error`，不使该行失败，也不影响 git 行状态与 `allChecked`。
 
 desktop 侧由 host 半的 Node 直接 `fetch` registry（`src/npm.ts`），不再像外壳那样写出一次性 node 脚本再以文件重定向 stdio 启动；包集合、请求参数与判定语义与外壳一致，差异只在实现载体。
 
@@ -67,6 +73,12 @@ desktop 侧由 host 半的 Node 直接 `fetch` registry（`src/npm.ts`），不�
 查询参数 `id=<projectId>` 与 `mode=<tag|commit>`（`mode` 缺省为 `commit`）；200 响应含 `id`、`name`、`from`（本地当前版本）、`to`（更新目标版本）、`target`（tag 名或 `origin/<branch>`）、`targetKind`、可选的 `release`（`tag`/`name`/`url`/`body`）、`commits`（`sha`/`subject`/`author`/`date`）、`count`、`diffstat`、`truncated` 与 `error`（仅用于本地 git 失败；此时 `from`/`to`/`target` 与 `release` 一并省略）。
 
 提交列表来自 `git log --no-merges --date=short --pretty=%h%x09%s%x09%an%x09%ad from..to`，上限 400 条、单条 subject 200 字符；`count` 来自 `git rev-list --count from..to`（含 merge 提交、不受 400 条上限约束，无可用更新时为 0），`diffstat` 是 `git diff --stat --no-color from..to` 的原文（上限 3000 字符**含**截断标记 `…（已截断）`，无可用更新时为空串）；两者供 client 的 AI 摘要使用。无可用更新（远端与本地相同、或该行有 error）时返回 200 且 `commits: []`、`count: 0`、`diffstat: ""`，由 client 显示「无可展示的更新日志」。
+
+## 检测耗时（实测背景）
+
+v3 的并行与熔断来自一次实机测量：单次 `mode=check` 曾耗时 192.4 s，其中顶层递归 fetch 77.3 s（加 `-j 8` 后降到 45.1 s）、每行 `git ls-remote --symref` 串行 2–12 s/行（抽样 7 行合计约 46 s）、registry 不可达时 npm 探测每包 10 s 连接超时且逐行串行（7 行约 70 s）；逐行串行工作合计约 116 s。另一次本机测量为顶层 fetch 140.6 s、`mode=local` 27.3 s、`mode=check` 319.5 s，说明 fetch 与网络本身占了大头。这些数字是上述调度的由来，不是固定指标。
+
+因此当前实现把插件可控的部分压下来：fetch 带 `-j 8`、每行远端分支解析与顶层 fetch 并发、逐行比较并行、npm 收进一个跨行并发的阶段并在首个传输失败时熔断、`mode=check` 单飞（启动角标探测与打开对话框不再各跑一次 fetch）。fetch 本身的耗时仍取决于网络与子模块数量。
 
 ## 更新执行范围
 
@@ -127,6 +139,8 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 - 更新日志的 Release 只取目标那一个 tag 的说明，不覆盖本次更新引入的全部 Release（外壳侧的多 Release 汇总见 [update-changelog.md](update-changelog.md)）。
 - `diffstat` 的 3000 字符上限按**含**截断标记计算，截断后字段总长仍 ≤3000、正文部分相应更短；`count` 统计区间内全部提交（含 merge），可能大于 `commits` 列表条数（列表另有 400 条上限）。
 - npm 状态只在「有可用新 tag 且该工程有 npm 包」时出现，包集合来自 `<DSH_HOME>/gui/npm-installs.json`，从未跑过插件安装的环境查不到包、不会显示该提示。
+- npm 阶段的 10s 预算是硬上限：registry 慢或不可达时最多等 10s，随后按超时/熔断文案记录，不逐包等满 15s。
+- `mode=check` 单飞是进程级的：并发请求拿到同一份结果，运行期间仓库若有新变动需等下一次显式检查或下一次后台检查才会重新反映。
 - 更新日志的 AI 摘要依赖 desktop profile 里的 `dsh-ai-update` 与运行中 harness 的 raw-LLM 通道；该路由缺失、超时或报错时只回退提交列表，不阻塞其它功能。
 - 两处检测缓存都是进程内的：宿主进程重启即丢 host 缓存，页面刷新即丢 client 缓存（host 缓存仍在时重开对话框仍有内容）。
 
@@ -138,8 +152,8 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 - `plugins/auto-update/dsh-auto-update/src/index.ts` —— 路由注册、`mode=local|check|cached` 分派与两道门
 - `plugins/auto-update/dsh-auto-update/src/paths.ts` —— 仓库根、`DSH_HOME` 与子模块清单解析
 - `plugins/auto-update/dsh-auto-update/src/git.ts` —— git 调用、远端默认分支解析与错误摘要
-- `plugins/auto-update/dsh-auto-update/src/check.ts` —— `mode=local|check` 检测、递归 fetch 降级与模块级缓存
-- `plugins/auto-update/dsh-auto-update/src/npm.ts` —— 每行 npm 发布状态与 registry 查询
+- `plugins/auto-update/dsh-auto-update/src/check.ts` —— `mode=local|check` 检测、单飞、有界并行、递归 fetch 降级与模块级缓存
+- `plugins/auto-update/dsh-auto-update/src/npm.ts` —— 每行 npm 发布状态、跨行并发探测、传输层熔断与 10s 阶段预算
 - `plugins/auto-update/dsh-auto-update/src/update.ts` —— 就地更新与 NDJSON 流
 - `plugins/auto-update/dsh-auto-update/src/changelog.ts` —— 提交列表、`count`/`diffstat` 与 Release 说明
 - `plugins/auto-update/dsh-auto-update/src/client/**` —— 入口按钮、对话框、更新日志弹窗（含 AI 摘要）、AI 更新派发
