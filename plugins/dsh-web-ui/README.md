@@ -2,28 +2,30 @@
 
 `dsh-web-ui` 的 git submodule wrapper。这个 wrapper 安装该仓库中的**插件本体**，
 全部以 npm 包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的
-「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.4.4`）：
+「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.4.5`）：
 
 1. **`dsh-web-ui-settings` 兼容设置桥**
-   （`@linxin666/dsh-client-ui-web-ui-settings@0.4.4`，排在最前）；
+   （`@linxin666/dsh-client-ui-web-ui-settings@0.4.5`，排在最前）；
 2. **`dsh-skill-explorer` 技能中心面板**
-   （`@linxin666/dsh-client-ui-skill-explorer@0.4.4`）；
+   （`@linxin666/dsh-client-ui-skill-explorer@0.4.5`）；
 3. **`dsh-usage` 使用统计**
-   （`@linxin666/dsh-usage@0.4.4`）；
+   （`@linxin666/dsh-usage@0.4.5`）；
 4. **`dsh-model-capabilities` 模型能力**
-   （`@linxin666/dsh-client-ui-model-capabilities@0.4.4`）。
+   （`@linxin666/dsh-client-ui-model-capabilities@0.4.5`）。
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
 保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 版本号。
 
-四个包要求 `@deepseek-ai/dsh >= 0.2.0-rc.1`，本工程 pinned 的 `dsh-v0.2.0-rc.2` 满足该声明。
+四个包要求 `@deepseek-ai/dsh >= 0.2.0-rc.2`，本工程 pinned 的 `dsh-v0.2.1-alpha.1` 满足该声明。
 
 > **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper 安装。**
-> 官方 `@deepseek-ai/dsh-web-app` bundle 自带同名 `ui-plugin-manager` loader 行，同 id
-> 覆盖会连带抹掉官方 Plugins 页座位，而 v0.4.4 的上游包改把自己的
-> `plugins.detail.section` 块加进该页；官方插件管理器已覆盖内置插件页。详见「已移除
-> 插件」一节。
+> 直到 v0.4.4，排除原因是硬冲突：官方 `@deepseek-ai/dsh-web-app` bundle 自带
+> `ui-plugin-manager` loader 行，而该包的 bundle patch 写入同 id，覆盖会连带抹掉官方
+> Plugins 页座位，而上游包正是把自己的 `plugins.detail.section` 块加进该页。v0.4.5 已在
+> 上游解决：其 patch 改用自有 id `ui-plugin-manager-update-check`，该包因此重新可安装；
+> 本 wrapper 仍不安装它，因为「加回一个插件」是独立的组合决策，不属于跟随发行 tag 的
+> 版本 bump。详见「已移除插件」一节。
 
 不安装 dsh-web-ui 的其他任何包、插件、皮肤，也不安装其 agent preset（agent
 preset 属于 `presets/` 流程，不在本 wrapper）。`dsh-liangshen`（梁神模式）与其
@@ -84,10 +86,10 @@ renderer 服务，作为独立 bundle 层自挂载。面板提供搜索框（按
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
-dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.4
-dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.4
-dsh plugin --profile web add @linxin666/dsh-usage@0.4.4
-dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.4
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.5
+dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.5
+dsh plugin --profile web add @linxin666/dsh-usage@0.4.5
+dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.5
 ```
 
 四个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
@@ -113,10 +115,11 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.4
   见「已移除插件」一节；
 - `@linxin666/dsh-pet`（鲸鱼娘桌宠）——由
   `plugins/dsh-pet/`（PC2005-cloud 的 dsh-pet）独立 wrapper 安装；
-- `@linxin666/dsh-client-ui-plugin-manager`（插件管理器 Tab）——不安装：官方
-  `@deepseek-ai/dsh-web-app` bundle 自带同名 `ui-plugin-manager` loader 行，重复 id
-  不再是启动错误，但同 id 覆盖会连带抹掉官方 Plugins 页座位，而 v0.4.4 的上游包把
-  自己的 `plugins.detail.section` 块加进该页，见「已移除插件」一节；
+- `@linxin666/dsh-client-ui-plugin-manager`（插件管理器 Tab）——不安装：v0.4.4 及以前
+  其 bundle patch 与官方 `@deepseek-ai/dsh-web-app` bundle 的 `ui-plugin-manager` 行
+  同 id，重复 id 不再是启动错误，但同 id 覆盖会连带抹掉官方 Plugins 页座位；v0.4.5
+  起上游改用自有 id `ui-plugin-manager-update-check`、冲突解除，本 wrapper 仍不把它
+  加回安装集，见「已移除插件」一节；
 - 对四个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
   bundle patch 挂载；
 - 对上游 submodule 的任何修改。
@@ -124,13 +127,15 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.4
 ## 已移除插件（dsh-task-board / dsh-session-archive / dsh-plugin-manager）
 
 `dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper
-安装：官方 `@deepseek-ai/dsh-web-app` bundle 自带 `ui-plugin-manager` loader 行，与该
-包 bundle patch 的 id 相同。重复 id 不再是启动错误（loader 按 id 复用 Entry、后写者
-生效），但同 id 覆盖会连带抹掉官方 Plugins 页座位，而 v0.4.4 的上游包改把自己的
-`plugins.detail.section` 块加进该页，覆盖即摘掉它自己的 UI 所依赖的页面。官方插件
-管理器（侧边栏 Plugins 页 + pluginManager 服务）继续可用，上游包的 `family-plugins`
-设置 Tab（冲突对账 / 失败修复会话等）不在安装范围内。若日后要恢复，需以独立
-loader entry id 挂载（完整流程见 skill `dsh-plugin-uninstall`）。
+安装：官方 `@deepseek-ai/dsh-web-app` bundle 自带 `ui-plugin-manager` loader 行，而
+v0.4.4 及以前该包 bundle patch 写入的 id 与之相同。重复 id 不再是启动错误（loader 按
+id 复用 Entry、后写者生效），但同 id 覆盖会连带抹掉官方 Plugins 页座位，而上游包正是
+把 `plugins.detail.section` 块加进该页，覆盖即摘掉它自己的 UI 所依赖的页面。v0.4.5
+起上游改用自有 id `ui-plugin-manager-update-check`，冲突解除、该包重新可安装；本
+wrapper 仍不安装它，因为那是独立的组合决策。官方插件管理器（侧边栏 Plugins 页 +
+pluginManager 服务）继续可用，上游包的 `family-plugins` 设置 Tab（冲突对账 / 失败修复
+会话等）不在安装范围内。若日后要恢复，可按该包自身的 bundle 层安装（完整流程见
+skill `dsh-plugin-uninstall`）。
 
 `dsh-task-board`（`@linxin666/dsh-client-ui-task-board`）与
 `dsh-session-archive`（`@linxin666/dsh-session-archive`）曾由 dsh-web-ui 全家桶随
@@ -160,19 +165,19 @@ dsh-web-ui 上游子模块中的 `packages/dsh-task-board/` 与
 ```text
 --- E:\Git\dsh-gui\plugins\dsh-web-ui\install.mjs
 
-==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.4.4 from npm)
+==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.4.5 from npm)
   ...
 installed plugin 'dsh-web-ui-settings' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.4.4 from npm)
+==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.4.5 from npm)
   ...
 installed plugin 'dsh-skill-explorer' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.4 from npm)
+==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.5 from npm)
   ...
 installed plugin 'dsh-usage' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-model-capabilities' (@linxin666/dsh-client-ui-model-capabilities@0.4.4 from npm)
+==> install plugin 'dsh-model-capabilities' (@linxin666/dsh-client-ui-model-capabilities@0.4.5 from npm)
   ...
 installed plugin 'dsh-model-capabilities' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
@@ -185,7 +190,7 @@ node plugins/dsh-web-ui/install.mjs
 
 ## 幂等性
 
-`dsh plugin add <pkg>@0.4.4`（npm，精确版本）可重复执行；bundle 层挂载由受管
+`dsh plugin add <pkg>@0.4.5`（npm，精确版本）可重复执行；bundle 层挂载由受管
 安装器 reconcile 保证幂等。
 
 ## 更新源
