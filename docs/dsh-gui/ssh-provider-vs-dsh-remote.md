@@ -1,7 +1,7 @@
 # 上游 SSH 提供方家族能否替代 dsh-remote 远程连接
 
 本仓库现有 `plugins/remote/dsh-remote`（下文称 dsh-remote）实现「远连接」，上游
-SSH 提供方家族（`packages/ssh/`，当前 `0.2.0-rc.2`）实现「远端工作区」。常常有人
+SSH 提供方家族（`packages/ssh/`，当前 `0.2.1-alpha.1`）实现「远端工作区」。常常有人
 把两者都当作「SSH 远程」，但它们是两种相反的部署模型，不能互相直接替换配置。本文对照
 能力并给出替代判定。
 
@@ -26,7 +26,7 @@ SSH 提供方家族（`packages/ssh/`，当前 `0.2.0-rc.2`）实现「远端工
 
 ## 能力逐项对照
 
-| 能力 | dsh-remote (0.2.0) | 上游 SSH 家族 (0.2.0-rc.2) | 判定 |
+| 能力 | dsh-remote (0.2.0) | 上游 SSH 家族 (0.2.1-alpha.1) | 判定 |
 | --- | --- | --- | --- |
 | 文件工具（读写/编辑/版本保护） | 远端 dsh 的 `tool-fs`，界面里直接可见远端文件 | 本机 `tool-fs` 经 `fs-ssh` 作用于远端文件；工作区实体按主机路径创建与校验，远端独有的路径建不成工作区 | 后者有，Web 工作区不可用（见 [ssh-remote-workspace.md](ssh-remote-workspace.md) 的限制一节） |
 | Bash/终端/LSP | 远端 dsh 内执行，终端面板即远端 | 本机会话的 Bash/终端经 `subprocess-ssh` 执行于远端 | 后者有 |

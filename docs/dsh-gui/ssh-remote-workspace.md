@@ -1,6 +1,6 @@
 # DSH 通过 SSH 使用远端工作区：文件、命令与 PTC 工具的远端执行
 
-当前 harness 运行时为 `0.2.0-rc.2`，SSH 提供方家族位于上游 `packages/ssh/`。该家族让本地运行的 DSH 通过一条 OpenSSH 连接，把文件、命令、终端、沙箱与 PTC（模型编写的 TypeScript）执行放到同一台远端 POSIX 主机上。
+当前 harness 运行时为 `0.2.1-alpha.1`，SSH 提供方家族位于上游 `packages/ssh/`。该家族让本地运行的 DSH 通过一条 OpenSSH 连接，把文件、命令、终端、沙箱与 PTC（模型编写的 TypeScript）执行放到同一台远端 POSIX 主机上。
 
 两端都必须运行 Linux 或 macOS：`@deepseek-ai/dsh-ssh` 在非 POSIX 平台上构造即抛 `SSH runtime requires a POSIX client`。因此在 Windows 上使用 SSH 组合时，harness 本身要在 POSIX 环境（例如 WSL 发行版）里运行；dsh-gui 的 Windows `web` profile 无法承载该家族。
 
@@ -52,7 +52,7 @@ SSH 主机。提供方在文件实际存在的位置规范化路径，保留文�
 
 两端都必须运行 Linux 或 macOS。本地 `ssh` 命令必须支持连接复用与 Unix 套接字转发，服务器也必须允许该转发。连接启用 `BatchMode`、要求严格检查主机密钥、禁用认证代理转发，且不提供交互认证流程；主机别名、凭据与 known_hosts 记录需在启动前配置好。
 
-本地端需要已安装的 harness 运行时；Windows 主机上请在 WSL 等 POSIX 环境中安装并运行 dsh，例如 `npm install @deepseek-ai/dsh@0.2.0-rc.2`。`dsh plugin` 把参数转发给 `pnpm`，因此本地端还需要可用的 `pnpm`。
+本地端需要已安装的 harness 运行时；Windows 主机上请在 WSL 等 POSIX 环境中安装并运行 dsh，例如 `npm install @deepseek-ai/dsh@0.2.1-alpha.1`。`dsh plugin` 把参数转发给 `pnpm`，因此本地端还需要可用的 `pnpm`。
 
 在远端安装 Node.js、已构建的辅助程序及其声明的同版本运行时依赖（`dsh-ssh` 的 peer
 依赖，例如 `dsh-fs-local`、`dsh-subprocess-local`、`dsh-sandbox-local`）。它们必须位于
@@ -63,7 +63,7 @@ SSH 主机。提供方在文件实际存在的位置规范化路径，保留文�
 最简部署方式是在远端目录里安装该包，再取 `lib/helper.js` 的 SHA-256：
 
 ```text
-npm install @deepseek-ai/dsh-ssh@0.2.0-rc.2
+npm install @deepseek-ai/dsh-ssh@0.2.1-alpha.1
 sha256sum node_modules/@deepseek-ai/dsh-ssh/lib/helper.js
 ```
 
@@ -172,8 +172,8 @@ SSH 家族包的 dist-tag 不跟随 harness 运行时（`latest` 停在 `0.1.6-a
 必须写出与运行时相同的精确版本：
 
 ```text
-dsh plugin --profile ssh add @deepseek-ai/dsh-ssh@0.2.0-rc.2 @deepseek-ai/dsh-fs-ssh@0.2.0-rc.2 @deepseek-ai/dsh-subprocess-ssh@0.2.0-rc.2 @deepseek-ai/dsh-sandbox-ssh@0.2.0-rc.2
-dsh plugin --profile ssh add @deepseek-ai/dsh-headless@0.2.0-rc.2
+dsh plugin --profile ssh add @deepseek-ai/dsh-ssh@0.2.1-alpha.1 @deepseek-ai/dsh-fs-ssh@0.2.1-alpha.1 @deepseek-ai/dsh-subprocess-ssh@0.2.1-alpha.1 @deepseek-ai/dsh-sandbox-ssh@0.2.1-alpha.1
+dsh plugin --profile ssh add @deepseek-ai/dsh-headless@0.2.1-alpha.1
 ```
 
 `dsh plugin --profile ssh add` 在 profile 缺失时初始化它（无随附模板时只装

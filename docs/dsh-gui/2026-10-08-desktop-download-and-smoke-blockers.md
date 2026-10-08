@@ -108,7 +108,7 @@ Get-ChildItem 'D:\git\dsh-gui-home\.desktop\source\apps\desktop\.desktop-build\d
 
 1. 本文写作时 `npm run build:desktop` 仍未整链跑通，卡在第四节；前三节的修复分别被两次复跑独立观察通过。
 2. 资产预置（Electron 归档、primary runtime 的 15 个锁定资产）是环境准备，不是受支持流程；Electron 与 electron-builder 的镜像来源自本次改动后由 registry 推导（第七节），primary runtime 的 node/python/wheel 上游没有对应开关，仍只能靠预置缓存复用。
-3. 烟测失败只在 `runtime:smoke` 出现一次位置固定的超时，未取得「延长预算后通过」的直接证据，因此根因表述保留为推测。
+3. 烟测失败的根因已在第八节定位：打包产物里引擎路径落在 `app.asar` 命名空间，`spawn` 必然 `ENOENT`；另有 60 s 预算偏紧的第二重因素。第四节里「上游把预算调高」不再足以解决产物形态的问题。
 
 ## 七、脚本内镜像推导的验证
 
@@ -124,3 +124,48 @@ Get-ChildItem 'D:\git\dsh-gui-home\.desktop\source\apps\desktop\.desktop-build\d
 | 6 | 优先级与退出通道 | 环境变量 → `electron_mirror` / `electron_builder_binaries_mirror` npm 配置 → registry 推导；设空值即回到官方 GitHub release 宿主 |
 
 优先级与空值语义、registry 识别范围由源码表达，未加自动化测试：`test:scripts`（`node --test scripts/plugin-install.test.mjs`）不覆盖 `scripts/desktop.mjs`，本次也未新增测试文件。改动同时更新了 `scripts/dsh-gui.mjs` 的 `build-desktop` 帮助文本与 [desktop-app.md](desktop-app.md) 的「联网下载」一节。
+
+## 八、打包产物 Office 转换失败的定位（同日续查）
+
+用户在 `2026-10-07T18-00-46.090Z-eHipmO` 的运行里，`prepare:dsh` 的 `runtime:smoke` **通过**（日志 `desktop runtime: DOCX, XLSX, PPTX to PDF and skill CLI discovery passed`），electron-builder 打包成功，随后 `exec tsx scripts/smoke-packaged-runtime.ts --unsigned` 以同一 DOCX 转换超时失败。据此做了同机 A/B 定位，结论是**两个独立原因**。
+
+### 8.1 决定性原因：产物内引擎路径落在 ASAR 命名空间，无法 spawn
+
+`windows-asar-unpack.mjs` 只把 Windows PE 文件复制到 `app.asar.unpacked`（`bin\libreoffice-kit.exe`，178,548,224 B 确实在那里），而 kit 通过 Node 模块解析取引擎路径（`lib/index.js:1519` 默认 `resolvePackage = (name) => require.resolve(\`${name}/package.json\`)`），在 Electron 里得到的是 **`app.asar` 内的路径**。kit 自身没有任何 asar 处理（`rg 'asar|unpacked|noAsar|resourcesPath'` 在 kit 的 `lib/*.js` 里零命中）。
+
+在打包用 Electron 里直接验证（`ELECTRON_RUN_AS_NODE=1`）：
+
+| 探针 | 结果 |
+|---|---|
+| `fs.existsSync('...app.asar\\...\\bin\\libreoffice-kit.exe')` | **true**（Electron 的 fs 层把它映射到 unpacked） |
+| `spawnSync('...app.asar\\...\\bin\\libreoffice-kit.exe', ['--version'])` | **error=ENOENT**（asar 命名空间里的文件不能作为可执行文件启动） |
+| `spawnSync('...app.asar.unpacked\\...\\bin\\libreoffice-kit.exe', ['--version'])` | 启动成功（`status=1`，正常的用法报错） |
+| `DeepSeek Harness.exe` + 产物内 kit CLI 转同一 fixture | `{"code":"failed","error":"spawn ...app.asar\\...\\bin\\libreoffice-kit.exe ENOENT"}`，45 s 后返回 |
+
+因此产物形态下引擎永远起不来：helper 不产生结果，`officeToPdf` 的 60 s 预算到点，报出的就是「LibreOffice conversion timed out」——**超时是症状，不是原因**；把预算调大只会让失败来得更晚。
+
+### 8.2 第二重原因：同一转换在本机要 12–53 s，60 s 预算贴边
+
+用打包用 Electron 加载**真实路径**的树内 kit，转换成功（PDF 17,488 B），但耗时 53 s；随后用 plain node 复测同一转换两次（workspace kit 与树内 kit）各 51 s，而同日凌晨同类测试为 12 s（热）/23 s（冷）。即同一操作在本机的耗时在 12–53 s 之间漂移，而 `officeToPdf` 的预算默认 60 s（`packages/document/office-to-pdf/src/index.ts:82`）。这解释了第四节里「包内烟测」三次失败（72–73 s）与本次通过的现象：包内形态在可用路径上本来就处于预算边缘。
+
+### 8.3 影响与修法方向
+
+- 跳过冒烟不会让产物可用：产物形态的 Office 转换是**真实缺陷**，跳过只是把它藏起来。
+- 修法只能在上游：kit（或 `dsh-office-to-pdf`）在解析出 `app.asar` 路径后应映射到 `app.asar.unpacked` 再 spawn（例如检测 `app.asar` 段并改写，或经 `process.resourcesPath` 解析）。kit 的 `create()` 选项白名单（`lib/index.js:1438`：仅 limits/字体相关键）与 office-to-pdf 的 Config（无引擎路径项）都没有可注入的引擎路径，因此本仓库没有配置级绕行。
+- 也不建议在构建后改写 `app.asar`：产物自带 `verifyRuntimeArchive` 的 ASAR 完整性校验，改写会使产物自己的校验失败。
+- 版本线索只有时间相关性：`apps/desktop-host/package.json` 的 kit 规格 `^0.1.0`（2026-09-23）在 2026-10-01 的提交 `d0916a8f90` 升到 `^0.1.5`，而 09-30 的同类构建（`0.2.0-rc.2`）曾整链通过。但 0.1.1 与 0.1.5 的 `resolveEngine` 函数体逐字相同、引擎包 `prebuilds.json` 的 `executable`/`programDirectory` 也相同，静态对比无法确认因果，故只记录时间相关性。
+
+### 8.4 复现命令
+
+```powershell
+# 产物内 kit（会以 ENOENT 结束，约 45 s）
+$env:ELECTRON_RUN_AS_NODE = '1'
+& '<...>\win-unpacked\DeepSeek Harness.exe' `
+  '<...>\win-unpacked\resources\app.asar\dsh\node_modules\@deepseek-ai\libreoffice-kit\lib\cli.js' `
+  convert --input <fixture.docx> --output <out.pdf>
+
+# 同一 Electron、真实路径的树内 kit（会成功，本机约 53 s）
+& '<...>\win-unpacked\DeepSeek Harness.exe' `
+  '<...>\.desktop-build\targets\win-x64\dsh\node_modules\@deepseek-ai\libreoffice-kit\lib\cli.js' `
+  convert --input <fixture.docx> --output <out.pdf>
+```
