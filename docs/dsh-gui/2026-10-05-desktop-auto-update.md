@@ -57,9 +57,10 @@
 新增插件 `plugins/auto-update/`（wrapper `install.mjs` + 包 `dsh-auto-update`），
 **仅安装到 desktop profile**（与 `plugins/desktop-tabs/install.mjs` 同构，其他 profile
 只打印 skip）。host 半提供检测/更新/更新日志三条路由；client 半在标题栏最右侧画入口
-按钮与对话框。接口契约、文件归属与验收判据冻结在
-[`.work/auto-update/00-contract.md`](../../.work/auto-update/00-contract.md)，
-两端实现者只以该文件为准。
+按钮与对话框。接口契约、文件归属与验收判据冻结在会话临时目录的
+`.work/auto-update/00-contract.md`（该目录属 `.gitignore` 排除的 scratch，任务收尾时已随
+其他测试残留一并清理；当前态行为以 [desktop-auto-update.md](desktop-auto-update.md) 为准），
+两端实现者只以该契约文件为准。
 
 要点：
 
@@ -83,7 +84,7 @@
 |---|---|---|---|
 | 脚手架 + host 半 | `host-dev` | `plugins/auto-update/**`（除 `src/client/**`） | 路由、检测、就地更新、更新日志 |
 | client 半 | `client-dev` | `plugins/auto-update/dsh-auto-update/src/client/**` | 入口按钮、对话框、更新日志弹窗、AI 更新派发 |
-| 独立验证 | `verifier` | `.work/auto-update/**` | V1–V10 验证报告（fixture 仓库 + 隔离 desktop 实例） |
+| 独立验证 | `verifier` | `.work/auto-update/**`（scratch，已清理） | V1–V10 验证报告（fixture 仓库 + 隔离 desktop 实例） |
 | 脚本与文档 | `docs-scripts` | `scripts/desktop.mjs`、`docs/dsh-gui/**`、插件 README 复核 | `DSH_GUI_ROOT` 注入、文档同步 |
 
 ## 进度日志
@@ -95,9 +96,9 @@
 
 ## 结论
 
-**完成。** 现状文档见 [desktop-auto-update.md](desktop-auto-update.md)，契约与验证判据见
-[`.work/auto-update/00-contract.md`](../../.work/auto-update/00-contract.md)，验证报告见
-[`.work/auto-update/04-verification.md`](../../.work/auto-update/04-verification.md)。
+**完成。** 现状文档见 [desktop-auto-update.md](desktop-auto-update.md)；接口契约与验证报告
+写在任务期间的 scratch（`.work/auto-update/00-contract.md`、`.work/auto-update/04-verification.md`），
+该目录已随测试残留清理，结论已并入本文与现状文档。
 
 | 项 | 结果 |
 |---|---|
@@ -135,7 +136,7 @@
 
 用户实机试用后的三点要求：① 补 AI 摘要与 npm 状态核对；② 检查更新改单次递归 fetch；
 ③ 打开对话框时工程列表与检查状态每次都空白重检，需要缓存。**功能一律对标外壳已有实现**，
-契约增补见 [`.work/auto-update/00-contract.md`](../../.work/auto-update/00-contract.md) §7。
+契约增补见任务期间 scratch 的契约 `.work/auto-update/00-contract.md` §7（已随测试残留清理）。
 
 | 项 | 实现 | 关键证据 |
 |---|---|---|
@@ -159,8 +160,7 @@
 实机归因（真实检出、只读）：顶层递归 fetch 77.3 s（`-j 8` 后 45.1 s）、每行
 `ls-remote --symref` 2–12 s 且**串行**（抽样 7 行 46 s）、npm 逐行串行（registry 不可达时
 10 s/行 ≈ 70 s）；另测一轮网络更差时为 fetch 140.6 s、`mode=local` 27.3 s、`mode=check`
-319.5 s。契约增补见
-[`.work/auto-update/00-contract.md`](../../.work/auto-update/00-contract.md) §8。
+319.5 s。契约增补见任务期间 scratch 的契约 `.work/auto-update/00-contract.md` §8（已清理）。
 
 | 项 | 实现 | 关键证据 |
 |---|---|---|
