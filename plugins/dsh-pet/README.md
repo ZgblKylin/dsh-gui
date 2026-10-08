@@ -7,23 +7,23 @@
 
 ```text
 plugins/dsh-pet/
-├─ install.mjs                   # npm 安装 dsh-pet@0.3.1 + 注入桌面屏蔽配置
+├─ install.mjs                   # npm 安装 dsh-pet@0.3.6 + 注入桌面屏蔽配置
 ├─ inject-config.mjs             # 用户配置注入（纯函数，可单测）
 ├─ README.md                     # 本说明
-└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.3.1）
+└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.3.6）
    ├─ dsh-pet/                   # 真正的 npm 包源码（package.json / cordis.patch.yml / src/…）
    └─ …                          # 仓库其余部分（scripts / tools / prompts 等，仅源码参考）
 ```
 
 来源形态：git submodule（整仓库，源码参考；npm 发布包在仓库内 `dsh-pet/`
 子目录），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
-`dsh-pet@0.3.1`），不参与构建。
+`dsh-pet@0.3.6`），不参与构建。
 
 ## 兼容性状态
 
-`dsh-pet` v0.3.1 在本仓库 pin 的 harness（dsh `0.2.0-rc.2`）下**可正常安装运行**：
+`dsh-pet` v0.3.6 在本仓库 pin 的 harness（dsh `0.2.1-alpha.1`）下**可正常安装运行**：
 
-- 8 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.0-rc.2`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；
+- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.1-alpha.1`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；
 - host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm', 'commands']`：`agentDefaultModel` 服务由 base bundle 的 `@deepseek-ai/dsh-agent-default-model` 提供，其余服务随 base 与 web-app bundle 挂载，host 半可正常激活；
 - 浏览器半在 `src/client/app.ts` 声明本地 inject
   `['slots', 'locale', 'connection', 'remote', 'remote.commands', 'commandUi']`：
@@ -47,10 +47,11 @@ plugins/dsh-pet/
 
 > 插件名冲突（issue
 > [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)）：上游的 webserver
-> 路由前缀为 `/dsh-pet-7340`，不与其它插件的 `/pet` 路由撞车。残留风险是 Loader
-> entry id `pet` 与其它同样用 `pet` 的插件同 profile 共存会 `duplicate loader
-> entry id`——本仓库不安装 `@linxin666/dsh-pet`（同为 entry `pet`），默认 profile
-> 不会双挂。
+> 路由前缀为 `/dsh-pet-7340`，不与其它插件的 `/pet` 路由撞车。Loader entry id 自
+> v0.3.6 起为 `dsh-pet`（v0.3.1 及以前是 `pet`），因此与同样曾用 `pet` 的
+> `@linxin666/dsh-pet`（本仓库不安装）不再有 `duplicate loader entry id` 的可能；
+> 旧版本写入的 `pet` 行不会因此被复用，升级时若 profile 里留有按 `pet` 定向的
+> override 需一并改到 `dsh-pet`。
 
 ## 桌面屏蔽（安装后注入）
 

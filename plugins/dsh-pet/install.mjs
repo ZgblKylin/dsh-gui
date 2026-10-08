@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // plugins/dsh-pet/install.mjs — PC2005-cloud/dsh-pet（npm 包名 dsh-pet）wrapper。
 //
-// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 版本 tag v0.3.1，仅作源码参考，
-//   不参与构建）；安装走 npm（installNpmPlugin，精确版本 dsh-pet@0.3.1），与其它
+// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 版本 tag v0.3.6，仅作源码参考，
+//   不参与构建）；安装走 npm（installNpmPlugin，精确版本 dsh-pet@0.3.6），与其它
 //   npm 型 wrapper 同一通道。
 //
-// 兼容性：v0.3.1 的 8 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖本仓库 pin
-//   的 harness `0.2.0-rc.2`，安装期准入预检与启动期 bundle 层挂载都通过，因此不需要
+// 兼容性：v0.3.6 的 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`（相对 v0.3.1 新增
+//   `@deepseek-ai/dsh-client-ui-primitives`），经准入闸门的
+//   `semver.satisfies(..., { includePrerelease: true })` 判定覆盖本仓库 pin 的 harness
+//   `0.2.1-alpha.1`，安装期准入预检与启动期 bundle 层挂载都通过，因此不需要
 //   installNpmPlugin 的 `exempt` 例外。host 半 inject 为
 //   `webServer / agentDefaultModel / credentials / llm / commands`：其中
 //   `agentDefaultModel` 由本仓库 pin 的 base bundle
@@ -34,7 +36,7 @@ import { injectPetConfig, petConfigPath } from './inject-config.mjs'
 
 const ID = 'dsh-pet'
 // 精确稳定 SemVer（Market 约束：不用 latest / 版本范围 / prerelease 作安装目标）。
-const PACKAGE_SPEC = 'dsh-pet@0.3.1'
+const PACKAGE_SPEC = 'dsh-pet@0.3.6'
 
 installNpmPlugin({ id: ID, packageSpec: PACKAGE_SPEC })
 
