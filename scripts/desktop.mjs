@@ -258,14 +258,29 @@ function syncSource(options) {
 }
 
 /**
- * Whether the source checkout already holds a completed dependency install.
- * `.modules.yaml` is written only after pnpm links every package, and a
- * non-empty `.pnpm` proves the store links exist rather than an empty
- * directory left by an aborted install.
+ * Records the source revision the installed dependency tree belongs to.
+ *
+ * `.modules.yaml` alone cannot tell whether a tree matches the current checkout:
+ * a submodule bump moves `SOURCE` onto a commit whose lockfile adds packages
+ * while a tree installed for the previous commit still looks complete, and the
+ * mismatch surfaces later as TypeScript "cannot find module" errors rather than
+ * as a package-manager failure. The marker ties the tree to one revision, and a
+ * missing or unreadable marker fails towards reinstalling.
+ */
+const INSTALL_MARKER = join(SOURCE, 'node_modules', '.dsh-desktop-install.json')
+
+/**
+ * Whether the source checkout holds a completed dependency install for
+ * `revision`. `.modules.yaml` is written only after pnpm links every package, a
+ * non-empty `.pnpm` proves the store links exist rather than an empty directory
+ * left by an aborted install, and the marker proves the tree belongs to this
+ * exact revision.
+ * @param {string} revision - revision the tree must have been installed for.
  * @returns {boolean}
  */
-function dependenciesInstalled() {
+function dependenciesInstalled(revision) {
   if (!existsSync(join(SOURCE, 'node_modules', '.modules.yaml'))) return false
+  if (readJsonFile(INSTALL_MARKER)?.revision !== revision) return false
   try {
     return readdirSync(join(SOURCE, 'node_modules', '.pnpm'), { withFileTypes: true }).length > 0
   } catch {
@@ -276,10 +291,11 @@ function dependenciesInstalled() {
 /**
  * Install the source checkout's dependencies with the pinned pnpm.
  * @param {{ forceInstall?: boolean }} options - `forceInstall` skips the current-install check.
+ * @param {string} revision - revision the successful install is recorded against.
  */
-function installSourceDependencies(options) {
+function installSourceDependencies(options, revision) {
   step('Install desktop source dependencies (repo-local store)', () => {
-    if (!options.forceInstall && dependenciesInstalled()) {
+    if (!options.forceInstall && dependenciesInstalled(revision)) {
       console.log('node_modules is complete — skipping (--force-install reinstalls)')
       return
     }
@@ -288,6 +304,9 @@ function installSourceDependencies(options) {
     // CI=true keeps the install non-interactive (this CLI spawns without a TTY)
     // and skips the harness's dev-only git-hook postinstall.
     pnpm(['install', '--frozen-lockfile'], { cwd: SOURCE, env: { CI: 'true' } })
+    // Record the revision only after pnpm succeeded, so a failed install never
+    // claims the tree it did not produce.
+    writeFileSync(INSTALL_MARKER, `${JSON.stringify({ revision, installedAt: new Date().toISOString() }, null, 2)}\n`)
   })
 }
 
@@ -811,7 +830,7 @@ export function buildDesktop(options = {}) {
   console.log('desktop build: the pinned harness checkout is compiled under the runtime root; "npm run build" never runs this chain.')
   bootstrapPnpm()
   const revision = syncSource(options)
-  installSourceDependencies(options)
+  installSourceDependencies(options, revision)
   writePackageEnvironment()
   ensureElectron()
   buildOfficial()
