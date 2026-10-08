@@ -153,4 +153,37 @@
 - 仍是「点更新即执行」的 `reset --hard`（沿例外壳），代价由常驻警示与 tooltip 交代。
 - 一个子模块 origin 不可达时该行报错、其余行正常、`allChecked=false`，不做自动重试。
 
+## v3 增补（2026-10-08，用户实机反馈：检查一次太慢）
+
+用户截图显示一次检查 **192.4 s**，并问「会和 dsh-gui 一样，程序启动后就在后台开始检查吗」。
+实机归因（真实检出、只读）：顶层递归 fetch 77.3 s（`-j 8` 后 45.1 s）、每行
+`ls-remote --symref` 2–12 s 且**串行**（抽样 7 行 46 s）、npm 逐行串行（registry 不可达时
+10 s/行 ≈ 70 s）；另测一轮网络更差时为 fetch 140.6 s、`mode=local` 27.3 s、`mode=check`
+319.5 s。契约增补见
+[`.work/auto-update/00-contract.md`](../../.work/auto-update/00-contract.md) §8。
+
+| 项 | 实现 | 关键证据 |
+|---|---|---|
+| 单飞 | 模块级 in-flight Promise：并发 `mode=check` 共享同一次运行与同一份结果；`cached`/`local` 不参与、不阻塞 | 并发两次 check 只发 **1 次**递归 fetch、**1 次** npm 探测，两份响应逐字段相同；check 在飞时 `mode=local` 748 ms 返回 |
+| 并行调度 | 顶层 `fetch --prune --recurse-submodules -j 8 origin`（不认 `-j` 时去掉重试一次）；每行 `ls-remote` 与 fetch 同时发起（≤8）；逐行本地比较与 `localCheck` 都按行 ≤8 并发；行序仍按 `.gitmodules` | 与独立实现的串行参考逐字段+顺序一致；npm 池 maxInFlight=5 |
+| npm 熔断与预算 | 跨行 ≤8 并发、首个探测先行（registry 不可达只耗 1 次尝试）、传输层失败熔断、10 s 阶段预算（文案 `npm 版本核对超时（10 秒预算）`）；非 2xx 与不可解析 body 不熔断 | destroy 桩探测恰 1 次；hang 桩 npm 阶段 11.9 s；503 桩 5 包 5 次探测；git 行与 `allChecked` 不变 |
+| 首屏后台检查 | 挂载即后台检查（与外壳一致）：先 `?mode=cached`（命中零网络），未命中才 `?mode=check`；打开对话框立即用缓存渲染；`hasUpdates=true` 打开零请求，`hasUpdates=false` 发一次不阻塞、不出骨架的静默重查（外壳 `openUpdateDialogWithBestState` 同款） | 挂载在缓存命中时请求恰 `["?mode=cached"]`、`mode=check` 0 次；「检查更新」仍是唯一用户主动刷新入口 |
+
+**实机耗时（同机同口径，npm 快失败隔离）**：`mode=check` 40.9 s / 51.1 s（v2：192.4 s 截图、
+319.5 s 实测），其中顶层 fetch 22.9–38.6 s，**插件可控部分 8.7 s / 24.0 s**（v2：≈115–179 s）——
+即检查已从「fetch + 一串串行等待」变成「基本只剩 fetch 本身」，而 fetch 受网络限制、不在插件
+可控范围内。应用启动后检查在后台进行，打开对话框/重新加载都立即出内容，不再等网络。
+
+验证：Lead 复跑 host 自测 **289/289**、client CDP 驱动 16 组断言全通过；verifier 独立复算
+V15–V18 与 V3–V6/V11–V14/V7–V10 回归，合计 **469 项检查**，唯一 FAIL 经复核为契约措辞冲突
+（`hasUpdates=false` 的静默重查与外壳一致），已按外壳语义修订 §8.4/§8.5，无代码改动。
+
+遗留（v3 后）：
+
+- 顶层递归 fetch 仍包含嵌套子模块（例如 `dsh-web-ui/satellites/*`），这些不在检测行里；
+  网络差时 fetch 仍是主要耗时。若将来要再快，可考虑只并发 fetch 检测行所需的顶层子模块。
+- 真实 npm 联网耗时未测（本机 registry 不可达，10 s 连接超时由环境决定）。
+- 其余不可控环境：本机每次 `git` 进程启动开销较大（`mode=local` 并行前 27.3 s，并行后 ~1.6 s 量级）。
+
+
 
