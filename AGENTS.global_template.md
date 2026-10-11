@@ -4,6 +4,10 @@
 
 优先使用grep工具和ripgrep命令，都不可用时才使用grep命令。
 
+## 安全说明
+
+编写脚本、使用 bash/pwsh 等 shell 命令时，不要使用 home/HOME 等会与系统环境变量产生歧义的变量名。
+
 ## 行文规范
 
 编写/维护文档、大段代码注释、编写git提交的详细信息时，需要先参考`$env:DSH_HOME/.agents/docs/行文规范.md`。
