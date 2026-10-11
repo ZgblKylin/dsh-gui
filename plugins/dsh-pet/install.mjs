@@ -8,7 +8,7 @@
 // 兼容性：v0.3.6 的 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`（相对 v0.3.1 新增
 //   `@deepseek-ai/dsh-client-ui-primitives`），经准入闸门的
 //   `semver.satisfies(..., { includePrerelease: true })` 判定覆盖本仓库 pin 的 harness
-//   `0.2.1-alpha.1`，安装期准入预检与启动期 bundle 层挂载都通过，因此不需要
+//   `0.2.1-alpha.2`，安装期准入预检与启动期 bundle 层挂载都通过，因此不需要
 //   installNpmPlugin 的 `exempt` 例外。host 半 inject 为
 //   `webServer / agentDefaultModel / credentials / llm / commands`：其中
 //   `agentDefaultModel` 由本仓库 pin 的 base bundle

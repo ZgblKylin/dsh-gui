@@ -18,10 +18,13 @@
  * MCP and Stagehand providers of the same family are not.
  *
  * The versions are pinned to the harness revision this repository builds
- * against: `0.2.1-alpha.1` is the dsh-family prerelease whose peers pin the same
- * 0.2.1 line (the browser packages declare exact `0.2.1-alpha.1` peers),
- * matching the pinned `dsh-v0.2.1-alpha.1` runtime. It is also a prerelease, which
- * is why the Community Market cannot carry it.
+ * against: `0.2.1-alpha.2` is the dsh-family prerelease whose peers pin that same
+ * exact release (the browser packages declare exact `0.2.1-alpha.2` peers),
+ * matching the pinned `dsh-v0.2.1-alpha.2` runtime. The pin MUST move in
+ * lockstep with the harness: the admission gate compares every
+ * `@deepseek-ai/dsh*` peer against the running version, so the previous
+ * `0.2.1-alpha.1` packages are rejected under 0.2.1-alpha.2. It is also a
+ * prerelease, which is why the Community Market cannot carry it.
  *
  * The provider launches a Chromium binary. The wrapper resolves one at
  * install time from the standard Windows locations (honoring an explicit
@@ -64,8 +67,8 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 /** Wrapper id prefix: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'browser-use'
 
-const BROWSER_USE_SPEC = '@deepseek-ai/dsh-browser-use@0.2.1-alpha.1'
-const PLAYWRIGHT_MCP_SPEC = '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.1-alpha.1'
+const BROWSER_USE_SPEC = '@deepseek-ai/dsh-browser-use@0.2.1-alpha.2'
+const PLAYWRIGHT_MCP_SPEC = '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.1-alpha.2'
 
 /**
  * Resolve a Chromium-family executable for the provider's `mode: launch`.

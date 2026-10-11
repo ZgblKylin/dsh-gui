@@ -28,12 +28,12 @@
 | --- | --- | --- |
 | `duplicate loader entry id: pet` / `failed to apply loader entry pet`，Harness 无法启动 | 同一 profile 里 `@linxin666/dsh-pet` 与 `dsh-pet`（或手工 patch 行）**同时**用 entry `pet` | §3.1 → 卸载其一（建议卸鲸鱼），§4.1 |
 | `webserver: duplicate prefix route "/pet"` | 装了 **<0.1.8** 的 PC2005 `dsh-pet`（旧路由 `/pet`）且与其它 `/pet` 插件共存 | 升级到 ≥0.1.8（现 v0.3.6）；参考上游 issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16)（已修复，0.1.8 起 `/dsh-pet-7340`） |
-| 加载 plugin `dsh-pet` 报 `missed the module table` / client 失败 | 发布包的 `dsh.client.inject` 声明了模块表里没有的模块 | 当前 pinned harness（dsh 0.2.1-alpha.1）下默认安装即可：`dsh.client.inject` 只是模块图排序信息（client-modules 只解析 `dsh.client.external` 边），缺失不影响加载；v0.3.6 该声明只列 `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载），client 半的本地 inject 为 `slots / locale / connection / remote / remote.commands / commandUi`（§4.2） |
+| 加载 plugin `dsh-pet` 报 `missed the module table` / client 失败 | 发布包的 `dsh.client.inject` 声明了模块表里没有的模块 | 当前 pinned harness（dsh 0.2.1-alpha.2）下默认安装即可：`dsh.client.inject` 只是模块图排序信息（client-modules 只解析 `dsh.client.external` 边），缺失不影响加载；v0.3.6 该声明只列 `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载），client 半的本地 inject 为 `slots / locale / connection / remote / remote.commands / commandUi`（§4.2） |
 | `pet` 插件行停在 PENDING / 不激活 | host 半 inject 为 `webServer / agentDefaultModel / credentials / llm / commands`，服务由 base 与 web-app bundle 提供，正常组合下可激活 | 若仍 PENDING，按 `dsh --dump-config` 核对上述 inject 服务是否缺失；`commandUi` 由 web-app bundle 挂载，`/pet` 选择框需其就绪（§4.2） |
 | 系统通知不弹 / 控制台报 `api.events` 相关错误 | 通知走 host 转发（`session/event` / `agent/error` → `/dsh-pet-7340/notify` 轮询）；装了用 DSH 0.1.5 已移除的 `ctx.connection.api.events.mux/host` 的旧版本 | 升级到 v0.3.6 并重启；浏览器权限由 dsh-gui 壳层 WebView2 授权弹窗处理（见 `src-tauri/src/views.rs`） |
 | 碎碎念 / 对话没有配图 | 配图开关 `whisperImageEnabled` / `chatImageEnabled` 上游内置默认**开启**；取图还要求发布包内含 `assets/memes/`（上游 `prepack-check.js` 强制校验），用户层显式写 `false` 即关闭 | 需要配图时在设置页开启对应开关；确认用户层未把该字段写成 `false` |
 | 意外出现独立 Electron 小窗 / 自动下载 Electron 到 `$DSH_HOME/electron/` | 某宠物 `display` 为 `desktop`/`both`（内置默认是 `both`） | §3.2 注入 `display:"web"`；已有窗口需重启或保存一次设置页才停 |
-| 设置卡提示"命名空间未暴露" | 只有鲸鱼娘 family 插件依赖 `webUiSettings` 桥；PC2005 `dsh-pet` 用自己的 `/dsh-pet-7340/config`，不依赖该桥 | 与 `dsh-pet` 无关；若要鲸鱼娘设置卡需装 `@linxin666/dsh-client-ui-web-ui-settings`（由 `plugins/dsh-web-ui` wrapper 默认安装 `0.4.5`） |
+| 设置卡提示"命名空间未暴露" | 只有鲸鱼娘 family 插件依赖 `webUiSettings` 桥；PC2005 `dsh-pet` 用自己的 `/dsh-pet-7340/config`，不依赖该桥 | 与 `dsh-pet` 无关；若要鲸鱼娘设置卡需装 `@linxin666/dsh-client-ui-web-ui-settings`（由 `plugins/dsh-web-ui` wrapper 默认安装 `0.4.6`） |
 
 ## 3. 快速排查命令
 
@@ -84,7 +84,7 @@ node plugins/dsh-pet/install.mjs        # npm 受管安装 dsh-pet@0.3.6 + 注�
 > wrapper 不向 `installNpmPlugin` 传 `skip`：`npm run install:plugins` /
 > `npm run build` 默认安装，无需 `DSH_PLUGIN_FORCE_INSTALL`。v0.3.6 的 9 条
 > `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖当前 pinned harness
-> （dsh 0.2.1-alpha.1）的准入闸门，因此不需要精确版本例外；升级后可在 profile 的
+> （dsh 0.2.1-alpha.2）的准入闸门，因此不需要精确版本例外；升级后可在 profile 的
 > `compatibility.json` 里删掉 `dsh-pet@<旧版本>` 的例外条目。host 半 inject 为
 > `webServer / agentDefaultModel / credentials / llm / commands`；client 半本地
 > inject 为 `slots / locale / connection / remote / remote.commands / commandUi`，
