@@ -2,22 +2,22 @@
 
 `dsh-web-ui` 的 git submodule wrapper。这个 wrapper 安装该仓库中的**插件本体**，
 全部以 npm 包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的
-「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.4.5`）：
+「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.4.6`）：
 
 1. **`dsh-web-ui-settings` 兼容设置桥**
-   （`@linxin666/dsh-client-ui-web-ui-settings@0.4.5`，排在最前）；
+   （`@linxin666/dsh-client-ui-web-ui-settings@0.4.6`，排在最前）；
 2. **`dsh-skill-explorer` 技能中心面板**
-   （`@linxin666/dsh-client-ui-skill-explorer@0.4.5`）；
+   （`@linxin666/dsh-client-ui-skill-explorer@0.4.6`）；
 3. **`dsh-usage` 使用统计**
-   （`@linxin666/dsh-usage@0.4.5`）；
+   （`@linxin666/dsh-usage@0.4.6`）；
 4. **`dsh-model-capabilities` 模型能力**
-   （`@linxin666/dsh-client-ui-model-capabilities@0.4.5`）。
+   （`@linxin666/dsh-client-ui-model-capabilities@0.4.6`）。
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
 保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 版本号。
 
-四个包要求 `@deepseek-ai/dsh >= 0.2.0-rc.2`，本工程 pinned 的 `dsh-v0.2.1-alpha.1` 满足该声明。
+四个包要求 `@deepseek-ai/dsh >= 0.2.0-rc.2`，本工程 pinned 的 `dsh-v0.2.1-alpha.2` 满足该声明。
 
 > **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper 安装。**
 > 直到 v0.4.4，排除原因是硬冲突：官方 `@deepseek-ai/dsh-web-app` bundle 自带
@@ -86,10 +86,10 @@ renderer 服务，作为独立 bundle 层自挂载。面板提供搜索框（按
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
-dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.5
-dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.5
-dsh plugin --profile web add @linxin666/dsh-usage@0.4.5
-dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.5
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.6
+dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.6
+dsh plugin --profile web add @linxin666/dsh-usage@0.4.6
+dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.6
 ```
 
 四个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
@@ -165,19 +165,19 @@ dsh-web-ui 上游子模块中的 `packages/dsh-task-board/` 与
 ```text
 --- E:\Git\dsh-gui\plugins\dsh-web-ui\install.mjs
 
-==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.4.5 from npm)
+==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.4.6 from npm)
   ...
 installed plugin 'dsh-web-ui-settings' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.4.5 from npm)
+==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.4.6 from npm)
   ...
 installed plugin 'dsh-skill-explorer' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.5 from npm)
+==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.6 from npm)
   ...
 installed plugin 'dsh-usage' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-model-capabilities' (@linxin666/dsh-client-ui-model-capabilities@0.4.5 from npm)
+==> install plugin 'dsh-model-capabilities' (@linxin666/dsh-client-ui-model-capabilities@0.4.6 from npm)
   ...
 installed plugin 'dsh-model-capabilities' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
@@ -190,7 +190,7 @@ node plugins/dsh-web-ui/install.mjs
 
 ## 幂等性
 
-`dsh plugin add <pkg>@0.4.5`（npm，精确版本）可重复执行；bundle 层挂载由受管
+`dsh plugin add <pkg>@0.4.6`（npm，精确版本）可重复执行；bundle 层挂载由受管
 安装器 reconcile 保证幂等。
 
 ## 更新源
