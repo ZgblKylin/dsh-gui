@@ -235,6 +235,8 @@ detailed sections marked in the table are expanded further down.
 | `npm run setup` / `npm run build` | `node scripts/dsh-gui.mjs setup` / `node scripts/dsh-gui.mjs build` | one-shot build: toolchain, harness runtime, entry exe, plugins, presets, global agent template (see [Build (one shot)](#build-one-shot)) |
 | `npm run build:exe` | `node scripts/dsh-gui.mjs build --skip-harness` | build the entry exe only, skipping the harness runtime step |
 | `npm run build:webui` | `node scripts/dsh-gui.mjs build --skip-exe` | harness runtime + plugin/preset installs only, skipping cargo |
+| `npm run build:desktop` | `node scripts/dsh-gui.mjs build-desktop` | build the Electron desktop app into `<runtime-root>/desktop`, compile the shim, install plugins into the desktop profile (see [docs/dsh-gui/desktop-app.md](docs/dsh-gui/desktop-app.md)) |
+| `npm run build:all` | `npm run build && npm run build:desktop` | both targets in one command: the Tauri shell build, then the desktop build; stops at the first failing step |
 | `npm run rebuild` | `node scripts/dsh-gui.mjs rebuild` | full build with every skip disabled: runtime reinstalled, every plugin installed again (see [Build (one shot)](#build-one-shot)) |
 | `npm run install:plugins` / `npm run plugins` | `node scripts/dsh-gui.mjs install` | run every plugin install script under `plugins/` (see [Adding plugins at runtime](#adding-plugins-at-runtime)) |
 | `npm run test:scripts` | `node --test scripts/plugin-install.test.mjs` | unit tests for the plugin-install fast path and reinstall switches |
