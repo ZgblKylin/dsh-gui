@@ -180,10 +180,16 @@ pub fn ensure(
         .initialization_script(include_str!("../ui/view-bridge.js"))
         // The harness walks WebView2's natural new-window flow (popups open
         // in their own WebView2 window); no shell-side popup handling for now.
-        // Clipboard and notification permissions are answered by the
-        // `install_webview_permissions` handler (below) instead of wry's
-        // built-in clipboard-only handler, so the consent dialog can prompt.
-        .on_new_window(|_, _| tauri::webview::NewWindowResponse::Allow);
+        .on_new_window(|_, _| tauri::webview::NewWindowResponse::Allow)
+        // Enable the async Clipboard API for the harness page. WebView2 gates
+        // reads (and only reads) behind a permission that wry's built-in
+        // handler answers on every platform; the code-block / message copy
+        // controls then write through `navigator.clipboard.writeText()`,
+        // which additionally needs a focused document + the click's user
+        // activation — both present in a real click (the shell hands focus to
+        // the webview on show). `install_webview_permissions` (below) stays
+        // for the notifications deferral and also allows the clipboard read.
+        .enable_clipboard_access();
     // One WebView2 profile per tab: cookies ignore the port, so a shared
     // profile would send every host the other hosts' session cookies (see
     // `tab_webview_data_dir`). A folder that cannot be created falls back to the
@@ -213,8 +219,9 @@ pub fn ensure(
     let view = window
         .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w, h))
         .map_err(|e| format!("failed to create the tab webview: {e}"))?;
-    // Windows: answer WebView2 permission requests ourselves (clipboard always
-    // allowed; notifications deferred to an in-page consent prompt).
+    // Windows: answer WebView2 permission requests ourselves — clipboard read is
+    // allowed (consistently with `enable_clipboard_access` above, which wry
+    // also answers), notifications are deferred to an in-page consent prompt.
     #[cfg(windows)]
     install_webview_permissions(&view, origin_of(url));
     registry.insert(tab_id.to_string(), view);
@@ -495,11 +502,11 @@ fn origin_of(url: &str) -> Option<String> {
 
 /// Attach the WebView2 permission handler to a connection-tab webview.
 ///
-/// This replaces wry's built-in clipboard-only handler, so
-/// `enable_clipboard_access()` is intentionally left off the tab builder:
-/// clipboard is always allowed, while the notifications permission is deferred
-/// and answered by the user through the injected consent overlay
-/// (`window.__dshPermissionPrompt`, see view-bridge.js).
+/// Runs alongside wry's `enable_clipboard_access()` built-in handler (the tab
+/// builder enables it above): both answer the clipboard-read permission with
+/// ALLOW. This handler additionally defers the notifications permission to an
+/// in-page consent overlay (`window.__dshPermissionPrompt`, see view-bridge.js)
+/// that the user answers via `view_answer_permission`.
 #[cfg(windows)]
 fn install_webview_permissions(view: &Webview, origin: Option<String>) {
     let outer: Webview = (*view).clone();

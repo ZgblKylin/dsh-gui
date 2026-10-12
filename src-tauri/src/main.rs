@@ -1805,8 +1805,8 @@ fn main() {
             .decorations(false)
             // Answer WebView2/WebKitGTK clipboard permission requests so the
             // shell page (copy buttons in the dialogs) may use the async
-            // Clipboard API. The harness webviews get their own
-            // `.enable_clipboard_access()` in views.rs.
+            // Clipboard API. Each connection-tab webview enables the same API
+            // on its own builder in views.rs.
             .enable_clipboard_access()
             .build()?;
 

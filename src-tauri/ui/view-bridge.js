@@ -21,6 +21,62 @@
 
   if (window !== window.top) return;
 
+  /* ── Clipboard write fallback ────────────────────────────────
+     The harness copy controls (code blocks, message copy, JSON tree, …) route
+     through ui-primitives' writeClipboard, which calls
+     `navigator.clipboard.writeText()` and treats a rejection as a failed copy
+     (no execCommand fallback on that path). In an embedded WebView2 child
+     webview the async write can reject even on a real click — the controller's
+     keyboard focus is not reliably transferred, and the async API requires a
+     focused document — while `document.execCommand('copy')`, which only needs
+     the click's user activation and a selection, still succeeds. Wrap
+     writeText so a rejected async write falls back to execCommand before the
+     control reports failure. Read is left untouched (the Rust side already
+     answers the clipboard-read permission). */
+  const clipShims = typeof WeakSet === "function" ? new WeakSet() : null;
+  function copyViaExecCommand(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      ok = false;
+    }
+    ta.remove();
+    return ok;
+  }
+  function installClipboardWriteFallback() {
+    try {
+      const cb = window.navigator && window.navigator.clipboard;
+      if (!cb || typeof cb.writeText !== "function") return;
+      if (clipShims && clipShims.has(cb)) return; // already wrapped
+      const writeText = cb.writeText;
+      const shim = async (text) => {
+        try {
+          await writeText.call(cb, text);
+          return;
+        } catch {
+          // async path rejected → fall back below
+        }
+        if (!copyViaExecCommand(text)) {
+          throw new DOMException("clipboard write failed", "NotAllowedError");
+        }
+      };
+      cb.writeText = shim;
+      if (clipShims) clipShims.add(cb);
+    } catch {
+      // The shim is a safety net; never break the page when it cannot install.
+    }
+  }
+  installClipboardWriteFallback();
+
   const internals = window.__TAURI_INTERNALS__;
   if (!internals) return; // plain-browser preview: nothing to bridge
 
