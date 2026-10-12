@@ -466,6 +466,27 @@ function ensureElectron() {
   })
 }
 
+/**
+ * Remove the source checkout's build output before building it.
+ *
+ * `.desktop/source` is reused across revisions while `build:official` rebuilds
+ * on every run, so the outputs of the previous revision must not survive into
+ * the next build: a detached checkout leaves the ignored `lib/` and
+ * `node_modules` of every package the new revision deleted or relocated, and
+ * the workspace globs (`vendor/<name>`, `packages/<group>/<name>`) match
+ * directories rather than manifests, so the stale `lib/types/index.js` of such
+ * a directory is still built as a workspace member — importing a removed
+ * export fails the host build. The repository's own cleaner derives the live
+ * outputs from the project-reference graph, removes those residue directories,
+ * and refuses to delete a directory whose content goes beyond known residue.
+ */
+function cleanSource() {
+  step('Clean the desktop source build outputs', () => {
+    // The same non-interactive environment as buildOfficial below.
+    pnpm(['run', 'clean'], { cwd: SOURCE, env: { CI: 'true', pnpm_config_verify_deps_before_run: 'warn' } })
+  })
+}
+
 /** Compile the harness, the web bundle and the desktop app in one pass. */
 function buildOfficial() {
   step('Build the harness and the desktop app (build:official)', () => {
@@ -833,6 +854,7 @@ export function buildDesktop(options = {}) {
   installSourceDependencies(options, revision)
   writePackageEnvironment()
   ensureElectron()
+  cleanSource()
   buildOfficial()
   packageDesktop()
   const landed = landUnpacked()
