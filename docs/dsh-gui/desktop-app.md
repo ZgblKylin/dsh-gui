@@ -90,6 +90,12 @@ Electron 二进制与 electron-builder 工具集的下载缓存分别取运行�
 - electron-builder 工具集。
 - `@deepseek-ai/libreoffice-kit-win32-x64`（约 71 MB）。它由 `prepare:dsh` 在安装生产树时经 pnpm 拉取，不属 primary runtime 的锁定资产；该包传输慢时 pnpm 会在重试耗尽后以 `desktop runtime: missing required LibreOffice engine win32-x64` 中止构建。
 
+Electron 的安装脚本、`@electron/get` 与打包链的 primary runtime 下载都走 Node 的全局 `fetch`（undici），而它既不读 npm 的 `proxy` 配置，也不读 `HTTP_PROXY` / `HTTPS_PROXY`，除非 `NODE_USE_ENV_PROXY` 启用它的环境代理 agent。因此代理只写在 `.npmrc` 里时这些下载仍走直连，慢到超时就会以 `TimeoutError: The operation was aborted due to timeout` 中止 `prepare:primary-runtime`。
+
+`scripts/dsh-gui.mjs` 在 `scripts/proxy-environment.mjs` 中解析代理，只对 `setup`、`build`、`rebuild`、`install`、`plugins`、`build-desktop` 这几个命令生效，解析结果写入子进程环境。取值顺序为：环境变量 `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY` / `http_proxy` / `ALL_PROXY` / `all_proxy` 中的第一个非空值，命中时只补设 `NODE_USE_ENV_PROXY=1`，不改动调用方给出的地址；环境变量没有命中且宿主为 Windows 时，读注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的 `ProxyEnable` 与 `ProxyServer`（接受 `host:port` 与 `http=` / `https=` 两种形式），设置 `HTTP_PROXY` / `HTTPS_PROXY` 及小写形式，并同样补设 `NODE_USE_ENV_PROXY=1`。日志打印 `download proxy: <地址> (<来源>)`，两处都没有代理时打印直连。`NODE_USE_ENV_PROXY` 自 Node 24.0.0 起支持，更早的 Node 忽略该变量。
+
+`NO_PROXY` / `no_proxy` 始终并入 `localhost` / `127.0.0.1` / `::1`：打包链的 runtime smoke 会启动 Host 并访问 `127.0.0.1`，不能把回环流量交给代理。Windows 路径还并入系统的 `ProxyOverride`，并把其中的 `<local>` 展开成这三个回环主机。以下情形不做任何替换，下载保持直连：环境变量或 `ProxyServer` 只给出 `socks` 等非 HTTP 代理，`ProxyEnable` 不为 1，`ProxyOverride` 含 `*`，或注册表无法读取。
+
 Electron 与 electron-builder 的下载镜像不硬编码，而是从 npm registry 推导：`scripts/desktop.mjs` 读取 `npm_config_registry`（`npm run` 会把解析后的 npm 配置导出给脚本），缺省时再读仓库根与用户目录的 `.npmrc`；当该 registry 的宿主是 npmmirror（含旧域名 `npm.taobao.org`）时，按 `${registry origin}/-/binary/<project>/` 取镜像 —— Electron 与 electron-builder 归档的 GitHub release 资产在同一镜像树下，构建日志会打印实际来源（`electron source:` / `electron-builder toolset source:`）。优先级为：`ELECTRON_MIRROR` / `ELECTRON_BUILDER_BINARIES_MIRROR` 环境变量 → 同名 npm 配置（`electron_mirror` / `electron_builder_binaries_mirror`）→ registry 推导；设成空值即回到官方 GitHub release 宿主，registry 不是可识别镜像时不做任何替换。Electron 归档仍按 release 的 `SHASUMS256.txt` 校验。该推导只覆盖这两项：primary runtime 的 node/python/wheel 与 LibreOffice kit 不使用它。
 
 ## 已知上游缺陷与规避
@@ -97,7 +103,7 @@ Electron 与 electron-builder 的下载镜像不硬编码，而是从 npm regist
 | 现象 | 根因 | 规避 |
 |---|---|---|
 | 打包在 `prepare:packages` 阶段失败，报 `tar (child): Cannot connect to D: resolve failed` | 上游把带盘符的绝对路径交给 `tar`，PATH 上的 Git GNU tar 按 POSIX 把盘符解析为远端主机 | 打包步骤把 `%SystemRoot%\System32` 前置到 `PATH`，让 Windows 内置 bsdtar 先于 Git 的 GNU tar 命中 |
-| primary runtime 资产的下载速率极低 | 上游脚本串行单流拉取 GitHub release 资产，该通道慢 | 用镜像预置锁定资产供产品脚本按 SHA-256 自验后复用；这属于构建环境的准备，不是构建链的行为 |
+| primary runtime 资产的下载速率极低 | 上游脚本串行单流拉取 GitHub release 资产，该通道慢；这些下载走 Node 全局 `fetch`，不设置 `NODE_USE_ENV_PROXY` 时任何代理都不生效 | 构建链解析代理并启用 `NODE_USE_ENV_PROXY`，让下载走系统代理（见「联网下载」）；通道仍慢时可用镜像预置锁定资产供产品脚本按 SHA-256 自验后复用 |
 
 ## 未签名与 SmartScreen
 

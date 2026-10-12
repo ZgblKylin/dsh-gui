@@ -92,6 +92,7 @@ import {
   run,
 } from './toolchain.mjs'
 import { recordNpmInstall } from './plugin-install.mjs'
+import { resolveDownloadProxy } from './proxy-environment.mjs'
 import { buildDesktop, runDesktop } from './desktop.mjs'
 
 const SRC_TAURI = join(ROOT, 'src-tauri')
@@ -697,6 +698,33 @@ Examples:
   npm run shortcut -- "D:\\x.lnk"`)
 }
 
+/** Commands with network steps that must honor the host's proxy; the others neither install nor download. */
+const PROXY_COMMANDS = new Set(['setup', 'build', 'rebuild', 'install', 'plugins', 'build-desktop'])
+
+/**
+ * Switch the chain's Node downloads to the proxy this host configures.
+ *
+ * Electron's installer, `@electron/get` and the packaging chain's primary-runtime
+ * downloads use Node's global `fetch`, which ignores npm's `proxy` configuration
+ * and the proxy variables unless `NODE_USE_ENV_PROXY=1` selects its
+ * environment-proxy agent — without that switch a configured proxy stays bypassed
+ * and those downloads go direct. A proxy exported in the environment wins; a host
+ * that exports none takes the Windows system settings.
+ */
+function enableDownloadProxy() {
+  step('Resolve the download proxy', () => {
+    const resolved = resolveDownloadProxy()
+    if (resolved.source === 'none') {
+      console.log(`no download proxy (${resolved.reason}) — Node downloads go direct`)
+      return
+    }
+    Object.assign(process.env, resolved.env)
+    const origin = resolved.source === 'environment' ? `$${resolved.name}` : 'Windows system settings'
+    console.log(`download proxy: ${resolved.proxy} (${origin})`)
+    console.log('NODE_USE_ENV_PROXY=1 — Node fetch now honors that proxy')
+  })
+}
+
 function main() {
   const argv = process.argv.slice(2)
   const command = argv.find((arg) => !arg.startsWith('-')) ?? 'help'
@@ -713,6 +741,7 @@ function main() {
     skipPlugins: flags.has('--skip-plugins'),
     pluginsOnly: flags.has('--plugins-only'),
   }
+  if (PROXY_COMMANDS.has(command)) enableDownloadProxy()
   switch (command) {
     case 'setup': setup(options); break
     case 'build': build(options); break
