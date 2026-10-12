@@ -217,10 +217,10 @@ executable inside that tree inherits it (see
    │                        #   see plugins/README.md)
    └─ global_template.agents/  # versioned agent-config template: the always-loaded
                             #   docs and the user-level skills (the `review` skill
-                            #   among them); the build fills missing files into
-                            #   <runtime-root>/.dsh/.agents/ and never overwrites an
-                            #   existing one, the agent-config home the shell pins
-                            #   DSH_AGENTS_HOME to
+                            #   among them); the build ships AGENTS.global_template.md
+                            #   to .dsh/AGENTS.md and fills missing files of this tree
+                            #   into <runtime-root>/.dsh/ (docs/, skills/), never
+                            #   overwriting an existing one
 ```
 
 ## npm scripts
@@ -282,12 +282,14 @@ This is idempotent and writes only under the runtime root:
   `@deepseek-ai/dsh-agent-preset` declaration row in the profile patch and
   appears on the preset roster (see `presets/README.md` for the pattern; the
   retired `.dsh/.agent-presets/` directory is no longer discovered).
-- Fills in the **global agent template** — `global_template.agents/` is merged
-  into `<runtime-root>/.dsh/.agents/`, the agent-config home the desktop shell pins
-  `DSH_AGENTS_HOME` to, so its always-loaded docs and user-level skills (the
-  `review` skill among them) reach every session. Only missing files are
-  written: an already-installed doc or skill is never overwritten, so your edits
-  to the installed copy survive every build.
+- Fills in the **global agent template** — `AGENTS.global_template.md` is
+  deployed to `<runtime-root>/.dsh/AGENTS.md` (the harness home's user-global
+  instruction file), and the `global_template.agents/` tree is merged into
+  `<runtime-root>/.dsh/` itself (`docs/`, `skills/`), so its always-loaded docs
+  and user-level skills (the `review` skill among them) reach every session
+  from the harness home — no `DSH_AGENTS_HOME` override is needed. Only missing
+  files are written: an already-installed doc or skill is never overwritten, so
+  your edits to the installed copy survive every build.
 
 The result is the entry binary at the runtime root (cargo keeps its own
 output at `src-tauri\target\release\` or `target\debug\`).
@@ -336,9 +338,10 @@ npm run harness
 It uses the same `web --port <port> --no-open` arguments, starts the resolved
 runtime's CLI from that runtime's working directory (`.harness/` in `npm` mode,
 `deepseek-harness/` in `source` mode), and pins `DSH_HOME` to the runtime root's
-`.dsh` plus `DSH_AGENTS_HOME` to `.dsh\.agents` (the agent-config home the build
-fills from `global_template.agents/`; without that pin the harness reads the
-machine-wide `~/.agents` and the user-level skills never reach the session). Its
+`.dsh` (the build deploys the global agent template — `AGENTS.global_template.md`
+-> `.dsh/AGENTS.md` and the `global_template.agents/` tree -> `.dsh/` — which
+the harness reads from the harness home itself, so no `DSH_AGENTS_HOME` override
+is set). Its
 output stays in the terminal; press Ctrl+C to stop it.
 
 Both launch paths honor `$env:DSH_GUI_PORT` (default `3080`). Under `npm start`,

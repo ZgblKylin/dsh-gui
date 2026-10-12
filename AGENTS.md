@@ -11,7 +11,7 @@
 
 - deepseek-harness: dsh框架本体
 - docs: 文档目录
-- global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把缺失文件装到运行时根的 `.dsh/.agents/`，已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；外壳以 `DSH_AGENTS_HOME` 指向该目录）
+- global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把 `AGENTS.global_template.md` 部署为 `.dsh/AGENTS.md`，并把 `global_template.agents/` 下缺失的文件装到运行时根的 `.dsh/`（docs/、skills/），已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；harness 从 harness home 直接读取，无需设置 `DSH_AGENTS_HOME`）
 - harness.json: dsh 运行时清单（选择 npm 安装还是源码编译，并锁定版本）
 - plugins: 本地插件目录
 - presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到 profile 的 `@deepseek-ai/dsh-agent-preset` 声明行；见 presets/README.md）
@@ -58,7 +58,7 @@ console.log({ platform: process.platform, arch: process.arch })
 
 - **`dsh-plugin-install`**：安装/卸载 DSH 插件到 profile 的标准流程。涉及插件安装、卸载、更新、源码编译安装时，先加载该 skill。其内容基于 `dsh plugin --profile <profile> add --help`（受管安装器转发的 pnpm add）的权威安装方式列表：npm 包 / tag / 版本 / 版本范围 / git 简写 / git URL / 本地 tgz / tarball URL / 目录。
 - **`dsh-gui-update`**：把 `deepseek-harness` 或某插件模块升级到更新的上游修订（最新 tag / 最新提交）的标准流程。涉及模块升级、升级前验证、插件屏蔽与实装时，先加载该 skill；它基于更新对话框的 AI 更新提示词：升级先在 `.staging/dsh-gui` 副本中验证（「验证通过」指副本 WebUI 能正确加载；更新含 harness 时另用 computer use 验证 GUI 能启动运行），报告并取得用户审批后才实装到本工程。
-- Skill 分两级：仓库级开发 skill 存放于 `.agents/skills/<skill-name>/SKILL.md`；用户级 skill（对所有 workspace 生效）源文件存放于 `global_template.agents/skills/<skill-name>/SKILL.md`，由构建安装到 `.dsh/.agents/skills/`。frontmatter 含 `name`、`description`、`whenToUse`。
+- Skill 分两级：仓库级开发 skill 存放于 `.agents/skills/<skill-name>/SKILL.md`；用户级 skill（对所有 workspace 生效）源文件存放于 `global_template.agents/skills/<skill-name>/SKILL.md`，由构建安装到 `.dsh/skills/`。frontmatter 含 `name`、`description`、`whenToUse`。
 
 ## 工具与终端
 

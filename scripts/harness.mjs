@@ -4,20 +4,20 @@
  * to this terminal. The launch contract mirrors `spawn_harness` in
  * `src-tauri/src/main.rs`: web profile, `--port` (or `DSH_GUI_PORT`, or 3080),
  * no browser handoff, the resolved runtime's working directory, the runtime
- * root's `.dsh` as DSH_HOME, `DSH_GUI_ROOT` pointing at the repository, and the
- * agent-config home the build fills from `global_template.agents/` as
- * DSH_AGENTS_HOME (`harness.json` selects the npm or the source runtime). Both
- * pins are load-bearing: the skill provider reads `$DSH_AGENTS_HOME` and
- * otherwise falls back to the machine-wide `~/.agents`, so a backend started
- * without it loses the user-level skills and the always-loaded docs of this
- * installation. `--host` is forwarded when given; `--port 0` means "pick a free
+ * root's `.dsh` as DSH_HOME and `DSH_GUI_ROOT` pointing at the repository
+ * (`harness.json` selects the npm or the source runtime). No `DSH_AGENTS_HOME`
+ * is set: the build ships the global agent template — `AGENTS.global_template.md`
+ * -> `.dsh/AGENTS.md` plus the `global_template.agents/` tree (`docs/`,
+ * `skills/`) -> `.dsh/` — which the harness picks up from the harness home
+ * itself (`<DSH_HOME>/AGENTS.md` and `<DSH_HOME>/skills`), so the shared
+ * agents root needs no override and keeps its default. `--host` is forwarded
+ * when given; `--port 0` means "pick a free
  * port", which is what the remote-connection launchers append so a second
  * backend never collides with an existing 3080 instance.
  */
 
 import { spawn } from 'node:child_process'
 import { constants as osConstants } from 'node:os'
-import { join } from 'node:path'
 import { requireHarnessRuntime } from './harness-runtime.mjs'
 import { ROOT, WEB_HOME } from './toolchain.mjs'
 
@@ -69,11 +69,11 @@ try {
 const port = resolvePort()
 const host = resolveHost()
 
-// The agent-config home the shell pins too (`spawn_harness` in
-// `src-tauri/src/main.rs`): the tree `npm run build` fills from
-// `global_template.agents/`. Without it the provider reads the machine-wide
-// `~/.agents`, which this installation never writes.
-const agentsHome = join(WEB_HOME, '.agents')
+// No DSH_AGENTS_HOME is set (the shell spawns the same way): the build ships
+// the global agent template into `.dsh/` itself — `AGENTS.md` plus the docs/ +
+// skills/ tree from `global_template.agents/` — which the harness reads from
+// the harness home (`<DSH_HOME>/AGENTS.md` and `<DSH_HOME>/skills`) whatever
+// the default shared agents root resolves to.
 
 const child = spawn('node', [
   cli.bin,
@@ -84,7 +84,7 @@ const child = spawn('node', [
   '--no-open',
 ], {
   cwd: cli.cwd,
-  env: { ...process.env, DSH_HOME: WEB_HOME, DSH_AGENTS_HOME: agentsHome, DSH_GUI_ROOT: ROOT },
+  env: { ...process.env, DSH_HOME: WEB_HOME, DSH_GUI_ROOT: ROOT },
   stdio: 'inherit',
 })
 

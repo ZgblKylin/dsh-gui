@@ -10,8 +10,10 @@
 //!      `harness.json` selects — the registry-installed
 //!      `@deepseek-ai/dsh@<version>` in `.harness/`, or the built
 //!      `deepseek-harness` submodule — with `DSH_HOME` pinned inside the
-//!      repository and `DSH_AGENTS_HOME` pointing at the agent-config home
-//!      the build installs `global_template.agents/` into, and wait until it
+//!      repository and no `DSH_AGENTS_HOME` override (the build ships the
+//!      global agent template into `.dsh/` itself: `AGENTS.md` plus the
+//!      `docs/` + `skills/` tree from `global_template.agents/`), and wait
+//!      until it
 //!      answers HTTP on the loopback port;
 //!   3. publish that lifecycle to the shell page: the window paints a loading
 //!      page while the harness boots (its cold start takes ~10 s, most of it
@@ -461,10 +463,10 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
     ensure_loopback_port_available(port)?;
 
     let home = roots::dsh_home(root);
-    // The agent-config home the build installs `global_template.agents/` into:
-    // the harness scans it for user-level skills and always-loaded docs, and it
-    // must be set here because its default is the machine-wide `~/.agents`.
-    let agents_home = home.join(".agents");
+    // No DSH_AGENTS_HOME override: the build ships the global agent template
+    // into `.dsh/` itself — `AGENTS.md` plus the `docs/` + `skills/` tree from
+    // `global_template.agents/` — which the harness reads at `<DSH_HOME>/AGENTS.md`
+    // and scans at `<DSH_HOME>/skills`, whatever the default shared agents root.
     let log_dir = home.join("gui");
     fs::create_dir_all(&log_dir)?;
     let log_path = log_dir.join("harness.log");
@@ -483,7 +485,6 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
         .arg("--no-open")
         .current_dir(&runtime.cwd)
         .env("DSH_HOME", &home)
-        .env("DSH_AGENTS_HOME", &agents_home)
         .env("DSH_GUI_ROOT", root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

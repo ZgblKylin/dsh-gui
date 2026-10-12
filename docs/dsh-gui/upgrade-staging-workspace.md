@@ -58,7 +58,7 @@ node .staging\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --
 ```powershell
 cd .staging\dsh-gui
 $env:DSH_GUI_PORT = "3090"   # 空闲端口，避免与运行中的实例争用
-npm run harness              # scripts/harness.mjs：副本运行时根的 .dsh 为 DSH_HOME，其 .agents 为 DSH_AGENTS_HOME
+npm run harness              # scripts/harness.mjs：副本运行时根的 .dsh 为 DSH_HOME；不设 DSH_AGENTS_HOME（全局 agent 模板从 harness home 读取）
 ```
 
 在 `http://127.0.0.1:3090` 确认会话界面正常渲染、能新建或载入会话、插件与组合没有加载失败提示或错误覆盖层；确认后结束该进程。构建全绿与 `--dump-config` 无报错都不算通过。

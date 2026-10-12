@@ -93,5 +93,5 @@ npm run build -- --skip-harness --skip-exe
 安装也不向 profile patch 写入派生预设声明。
 
 预设里若需要面向用户的指令或提示词（例如 `/review`），做成用户级 skill：源文件放
-`global_template.agents/skills/<name>/SKILL.md`，构建安装到 `.dsh/.agents/`
+`global_template.agents/skills/<name>/SKILL.md`，构建安装到 `.dsh/skills/`
 （见 [`AGENTS.md`](../AGENTS.md) 的目录结构一节）。

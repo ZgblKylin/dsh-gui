@@ -25,7 +25,7 @@ export const STORE = join(RUNTIME_ROOT, '.pnpm-store')
 export const HARNESS = join(ROOT, 'deepseek-harness')
 export const PLUGINS = join(ROOT, 'plugins')
 export const WEB_HOME = join(RUNTIME_ROOT, '.dsh')
-/** Global agent-config template copied into `<WEB_HOME>/.agents/` on every build. */
+/** Global agent-config template (docs/skills) filled into `<WEB_HOME>` itself on every build. */
 export const GLOBAL_AGENTS_TEMPLATE = join(ROOT, 'global_template.agents')
 export const IS_WINDOWS = process.platform === 'win32'
 export const BIN_NAME = IS_WINDOWS ? 'dsh-gui.exe' : 'dsh-gui'

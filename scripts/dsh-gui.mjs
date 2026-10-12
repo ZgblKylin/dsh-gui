@@ -9,7 +9,8 @@
  *   setup    one-shot bootstrap: pinned pnpm -> dsh runtime (see below) ->
  *            entry exe (release unless --debug) -> plugins (each
  *            plugins/<id>/install.mjs) -> install agent presets -> install the
- *            global agent template (global_template.agents/ -> .dsh/.agents/)
+ *            global agent template (AGENTS.global_template.md -> .dsh/AGENTS.md,
+ *            and global_template.agents/ -> .dsh/, missing files only)
  *   build    dsh runtime (unless --skip-harness) -> entry exe -> plugins (each
  *            plugins/<id>/install.mjs) -> install agent presets -> install the
  *            global agent template
@@ -94,6 +95,8 @@ import { recordNpmInstall } from './plugin-install.mjs'
 import { buildDesktop, runDesktop } from './desktop.mjs'
 
 const SRC_TAURI = join(ROOT, 'src-tauri')
+/** Repository-root template deployed to `<DSH_HOME>/AGENTS.md` when missing. */
+const AGENTS_FILE_TEMPLATE = join(ROOT, 'AGENTS.global_template.md')
 
 function step(name, fn) {
   console.log(`\n==> ${name}`)
@@ -463,28 +466,45 @@ function installPresets() {
 /**
  * Install the global agent-config template into the harness home.
  *
- * `global_template.agents/` is the versioned source of the agent configuration
- * shared by every profile of this installation (the always-loaded docs and the
- * user-level skills). It lands in `<DSH_HOME>/.agents/`, which the harness
- * scans as its agents home once the desktop shell points `DSH_AGENTS_HOME`
- * there, so user-level skills reach every session and every workspace.
+ * Two artefacts are deployed straight into `<DSH_HOME>/`, and both are only
+ * ever filled in when missing — an installed file that already exists is never
+ * rewritten, so an edit a user made to an installed copy survives every later
+ * build:
  *
- * The install only fills in files that are missing: an installed file that
- * already exists is never rewritten, so a user's edit to a global doc or skill
- * survives every later build. Update `global_template.agents/` for content
+ * - `<DSH_HOME>/AGENTS.md` from `AGENTS.global_template.md` at the repository
+ *   root: the harness home's user-global instruction file, which the
+ *   agent-instructions provider (`@deepseek-ai/dsh-agent-instructions`) reads
+ *   for every session of this installation.
+ * - the `global_template.agents/` tree into `<DSH_HOME>/` itself (`docs/`,
+ *   `skills/`, ...): the always-loaded reference docs and the user-level
+ *   skills, which the filesystem skill provider
+ *   (`@deepseek-ai/dsh-skill-filesystem`) scans at `<DSH_HOME>/docs` /
+ *   `<DSH_HOME>/skills` in every workspace.
+ *
+ * Update `AGENTS.global_template.md` / `global_template.agents/` for content
  * that should change.
  */
 function installGlobalTemplate() {
-  if (!existsSync(GLOBAL_AGENTS_TEMPLATE)) {
-    console.log('No global_template.agents/ — skipping the global agent template.')
-    return
-  }
-  const target = join(WEB_HOME, '.agents')
+  const target = WEB_HOME
   let written = 0
   step('Install the global agent template into the harness home', () => {
-    written = fillTreeFromTemplate(GLOBAL_AGENTS_TEMPLATE, target)
+    mkdirSync(target, { recursive: true })
+    const agentsFile = join(target, 'AGENTS.md')
+    if (existsSync(agentsFile)) {
+      console.log('AGENTS.md already installed — left untouched.')
+    } else if (existsSync(AGENTS_FILE_TEMPLATE)) {
+      copyFileSync(AGENTS_FILE_TEMPLATE, agentsFile)
+      written += 1
+    } else {
+      console.log('No AGENTS.global_template.md at the repo root — skipping .dsh/AGENTS.md.')
+    }
+    if (!existsSync(GLOBAL_AGENTS_TEMPLATE)) {
+      console.log('No global_template.agents/ — skipping the global agents tree.')
+    } else {
+      written += fillTreeFromTemplate(GLOBAL_AGENTS_TEMPLATE, target)
+    }
   })
-  console.log(`Installed global_template.agents/ -> ${target} (${written} new file(s); existing files left untouched)`)
+  console.log(`Installed the global agent template into ${target} (${written} new file(s); existing files left untouched)`)
 }
 
 /**
@@ -591,7 +611,8 @@ Commands:
               entry exe (release unless --debug) -> plugins (each
               plugins/<id>/install.mjs) -> agent presets (each
               presets/<id>/install.mjs) -> global agent template
-              (global_template.agents/ -> .dsh/.agents/)
+              (AGENTS.global_template.md -> .dsh/AGENTS.md, and
+              global_template.agents/ -> .dsh/, missing files only)
   build       dsh runtime (unless --skip-harness) -> entry exe -> plugins
               (each plugins/<id>/install.mjs) -> agent presets ->
               global agent template

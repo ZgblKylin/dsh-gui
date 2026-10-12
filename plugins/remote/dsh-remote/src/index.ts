@@ -1547,12 +1547,11 @@ async function handleOp(ctx: Context, op: string, args: Record<string, unknown>,
       const out = openSync(logFile, 'a')
       const child = spawn(env.node, [env.bin, 'web', '--port', String(port), '--no-open'], {
         cwd: env.harnessDir !== '' ? env.harnessDir : env.repoRoot,
-        // The agent-config home the desktop shell pins too: this backend is a
-        // second instance of the same installation, so it must read the same
-        // user-level skills and always-loaded docs (otherwise the provider
-        // falls back to the machine-wide `~/.agents` and this tab shows a
-        // smaller skill roster than the primary one).
-        env: { ...process.env, DSH_HOME: home, DSH_AGENTS_HOME: join(home, '.agents') },
+        // Second instance of the same installation: only DSH_HOME is pinned, so
+        // the shared agents root keeps its default while the global agent
+        // template (AGENTS.md + docs/ + skills/) is read from the harness home
+        // exactly like the primary backend.
+        env: { ...process.env, DSH_HOME: home },
         stdio: ['ignore', out, out],
         detached: process.platform !== 'win32',
       })
