@@ -63,6 +63,8 @@ dsh-gui 的同一件事是显式实现的：通知类权限取 `GetDeferral()` �
 
 这能消除症状，但等于对远端页面做运行时改写，通知的「权限申请」语义与 dsh-gui 的征询流程不一致，且随远端页面结构变化而失效。
 
+本仓库的 `plugins/desktop-tabs/dsh-desktop-tabs` 已按此路线实现**通知**这一块（`src/client/notify-relay.ts` 与 `view.ts`）：guest 每次 `dom-ready` 注入 shim，把 `Notification.permission`/`requestPermission()`/`navigator.permissions.query({name:'notifications'})` 报成 `granted`，`new Notification(...)` 改成入队；视图层在 guest 存活期间按 1 s `executeJavaScript` 取回队列，应用文档用自身 `Notification` 重放为真实系统通知。剪贴板的选项 B 兜底与 `focus()` 尚未据此实现。机制与验证、已知限制见该插件 `README.md` 的「远端通知转接」与「已知限制」两节。
+
 ### 5.3 选项 C：只保留审计
 
 不改 desktop，也不改插件的访客加载路径，把对照结论与补丁设计留作后续决策的输入。插件侧的焦点与 `onOpenRequested` 两项独立于 desktop 策略，不依赖选项 A 即可实施。
@@ -83,6 +85,6 @@ dsh-gui 的同一件事是显式实现的：通知类权限取 `GetDeferral()` �
 
 ## 八、未决问题
 
-- 通知语义：与 dsh-gui 一致的页内征询（需要新增 IPC 与插件侧征询界面），还是与 desktop 主文档现状一致的直接放行。
+- 通知语义：若走选项 A 的 `harness` 策略，需再定「与 dsh-gui 一致的页内征询」还是「与 desktop 主文档一致的直接放行」；本次选项 B 落地的转接采用的是**在应用文档直接放行并重放**，绕过征询。
 - 下载是否随通知一并纳入 `harness` 策略。
 - 远端标签的会话持久化：是否改用 `persist:` 分区，让重启后免去一次 token 导航。
