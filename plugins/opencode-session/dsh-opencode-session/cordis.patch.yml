@@ -1,0 +1,5 @@
+# dsh-opencode-session bundle patch: registers the opencode-session loader entry.
+# Applied when a profile lists dsh-opencode-session in dsh.profile.bundles.
+- insert:
+    - id: opencode-session
+      name: dsh-opencode-session

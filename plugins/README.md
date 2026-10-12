@@ -232,6 +232,17 @@ tree with `duplicate loader entry id`.
   picks a preset). It declares `dsh.bundle.patch` and mounts through its own
   bundle layer (no manual cordis insert). See
   `ai-update/dsh-ai-update/docs/`.
+- `opencode-session` — in-tree plugin at
+  `opencode-session/dsh-opencode-session`: host-only plugin that injects the
+  OpenCode per-conversation `x-opencode-session` header on LLM requests the
+  loop does not stamp (auto-review and other hand-built auxiliary calls),
+  clearing the opencode-go `400 MissingSessionID` rejection. The injected id is
+  the initiating DSH session id — the same value the loop stamps — per the
+  OpenCode "stable id per conversation" routing/prompt-cache contract. It
+  declares `dsh.bundle.patch` and mounts through its own bundle layer (no
+  manual cordis insert). Config: `providers`, `sessionIdMode`, and
+  `fallbackSessionId`. See
+  `opencode-session/dsh-opencode-session/README.md`.
 - `deep-whale` — git submodule (`Small-tailqwq/dsh-deep-whale`) at
   `deep-whale/dsh-deep-whale`, kept as the version source and a source
   reference only. The wrapper installs the published trio from npm in upstream
