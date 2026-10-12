@@ -85,7 +85,16 @@ export function injectRequestSessionId(
   return { options: { ...options, sessionId }, injected: true }
 }
 
-export function apply(ctx: Context, config: Config): void {
+/**
+ * Mount the listener. `config` is optional: this package exports no runtime
+ * `Config` schema, so Cordis's `resolveConfig` returns the Loader entry's
+ * `config` unchanged and an entry that declares none hands `undefined` here
+ * (`resolveConfig` in `@deepseek-ai/cordis`: `if (!runtime.Config) return
+ * config`). Default it so such an entry mounts instead of failing its fiber.
+ * @param ctx - the plugin context; `llm` is the declared hard dependency.
+ * @param config - optional profile configuration; every field has a default.
+ */
+export function apply(ctx: Context, config: Config = {}): void {
   const providers = new Set<string>(config.providers ?? OPENCODE_PROVIDERS)
   const mode = config.sessionIdMode ?? 'conversation'
   const fallback: SessionId = brandString<SessionId>(
