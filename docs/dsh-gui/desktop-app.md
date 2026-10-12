@@ -32,6 +32,8 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 - `--skip-plugins`：跳过第 9 步的插件安装。
 - `--plugins-only`：只执行第 9 步，复用已有的 `<runtime-root>\desktop`，用于插件集合变化后的重装；与 `--skip-plugins` 互斥。
 
+`npm run build:desktop-plugins` 是该旗标的 npm 脚本别名，等价于 `npm run build:desktop -- --plugins-only`。
+
 `npm run build` 不包含 desktop：该命令只处理 dsh 运行时、Tauri 入口 exe、插件与 agent preset。要一次构建两个目标，用 `npm run build:all`（等价于 `npm run build` 后接 `npm run build:desktop`；前一步失败即中止，不执行 desktop 构建）。
 
 ### `npm run desktop`

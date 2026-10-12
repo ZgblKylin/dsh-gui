@@ -692,6 +692,7 @@ Examples:
   npm run build:webui      (alias for build --skip-exe; runtime/plugins only, no desktop exe)
   npm run build:desktop
   npm run build:desktop -- --plugins-only
+  npm run build:desktop-plugins  (alias for build-desktop --plugins-only)
   npm run desktop
   npm run install:plugins
   npm start

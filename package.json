@@ -15,6 +15,7 @@
     "build:webui": "node scripts/dsh-gui.mjs build --skip-exe",
     "build:desktop": "node scripts/dsh-gui.mjs build-desktop",
     "build:all": "npm run build && npm run build:desktop",
+    "build:desktop-plugins": "node scripts/dsh-gui.mjs build-desktop --plugins-only",
     "install:plugins": "node scripts/dsh-gui.mjs install",
     "plugins": "node scripts/dsh-gui.mjs install",
     "test:scripts": "node --test scripts/plugin-install.test.mjs scripts/proxy-environment.test.mjs",
