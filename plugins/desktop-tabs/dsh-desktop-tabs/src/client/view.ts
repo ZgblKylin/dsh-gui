@@ -16,11 +16,18 @@
  */
 
 import type { DesktopBrowserBridge, DesktopBrowserReservation } from './bridge.ts'
+import {
+  drainRemoteNotifications,
+  installNotifyShim,
+  playRemoteNotification,
+  REMOTE_NOTIFY_POLL_MS,
+} from './notify-relay.ts'
 
 /** The Electron tag API this layer calls. */
 interface WebviewElement extends HTMLElement {
   loadURL(url: string): Promise<void>
   isLoading(): boolean
+  executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>
 }
 
 /** A main-frame navigation failure event. */
@@ -90,6 +97,8 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
   let lease: string | undefined
   let guest: WebviewElement | undefined
   let run = 0
+  // Drains the shown guest's relayed notifications; cleared with the guest.
+  let notifyTimer: number | undefined
 
   const setStatus = (text: string | undefined): void => {
     status.textContent = text === undefined ? '' : redact(text)
@@ -121,8 +130,34 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
     })
   }
 
-  /** Remove the guest element and release its lease (the guest dies with the DOM). */
+  /** Stop draining the current guest's relayed notifications. */
+  const stopNotifyPoll = (): void => {
+    if (notifyTimer !== undefined) {
+      window.clearInterval(notifyTimer)
+      notifyTimer = undefined
+    }
+  }
+
+  /** Replay a shown guest's relayed notifications on the app document. */
+  const startNotifyPoll = (target: WebviewElement, current: number): void => {
+    stopNotifyPoll()
+    notifyTimer = window.setInterval(() => {
+      if (current !== run) {
+        stopNotifyPoll()
+        return
+      }
+      void drainRemoteNotifications(target)
+        .then((items) => {
+          if (current !== run) return
+          for (const item of items) playRemoteNotification(item)
+        })
+        .catch(() => { /* a destroyed guest just stops relaying */ })
+    }, REMOTE_NOTIFY_POLL_MS)
+  }
+
+  /** Remove the guest element, release its lease, and stop relaying its notifications. */
   const destroyGuest = (): void => {
+    stopNotifyPoll()
     const current = guest
     const currentLease = lease
     guest = undefined
@@ -160,6 +195,12 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
         if (current === run) setStatus(`${target.title} 加载失败：${message(error)}`)
       })
     }, { once: true })
+    // The guest cannot carry a preload (the shell strips webview preferences), so
+    // the notification relay shim is installed from here at every ready document.
+    webview.addEventListener('dom-ready', () => {
+      if (current !== run) return
+      void installNotifyShim(webview).catch(() => { /* the relay is best-effort */ })
+    })
     webview.addEventListener('did-start-loading', () => {
       if (current === run) setStatus(`正在连接 ${target.title}…`)
     })
@@ -176,6 +217,7 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
     })
     guest = webview
     element.append(webview)
+    startNotifyPoll(webview, current)
   }
 
   return {
