@@ -63,7 +63,7 @@ dsh-gui 的同一件事是显式实现的：通知类权限取 `GetDeferral()` �
 
 这能消除症状，但等于对远端页面做运行时改写，通知的「权限申请」语义与 dsh-gui 的征询流程不一致，且随远端页面结构变化而失效。
 
-本仓库的 `plugins/desktop-tabs/dsh-desktop-tabs` 已按此路线实现**通知**这一块（`src/client/notify-relay.ts` 与 `view.ts`）：guest 每次 `dom-ready` 注入 shim，把 `Notification.permission`/`requestPermission()`/`navigator.permissions.query({name:'notifications'})` 报成 `granted`，`new Notification(...)` 改成入队；视图层在 guest 存活期间按 1 s `executeJavaScript` 取回队列，应用文档用自身 `Notification` 重放为真实系统通知。剪贴板的选项 B 兜底与 `focus()` 尚未据此实现。机制与验证、已知限制见该插件 `README.md` 的「远端通知转接」与「已知限制」两节。
+本仓库的 `plugins/desktop-tabs/dsh-desktop-tabs` 已按此路线实现**通知**与**剪贴板**两块（`src/client/notify-relay.ts`、`src/client/clipboard-relay.ts` 与 `view.ts`）：guest 每次 `dom-ready` 注入 shim，通知把 `Notification.permission`/`requestPermission()`/`navigator.permissions.query({name:'notifications'})` 报成 `granted`、`new Notification(...)` 改成入队，视图层按 1 s `executeJavaScript` 取回、应用文档用自身 `Notification` 重放为真实系统通知；剪贴板把 `navigator.clipboard.writeText` 包一层，异步写被拒时回退 `document.execCommand('copy')`；挂载 guest 后先 `webview.focus()` 覆盖聚焦缺口。机制与验证、已知限制见该插件 `README.md` 的「远端权限转接（通知 / 剪贴板）」与「已知限制」两节。
 
 ### 5.3 选项 C：只保留审计
 

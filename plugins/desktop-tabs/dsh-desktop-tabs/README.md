@@ -28,6 +28,7 @@ SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参
 | client 半 | `src/client/view.ts` | 远端视图层：占位页、状态行、连接日志、租约与 webview 生命周期 |
 | client 半 | `src/client/webview-host.ts` | 远端 guest 的求值面（`executeJavaScript`），视图层与通知转接共用 |
 | client 半 | `src/client/notify-relay.ts` | 远端通知转接：向 guest 注入 Notification shim、取回队列并在应用文档重放 |
+| client 半 | `src/client/clipboard-relay.ts` | 远端剪贴板回退：向 guest 注入 writeText 回退，异步写被拒时走 `execCommand('copy')` |
 | client 半 | `src/client/styles.ts` | 自有的 `<style>`（`--dsw-*` token、`no-drag`、`z-index: 1100`/`900`） |
 
 ## 配置：`<DSH_HOME>/gui/desktop-tabs.json`
@@ -108,26 +109,33 @@ SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参
 - 每次增删改后把两个列表 `PUT` 回宿主半；连接相关的操作都先落盘再发起（`up` 从配置文件读取
   连接设置）。本机标签始终保留且第一位。
 
-## 远端通知转接
+## 远端权限转接（通知 / 剪贴板）
 
 桌面外壳的租约 guest 会话拒绝一切权限（`deepseek-harness/apps/desktop/src/browser-guests.ts`
 的 `configureSession`），远端页面的 `Notification.requestPermission()` 因此直接得到
-`denied`，`new Notification(...)` 不产生任何界面。会话是主进程概念，插件在应用文档的渲染
-进程里没有改写入点，所以转接发生在页面层：
+`denied`、`new Notification(...)` 不产生任何界面，`navigator.clipboard.writeText()` 也以
+`NotAllowedError` 拒绝。会话是主进程概念，插件在应用文档的渲染进程里没有改写入点，所以
+转接发生在页面层（每次 `dom-ready` 注入、无 preload 可用，见「已知限制」）：
 
-- guest 每次 `dom-ready` 注入一段 shim（`NOTIFY_SHIM_SOURCE`），把 `Notification.permission`
-  报成 `granted`、`requestPermission()` 解析 `granted`、`navigator.permissions.query({ name:
-  'notifications' })` 报 `granted`；`new Notification(title, options)` 不再创建被拒的浏览器
-  通知，而把载荷（标题、正文、按 guest 源绝对化后的图标、`tag`、`requireInteraction`、
-  `silent`、可 JSON 序列化的 `data`）推进 `window.__dshNotifyRelay` 队列。
-- 视图层在 guest 存活期间按 1 s `executeJavaScript` 读取并清空该队列（`<webview>` 在这条
+- **通知**：注入 `NOTIFY_SHIM_SOURCE`，把 `Notification.permission` 报成 `granted`、
+  `requestPermission()` 解析 `granted`、`navigator.permissions.query({ name: 'notifications' })`
+  报 `granted`；`new Notification(title, options)` 不再创建被拒的浏览器通知，而把载荷（标题、
+  正文、按 guest 源绝对化后的图标、`tag`、`requireInteraction`、`silent`、可 JSON 序列化的
+  `data`）推进 `window.__dshNotifyRelay` 队列。
+- **剪贴板**：注入 `CLIPBOARD_SHIM_SOURCE`，把 `navigator.clipboard.writeText` 包一层——先试
+  原生异步写，被拒时改用 `document.execCommand('copy')`（带用户手势与选区的旧式复制不走会话
+  权限检查）；两种路径都不行才拒绝。harness `writeClipboard` 在 writeText 存在但被拒时不会
+  自己落到 execCommand，这正是回退补齐的缺口。
+- 视图层在 guest 存活期间按 1 s `executeJavaScript` 读取并清空通知队列（`<webview>` 在这条
   Electron 线上不暴露 `contentWindow`/`postMessage`，且 guest 被外壳剥掉全部
-  `webPreferences`、无法挂 preload，求值取回是唯一稳定通道）。
-- 应用文档用自身的 `Notification` 重放每条载荷（应用会话放行通知权限），得到真实系统通知；
-  点通知聚焦应用窗口并关闭它。
+  `webPreferences`、无法挂 preload，求值取回是唯一稳定通道）；应用文档用自身的 `Notification`
+  重放每条载荷（应用会话放行通知权限），得到真实系统通知，点通知聚焦应用窗口并关闭它。
+- 挂载 guest 后先 `webview.focus()`，覆盖「刚切到标签还未点击」的聚焦缺口（聚焦也是复制按钮
+  失效的成因之一）。
 
 验证：连上远端标签后，在该 guest 内触发一次通知（如任务完成后 dsh-pet 的 toast，或在
-devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应出现系统通知。
+devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应出现系统通知；点击代码块
+复制按钮后，在应用文档或任意编辑器粘贴应得到代码块内容。
 
 ## 凭据
 
@@ -160,11 +168,12 @@ devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应�
   远端 guest（普通键盘输入仍由焦点决定）。
 - SSH 主机列表只解析 `Host`/`HostName`/`User`/`Port`，不跟随 `Include`，不展开通配符与取反
   模式；`up` 失败后标签保留错误标记，直到下一次成功激活。
-- 通知转接是页面层改写：shim 最早在 `dom-ready` 生效，早期就读走并缓存
-  `Notification.permission` 的页面仍可能按 `denied` 分支处理；shim 报出的 `granted` 是伪造
-  的授权状态，没有经过真实权限询问。远端页面结构或通知调用方式改变时需要同步 shim。
-- 离开远端标签会销毁 guest（本插件的卸载式切换），因此只有**当前标签**的远端通知会被转接；
-  切到本机或其他标签期间，远端实例即使完成任务也没有页面在运行其通知引擎。
+- 通知/剪贴板转接是页面层改写：shim 最早在 `dom-ready` 生效，早期就读走并缓存
+  `Notification.permission`、或把 `navigator.clipboard.writeText` 引用固化到模块闭包里的
+  页面仍会走旧分支；通知 shim 报出的 `granted` 是伪造的授权状态，没有经过真实权限询问。
+  远端页面结构或调用方式改变时需要同步 shim。
+- 离开远端标签会销毁 guest（本插件的卸载式切换），因此只有**当前标签**的远端通知会被转接、
+  剪贴板回退生效；切到本机或其他标签期间，远端实例即使完成任务也没有页面在运行其通知引擎。
 
 ## 孤儿进程回收
 

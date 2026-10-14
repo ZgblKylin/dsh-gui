@@ -16,6 +16,7 @@
  */
 
 import type { DesktopBrowserBridge, DesktopBrowserReservation } from './bridge.ts'
+import { installClipboardShim } from './clipboard-relay.ts'
 import {
   drainRemoteNotifications,
   installNotifyShim,
@@ -196,10 +197,14 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
       })
     }, { once: true })
     // The guest cannot carry a preload (the shell strips webview preferences), so
-    // the notification relay shim is installed from here at every ready document.
+    // the notification and clipboard shims are installed from here at every ready
+    // document — the guest session denies their permissions, and the page-level
+    // relays are the remaining ways to surface them (see notify-relay/clipboard-relay)
+    // with the clipboard async write falling back to execCommand('copy').
     webview.addEventListener('dom-ready', () => {
       if (current !== run) return
       void installNotifyShim(webview).catch(() => { /* the relay is best-effort */ })
+      void installClipboardShim(webview).catch(() => { /* the relay is best-effort */ })
     })
     webview.addEventListener('did-start-loading', () => {
       if (current === run) setStatus(`正在连接 ${target.title}…`)
@@ -217,6 +222,10 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
     })
     guest = webview
     element.append(webview)
+    // Hand keyboard focus to the shown guest (the same cause class the parity
+    // doc lists for the remote copy/notification defects); a click inside the
+    // page re-focuses it anyway, this covers the pre-interaction state.
+    webview.focus()
     startNotifyPoll(webview, current)
   }
 
