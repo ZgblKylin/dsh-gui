@@ -7,17 +7,17 @@
 模型选择、推理强度、图片输入、联网搜索承载与多账户轮换。
 
 来源形态：**git submodule（整仓库，仅作源码参考）+ npm 安装**。子模块 pin 到
-tag `v0.12.10`，安装走 npm 受管安装器 `installNpmPlugin`，精确版本
-`@mars-sea/dsh-commandcode-provider@0.12.10`；本 wrapper **不构建、不 link** 本地
+tag `v0.13.0`，安装走 npm 受管安装器 `installNpmPlugin`，精确版本
+`@mars-sea/dsh-commandcode-provider@0.13.0`；本 wrapper **不构建、不 link** 本地
 checkout。
 
 ## 目录
 
 ```text
 plugins/commandcode-provider/
-├─ install.mjs                              # npm 安装 0.12.10（bundle 自挂载）
+├─ install.mjs                              # npm 安装 0.13.0（bundle 自挂载）
 ├─ README.md                                # 本说明
-└─ dsh-commandcode-provider/                # Mars-Sea/dsh-commandcode-provider（git submodule，pin v0.12.10）
+└─ dsh-commandcode-provider/                # Mars-Sea/dsh-commandcode-provider（git submodule，pin v0.13.0）
    ├─ package.json                          # dsh.bundle.patch 指向 ./cordis.patch.yml
    ├─ cordis.patch.yml                      # bundle 层：insert id llm-commandcode
    ├─ src/ lib/ locale/ assets/ …            # 源码与预构建产物（仅源码参考）
@@ -32,26 +32,27 @@ plugins/commandcode-provider/
 - 固定 **精确版本**（而非 `@latest`）：pinned pnpm 11.7 的 supply-chain
   `minimumReleaseAge`（1440 分钟）会把发布不足 24h 的版本挡在 `@latest` 之外并
   **静默回退到上一版**，命令照样成功；精确 pin 绕过这一回退，同时让版本与子模块
-  tag 对齐。`0.12.10` 发布于 2026-10-10T06:11Z，安装时已超出该窗口（`0.12.0` 发布于
-  2026-09-29T02:14Z，当时仍在窗口内，精确 pin 安装成功）。
+  tag 对齐。`0.13.0` 发布于 2026-10-14（CHANGELOG 顶部），安装时已超出该窗口。
 - 包声明了 `dsh.bundle.patch`，于是 `dsh plugin add` 把它 reconcile 进
   `dsh.profile.bundles`，由包自己的 `cordis.patch.yml` 挂载 entry——本 wrapper
   **不写** `cordis.patch.yml` insert（手写会双挂载）。
 
 ## 兼容性状态
 
-上游 0.12.10 声明三档已验证引擎 **dsh 0.2.0-rc.2 / 0.2.1-alpha.1 /
-0.2.1-alpha.2**：其 15 条 `@deepseek-ai/dsh-*` peer 写成这三个裸版本的析取
-（`0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2`），`engines.dsh`、
+上游 0.13.0 声明两档已验证引擎 **dsh 0.2.0-rc.2 / 0.2.1-alpha.2**：其 15 条
+`@deepseek-ai/dsh-*` peer 写成这两个裸版本的析取
+（`0.2.0-rc.2 || 0.2.1-alpha.2`），`engines.dsh`、
 `dsh.compatibility.dsh` 与 `dsh.compatibility.dshReleases` 记录同一组版本。本仓库 pin 的
 harness 正是 **dsh-v0.2.1-alpha.2**，落在析取范围内，因此 app-boot 的准入闸门接纳该包，
 **无需**精确版本例外（`exempt`）。上游弃用范围写法是刻意的：每个分支都是裸版本号，
 相邻的 `0.2.1-alpha.3` / `0.2.1-rc.1` / `0.2.1` / `0.3.0-alpha.1` 全部被拒，
-未验证的邻近版本不会被静默放行。
+未验证的邻近版本不会被静默放行。0.13.0 在 0.12.10 的三档（含
+`0.2.1-alpha.1`）基础上收敛引擎矩阵——每条通道只保留一版（RC 一版 + alpha 一版），
+旧 alpha 配置需先升级引擎。
 
 安装后应满足：
 
-- `dsh plugin add` 成功，profile 依赖写入 `0.12.10`，bundles 保留
+- `dsh plugin add` 成功，profile 依赖写入 `0.13.0`，bundles 保留
   `@mars-sea/dsh-commandcode-provider`；
 - 组合层仍是单行 `- id: llm-commandcode`（含默认
   `config.apiKeyEnv: COMMANDCODE_API_KEY`），无重复 entry id、无跳过 bundle 报告。
