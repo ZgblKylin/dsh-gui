@@ -67,7 +67,7 @@ next harness change invalidates it instead of carrying the accepted risk
 forward. No wrapper currently grants one: a package whose
 installed version already admits the 0.2 line does not — the deep-whale skins
 needed one at `v0.1.6` and their `v0.1.7` peers admit 0.2.1-alpha.2, so that
-wrapper no longer grants it, and `dsh-pet`'s `v0.3.6` peers admit 0.2.1-alpha.2, so
+wrapper no longer grants it, and `dsh-pet`'s `v0.3.7` peers admit 0.2.1-alpha.2, so
 its wrapper no longer does either.
 
 Both paths fast-path an already-satisfied profile. `installNpmPlugin` skips the
@@ -160,7 +160,7 @@ tree with `duplicate loader entry id`.
   - Auto review（无本地包，官方可选 bundle）：`@deepseek-ai/dsh-experimental-auto-review` 随 dsh 安装提供并列入 harness 的 `OPTIONAL_BUNDLES`，由插件页「自动授权审查」开关写入 `dsh.profile.bundles`，本 wrapper 不安装它
   - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.2.1-alpha.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.1-alpha.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
   - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.1-alpha.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.1-alpha.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
-- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.3.6；子模块
+- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.3.7；子模块
   checkout 仅作源码参考；9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，
   覆盖 0.2.1-alpha.2 的准入闸门，无需精确版本例外），默认安装：host 半 inject 为
   `webServer / agentDefaultModel / credentials / llm / commands`，
@@ -289,10 +289,10 @@ tree with `duplicate loader entry id`.
   (`@linxin666/dsh-session-archive`) are no longer installed. It does not
   install agent presets or any other dsh-web-ui package. See
   `dsh-web-ui/README.md`.
-- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.3.6)
+- `dsh-pet` — git submodule (`PC2005-cloud/dsh-pet`, pin latest tag v0.3.7)
   at `dsh-pet/dsh-pet`: a floating desktop pet whose host half runs inside
   DSH and whose optional desktop mode spawns per-pet transparent Electron
-  windows. The wrapper installs the package from npm as `dsh-pet@0.3.6` (its
+  windows. The wrapper installs the package from npm as `dsh-pet@0.3.7` (its
   nine `@deepseek-ai/dsh*` peers are `^0.2.0-rc.1`, so 0.2.1-alpha.2's admission
   gate admits it and no exact-version exemption is granted), then
   injects a user-layer default pet with `display:"web"` into
