@@ -3,7 +3,7 @@
  * install.mjs — install the `dshmarket` plugin into the web profile.
  *
  * ⚠️ Installed from npm pinned to an exact version matching the git
- * submodule tag (`v1.66.17`), not `@latest` — exact pins bypass pnpm 11's
+ * submodule tag (`v1.66.21`), not `@latest` — exact pins bypass pnpm 11's
  * 24h `minimumReleaseAge` gate (which silently falls back to an older
  * version for `@latest`/ranges), and keep the installed body in sync with
  * the checkout beside this script (per plugins/README.md's 安装方式
@@ -19,9 +19,9 @@
  * `@deepseek-ai/dsh-*` peer against the running version, and 1.65.3's
  * `@deepseek-ai/dsh-settings: ^0.1.0-rc.7 || ^0.1.1-rc.2 || ^0.1.2-alpha.2`
  * is rejected — the install preflight exits 1 and `npm run
- * build` fails. 1.66.4 admitted the 0.2 line; 1.66.17's
- * `dsh-settings` peer adds a fourth branch, `^0.2.0-rc.1`, which admits
- * 0.2.1-alpha.2; this wrapper pins 1.66.17.
+ * build` fails. 1.66.4 admitted the 0.2 line; 1.66.21's
+ * `dsh-settings` peer keeps the fourth branch, `^0.2.0-rc.1`, which admits
+ * 0.2.1-alpha.2; this wrapper pins 1.66.21.
  *
  * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`
  * by the desktop shell; this script honors an explicit `DSH_HOME` override
@@ -32,5 +32,5 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'plugin-market',
-  packageSpec: 'dshmarket@1.66.17',
+  packageSpec: 'dshmarket@1.66.21',
 })
