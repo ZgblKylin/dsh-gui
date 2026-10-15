@@ -2,7 +2,7 @@
 /**
  * install.mjs — install the `better-sidebar` plugin group into the web profile.
  *
- * DSH-better-sidebar 从 npm 安装：v0.25.0 的 14 条 @deepseek-ai/dsh-* peerDeps
+ * DSH-better-sidebar 从 npm 安装：v0.26.0 的 14 条 @deepseek-ai/dsh-* peerDeps
  * 全部指向 ^0.2.0-rc.2，与本工程 pinned 的 dsh-v0.2.1-alpha.2 harness 匹配——准入
  * 闸门按 includePrerelease 的 semver.satisfies 逐条比对 peer 区间，0.2.1-alpha.2
  * 落在 ^0.2.0-rc.2 内。上游自 v0.21.1 起把右列交由 DSH 原生右侧栏承载、插件把各
@@ -35,8 +35,8 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'better-sidebar',
-  // 固定 0.2.0-rc.1+ 适配版 0.25.0（见头部注释；@latest 会被 minimumReleaseAge 挡回更旧版本）。
-  packageSpec: 'dsh-better-sidebar@0.25.0',
+  // 固定 0.2.0-rc.1+ 适配版 0.26.0（见头部注释；@latest 会被 minimumReleaseAge 挡回更旧版本）。
+  packageSpec: 'dsh-better-sidebar@0.26.0',
 })
 
 // 然后 dsh-sidebar-qa：独占的「追问」原生面板（选中文本 → 右栏追问 → 独立同
