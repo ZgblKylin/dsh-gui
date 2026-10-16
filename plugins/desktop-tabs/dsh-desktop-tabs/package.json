@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop-tabs",
   "description": "Desktop-shell prototype: a host tab strip anchored to the Windows caption menu, where each remote tab is one leased <webview> that is destroyed when switched away from",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",

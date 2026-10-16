@@ -1,22 +1,26 @@
 /**
- * Connection lifecycle of one remote tab.
+ * Connection lifecycle of one remote tab, backed by a remote tmux session.
  *
  * `up` runs the chain verified by hand in
  * `docs/dsh-gui/2026-10-03-desktop-tabs-prototype.md` ("远程连接链路"): prove the
- * alias is reachable, start a detached backend on the remote host from the
- * configured working directory, read its launch URL and token from the remote
- * log, probe a free local port, forward it with `ssh -L`, and only report `up`
- * once the tunneled port answers `401` bare and `303`/2xx with the token. The
- * remote shell commands live in `./commands.ts`.
+ * alias is reachable, ensure the `dsh-gui` tmux session on the remote host runs
+ * the backend (starting it when missing or stale, reusing it when alive),
+ * discover its serving port and the launch token, forward the port with
+ * `ssh -L`, and only report `up` once the tunneled port answers `401` bare and
+ * `303`/2xx with the token (a legacy dsh answers `2xx` bare). The remote shell
+ * commands live in `./commands.ts`.
+ *
+ * A reused session that stays dead is restarted — but only after SSH is proven
+ * reachable again, so a network drop around the tunnel never kills a running
+ * backend. Failure paths tear down only what this attempt created: its tunnel
+ * and a session this attempt started; a reused ALIVE session is never killed on
+ * failure. Closing the tab or exiting (`down` / `dispose`) tears the local side
+ * down only and never touches the remote session, so the backend keeps serving
+ * and the next `up` reuses it.
  *
  * Every step writes one Chinese line into a bounded per-tab log, which `status`
  * exposes for the client's connection panel; the launch token never enters that
  * log, and the log is cleared when the connection goes down.
- *
- * Both traps that document records are handled: the local port is probed instead
- * of hardcoded (a local service already holding it makes the forward land on that
- * service while looking healthy), and the remote process is detached with
- * `nohup`, then reclaimed by pid and process group.
  */
 
 import type { ChildProcess } from 'node:child_process'
@@ -24,24 +28,32 @@ import type { ChildProcess } from 'node:child_process'
 import {
   CD_FAILED_MARKER,
   PROBE_MARKER,
+  REMOTE_LOG,
+  TMUX_SESSION,
   describeLaunch,
-  logPathFor,
-  parseLaunch,
+  healthVerdict,
+  isValidToken,
+  killSessionScript,
+  launchUrlFromLogScript,
+  parseLaunchToken,
   parseLaunchUrl,
+  parsePanePort,
+  parseSessionState,
+  paneStartCommandScript,
+  persistTokenScript,
   probeScript,
-  remoteSurvived,
   resolveTarget,
-  startScript,
-  stopScript,
-  waitScript,
+  sessionStateScript,
+  startSessionScript,
+  storedTokenScript,
+  waitForLaunchUrlScript,
   type RemoteLaunch,
   type RemoteTarget,
 } from './commands.ts'
 import { readConfiguredSshTabs } from './config.ts'
 import { findFreeLocalPort } from './ports.ts'
-import { forgetRemoteProcess, rememberRemoteProcess } from './records.ts'
 import { mergeTargetRows } from './rows.ts'
-import { openTunnel, runSsh, spawnSshDetached, terminate, type TunnelHandle } from './ssh.ts'
+import { openTunnel, runSsh, terminate, SshCommandError, type TunnelHandle } from './ssh.ts'
 import { redactToken, stripAnsi } from './text.ts'
 import type {
   RemoteConnectionStatus,
@@ -53,20 +65,38 @@ import type {
 /** Budget of the SSH reachability probe. */
 const PROBE_TIMEOUT_MS = 20_000
 
-/** Budget of the remote start command, which returns as soon as the pid is known. */
-const START_TIMEOUT_MS = 25_000
+/** Budget of the tmux session-state read. */
+const STATE_TIMEOUT_MS = 20_000
 
-/** Budget of the remote wait command, which outlasts the loop in `waitScript`. */
-const TOKEN_TIMEOUT_MS = 90_000
+/** Budget of the restart command, which returns as soon as the session is created. */
+const START_TIMEOUT_MS = 30_000
 
-/** How long the tunneled URL may keep answering something unexpected. */
-const HEALTH_TIMEOUT_MS = 20_000
+/** Budget of the pane-command read used for port discovery. */
+const DISCOVER_TIMEOUT_MS = 20_000
+
+/** Budget of the launch-URL wait, which outlasts the loop in `waitForLaunchUrlScript`. */
+const LAUNCH_WAIT_TIMEOUT_MS = 100_000
+
+/** Budget of one token-file read or write. */
+const TOKEN_READ_TIMEOUT_MS = 20_000
+
+/** Budget of one token-file write. */
+const TOKEN_WRITE_TIMEOUT_MS = 20_000
+
+/** Budget of one session-cleanup command on a failed attempt. */
+const CLEANUP_TIMEOUT_MS = 20_000
+
+/** How long the health wait may last for a session this attempt just started. */
+const BOOT_TIMEOUT_MS = 90_000
+
+/** How long the health wait may last for a reused (presumably live) session. */
+const REUSE_TIMEOUT_MS = 25_000
 
 /** Pause between health probes. */
-const HEALTH_INTERVAL_MS = 300
+const HEALTH_INTERVAL_MS = 800
 
-/** Budget of one remote cleanup command. */
-const CLEANUP_TIMEOUT_MS = 20_000
+/** Pause between token re-harvests while the backend boots. */
+const TOKEN_HARVEST_MS = 4_000
 
 /** Connection-log lines kept per tab; the oldest lines are dropped first. */
 const MAX_LOG_LINES = 200
@@ -152,10 +182,8 @@ export class RemoteConnectionManager implements RemoteConnections {
     if (established !== undefined) {
       this.active.delete(id)
       terminate(established.tunnel.child)
-      await this.stopRemote(established.remote, `tab '${id}' closed`)
-      forgetRemoteProcess(this.options.dshHome, id)
     }
-    // The log describes an attempt, so it goes with the connection.
+    // 只断开本地隧道，不发任何远端命令；后端继续在 tmux 会话中运行，下次 `up` 复用。
     this.records.delete(id)
     this.log('info', `[dsh-desktop-tabs] remote '${id}' is down`)
   }
@@ -169,10 +197,8 @@ export class RemoteConnectionManager implements RemoteConnections {
     for (const [id, established] of [...this.active]) {
       this.active.delete(id)
       terminate(established.tunnel.child)
-      spawnSshDetached(established.remote.host, stopScript(established.remote))
-      // The record is kept on purpose: this teardown is detached and best-effort, so
-      // if it never runs, the next start reaps the group instead of leaking it.
     }
+    // 远端后端由 tmux 会话持有，退出不触碰，下次启动直接复用。
     this.records.clear()
   }
 
@@ -186,33 +212,53 @@ export class RemoteConnectionManager implements RemoteConnections {
     this.note(id, `开始连接 ${id}`)
     let launch: RemoteLaunch | undefined
     let tunnel: TunnelHandle | undefined
+    let startedHere = false
     try {
       const target = await this.targetFor(id)
       this.note(id, `目标 ${target.host}，工作目录 ${target.workdir === '' ? '$HOME' : target.workdir}`)
       await this.probeRemote(id, target)
-      this.note(id, `启动远端 dsh：${describeLaunch(target)}`)
-      launch = await this.startRemote(id, target)
-      this.note(id, `远端进程已启动（pid ${launch.pid}）`)
-      this.remember(id, launch)
-      const { remotePort, token } = await this.readLaunchUrl(id, target.host, launch)
-      this.note(id, `已采集远端端口 ${remotePort} 与登录 token`)
-      const localPort = await findFreeLocalPort()
-      tunnel = await this.track(id, openTunnel({ host: target.host, localPort, remotePort }))
-      this.note(id, `隧道已建立：127.0.0.1:${localPort} → ${target.host}:${remotePort}`)
-      const health = await waitForHealthy({ localPort, token, tunnel })
-      this.note(id, `健康检查通过：无 token ${health.bare}，带 token ${health.withToken}`)
-      const url = `http://127.0.0.1:${localPort}/?token=${encodeURIComponent(token)}`
-      this.active.set(id, { url, tunnel, remote: launch })
+      const ensured = await this.ensureSession(id, target)
+      launch = ensured.launch
+      startedHere = ensured.startedHere
+      let url: string | undefined
+      let attempt = 0
+      while (url === undefined) {
+        attempt++
+        const remotePort = await this.discoverRemotePort(id, target)
+        this.note(id, `已采集远端端口 ${remotePort}`)
+        const localPort = await findFreeLocalPort()
+        tunnel = await this.track(id, openTunnel({ host: target.host, localPort, remotePort }))
+        this.note(id, `隧道已建立：127.0.0.1:${localPort} → ${target.host}:${remotePort}`)
+        try {
+          const health = await this.waitForHealthy(id, target.host, tunnel, attempt === 1 && !startedHere ? REUSE_TIMEOUT_MS : BOOT_TIMEOUT_MS)
+          url = health.url
+          this.note(id, `健康检查通过：/ 返回 ${health.bare}，/?token=... 返回 ${health.withToken ?? '—'}`)
+        } catch (error) {
+          // 拆掉的隧道或断开的网络从不构成重启理由：只有「隧道仍在、后端不答」才可能
+          // 判断后端已死，且重启前必须先证 SSH 仍可达，避免误杀正在运行的后端。
+          if (tunnel !== undefined && (tunnel.child.exitCode !== null || tunnel.child.signalCode !== null)) throw error
+          if (startedHere || attempt > 1) throw error
+          await this.probeRemote(id, target)
+          this.note(id, '远端后端未响应，判定失效，在 tmux 中重启 dsh', 'warn')
+          startedHere = await this.startSession(id, target, true)
+          // 重启会换端口，先撤掉旧隧道的本地转发，下一轮再开新隧道。
+          if (tunnel !== undefined) {
+            terminate(tunnel.child)
+            tunnel = undefined
+          }
+        }
+      }
+      // 循环只在隧道建立且健康检查通过后才设置 `url`，因此此处隧道必已就绪。
+      const establishedTunnel: TunnelHandle = tunnel as TunnelHandle
+      this.active.set(id, { url, tunnel: establishedTunnel, remote: launch })
       record.state = 'up'
       record.url = url
       this.note(id, `连接就绪：${url}`)
       return { url }
     } catch (error) {
       terminate(tunnel?.child)
-      if (launch !== undefined) {
-        await this.stopRemote(launch, `failed connection to '${id}'`)
-        // The attempt stopped its own process, so its record must not survive to be reaped later.
-        forgetRemoteProcess(this.options.dshHome, id)
+      if (startedHere && launch !== undefined) {
+        await this.killSession(id, launch.host, `failed connection to '${id}'`)
       }
       const reason = withPortHint(redactToken(message(error)))
       record.state = 'error'
@@ -244,40 +290,141 @@ export class RemoteConnectionManager implements RemoteConnections {
     this.note(id, `SSH 连通性正常：${target.host}`)
   }
 
-  /** Start the remote backend and read back the pid and process group. */
-  private async startRemote(id: string, target: RemoteTarget): Promise<RemoteLaunch> {
-    const logPath = logPathFor(id)
-    let stdout: string
+  /**
+   * Ensure the remote session is running the backend, reusing one that is
+   * ALIVE. A MISSING/STALE session is restarted with the configured launch;
+   * `startedHere` tells the caller which sessions a later failure may clean up.
+   */
+  private async ensureSession(id: string, target: RemoteTarget): Promise<{ launch: RemoteLaunch; startedHere: boolean }> {
+    const stdout = await this.runTracked(id, target.host, sessionStateScript(), STATE_TIMEOUT_MS)
+    const state = parseSessionState(stdout)
+    if (state === 'ALIVE') {
+      this.note(id, `复用远端 tmux 会话 ${TMUX_SESSION}（后端已存在）`)
+      return { launch: launchFor(target.host), startedHere: false }
+    }
+    this.note(id, `远端 tmux 会话 ${TMUX_SESSION} 状态：${state}，启动远端 dsh：${describeLaunch(target)}`)
+    // 仅在确认会话已死（STALE）时先 kill；MISSING 分支直接 new，避免并发首连互相杀会话。
+    const startedHere = await this.startSession(id, target, state === 'STALE')
+    return { launch: launchFor(target.host), startedHere }
+  }
+
+  /**
+   * Create the remote session with the configured launch, clearing the stale
+   * token first. A `new-session` "duplicate session" failure means a concurrent
+   * tab for the same host created it in between: an ALIVE session is reused and
+   * reported as not-ours, and a MISSING-branch attempt that finds only a stale
+   * duplicate retries once with the stale session cleaned first.
+   * @param cleanExisting - kill any existing session before creating a new one.
+   * @returns whether this call created the session.
+   */
+  private async startSession(id: string, target: RemoteTarget, cleanExisting: boolean): Promise<boolean> {
     try {
-      stdout = await this.runTracked(id, target.host, startScript(target, logPath), START_TIMEOUT_MS)
+      await this.runTracked(id, target.host, startSessionScript(target, cleanExisting), START_TIMEOUT_MS)
+      return true
     } catch (error) {
-      const reason = message(error)
-      const missing = new RegExp(`${CD_FAILED_MARKER}(.*)$`, 'm').exec(reason)
+      const state = parseSessionState(await this.runTracked(id, target.host, sessionStateScript(), STATE_TIMEOUT_MS).catch(() => ''))
+      if (state === 'ALIVE') return false
+      if (!cleanExisting) return await this.startSession(id, target, true)
+      throw new Error(`tmux 会话 ${TMUX_SESSION} 启动失败：${message(error)}`)
+    }
+  }
+
+  /** Discover the remote serving port: the pane's `--port` first, the launch URL otherwise. */
+  private async discoverRemotePort(id: string, target: RemoteTarget): Promise<number> {
+    const pane = await this.runTracked(id, target.host, paneStartCommandScript(), DISCOVER_TIMEOUT_MS)
+    const port = parsePanePort(pane)
+    if (port > 0) return port
+    // `--port 0` (or an unparsable pane) means the real port is in the launch URL.
+    const stdout = await this.waitForLaunchUrl(id, target)
+    return parseLaunchUrl(target.host, stdout).remotePort
+  }
+
+  /** Wait for the launch URL in the session log, translating a bad workdir. */
+  private async waitForLaunchUrl(id: string, target: RemoteTarget): Promise<string> {
+    try {
+      return await this.runTracked(id, target.host, waitForLaunchUrlScript(), LAUNCH_WAIT_TIMEOUT_MS)
+    } catch (error) {
+      const text = error instanceof SshCommandError ? `${error.stderr}\n${error.stdout}` : message(error)
+      const missing = new RegExp(`${CD_FAILED_MARKER}(.*)$`, 'm').exec(text)
       if (missing !== null) {
         const path = (missing[1] ?? '').trim() || target.workdir
         throw new Error(`远端工作目录不可进入：${path}（${target.host}）`)
       }
-      throw error
+      throw new Error(`远端 dsh 未在限定时间内输出启动地址（${target.host}）：${summarize(text)}`)
     }
-    return parseLaunch(target.host, logPath, stdout)
   }
 
-  /** Wait for the remote log to carry the launch URL, then split it apart. */
-  private async readLaunchUrl(id: string, host: string, launch: RemoteLaunch): Promise<{ remotePort: number; token: string }> {
-    const stdout = await this.runTracked(id, host, waitScript(launch), TOKEN_TIMEOUT_MS)
-    return parseLaunchUrl(host, stdout)
+  /** Read the launch token: the persisted file first, then the session log (persisted back). */
+  private async readRemoteToken(id: string, host: string): Promise<string | null> {
+    const stored = (await this.runTracked(id, host, storedTokenScript(), TOKEN_READ_TIMEOUT_MS)).trim()
+    if (isValidToken(stored)) return stored
+    const tail = await this.runTracked(id, host, launchUrlFromLogScript(), TOKEN_READ_TIMEOUT_MS)
+    const token = parseLaunchToken(tail)
+    if (token === null) return null
+    await this.runTracked(id, host, persistTokenScript(token), TOKEN_WRITE_TIMEOUT_MS).catch(() => undefined)
+    return token
   }
 
-  /** Reclaim one remote backend tree and its log. */
-  private async stopRemote(launch: RemoteLaunch, reason: string): Promise<void> {
-    try {
-      const run = runSsh(launch.host, stopScript(launch), { timeoutMs: CLEANUP_TIMEOUT_MS })
-      const { stdout } = await run.done
-      if (remoteSurvived(stdout)) {
-        this.log('warn', `[dsh-desktop-tabs] remote pid ${launch.pid} on '${launch.host}' survived kill (${reason})`)
+  /** One token read per attempt, with a quiet window while the backend boots. */
+  private tokenHarvester(id: string, host: string): () => Promise<string | null> {
+    let cached: string | null | undefined
+    let lastTry = 0
+    return async () => {
+      const now = Date.now()
+      if (cached !== undefined && cached !== null) return cached
+      if (now - lastTry < TOKEN_HARVEST_MS) return cached ?? null
+      lastTry = now
+      cached = await this.readRemoteToken(id, host)
+      return cached
+    }
+  }
+
+  /**
+   * Wait until the tunneled port answers as the remote backend does, probing the
+   * bare path and, once a token is available, the tokenized path. The token is
+   * re-harvested while the backend boots; the launch token never appears in any
+   * log line.
+   * @returns the loadable URL (with the token when one authenticates) and the observed statuses.
+   */
+  private async waitForHealthy(id: string, host: string, tunnel: TunnelHandle, budgetMs: number): Promise<{ url: string; bare: number; withToken: number | undefined }> {
+    const { localPort } = tunnel
+    const harvest = this.tokenHarvester(id, host)
+    const base = `http://127.0.0.1:${localPort}/`
+    const deadline = Date.now() + budgetMs
+    let bare: number | undefined
+    let withToken: number | undefined
+    let lastError = ''
+    while (Date.now() < deadline) {
+      if (tunnel.child.exitCode !== null || tunnel.child.signalCode !== null) {
+        throw new Error(`the local forward 127.0.0.1:${localPort} -> ${host}:${tunnel.remotePort} exited before the health check passed`)
       }
+      try {
+        bare = await probe(base)
+        if (healthVerdict(bare, undefined)) return { url: base, bare, withToken: undefined }
+        const token = await harvest()
+        if (token !== null) {
+          const tokened = `${base}?token=${encodeURIComponent(token)}`
+          withToken = await probe(tokened)
+          if (healthVerdict(bare, withToken)) return { url: tokened, bare, withToken }
+        }
+      } catch (error) {
+        lastError = message(error)
+      }
+      await delay(HEALTH_INTERVAL_MS)
+    }
+    throw new Error(
+      `health check through 127.0.0.1:${localPort} timed out: / answered ${bare ?? 'nothing'}, `
+      + `/?token=... answered ${withToken ?? 'nothing'}`
+      + (lastError === '' ? '' : `; last error: ${lastError}`),
+    )
+  }
+
+  /** Reclaim one remote session this attempt created, best-effort. */
+  private async killSession(id: string, host: string, reason: string): Promise<void> {
+    try {
+      await this.runTracked(id, host, killSessionScript(), CLEANUP_TIMEOUT_MS)
     } catch (error) {
-      this.log('warn', `[dsh-desktop-tabs] remote cleanup on '${launch.host}' failed (${reason}): ${message(error)}`)
+      this.log('warn', `[dsh-desktop-tabs] remote tmux cleanup on '${host}' failed (${reason}): ${message(error)}`)
     }
   }
 
@@ -334,23 +481,11 @@ export class RemoteConnectionManager implements RemoteConnections {
   private log(level: 'info' | 'warn', text: string): void {
     this.options.logger?.[level](text)
   }
+}
 
-  /**
-   * Persist the launched process so a later start can reap it when this run is
-   * killed before `down`. A launch without a usable group is not recorded: there
-   * would be nothing to signal.
-   */
-  private remember(id: string, launch: RemoteLaunch): void {
-    const pid = Number(launch.pid)
-    const pgid = Number(launch.pgid)
-    if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(pgid) || pgid <= 1) return
-    rememberRemoteProcess(this.options.dshHome, id, {
-      host: launch.host,
-      pid,
-      pgid,
-      at: new Date().toISOString(),
-    })
-  }
+/** The launch record of one host, whose backend lives in the shared session. */
+function launchFor(host: string): RemoteLaunch {
+  return { host, session: TMUX_SESSION, logPath: REMOTE_LOG }
 }
 
 /**
@@ -369,43 +504,6 @@ function oneLine(text: string): string {
   return flat.length > MAX_LOG_LINE ? `${flat.slice(0, MAX_LOG_LINE)}…` : flat
 }
 
-/**
- * Probe the tunneled port until it answers as the remote backend does.
- *
- * A bare path must be refused with `401` and the tokened path must be accepted
- * with `303` or 2xx. Requiring the refusal matters: a tunnel that silently landed
- * on another local service answers `200` or `404`, which must not pass as `up`.
- * @param options - local port, launch token, and the tunnel being checked.
- * @returns the two observed statuses.
- */
-async function waitForHealthy(options: { localPort: number; token: string; tunnel: TunnelHandle }): Promise<{ bare: number; withToken: number }> {
-  const { localPort, token, tunnel } = options
-  const base = `http://127.0.0.1:${localPort}/`
-  const tokened = `${base}?token=${encodeURIComponent(token)}`
-  const deadline = Date.now() + HEALTH_TIMEOUT_MS
-  let bare: number | undefined
-  let withToken: number | undefined
-  let lastError = ''
-  while (Date.now() < deadline) {
-    if (tunnel.child.exitCode !== null || tunnel.child.signalCode !== null) {
-      throw new Error(`the local forward 127.0.0.1:${localPort} -> 127.0.0.1:${tunnel.remotePort} exited before the health check passed`)
-    }
-    try {
-      bare = await probe(base)
-      withToken = await probe(tokened)
-      if (bare === 401 && isAuthenticatedStatus(withToken)) return { bare, withToken }
-    } catch (error) {
-      lastError = message(error)
-    }
-    await delay(HEALTH_INTERVAL_MS)
-  }
-  throw new Error(
-    `health check through 127.0.0.1:${localPort} timed out: / answered ${bare ?? 'nothing'} (expected 401), `
-    + `/?token=... answered ${withToken ?? 'nothing'} (expected 303 or 2xx)`
-    + (lastError === '' ? '' : `; last error: ${lastError}`),
-  )
-}
-
 /** Status of one manual-redirect probe. */
 async function probe(url: string): Promise<number> {
   const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(3_000) })
@@ -413,14 +511,15 @@ async function probe(url: string): Promise<number> {
   return response.status
 }
 
-/** Whether a tokened response is the cookie-setting redirect or an accepted page. */
-function isAuthenticatedStatus(status: number): boolean {
-  return status === 303 || (status >= 200 && status < 300)
-}
-
 /** Pause for a bounded interval. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, ms) })
+}
+
+/** Reduce arbitrary text to a one-line excerpt for an error message. */
+function summarize(text: string): string {
+  const line = stripAnsi(text).split('\n').map(part => part.trim()).filter(part => part !== '').join(' / ')
+  return line.length > 400 ? `${line.slice(0, 400)}…` : line
 }
 
 /** @returns an error's message, or its string form. */

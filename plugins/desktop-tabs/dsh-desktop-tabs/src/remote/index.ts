@@ -2,16 +2,18 @@
  * dsh-desktop-tabs host half, remote-connection module.
  *
  * One tab carrying an `ssh` descriptor becomes a loadable URL by starting a
- * `dsh web` on the remote host, forwarding the remote loopback port through an
- * SSH tunnel, and probing the tunnel before reporting `up`; the chain is the one
- * verified by hand in `docs/dsh-gui/2026-10-03-desktop-tabs-prototype.md`
- * ("远程连接链路"). `./session.ts` implements it.
+ * long-lived `dsh web` inside a `dsh-gui` tmux session on the remote host,
+ * forwarding the remote loopback port through an SSH tunnel, and probing the
+ * tunnel before reporting `up`; the chain is the one verified by hand in
+ * `docs/dsh-gui/2026-10-03-desktop-tabs-prototype.md` ("远程连接链路") and the
+ * session/token files are shared with `plugins/remote/dsh-remote`.
+ * `./session.ts` implements it.
  *
  * `registerRemoteConnections` exposes the manager over these loopback-only routes:
  *
  * - `GET  /desktop-tabs/api/connections` — state and connection log of every SSH tab
  * - `POST /desktop-tabs/api/connections/<id>/up` — connect, answer `{ url }`
- * - `POST /desktop-tabs/api/connections/<id>/down` — disconnect and reclaim
+ * - `POST /desktop-tabs/api/connections/<id>/down` — disconnect the local tunnel
  * - `GET  /desktop-tabs/api/ssh-hosts` — importable `~/.ssh/config` destinations
  *
  * The route posture (loopback bind, same-origin fence, `no-store`, 405) mirrors
@@ -23,7 +25,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import { readConfiguredSshTabs } from './config.ts'
-import { reapStaleRemoteProcesses } from './reap.ts'
 import { readSshHosts } from './ssh-config.ts'
 import { RemoteConnectionManager } from './session.ts'
 import type {
@@ -47,6 +48,34 @@ export type {
 } from './types.ts'
 export type { SshSpec } from './config.ts'
 export type { SshHostEntry } from './ssh-config.ts'
+export {
+  CD_FAILED_MARKER,
+  PROBE_MARKER,
+  REMOTE_LOG,
+  REMOTE_TOKEN_FILE,
+  TMUX_SESSION,
+  appendServeFlags,
+  defaultStartCommand,
+  describeLaunch,
+  healthVerdict,
+  isValidToken,
+  killSessionScript,
+  launchUrlFromLogScript,
+  paneStartCommandScript,
+  parseLaunchToken,
+  parseLaunchUrl,
+  parsePanePort,
+  parseSessionState,
+  persistTokenScript,
+  probeScript,
+  sessionStateScript,
+  startSessionScript,
+  storedTokenScript,
+  waitForLaunchUrlScript,
+  type RemoteLaunch,
+  type RemoteTarget,
+  type TmuxSessionState,
+} from './commands.ts'
 
 /** Route prefix owned by the connection routes. */
 export const CONNECTIONS_ROUTE_PREFIX = '/desktop-tabs/api/connections'
@@ -93,9 +122,6 @@ export function registerRemoteConnections(
     tabs: options.tabs ?? (async () => readConfiguredSshTabs(options.dshHome)),
     ...(logger === undefined ? {} : { logger }),
   })
-  // Leftovers from a run that was killed before `down` are reaped in the background,
-  // so a stale port or process is gone before the user opens a tab.
-  void reapStaleRemoteProcesses(options.dshHome, logger)
   const routes = [
     webServer.register({
       kind: 'exact',

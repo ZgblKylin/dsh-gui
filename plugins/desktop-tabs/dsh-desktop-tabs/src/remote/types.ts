@@ -79,13 +79,14 @@ export interface RemoteConnections {
    */
   up(tabId: string): Promise<{ url: string }>
   /**
-   * Tear the connection down: tunnel process, remote `dsh web`, and its log.
+   * Tear the connection down: the local tunnel and its ssh clients. The remote
+   * backend keeps running in its tmux session and is reused by the next `up`.
    * @param tabId - tab to disconnect; an unknown or idle tab is a no-op.
    */
   down(tabId: string): Promise<void>
   /** One row per configured SSH tab, plus every tab with recorded state. */
   status(): RemoteConnectionStatus[]
-  /** Stop every connection; remote cleanup commands are not awaited. */
+  /** Tear every local connection down; remote backends keep running in tmux. */
   dispose(): void
 }
 

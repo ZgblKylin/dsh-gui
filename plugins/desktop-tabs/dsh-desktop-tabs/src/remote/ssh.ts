@@ -154,23 +154,6 @@ export async function openTunnel(options: { host: string; localPort: number; rem
 }
 
 /**
- * Run one command without keeping the host process alive: the client is unref'd
- * and its output discarded, so teardown never blocks on a remote host.
- * @param host - SSH destination.
- * @param command - remote shell command.
- */
-export function spawnSshDetached(host: string, command: string): void {
-  try {
-    const child = spawn(SSH_BINARY, [...BASE_OPTIONS, host, command], { stdio: 'ignore', windowsHide: true })
-    // A rejection here means the host is already unreachable; nothing is left to reclaim.
-    child.once('error', () => { /* fire-and-forget cleanup */ })
-    child.unref()
-  } catch {
-    // spawn() throws only for an unusable argv; the awaited path reports that case.
-  }
-}
-
-/**
  * Stop one SSH client process.
  *
  * Node's `kill()` is `TerminateProcess` on Windows and `SIGTERM` elsewhere, which

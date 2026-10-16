@@ -2,6 +2,11 @@
 
 本文件记录 `plugins/desktop-tabs/` 原型的实现与验证过程，Lead 持有。上游分析见 [2026-10-02-desktop-plugin-injection.md](2026-10-02-desktop-plugin-injection.md)。
 
+> **机制更新**：下文「远程连接链路」与「孤儿回收」记录的是 2026-10-03 原型阶段的实现（detached
+> `nohup` 进程组 + pid/pgid 记录与回收）。现行版把远端 dsh 放进 `dsh-gui` tmux 会话长期存活，
+> 探活失败才在该会话内重启，关闭标签只断开本地隧道、不杀远端；不再有进程组记录与回收。现行
+> 机制以 `plugins/desktop-tabs/dsh-desktop-tabs/README.md` 为准。
+
 ## 已确认的设计决定
 
 1. **标签控件放标题栏带内、锚在菜单右侧**：Windows 的标题栏是「40px 预留带 + 各自定位的占用者」，没有可插入的布局容器；菜单 host 带 `data-windows-menu` 属性、可由 `getBoundingClientRect()` 取右边界，`--dsh-windows-menu-start` 给出左偏移，`--dsh-windows-titlebar-height` 给出带高。

@@ -3,16 +3,19 @@
  *
  * Usage: node src/remote/selfcheck.mjs [ssh-alias]      (default alias: WSL)
  *
- * The alias must be reachable with `ssh -o BatchMode=yes` and must carry a dsh
- * install at the defaults documented in `./config.ts` (`~/dsh-gui-home`), plus a
- * `~/dsh-gui-home/dsh-gui` checkout whose `npm run harness` starts a backend. The
- * script drives the real HTTP routes registered by `./index.ts`, so it covers
- * route posture (405, cross-site 403), both launch forms (the built-in command,
- * and a configured `workdir` + `startCommand`), the connection log (progressive
- * growth, token-free lines), failure text (a taken local port, an unresolvable
- * host, an unenterable working directory), and the `~/.ssh/config` import. It
- * then asserts that neither a tunnel process nor a remote backend survives
- * `down`.
+ * The alias must be reachable with `ssh -o BatchMode=yes`, must carry tmux, and
+ * must hold a dsh install at the defaults documented in `./config.ts`
+ * (`~/dsh-gui-home`), plus a `~/dsh-gui-home/dsh-gui` checkout whose
+ * `npm run harness` starts a backend. The script drives the real HTTP routes
+ * registered by `./index.ts`, so it covers route posture (405, cross-site 403),
+ * both launch forms (the built-in command, and a configured `workdir` +
+ * `startCommand`), the connection log (progressive growth, token-free lines),
+ * failure text (a taken local port, an unresolvable host, an unenterable working
+ * directory), and the `~/.ssh/config` import. Because the remote backend now
+ * lives in a shared `dsh-gui` tmux session (see `./commands.ts`), the two launch
+ * cases share one session per host and the script resets that session before
+ * each case; `down` is verified to tear only the local tunnel while the remote
+ * backend keeps serving.
  *
  * This is a manual verification script, not part of the built plugin: it is not
  * referenced by `src/index.ts` and stays out of the published `files` list.
@@ -128,12 +131,18 @@ function remote(command) {
   return (result.stdout ?? '').trim()
 }
 
-/** Names of the remote launch logs present right now. */
-function remoteLogs() {
-  return remote('ls -1 /tmp/dsh-desktop-tabs-*.log 2>/dev/null')
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line !== '')
+/** Lifecycle of the remote `dsh-gui` tmux session. */
+function remoteSessionState() {
+  return remote([
+    'if tmux has-session -t dsh-gui 2>/dev/null; then',
+    "  if tmux list-panes -t dsh-gui -F '#{pane_dead}' 2>/dev/null | grep -q 1; then printf 'STALE'; else printf 'ALIVE'; fi",
+    "else printf 'MISSING'; fi",
+  ].join('\n'))
+}
+
+/** Reset the shared session so each launch case verifies its own start command. */
+function resetRemoteSession() {
+  remote('tmux kill-session -t dsh-gui 2>/dev/null || true')
 }
 
 /** Local ssh clients still forwarding one local port. */
@@ -199,19 +208,22 @@ function checkLog(label, row, token) {
   const lines = row?.log ?? []
   note(`${label}：连接日志共 ${lines.length} 行`)
   for (const line of lines) note(`      ${line}`)
-  check(`${label}日志已记录关键步骤`, ['SSH 连通性', '启动远端 dsh', '隧道已建立', '健康检查通过'].every(marker => lines.some(line => line.includes(marker))), lines.join(' | ').slice(0, 400))
+  check(`${label}日志已记录关键步骤`, ['SSH 连通性', '隧道已建立', '健康检查通过'].every(marker => lines.some(line => line.includes(marker)))
+    && lines.some(line => line.includes('启动远端 dsh') || line.includes('复用远端 tmux 会话')), lines.join(' | ').slice(0, 400))
   check(`${label}日志不含 token 明文`, token === undefined || lines.every(line => !line.includes(token)))
   check(`${label}日志的 token 值均已脱敏`, lines.every(line => !/token=(?!\*\*\*)\S/.test(line)))
   check(`${label}日志为单行且无 ANSI`, lines.every(line => !line.includes('\n') && !line.includes('\u001b')))
 }
 
 const remoteHome = remote('printf %s "$HOME"')
+const sharedLog = `${remoteHome}/.dsh-gui-remote.log`
 note(`remote home: ${remoteHome}`)
-// A connection opened by another session may already be live on the host; every
-// residue check below is diffed against what was there before this run.
-const foreignLogs = remoteLogs()
+note(`remote tmux session dsh-gui before the run: ${remoteSessionState()}`)
+// 远端后端按主机共享同一 tmux 会话，两个启动用例必须各自从空会话开始验证。
+resetRemoteSession()
+note('reset the shared dsh-gui session for a clean start (self-check only)')
 const foreignRemote = remoteProcesses(`'dsh/lib/bin[.]js web'`)
-if (foreignRemote.length > 0) note(`pre-existing remote dsh web processes (left untouched): ${JSON.stringify(foreignRemote)}`)
+if (foreignRemote.length > 0) note(`pre-existing remote dsh web processes before the reset: ${JSON.stringify(foreignRemote)}`)
 
 const workspace = mkdtempSync(join(tmpdir(), 'dsh-desktop-tabs-selfcheck-'))
 mkdirSync(join(workspace, 'gui'), { recursive: true })
@@ -258,7 +270,8 @@ check('a tab without an ssh descriptor fails readably', offlineError.includes('n
 
 // The same id appears in both lists: the tab row carries no ssh descriptor, so
 // only the per-field merge with the `connections` row can resolve it — and its bad
-// working directory proves the readable launch failure.
+// working directory proves the readable launch failure. The failed attempt cleans
+// up the session it created.
 const bad = createRemoteConnections({
   dshHome: workspace,
   tabs: async () => ({
@@ -276,6 +289,7 @@ const badRow = bad.status().find(row => row.id === 'wsl-badworkdir')
 bad.dispose()
 check('a connections-only row is resolved by id', badRow !== undefined && badRow.state === 'error' && badError.includes('远端工作目录不可进入'), badError.slice(0, 200))
 check('the failed launch is in the connection log', (badRow?.log ?? []).some(line => line.includes('连接失败')), JSON.stringify(badRow?.log))
+check('a failed launch restores the clean session state', remoteSessionState() === 'MISSING' || remoteSessionState() === 'STALE', remoteSessionState())
 
 // A local port that something else already holds must fail the forward instead of
 // quietly landing on that other service.
@@ -311,8 +325,6 @@ if (process.platform === 'win32') {
 
 // ------------------------------------------- case a: built-in launch (config file)
 const serverA = await openRoutes({ dshHome: workspace })
-const preexistingRemote = remoteProcesses(`'dsh/lib/bin[.]js web'`)
-note(`remote dsh web processes before the default launch: ${preexistingRemote.length}`)
 try {
   const wrongMethod = await call(serverA.base, '/desktop-tabs/api/connections/wsl')
   check('GET /connections/wsl answers 405', wrongMethod.status === 405, `status ${wrongMethod.status}`)
@@ -361,11 +373,16 @@ try {
   note(`tokened / through tunnel: ${tokened.status}${cookie === null ? '' : ` ${cookie.split(';')[0]}`}`)
   check('tunnel answers 303 with the token', tokened.status === 303, `status ${tokened.status}`)
 
+  const sessionAfterUp = remoteSessionState()
+  check('the remote tmux session is alive after up', sessionAfterUp === 'ALIVE', sessionAfterUp)
   const afterUp = remoteProcesses(`'dsh/lib/bin[.]js web'`)
-  const startedRemote = afterUp.filter(line => !preexistingRemote.includes(line))
-  note(`remote dsh web processes started by the default launch: ${startedRemote.length}`)
-  check('the default launch started a remote dsh web process', startedRemote.length >= 1, JSON.stringify(startedRemote).slice(0, 300))
+  note(`remote dsh web processes after the default launch: ${afterUp.length}`)
+  check('the default launch started a remote dsh web process', afterUp.length >= 1, JSON.stringify(afterUp).slice(0, 300))
   check('the tunnel is a live local ssh client', localTunnelProcesses(localPortA).length >= 1)
+  const remoteLogUp = remote(`tail -n 5 ${sharedLog} | sed -E 's/token=[^ ]+/token=***/g'`)
+  note('远端启动日志（token 已脱敏）：')
+  for (const line of remoteLogUp.split('\n')) if (line !== '') note(`      ${line}`)
+  check('the shared session log carries the launch URL', remoteLogUp.includes('dsh web: http://'), remoteLogUp.slice(0, 300))
 
   const down = await call(serverA.base, '/desktop-tabs/api/connections/wsl/down', { method: 'POST' })
   check('POST /connections/wsl/down answers 200', down.status === 200, `status ${down.status}`)
@@ -373,14 +390,20 @@ try {
   check('down clears the connection log', afterDownRow?.state === 'idle' && afterDownRow.log.length === 0, JSON.stringify(afterDownRow))
   check('local port is free after down', await portIsFree(localPortA))
   check('no local ssh client forwards that port', localTunnelProcesses(localPortA).length === 0, JSON.stringify(localTunnelProcesses(localPortA)).slice(0, 300))
-  const survivors = remoteProcesses(`'dsh/lib/bin[.]js web'`).filter(line => startedRemote.includes(line))
-  check('no remote dsh web process started by the default launch survives down', survivors.length === 0, JSON.stringify(survivors).slice(0, 300))
+  const afterDown = remoteProcesses(`'dsh/lib/bin[.]js web'`)
+  const sessionAfterDown = remoteSessionState()
+  note(`down 后远端仍在：tmux 会话 ${sessionAfterDown}，dsh web 进程 ${afterDown.length}`)
+  check('the remote tmux session keeps running after down', sessionAfterDown === 'ALIVE', sessionAfterDown)
+  check('the remote dsh web process started by the launch survives down', afterDown.length >= 1, JSON.stringify(afterDown).slice(0, 300))
 } catch (error) {
   check('the default launch path completed without an unexpected error', false, error instanceof Error ? error.message : String(error))
 } finally {
   await call(serverA.base, '/desktop-tabs/api/connections/wsl/down', { method: 'POST' }).catch(() => {})
   await serverA.close()
 }
+
+// 两个用例在同一主机共享 tmux 会话，切到配置形态前先重置，验证各自的启动命令。
+resetRemoteSession()
 
 // ------------------- case b: configured workdir + startCommand (connections row)
 const serverB = await openRoutes({
@@ -415,10 +438,10 @@ try {
   check('the configured launch runs from the configured workdir', peer.includes(`CWD=${remoteHome}/dsh-gui-home/dsh-gui`), peer)
   check('the configured launch runs the configured command', peer.includes('harness.mjs'), peer)
 
-  const remoteLog = remote('tail -n 5 $(ls -t /tmp/dsh-desktop-tabs-*.log | head -n1) | sed -E "s/token=[^ ]+/token=***/g"')
+  const remoteLog = remote(`tail -n 5 ${sharedLog} | sed -E 's/token=[^ ]+/token=***/g'`)
   note('远端启动日志（token 已脱敏）：')
   for (const line of remoteLog.split('\n')) if (line !== '') note(`      ${line}`)
-  check('the remote log shows the harness command and the launch URL', remoteLog.includes('harness.mjs') && remoteLog.includes('dsh web: http://'), remoteLog.slice(0, 300))
+  check('the shared session log shows the harness command and the launch URL', remoteLog.includes('harness.mjs') && remoteLog.includes('dsh web: http://'), remoteLog.slice(0, 300))
 
   const bareProbe = await fetch(`${url.origin}/`, { redirect: 'manual' })
   check('the configured launch answers 401 without a token', bareProbe.status === 401, `status ${bareProbe.status}`)
@@ -431,20 +454,20 @@ try {
   check('no local ssh client forwards that port', localTunnelProcesses(localPortB).length === 0, JSON.stringify(localTunnelProcesses(localPortB)).slice(0, 300))
 
   const leftHarness = remoteProcesses(`'harness[.]mjs'`)
-  const leftBackend = remoteProcesses(`'bin[.]js web --port 3080'`)
-  const leftLogs = remoteLogs().filter(name => !foreignLogs.includes(name))
-  const port3080 = remote("ss -ltn 2>/dev/null | grep -c ':3080' || true")
-  note(`远端残留：harness.mjs=${leftHarness.length} bin.js(3080)=${leftBackend.length} 新增日志=${leftLogs.length} 3080 监听=${port3080}`)
-  check('no harness process survives the configured launch down', leftHarness.length === 0, JSON.stringify(leftHarness).slice(0, 300))
-  check('no backend process survives the configured launch down', leftBackend.length === 0, JSON.stringify(leftBackend).slice(0, 300))
-  check('no remote launch log survives down', leftLogs.length === 0, JSON.stringify(leftLogs))
-  check('remote port 3080 is released', port3080 === '0', port3080)
+  const sessionAfterDown = remoteSessionState()
+  note(`配置用例 down 后：tmux 会话 ${sessionAfterDown}，harness 进程 ${leftHarness.length}`)
+  check('the remote tmux session keeps running after the configured down', sessionAfterDown === 'ALIVE', sessionAfterDown)
+  check('the harness process started by the launch survives down', leftHarness.length >= 1, JSON.stringify(leftHarness).slice(0, 300))
+  const sharedLogKept = remote(`test -f ${sharedLog} && printf yes || printf no`)
+  check('the shared session log is kept after down', sharedLogKept === 'yes', sharedLogKept)
 } catch (error) {
   check('the configured launch path completed without an unexpected error', false, error instanceof Error ? error.message : String(error))
 } finally {
   await call(serverB.base, '/desktop-tabs/api/connections/wsl-npm/down', { method: 'POST' }).catch(() => {})
   await serverB.close()
   rmSync(workspace, { recursive: true, force: true })
+  // 自检结束，把主机会话恢复为「无 dsh-gui 会话」的初态。
+  resetRemoteSession()
 }
 
 console.log('')

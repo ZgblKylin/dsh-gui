@@ -18,7 +18,7 @@ SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参
 |---|---|---|
 | host 半 | `src/index.ts` | 注册 `/desktop-tabs/api/tabs` 的 `GET`/`HEAD`/`PUT`，并在同一 effect 内挂载远程连接路由，把 `{ tabs, connections }` 交给连接管理器 |
 | host 半 | `src/targets.ts` | 读写 `<DSH_HOME>/gui/desktop-tabs.json`：解析 `url`、`port` + `tokenFile`、`ssh`，校验并原子替换 `tabs` 与 `connections` 两个列表 |
-| host 半 | `src/remote/**` | 远程连接路由与连接管理器（`remote-conn-dev` 负责，本包只调用 `registerRemoteConnections`） |
+| host 半 | `src/remote/**` | 远程连接路由与连接管理器（经 `registerRemoteConnections` 挂载；远端 dsh 在 `dsh-gui` tmux 会话中长期存活，见「远程连接生命周期」） |
 | client 半 | `src/client/index.ts` | 探测 `window.dshDesktop.browser`（protocol version 1）；缺失则完全惰性 |
 | client 半 | `src/client/tabs.ts` | 标签条几何、标签与连接状态、切换与增删改、持久化、连接日志轮询 |
 | client 半 | `src/client/panel.ts` | `+` 面板：搜索框、可折叠的「已配置」「SSH 主机」两组、行内编辑/删除 |
@@ -160,7 +160,7 @@ devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应�
   永远是主文档本身，不能做成 guest 标签。
 - 只出现在 `tabs` 里、没有对应 `connections` 条目的旧式 `ssh` 标签仍可打开并连接，但不会
   出现在「已配置」组，也没有可编辑的启动参数；`port`/`url` 标签不是连接，不参与该组。
-- 不支持保活：切走的标签完全卸载，其滚动位置、草稿等客户端视图状态不保留。
+- 不支持保活：切走的标签完全卸载，其滚动位置、草稿等客户端视图状态不保留（远端 dsh 与其任务不受影响，见「远程连接生命周期」）。
 - 本机视图只隐藏 webview 层，不切换宿主 `main` 面板的 key（避免卸载宿主 conversation 面板）。
 - 标签条只在 Windows 标题栏（`data-windows-menu` 存在）下出现；macOS/Linux 的 desktop
   外壳不渲染。
@@ -175,36 +175,44 @@ devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应�
 - 离开远端标签会销毁 guest（本插件的卸载式切换），因此只有**当前标签**的远端通知会被转接、
   剪贴板回退生效；切到本机或其他标签期间，远端实例即使完成任务也没有页面在运行其通知引擎。
 
-## 孤儿进程回收
+## 远程连接生命周期（tmux 长期存活）
 
-正常情况下关闭标签会 `down` 掉远端进程组。应用被强退或崩溃时没有代码执行的机会，远端
-`dsh web` 会继续占用端口——因此插件把每次启动的远端进程记在
-`<DSH_HOME>/gui/desktop-tabs-remote.json`（按连接 id 记 `host`/`pid`/`pgid`/`at`，原子写），
-并在**下次启动注册路由时**后台回收：
+一条 `ssh` 连接的远端 dsh 放在名为 `dsh-gui` 的 tmux 会话中长期存活。会话名、日志路径
+（`$HOME/.dsh-gui-remote.log`）与磁盘 token 文件（`$HOME/.dsh-gui-remote.token`）都和
+`plugins/remote/dsh-remote` 一致，两个插件对同一台远端主机可共享同一个后端；差异只在传输与
+承载层：本插件经本机的原生 `ssh` 开隧道、以桌面壳的 `<webview>` 承载标签页，
+`plugins/remote/dsh-remote` 基于纯 JS `ssh2`、标签页画在 Tauri 原生标题栏。
 
-- 只处理记录里写明的进程组，且远端核对命令行仍属于 `bin.js web` / `harness` 家族才发信号；
-- 进程已消失（`absent`）或 pgid 已被复用成别的程序（`foreign`）时**只删记录、不杀进程**；
-- 从不会枚举或泛杀 `bin.js web`，用户自己跑着的实例不受影响；
-- 记录文件缺失/损坏按「无记录」处理，写失败也不影响连接。
+`up` 先对 `dsh-gui` 会话做一次幂等确保：会话 MISSING 或 STALE（面板已死）时新建会话并启动 dsh，
+ALIVE 时直接复用、不重启。存活判定读远端磁盘 token 文件（token 采集自启动日志
+`dsh web: ...?token=...`，以 `umask 077` 落盘）拼 `http://127.0.0.1:<localPort>/?token=<token>`
+探活，303/2xx 即存活，无 token 的旧版后端按裸 URL 2xx 判定；未存活则清掉旧会话与旧 token，
+在 tmux 里重启 dsh，重采集端口与 token、重开隧道、重探活。
+
+任何「判定已死 → 重启」都先证明 SSH 传输可达（先跑到远端命令），断网或隧道断开不会误杀正在
+运行的后端；失败路径只清理本次创建的隧道与本尝试新建的 tmux 会话，复用已有存活会话时失败不
+清会话。进程就绪后探测空闲本地端口，经 `ssh -L` 转发，等隧道健康检查通过后上报 `up`。
+
+关闭标签（`down`）与退出应用（`dispose`）**只断开本地前端**：终止本机的隧道与 ssh 子进程、
+把该连接移出活动表，**不发任何远端停止命令**。远端 dsh 与其承载的任务在 tmux 会话里继续
+运行，下次打开同一连接直接复用；应用被强退或崩溃也不会留下孤儿进程，因此不存在也不会维护
+`desktop-tabs-remote.json` 一类的进程记录。
 
 远端启动因端口被占失败（`EADDRINUSE`）时，错误文案会附带提示：默认启动命令会走
-`--port 0`，或先结束旧实例（多数情况下上面的回收已经处理）。
+`--port 0`，或先结束远端旧实例。
 
 ## 远端启动使用的 shell 环境
 
-启动脚本经 `bash -l -i -c` 执行（与 `plugins/remote/dsh-remote` 的 `startSession` 同款），
-不是 `ssh <host> <command>` 的默认非登录非交互 shell。原因是远端常把 Node/npm 装在
-nvm 之类的版本管理器下，而它们的 PATH 只由交互式 `~/.bashrc` 注入；被守卫的 rc
-（`case $- in *i*) ;; *) return;; esac`）在非交互 shell 里直接返回，于是启动会退回系统
-Node。系统 Node 过旧时这种失败是**静默**的：dsh CLI 入口写作
-`if (import.meta.main) await runCli()`，Node 20 上 `import.meta.main` 为 `undefined`，
-进程不打印任何内容并以 0 退出，表现为「远端进程已启动」但永远等不到启动 URL。
+远端启动命令在 `dsh-gui` tmux 面板里经 `bash -l -i -c`（登录 + 交互）执行，与
+`plugins/remote/dsh-remote` 的 tmux 启动同款，不是 `ssh <host> <command>` 的默认非登录
+非交互 shell。原因是远端常把 Node/npm 装在 nvm 之类的版本管理器下，而它们的 PATH 只由
+交互式 `~/.bashrc` 注入；被守卫的 rc（`case $- in *i*) ;; *) return;; esac`）在非交互
+shell 里直接返回，于是启动会退回系统 Node。系统 Node 过旧时这种失败是**静默**的：dsh CLI
+入口写作 `if (import.meta.main) await runCli()`，Node 20 上 `import.meta.main` 为
+`undefined`，进程不打印任何内容并以 0 退出，表现为「远端进程已启动」但永远等不到启动 URL。
 
-远端日志的第一行是 `TABS_LAUNCH_RUNTIME=<node 路径> <node 版本>`，用来直接确认这次启动
-用的是哪个 Node。
-
-`dispose()` 故意**保留**记录：它的远端清理是 detached 的尽力而为，若没执行成功，下次启动
-的回收会接手。
+面板输出重定向到 `$HOME/.dsh-gui-remote.log`；日志首行回显本次启动实际使用的 Node 版本
+（`node -v`），用来直接确认用的是哪套运行时。
 
 ## 构建与安装
 

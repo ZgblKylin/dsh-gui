@@ -27,6 +27,11 @@ import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { registerRemoteConnections } from './remote/index.ts'
 import { readDesktopTabs, resolveDshHome, TabsValidationError, tabsFilePath, writeDesktopTabs } from './targets.ts'
 
+// The remote module's public surface (connection manager, routes, and its
+// command builders) is part of the built host entry, so the package test and
+// composition code can import it from `lib/index.js`.
+export * from './remote/index.ts'
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     webServer: WebServer
