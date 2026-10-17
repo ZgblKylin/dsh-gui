@@ -3,7 +3,7 @@
  * install.mjs — install the `commandcode-provider` plugin into the web profile.
  *
  * ⚠️ Installed from npm pinned to an exact version matching the git submodule
- * tag (`v0.13.0`), not `@latest` — exact pins bypass pnpm 11's 24h
+ * tag (`v0.13.4`), not `@latest` — exact pins bypass pnpm 11's 24h
  * `minimumReleaseAge` gate, which would otherwise silently fall back to the
  * previous release for `@latest` (per plugins/README.md's 安装方式 section: the
  * package is not marked as a source install). The
@@ -15,19 +15,22 @@
  * (id `llm-commandcode`, name `@mars-sea/dsh-commandcode-provider`); no manual
  * insert is written here (that would double-mount it).
  *
- * Engine pairing: 0.13.0 converges to exactly two verified engines —
- * `0.2.0-rc.2 || 0.2.1-alpha.2` — carried verbatim by its 15
- * `@deepseek-ai/dsh-*` peers, `engines.dsh`, `dsh.compatibility.dsh` and
- * `dsh.compatibility.dshReleases`, so the admission gate admits it against this
- * repository's pinned dsh-v0.2.1-alpha.2 and no version exemption is needed.
- * The disjunction of bare versions is deliberate: unlike a caret or `>=` range
- * it admits no adjacent prerelease, release candidate or stable patch version
- * (`0.2.1-alpha.3`, `0.2.1-rc.1`, `0.2.1`, `0.3.0-alpha.1` all stay rejected);
- * 0.13.0 dropped the `0.2.1-alpha.1` branch when it converged its engine matrix
- * to one RC and one alpha per channel. The 0.12.0 line targeted 0.2.0-rc.1 with
- * `^` ranges and was the last release for that runtime; older plugin releases
- * do not pair with this runtime (0.11.17 was the last for dsh 0.1.7, 0.11.11 the
- * last for 0.1.2–0.1.6, and 0.9.1 the last for the 0.5.0 line).
+ * Exact-version exemption: 0.13.4 declares its engines as exactly two verified
+ * releases — `0.2.0-rc.2 || 0.2.1-alpha.4` — carried verbatim by its
+ * `engines.dsh`, its `dsh.compatibility.dsh` / `dshReleases` records and its
+ * `@deepseek-ai/dsh-*` peers. The rc.2 admission gate reads `engines.dsh` first
+ * and compares it alone, so 0.2.1-rc.2 falls outside that disjunction and
+ * `dsh plugin add` would exit 1 before pnpm runs (the bundle layer would then be
+ * skipped at boot). The disjunction admits no adjacent prerelease, release
+ * candidate or stable patch version, and no published release declares rc.2, so
+ * keeping the previous pin does not help either: 0.12.x/0.13.0 target other
+ * engines. This wrapper therefore grants the profile an exact-version
+ * exemption (`installNpmPlugin`'s `exempt`) for
+ * `@mars-sea/dsh-commandcode-provider@0.13.4` on the pinned harness version.
+ * The exemption is keyed to that exact runtime version, so the next harness
+ * change invalidates it and the gate decides again. Upstream verifies the
+ * plugin against 0.2.1-alpha.4; the intervening alpha.4 → rc.2 host changes are
+ * exercised only by the staging build and the WebUI acceptance run.
  *
  * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`
  * by the desktop shell; this script honors an explicit `DSH_HOME` override (the
@@ -38,5 +41,10 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'commandcode-provider',
-  packageSpec: '@mars-sea/dsh-commandcode-provider@0.13.0',
+  packageSpec: '@mars-sea/dsh-commandcode-provider@0.13.4',
+  exempt:
+    '@mars-sea/dsh-commandcode-provider@0.13.4 declares engines.dsh '
+    + '"0.2.0-rc.2 || 0.2.1-alpha.4" and the rc.2 gate reads only that range; '
+    + 'the plugin is verified upstream against 0.2.1-alpha.4 and no release '
+    + 'declares rc.2 yet, so the exact version is accepted for this runtime.',
 })
