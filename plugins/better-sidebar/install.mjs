@@ -20,12 +20,14 @@
  * 因此本 pin 必须与 harness 同批更换。
  *
  * dsh-sidebar-qa 同样从 npm 安装，pin 到与其 git submodule tag 一致的精确版本
- * dsh-sidebar-qa@1.1.0，不用 `@latest`：pinned pnpm 11.7 默认
+ * dsh-sidebar-qa@1.2.0，不用 `@latest`：pinned pnpm 11.7 默认
  * supply-chain minimumReleaseAge 会对 `@latest`/范围静默回退到更旧版本，精确
  * pin 则直接安装并自动豁免，保证结果确定。安装顺序为 better-sidebar →
  * sidebar-qa，同一相对顺序也落在 `dsh.profile.bundles`；dsh-sidebar-qa 自
  * v1.0.0 起不再声明 better-sidebar peer（原生单后端重构），它的顺序只用于
- * 保持既有排布。
+ * 保持既有排布。1.2.0 的 host 半改为 Config + volatile 并按 profile 条目 id
+ * 寻址，设置项因此可持久化（`engines.dsh >=0.1.7-alpha.1` 覆盖 0.2.1-rc.2，
+ * client 半无改动）。
  *
  * 两个包都声明 `dsh.bundle.patch`，所以 `dsh plugin add` 各自 reconcile 进
  * `dsh.profile.bundles` 并由其 bundle 层插入 Loader entry——不写手工 insert
@@ -46,10 +48,11 @@ installNpmPlugin({
 // 然后 dsh-sidebar-qa：独占的「追问」原生面板（选中文本 → 右栏追问 → 独立同
 // 工作区会话）。v1.0.0 起收敛为原生单后端，并在 manifest 层移除了
 // dsh-better-sidebar peer；由上游针对 DSH 0.1.7 重命名后的图标集按名解析宿主
-// 图标。v1.1.0 是纯元数据修复版：peer 由 ^0.1.0-rc.8 改为纯下限 >=0.1.0-rc.8
-// （caret 上界 <0.2.0-0 过不了 0.2.0 的准入闸门），src/** 零改动。
-// 版本 pin 到子模块 tag v1.1.0。
+// 图标。1.2.0 的 host 半改为 Config + volatile、按 profile 条目 id 寻址，设置项
+// 可持久化，client 半零改动；manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖
+// 0.2.1-rc.2，准入闸门按 engines.dsh 判定放行。
+// 版本 pin 到子模块 tag v1.2.0。
 installNpmPlugin({
   id: 'sidebar-qa',
-  packageSpec: 'dsh-sidebar-qa@1.1.0',
+  packageSpec: 'dsh-sidebar-qa@1.2.0',
 })
