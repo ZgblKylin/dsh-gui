@@ -61,13 +61,13 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-browser-use@0.2.1-alpha.2` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.1-alpha.2` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
+| `@deepseek-ai/dsh-browser-use@0.2.1-rc.2` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.1-rc.2` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
 
-两个包都精确 pin `0.2.1-alpha.2`，与本仓库 pinned 的 `dsh-v0.2.1-alpha.2` 运行时
-配套（peerDependencies 精确指向 `0.2.1-alpha.2`）。**这个 pin 必须随 harness
+两个包都精确 pin `0.2.1-rc.2`，与本仓库 pinned 的 `dsh-v0.2.1-rc.2` 运行时
+配套（peerDependencies 精确指向 `0.2.1-rc.2`）。**这个 pin 必须随 harness
 同批移动**：准入闸门拿运行中的 dsh 版本逐条比对每个 `@deepseek-ai/dsh*` peer，
-留在 `0.2.1-alpha.1` 的包会被 0.2.1-alpha.2 拒绝。dsh 家族实验包的 npm `latest`
+留在 `0.2.1-alpha.2` 的包会被 0.2.1-rc.2 拒绝。dsh 家族实验包的 npm `latest`
 dist-tag 落后于已发布的 prerelease，不能通过 `@latest` 或范围解析。均为
 prerelease，进不了 Community Market。核心服务先装：提供方 inject `browserUse`。
 
@@ -148,13 +148,13 @@ npm run install:plugins        # 或 npm run build
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-computer-use@0.2.1-alpha.2` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.1-alpha.2` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
+| `@deepseek-ai/dsh-computer-use@0.2.1-rc.2` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.1-rc.2` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
 
-两个包都精确 pin `0.2.1-alpha.2`，与本仓库 pinned 的 `dsh-v0.2.1-alpha.2` 运行时
-配套（peerDependencies 全部指向 `0.2.1-alpha.2`）。**这个 pin 必须随 harness
+两个包都精确 pin `0.2.1-rc.2`，与本仓库 pinned 的 `dsh-v0.2.1-rc.2` 运行时
+配套（peerDependencies 全部指向 `0.2.1-rc.2`）。**这个 pin 必须随 harness
 同批移动**：准入闸门拿运行中的 dsh 版本逐条比对每个 `@deepseek-ai/dsh*` peer，
-留在 `0.2.1-alpha.1` 的包会被 0.2.1-alpha.2 拒绝。均为 prerelease，进不了
+留在 `0.2.1-alpha.2` 的包会被 0.2.1-rc.2 拒绝。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `computerUse`。
 
 ### 挂载与配置
@@ -270,5 +270,5 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
   review 不经过共享流水线：它们是 dsh 安装随附的官方可选 bundle，只由插件页开关
   写入 `dsh.profile.bundles`，`DSH_PLUGIN_SKIP=<wrapper id>` 因此只对 browser-use
   与 computer-use 生效；`DSH_PLUGIN_FORCE_INSTALL=1` 反过来强制安装。
-- 本 wrapper 安装的四个包都不传 `exempt`：它们的 peer 已被 0.2.1-alpha.2 的准入闸门
+- 本 wrapper 安装的四个包都不传 `exempt`：它们的 peer 已被 0.2.1-rc.2 的准入闸门
   接受，不需要版本例外（例外只用于上游尚未适配 0.2 的包，见 `plugins/README.md`）。
