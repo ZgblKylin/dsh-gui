@@ -3,7 +3,7 @@
  * install.mjs — install the dsh-web-ui plugin bodies into the web profile
  * (per plugins/README.md's 安装方式 section: 安装部分内容, from npm).
  *
- * Four plugin packages of the dsh-web-ui distribution repo are installed,
+ * Three plugin packages of the dsh-web-ui distribution repo are installed,
  * pinned to exact versions matching the upstream git tag (`v0.4.6`), not
  * `@latest` — exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (the
  * gate silently falls back to an older version for `@latest`/ranges, while a
@@ -20,11 +20,13 @@
  *    create and delete, in a web GUI panel;
  * 3. the `dsh-usage` usage-statistics plugin (`@linxin666/dsh-usage@0.4.6`):
  *    per-provider balance and coding-plan quota probes plus a live token
- *    ledger, rendered as a first-level "Usage statistics" settings section;
- * 4. the `dsh-model-capabilities` plugin
- *    (`@linxin666/dsh-client-ui-model-capabilities@0.4.6`): per-model image
- *    input and reasoning-effort declarations edited on the models settings
- *    cards, writing the official `llm-pi-ai` namespace.
+ *    ledger, rendered as a first-level "Usage statistics" settings section.
+ *
+ * The `dsh-model-capabilities` package
+ * (`@linxin666/dsh-client-ui-model-capabilities`) is not installed: model input
+ * types are declared on the official Models page, and its remaining
+ * provider-disable archive is not part of this wrapper's install set. Its
+ * source stays in the upstream submodule as a reference only.
  *
  * `dsh-plugin-manager` (`@linxin666/dsh-client-ui-plugin-manager`) stays out of
  * this wrapper's install set. Through v0.4.4 the reason was a hard conflict: the
@@ -42,7 +44,7 @@
  * distribution tag; install it deliberately (under its own id) when it is
  * wanted — see the dsh-plugin-uninstall skill.
  *
- * The four remaining packages each declare their own `dsh.bundle.patch`, so
+ * The three remaining packages each declare their own `dsh.bundle.patch`, so
  * `dsh plugin add`
  * reconciles them into `dsh.profile.bundles` and each mounts through its own
  * bundle layer — no manual cordis mount is written (that would double-mount).
@@ -77,7 +79,7 @@ installNpmPlugin({
 // 浏览已加载技能、启停、创建与删除。v0.4.4 起技能中心改为原生布局座位面板，
 // dsh.client.inject 新增 @deepseek-ai/dsh-client-ui-layout（由官方 web-app bundle
 // 的 ui-layout 行提供，声明 main 与 sidebar.panellist 座位）；engines.dsh
-// >=0.2.0-rc.2 与 pinned harness 0.2.1-alpha.2 相符；版本对齐子模块 tag v0.4.6。
+// >=0.2.0-rc.2 覆盖 pinned harness 0.2.1-rc.2；版本对齐子模块 tag v0.4.6。
 installNpmPlugin({
   id: 'dsh-skill-explorer',
   packageSpec: '@linxin666/dsh-client-ui-skill-explorer@0.4.6',
@@ -90,13 +92,4 @@ installNpmPlugin({
 installNpmPlugin({
   id: 'dsh-usage',
   packageSpec: '@linxin666/dsh-usage@0.4.6',
-})
-
-// dsh-model-capabilities：Models 设置页自定义提供方卡片上的「模型能力」扩展区
-// （逐模型声明图片输入与推理档位，写官方 llm-pi-ai 命名空间），另提供提供方
-// 禁用/启用（先存档再 unset 路由）。经 dsh.bundle.patch 自挂载；版本对齐
-// 子模块 tag v0.4.6。
-installNpmPlugin({
-  id: 'dsh-model-capabilities',
-  packageSpec: '@linxin666/dsh-client-ui-model-capabilities@0.4.6',
 })

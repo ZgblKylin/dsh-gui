@@ -495,10 +495,11 @@ function exactSpecVersion(spec) {
 /**
  * Grant one plugin version the profile's exact-version compatibility exemption.
  *
- * Since harness dsh-v0.2.0-rc.2 the app-boot admission gate compares every
- * `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer with the running dsh version:
- * a package whose range predates that version is refused by `dsh plugin add`
- * (exit 1) and its bundle layer is skipped at boot. The exemption is the only
+ * The app-boot admission gate reads a package's declared dsh requirements
+ * against the running version — its `engines.dsh` range when present, else its
+ * `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer ranges: a package whose range
+ * excludes the running version is refused by `dsh plugin add` (exit 1) and its
+ * bundle layer is skipped at boot. The exemption is the only
  * way to keep such a package mounted. It is keyed by exact package version and
  * exact runtime version, so a later harness upgrade invalidates it instead of
  * carrying the accepted risk forward. `--accept-risk` is the CLI contract for
@@ -506,7 +507,7 @@ function exactSpecVersion(spec) {
  * @param {string} dshHome - the harness home whose profile is written.
  * @param {string} profileDir - absolute profile directory.
  * @param {string} packageSpec - exact npm spec, e.g. `dsh-sidebar-qa@1.1.0`.
- * @param {string} reason - why this version is accepted despite its peers.
+ * @param {string} reason - why this version is accepted despite its declared range.
  */
 function grantVersionExemption(dshHome, profileDir, packageSpec, reason) {
   if (exactSpecVersion(packageSpec) === null) {
@@ -734,8 +735,8 @@ function removeForeignNestedNodeModules(profileDir, packageName) {
  *   - exempt: the reason an incompatible exact version is accepted for this
  *     package. When given, its exact-version exemption is granted in the
  *     profile before the install (see grantVersionExemption), which is what
- *     lets the admission gate accept a package whose `@deepseek-ai/dsh*`
- *     peers predate the pinned runtime; the reason is echoed in the log.
+ *     lets the admission gate accept a package whose declared dsh requirement
+ *     excludes the pinned runtime; the reason is echoed in the log.
  *   - skip: wrapper-declared default skip — `true` (unversioned skip) or a
  *     string reason. The wrapper owns WHAT is being skipped and WHY (e.g. a
  *     version incompatible with the pinned harness); the shared pipeline only

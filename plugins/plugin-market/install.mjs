@@ -15,13 +15,14 @@
  * insert is written (that would double-mount it).
  *
  * The dshmarket version is a hard floor, not a preference: the harness
- * dsh-v0.2.1-alpha.2 admission gate checks every `@deepseek-ai/dsh` /
- * `@deepseek-ai/dsh-*` peer against the running version, and 1.65.3's
+ * dsh-v0.2.1-rc.2 admission gate reads a package's declared dsh requirements
+ * (`engines.dsh` when present, else its `@deepseek-ai/dsh` /
+ * `@deepseek-ai/dsh-*` peers) against the running version, and 1.65.3's
  * `@deepseek-ai/dsh-settings: ^0.1.0-rc.7 || ^0.1.1-rc.2 || ^0.1.2-alpha.2`
  * is rejected — the install preflight exits 1 and `npm run
  * build` fails. 1.66.4 admitted the 0.2 line; 1.66.21's
  * `dsh-settings` peer keeps the fourth branch, `^0.2.0-rc.1`, which admits
- * 0.2.1-alpha.2; this wrapper pins 1.66.21.
+ * 0.2.1-rc.2; this wrapper pins 1.66.21.
  *
  * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`
  * by the desktop shell; this script honors an explicit `DSH_HOME` override

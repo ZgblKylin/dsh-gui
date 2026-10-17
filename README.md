@@ -212,8 +212,8 @@ executable inside that tree inherits it (see
    │                        #   DSH-better-sidebar, deep-whale/dsh-deep-whale and
    │                        #   dsh-web-ui/dsh-web-ui are git submodules;
    │                        #   dsh-web-ui installs dsh-web-ui-settings +
-   │                        #   dsh-plugin-manager + dsh-skill-explorer +
-   │                        #   dsh-usage + dsh-model-capabilities from npm;
+   │                        #   dsh-skill-explorer +
+   │                        #   dsh-usage from npm;
    │                        #   see plugins/README.md)
    └─ global_template.agents/  # versioned agent-config template: the always-loaded
                             #   docs and the user-level skills (the `review` skill
@@ -462,18 +462,20 @@ submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
 (`build: false`, no copy, no patch).
 
 `plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
-four npm bundles pinned to the submodule tag (`0.3.22`) through
+three npm bundles pinned to the submodule tag (`0.4.6`) through
 `installNpmPlugin` — `@linxin666/dsh-client-ui-web-ui-settings` (ordered
-first), `@linxin666/dsh-client-ui-skill-explorer`, `@linxin666/dsh-usage` and
-`@linxin666/dsh-client-ui-model-capabilities`; all four declare
+first), `@linxin666/dsh-client-ui-skill-explorer` and
+`@linxin666/dsh-usage`; all three declare
 `dsh.bundle.patch`, so `dsh plugin add` reconciles each into
-`dsh.profile.bundles` (no manual cordis insert). The task board
+`dsh.profile.bundles` (no manual cordis insert). Model capabilities
+(`@linxin666/dsh-client-ui-model-capabilities`) is no longer installed either
+(see `dsh-web-ui/README.md`). The task board
 (`@linxin666/dsh-client-ui-task-board`) and the session-archive manager
 (`@linxin666/dsh-session-archive`) are no longer installed (see
 `dsh-web-ui/README.md`); the plugin-manager tab
 (`@linxin666/dsh-client-ui-plugin-manager`) is no longer installed either,
 because the official `dsh-web-app` bundle of the pinned harness
-(dsh-v0.1.6-alpha.2) ships its own `ui-plugin-manager` loader entry that
+(dsh-v0.2.1-rc.2) ships its own `ui-plugin-manager` loader entry that
 collides with the upstream package's bundle patch id. The bridge is required because
 dsh-host-apiproxy's hard-coded settings allowlist does not expose third-party
 namespaces, so without it a `webUiSettings`-dependent plugin's configuration

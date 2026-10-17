@@ -9,15 +9,13 @@
 2. **`dsh-skill-explorer` 技能中心面板**
    （`@linxin666/dsh-client-ui-skill-explorer@0.4.6`）；
 3. **`dsh-usage` 使用统计**
-   （`@linxin666/dsh-usage@0.4.6`）；
-4. **`dsh-model-capabilities` 模型能力**
-   （`@linxin666/dsh-client-ui-model-capabilities@0.4.6`）。
+   （`@linxin666/dsh-usage@0.4.6`）。
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
 保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 版本号。
 
-四个包要求 `@deepseek-ai/dsh >= 0.2.0-rc.2`，本工程 pinned 的 `dsh-v0.2.1-alpha.2` 满足该声明。
+三个包要求 `@deepseek-ai/dsh >= 0.2.0-rc.2`，本工程 pinned 的 `dsh-v0.2.1-rc.2` 满足该声明。
 
 > **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper 安装。**
 > 直到 v0.4.4，排除原因是硬冲突：官方 `@deepseek-ai/dsh-web-app` bundle 自带
@@ -39,8 +37,7 @@ roster。
 ```text
 plugins/dsh-web-ui/
 ├─ install.mjs                          # npm 安装 dsh-web-ui-settings /
-│                                       #   dsh-skill-explorer /
-│                                       #   dsh-usage / dsh-model-capabilities
+│                                       #   dsh-skill-explorer / dsh-usage
 ├─ README.md                            # 本说明
 └─ dsh-web-ui/                          # dsh-web-ui 仓库（git submodule；上游 v0.3.x
    │                                    #   起更名 dsh-web）
@@ -48,7 +45,7 @@ plugins/dsh-web-ui/
    ├─ packages/dsh-web-settings/        # 兼容设置桥源码（npm 包名不变；wrapper 从 npm 安装）
    ├─ packages/dsh-skill-explorer/      # 技能中心源码（wrapper 从 npm 安装）
    ├─ packages/dsh-usage/               # 使用统计源码（wrapper 从 npm 安装）
-   ├─ packages/dsh-model-capabilities/  # 模型能力源码（wrapper 从 npm 安装）
+   ├─ packages/dsh-model-capabilities/  # 模型能力源码（仅源码参考，wrapper 不再安装）
    ├─ packages/dsh-session-archive/     # 会话归档管理源码（仅源码参考，wrapper 不再安装）
    ├─ packages/dsh-task-board/          # 任务板源码（仅源码参考，wrapper 不再安装）
    ├─ packages/dsh-pet/                 # 鲸鱼娘桌宠源（仅源码参考，wrapper 不再安装；
@@ -57,7 +54,7 @@ plugins/dsh-web-ui/
 
 ## 安装范围
 
-### dsh-web-ui-settings + dsh-skill-explorer + dsh-usage + dsh-model-capabilities
+### dsh-web-ui-settings + dsh-skill-explorer + dsh-usage
 
 当前 DSH 的 `dsh-host-apiproxy` 只向 web 设置页暴露硬编码的
 `WEB_SETTINGS_NAMESPACES`，不包含第三方插件的设置命名空间。`dsh-web-ui-settings`
@@ -77,28 +74,21 @@ renderer 服务，作为独立 bundle 层自挂载。面板提供搜索框（按
 宠物公告气泡读取可选的 `pet` 服务，本工程安装的 `plugins/dsh-pet/`（PC2005-cloud
 的 `dsh-pet`）不提供该服务，因此气泡静默，其余功能不受影响。
 
-`dsh-model-capabilities` 是模型能力：在 Models 设置页每张自定义提供方卡片注册
-可折叠的「模型能力」扩展区，逐模型声明图片输入与推理档位；能力写入官方
-`llm-pi-ai` 命名空间（每次保存整体替换该提供方的 `models` 数组），并提供
-提供方禁用/启用——禁用先把 profile 存档进本插件的 `dsh-model-capabilities`
-命名空间，再以 `unset` 下线路由。
-
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
 dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.6
 dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.6
 dsh plugin --profile web add @linxin666/dsh-usage@0.4.6
-dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.6
 ```
 
-四个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
+三个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
 的 bundle 列表，无需手工 cordis 挂载。
 
 安装目标：
 
 ```text
-.dsh/profiles/web/package.json    # 四个 npm 依赖 + dsh.profile.bundles
+.dsh/profiles/web/package.json    # 三个 npm 依赖 + dsh.profile.bundles
 ```
 
 其中 `DSH_HOME` 与 dsh-gui 的其他 install 脚本一致：显式传入的
@@ -110,6 +100,8 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.6
   host 启动同步，本 wrapper 不安装；
 - `dsh-remote-web-ui`、`dsh-skins`、`dsh-web-all`（v0.3.x 起，旧名
   `dsh-web-ui-all`）等 dsh-web 其他 package；
+- `@linxin666/dsh-client-ui-model-capabilities`（模型能力）——已从本工程移除，
+  不再安装，见「已移除插件」一节；
 - `@linxin666/dsh-client-ui-task-board`（任务板）与
   `@linxin666/dsh-session-archive`（会话归档管理）——已从本工程移除，不再安装，
   见「已移除插件」一节；
@@ -120,11 +112,30 @@ dsh plugin --profile web add @linxin666/dsh-client-ui-model-capabilities@0.4.6
   同 id，重复 id 不再是启动错误，但同 id 覆盖会连带抹掉官方 Plugins 页座位；v0.4.5
   起上游改用自有 id `ui-plugin-manager-update-check`、冲突解除，本 wrapper 仍不把它
   加回安装集，见「已移除插件」一节；
-- 对四个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
+- 对三个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
   bundle patch 挂载；
 - 对上游 submodule 的任何修改。
 
-## 已移除插件（dsh-task-board / dsh-session-archive / dsh-plugin-manager）
+## 已移除插件（dsh-model-capabilities / dsh-task-board / dsh-session-archive / dsh-plugin-manager）
+
+`dsh-model-capabilities`（`@linxin666/dsh-client-ui-model-capabilities`）曾由本
+wrapper 安装，提供 Models 设置页的「模型能力」扩展区与提供方禁用存档。移除原因：
+官方 Models 页已原生声明逐模型 Input types（Text / Image），插件剩余的唯一独有能力
+是提供方禁用存档与一键恢复；保留它会与官方页面在同一个 `llm-pi-ai` 命名空间上叠加
+写入。移除做了三件事（完整流程见 skill `dsh-plugin-uninstall`）：
+
+1. `install.mjs` 去掉该包的 `installNpmPlugin` 块与文档条目；
+2. profile 卸载：`dsh plugin --profile web remove @linxin666/dsh-client-ui-model-capabilities`，
+   移出依赖、`node_modules` 与 `dsh.profile.bundles` 条目（desktop profile 由
+   `npm run build:desktop` 以新安装集重建，无需单独卸载）；
+3. `.dsh` 运行期残留清理：`.dsh/gui/npm-installs.json` 里的包名；
+   `.dsh/profiles/web/pnpm-workspace.yaml` 里该包触发过的 `minimumReleaseAgeExclude`
+   条目。
+
+该包不是独立 git 子模块：源码只存在于 `dsh-web-ui/` 子模块的
+`packages/dsh-model-capabilities/`（仅作源码参考，保留不删），`.gitmodules`、
+`.git/config`、索引 gitlink 与 `.git/modules` 都没有它的登记。推理档位声明仍可在
+profile 的 `cordis.patch.yml` 里手写 `reasoningEfforts`（既有配置已声明，行为不变）。
 
 `dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper
 安装：官方 `@deepseek-ai/dsh-web-app` bundle 自带 `ui-plugin-manager` loader 行，而
@@ -176,10 +187,6 @@ installed plugin 'dsh-skill-explorer' into E:\Git\dsh-gui\.dsh\profiles\web
 ==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.6 from npm)
   ...
 installed plugin 'dsh-usage' into E:\Git\dsh-gui\.dsh\profiles\web
-
-==> install plugin 'dsh-model-capabilities' (@linxin666/dsh-client-ui-model-capabilities@0.4.6 from npm)
-  ...
-installed plugin 'dsh-model-capabilities' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
 
 ### 手动执行
@@ -200,7 +207,7 @@ node plugins/dsh-web-ui/install.mjs
 参考。升级顺序：
 
 1. 先移动子模块到新 tag（`git -C plugins/dsh-web-ui/dsh-web-ui checkout <tag>`）；
-2. 同步把本文件 `install.mjs` 与 `README.md` 中的四个 npm 版本号 bump 到新 tag
+2. 同步把本文件 `install.mjs` 与 `README.md` 中的三个 npm 版本号 bump 到新 tag
    对应的版本（精确 pin，`pnpm add` 对精确版本自动豁免发布年龄门禁）；
 3. 重跑安装：
 
