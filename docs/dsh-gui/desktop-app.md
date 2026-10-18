@@ -20,7 +20,7 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 6. 执行 `pnpm run package:desktop:win:x64:unsigned -- --dir`。
 7. 把 `unsigned-artifacts\win-unpacked` 的内容落位到 `<runtime-root>\desktop`。
 8. 编译 shim，产出 `<runtime-root>\dsh-gui-desktop.exe`。
-9. 把 `plugins/<id>/install.mjs` 逐个安装到 desktop profile，目标目录是 `<runtime-root>\.dsh\profiles\desktop`；其中 `plugins/auto-update/install.mjs` 是 desktop-only 插件，非 desktop profile 只打印 skip 并退出 0（见下节）。
+9. 先用该 CLI 与本次构建出的兼容性判定清理 desktop profile 中当前 dsh 版本拒绝的直接依赖（各 wrapper 随后会重新安装自己的固定版本），再把 `plugins/<id>/install.mjs` 逐个安装到 desktop profile，目标目录是 `<runtime-root>\.dsh\profiles\desktop`；其中 `plugins/auto-update/install.mjs` 是 desktop-only 插件，非 desktop profile 只打印 skip 并退出 0（见下节）。
 
 第 5 步的 `pnpm run clean` 来自上游 `scripts/clean.ts`：它按项目引用图删除各工程的构建输出，并删除 `packages/*/*` 下没有 `package.json`、只剩 `node_modules`、`lib` 这类已知残留的目录。tsdown 的 `vendor/*` 与 `packages/*/*` 成员只按目录匹配，检出又跨修订复用，因此这类目录仍会被当作工作区构建目标读入；其中的 `lib/types/index.js` 一旦引用当前修订已移除的导出，主机侧构建就以 `MISSING_EXPORT` 失败。目录含已知残留之外的条目时，清理报错中止，不做任何删除。
 

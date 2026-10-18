@@ -38,6 +38,15 @@ runs standalone, so the group stays one directory with no nesting. Plugin
 wrappers delegate the shared pipeline to `scripts/plugin-install.mjs` and
 only own their id, package directory, and submodule hint:
 
+Before any wrapper runs, the build asks the running dsh installation's own
+compatibility evaluator which installed direct dependencies the admission gate
+rejects and removes them with one `dsh plugin remove`. A harness upgrade leaves
+the previous build's plugin family in the profile; without that scan the first
+`dsh plugin add` is refused before any wrapper can install its pinned version.
+The desktop build runs the same scan for the desktop profile before its plugin
+step, using the freshly built source tree as the evaluator. Every removal is
+logged with the rejected requirement; a package no wrapper pins stays removed.
+
 1. build the package in place when it declares a `build` script (pinned
    toolchain pnpm + shared store),
 2. pin the profile's pnpm store,

@@ -59,6 +59,7 @@ import {
   run,
 } from './toolchain.mjs'
 import { submoduleRevision, submoduleVersion } from './harness-runtime.mjs'
+import { pruneIncompatiblePlugins } from './plugin-install.mjs'
 
 /** Desktop build workspace under the runtime root. */
 const DESKTOP_ROOT = join(RUNTIME_ROOT, '.desktop')
@@ -740,8 +741,8 @@ function reconcileDesktopBundles() {
         `re-registering ${entry.name} (${entry.spec}) — it declares dsh.bundle.patch but is missing from dsh.profile.bundles`,
       )
       try {
-        run(DESKTOP_CLI, ['plugin', '--profile', 'desktop', 'remove', entry.name], { env: { DSH_HOME: WEB_HOME } })
-        run(DESKTOP_CLI, ['plugin', '--profile', 'desktop', 'add', entry.spec], { env: { DSH_HOME: WEB_HOME } })
+        run(DESKTOP_CLI, ['plugin', '--profile', 'desktop', 'remove', entry.name, '--config.minimumReleaseAge=0'], { env: { DSH_HOME: WEB_HOME } })
+        run(DESKTOP_CLI, ['plugin', '--profile', 'desktop', 'add', entry.spec, '--config.minimumReleaseAge=0'], { env: { DSH_HOME: WEB_HOME } })
       } catch (error) {
         throw new Error(`could not re-register ${entry.name} (${entry.spec}): ${error.message}`)
       }
@@ -785,6 +786,21 @@ function installDesktopPlugins(options) {
       throw new Error(`a DeepSeek Harness instance is running — quit it before installing into ${DESKTOP_PROFILE}`)
     }
     ensureDesktopProfile()
+    // The desktop profile can hold the previous build's official plugin family,
+    // which the new admission gate rejects; removing those stale installs first
+    // is what lets the wrappers below reinstall their pinned versions instead of
+    // failing on a gate rejection. The freshly built source tree supplies the
+    // evaluator, so the scan uses this build's rules rather than an older
+    // repository runtime.
+    const compatibilityModule = join(SOURCE, 'packages', 'boot', 'app-boot', 'lib', 'index.js')
+    const runtimeVersion = submoduleVersion(ROOT)
+    pruneIncompatiblePlugins({
+      dshHome: WEB_HOME,
+      profile: 'desktop',
+      carrier: DESKTOP_CLI,
+      ...(existsSync(compatibilityModule) ? { compatibilityModule } : {}),
+      ...(runtimeVersion === null ? {} : { runtimeVersion }),
+    })
     const scripts = pluginInstallScripts()
     if (scripts.length === 0) {
       console.log('no plugin install scripts under plugins/ — nothing to install')
@@ -797,6 +813,10 @@ function installDesktopPlugins(options) {
           DSH_HOME: WEB_HOME,
           DSH_PLUGIN_PROFILE: 'desktop',
           DSH_PLUGIN_DSH_CLI: DESKTOP_CLI,
+          // The wrappers pin exact releases; a repaired profile can hold lock
+          // entries pnpm's release-age verification rejects without an
+          // interactive approval path (see scripts/plugin-install.mjs).
+          DSH_PLUGIN_MIN_AGE: '0',
         },
       })
     }

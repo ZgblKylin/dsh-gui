@@ -35,6 +35,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { basename, join } from 'node:path'
 import { requireHarnessRuntime, submoduleVersion } from './harness-runtime.mjs'
 import {
@@ -58,6 +59,36 @@ const profileName = (process.env.DSH_PLUGIN_PROFILE ?? 'web').trim() || 'web'
  */
 const carrier = (process.env.DSH_PLUGIN_DSH_CLI ?? '').trim() || null
 
+/** Synchronous `require` for the compatibility evaluator shipped by the dsh runtime. */
+const requireFromHere = createRequire(import.meta.url)
+
+/**
+ * The argument that disables pnpm's supply-chain release-age gate for one command.
+ *
+ * A build installs versions that may be younger than `minimumReleaseAge` (the
+ * wrappers pin exact releases, and an upgrade often happens right after the
+ * release). pnpm normally records those exact picks in
+ * `minimumReleaseAgeExclude`, but a profile repaired outside a clean resolution
+ * can hold lockfile entries that the next command's verification rejects
+ * without a non-interactive way to approve them. The build therefore disables
+ * the gate for its own plugin commands: the wrappers' exact pins still decide
+ * every version they install.
+ */
+const RELEASE_AGE_ARG = '--config.minimumReleaseAge=0'
+
+/** Whether this build disables pnpm's release-age gate for plugin commands. */
+function releaseAgeDisabled() {
+  return process.env.DSH_PLUGIN_MIN_AGE === '0'
+}
+
+/** Add the release-age override to a pnpm-forwarded plugin command. */
+function withReleaseAgeOverride(args) {
+  if (!releaseAgeDisabled() || args.includes(RELEASE_AGE_ARG)) return args
+  // The exemption subcommands are parsed by dsh itself, not forwarded to pnpm.
+  if (args.includes('allow-version') || args.includes('revoke-version')) return args
+  return [...args, RELEASE_AGE_ARG]
+}
+
 /**
  * Run one `dsh plugin ...` command against the selected profile.
  *
@@ -67,23 +98,192 @@ const carrier = (process.env.DSH_PLUGIN_DSH_CLI ?? '').trim() || null
  * the carrier is spawned directly and PATH is left alone — it carries its own
  * package manager and is the only CLI allowed to touch a reserved profile.
  * @param {string} dshHome - the harness home holding the profile.
+ * @param {string} profile - profile name inside `dshHome/profiles`.
+ * @param {string | null} cliCarrier - CLI carrier, or null for the repository CLI.
  * @param {string[]} args - arguments after the CLI, e.g.
  *   `['plugin', '--profile', 'web', 'add', spec]`.
  */
-function runPluginCommand(dshHome, args) {
-  if (carrier !== null) {
-    run(carrier, args, { env: { DSH_HOME: dshHome } })
+function runProfileCommand(dshHome, profile, cliCarrier, args) {
+  const effective = withReleaseAgeOverride(args)
+  if (cliCarrier !== null) {
+    run(cliCarrier, effective, { env: { DSH_HOME: dshHome } })
     return
   }
   // Fails loud when the pinned dsh CLI is not installed for the configured
   // runtime (`harness.json`), with the runtime-specific remedy.
   const cli = requireHarnessRuntime(ROOT)
-  run('node', [cli.bin, ...args], {
+  run('node', [cli.bin, ...effective], {
     env: {
       DSH_HOME: dshHome,
       PATH: pinnedPath(),
     },
   })
+}
+
+/** Run one `dsh plugin ...` command against the wrapper-selected profile. */
+function runPluginCommand(dshHome, args) {
+  runProfileCommand(dshHome, profileName, carrier, args)
+}
+
+/**
+ * Load the profile-compatibility evaluator of the dsh installation that will
+ * judge the profile.
+ *
+ * The evaluator is the runtime's own — with its exact engines-first rule and
+ * semver behavior — so a pre-install scan cannot drift from the admission gate.
+ * The npm runtime keeps it under the harness install; a source runtime exposes
+ * the built package under the submodule checkout. Callers may pass an explicit
+ * module and version (the desktop build hands over the freshly compiled source
+ * tree, whose runtime is not installed into this repository).
+ * @param {{ compatibilityModule?: string, runtimeVersion?: string }} [options]
+ * @returns {{ evaluate: (manifest: object, exemptions: Record<string, string[]>, runtimeVersion?: string) => object | undefined,
+ *   readExemptions: (profileDir: string) => Record<string, string[]>,
+ *   runtimeVersion: string } | null} evaluator, or null when unavailable.
+ */
+function loadCompatibilityApi(options = {}) {
+  let modulePath = options.compatibilityModule ?? process.env.DSH_PLUGIN_COMPAT_MODULE?.trim() ?? undefined
+  let runtimeVersion = options.runtimeVersion ?? process.env.DSH_PLUGIN_COMPAT_VERSION?.trim() ?? undefined
+  if (modulePath === undefined || modulePath === '') {
+    const resolved = requireHarnessRuntime(ROOT)
+    const candidates = resolved.runtime === 'npm'
+      ? [join(resolved.installDir, 'node_modules', '@deepseek-ai', 'dsh-app-boot', 'lib', 'index.js')]
+      : []
+    candidates.push(join(resolved.cwd, 'packages', 'boot', 'app-boot', 'lib', 'index.js'))
+    modulePath = candidates.find((candidate) => existsSync(candidate))
+    runtimeVersion ??= resolved.version
+  }
+  if (modulePath === undefined || !existsSync(modulePath)) return null
+  let api
+  try {
+    api = requireFromHere(modulePath)
+  } catch {
+    return null
+  }
+  if (typeof api.evaluatePluginCompatibility !== 'function' || typeof api.readProfileVersionExemptions !== 'function') {
+    return null
+  }
+  runtimeVersion ??= api.getDshRuntimeVersion()
+  if (typeof runtimeVersion !== 'string' || runtimeVersion === '') return null
+  return {
+    evaluate: api.evaluatePluginCompatibility,
+    readExemptions: api.readProfileVersionExemptions,
+    runtimeVersion,
+  }
+}
+
+/**
+ * Installed direct dependencies the running dsh version rejects.
+ *
+ * Mirrors the admission gate the CLI applies after every package operation: a
+ * dependency whose installed manifest declares an `engines.dsh` range, or dsh
+ * peer ranges, that exclude the runtime is unusable. Exempted exact versions are
+ * accepted risk and stay. Unreadable installed manifests and unparsable
+ * requirements are reported as incompatible so they cannot block a later install
+ * silently.
+ * @param {{ dshHome?: string, profile?: string, compatibilityModule?: string,
+ *   runtimeVersion?: string }} [options] - overrides for the carrier-driven
+ *   desktop build; defaults are the wrapper-selected profile and the repository
+ *   runtime.
+ * @returns {{ profileDir: string, runtimeVersion: string | null,
+ *   unavailable: boolean, incompatible: { name: string, version: string, spec: string, requirements: Record<string, string> }[] }}
+ */
+export function findIncompatiblePlugins(options = {}) {
+  const dshHome = options.dshHome ?? WEB_HOME
+  const profile = options.profile ?? profileName
+  const profileDir = join(dshHome, 'profiles', profile)
+  const manifestPath = join(profileDir, 'package.json')
+  const empty = { profileDir, runtimeVersion: null, unavailable: false, incompatible: [] }
+  if (!existsSync(manifestPath)) return empty
+  const api = loadCompatibilityApi(options)
+  if (api === null) return { ...empty, unavailable: true }
+  const profileManifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  const dependencies = {
+    ...profileManifest.devDependencies,
+    ...profileManifest.dependencies,
+    ...profileManifest.optionalDependencies,
+  }
+  const exemptions = api.readExemptions(profileDir)
+  const incompatible = []
+  for (const [name, spec] of Object.entries(dependencies)) {
+    const installedPath = join(profileDir, 'node_modules', ...name.split('/'), 'package.json')
+    if (!existsSync(installedPath)) continue
+    let installed
+    try {
+      installed = JSON.parse(readFileSync(installedPath, 'utf8'))
+    } catch {
+      continue
+    }
+    try {
+      const issue = api.evaluate(installed, exemptions, api.runtimeVersion)
+      if (issue === undefined || issue.exempted) continue
+      incompatible.push({ name, version: issue.version, spec, requirements: issue.requirements })
+    } catch (error) {
+      incompatible.push({ name, version: String(installed.version ?? 'unknown'), spec, requirements: { error: error.message } })
+    }
+  }
+  return { ...empty, runtimeVersion: api.runtimeVersion, incompatible }
+}
+
+/**
+ * Remove installed direct dependencies the running dsh version rejects, so the
+ * wrappers can install their pinned versions.
+ *
+ * A harness upgrade can leave the official plugin family (or a third-party
+ * plugin) at a version the new admission gate refuses. The gate then rejects the
+ * next profile write — `dsh plugin add` exits non-zero because the profile still
+ * carries the stale package — which is exactly what happened on the first
+ * dsh-v0.2.1-rc.2 build. Scanning, removing and then continuing lets every
+ * wrapper reinstall its own pin instead of failing on another wrapper's stale
+ * dependency. The removal runs with a single `dsh plugin remove` so the profile
+ * is reconciled once; afterwards the scan repeats and any surviving rejection
+ * fails the build with the remaining names.
+ * @param {{ dshHome?: string, profile?: string, carrier?: string | null,
+ *   compatibilityModule?: string, runtimeVersion?: string }} [options] - the
+ *   desktop step passes its carrier CLI and freshly built evaluator explicitly.
+ * @returns {string[]} removed dependency names (empty when nothing was stale).
+ */
+export function pruneIncompatiblePlugins(options = {}) {
+  const dshHome = options.dshHome ?? WEB_HOME
+  const profile = options.profile ?? profileName
+  const cliCarrier = options.carrier ?? carrier
+  const found = findIncompatiblePlugins({ ...options, dshHome, profile })
+  if (found.unavailable) {
+    console.log('  compatibility scan skipped: the running dsh exposes no profile compatibility evaluator')
+    return []
+  }
+  if (found.incompatible.length === 0) return []
+  console.log(`\n==> remove ${found.incompatible.length} installed plugin(s) dsh ${found.runtimeVersion} rejects`)
+  for (const item of found.incompatible) {
+    const requirements = Object.entries(item.requirements).map(([name, range]) => `${name}@${range}`).join(', ')
+    console.log(`  ${item.name}@${item.version} (${item.spec}) — ${requirements}`)
+  }
+  // A carrier owns its profile's store; pinning this repository's store would
+  // make pnpm refuse that profile with ERR_PNPM_UNEXPECTED_STORE.
+  if (cliCarrier === null) pinProfileStore(found.profileDir)
+  const names = found.incompatible.map((item) => item.name)
+  // A profile left half-upgraded by a failed build can hold a lockfile whose
+  // entries were published inside pnpm's minimumReleaseAge window; verifying or
+  // re-resolving it then aborts with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION or
+  // ERR_PNPM_RESOLUTION_POLICY_VIOLATIONS_UNHANDLED, which no non-interactive
+  // caller can answer. This cleanup repairs the profile, so the age policy is
+  // disabled for that one command: the exact pins and exclusions in the wrappers
+  // still govern what the later installs may pick.
+  const removeArgs = ['plugin', '--profile', profile, 'remove', ...names, '--config.minimumReleaseAge=0']
+  try {
+    runProfileCommand(dshHome, profile, cliCarrier, removeArgs)
+  } catch (error) {
+    // A lockfile/node_modules tree that pnpm cannot reconcile blocks the
+    // removal; reinstall the recorded dependencies once and retry.
+    console.log(`  removal failed (${error.message}); repairing the profile install and retrying once`)
+    runProfileCommand(dshHome, profile, cliCarrier, ['plugin', '--profile', profile, 'install', '--config.minimumReleaseAge=0'])
+    runProfileCommand(dshHome, profile, cliCarrier, removeArgs)
+  }
+  const remaining = findIncompatiblePlugins({ ...options, dshHome, profile })
+  if (remaining.incompatible.length > 0) {
+    throw new Error(`installed plugins are still incompatible with dsh ${String(remaining.runtimeVersion)} after removal: ${remaining.incompatible.map((item) => `${item.name}@${item.version}`).join(', ')}`)
+  }
+  console.log(`removed ${String(names.length)} incompatible plugin(s); the wrappers below reinstall their pinned versions`)
+  return names
 }
 
 /**
@@ -834,5 +1034,3 @@ export function skipInstall(id, defaultSkip = null) {
     .filter(Boolean)
   return skipped.includes(id)
 }
-
-

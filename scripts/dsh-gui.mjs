@@ -91,7 +91,7 @@ import {
   resolveCargo,
   run,
 } from './toolchain.mjs'
-import { recordNpmInstall } from './plugin-install.mjs'
+import { pruneIncompatiblePlugins, recordNpmInstall } from './plugin-install.mjs'
 import { resolveDownloadProxy } from './proxy-environment.mjs'
 import { buildDesktop, runDesktop } from './desktop.mjs'
 
@@ -410,14 +410,29 @@ function installPluginScripts(options = {}) {
     console.log('No plugin install scripts under plugins/ — nothing to build or install.')
     return
   }
+  // A harness upgrade can leave the profile with a plugin version the new
+  // admission gate rejects; the next `dsh plugin add` would then fail before any
+  // wrapper runs. Scan with this runtime's own evaluator and remove those stale
+  // installs so every wrapper below installs its pinned version instead.
+  step('Remove installed plugins the running dsh rejects', () => {
+    pruneIncompatiblePlugins()
+  })
   step('Run plugin install scripts', () => {
     for (const script of scripts) {
       console.log(`--- ${script}`)
       // The same DSH_HOME pin the desktop shell and the preset installer use.
       // A rebuild additionally tells every wrapper to skip its up-to-date fast
-      // path, so the whole plugin set is installed again.
+      // path, so the whole plugin set is installed again. pnpm's release-age
+      // gate is disabled for the build's own installs: the wrappers pin exact
+      // releases and a repaired profile can hold entries that gate rejects
+      // without a way to approve them non-interactively (see
+      // `scripts/plugin-install.mjs`).
       run('node', [script], {
-        env: { DSH_HOME: WEB_HOME, ...(options.rebuild ? { DSH_PLUGIN_REBUILD: '1' } : {}) },
+        env: {
+          DSH_HOME: WEB_HOME,
+          DSH_PLUGIN_MIN_AGE: '0',
+          ...(options.rebuild ? { DSH_PLUGIN_REBUILD: '1' } : {}),
+        },
       })
     }
   })
