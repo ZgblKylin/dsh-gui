@@ -1,11 +1,12 @@
 # dsh-desktop-tabs
 
-desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条标签条，每个远端标签按需
-创建一个 `dshDesktop.browser` 租约下的 `<webview>`，**切走即销毁、切回重建并重新导航**；
-本机标签隐藏 webview 层，露出原生界面。`+` 面板管理**已保存连接**与 `~/.ssh/config` 的
-SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参数面板；激活一个需要连接的标签时
-**立即**切到该标签的空白占位页并显示连接日志（轮询 `/desktop-tabs/api/connections`），
-连接成功后再加载 webview。
+desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条标签条，每个远端标签各自
+持有一个 `dshDesktop.browser` 租约下的 `<webview>`，**切走只隐藏、不卸载**：旧标签的
+文档状态、滚动位置、连接与在页任务都保留，切回时直接露出；本机标签隐藏整个 webview 层，
+露出原生界面。**活跃标签的关闭按钮旁有 `⟳` 刷新**：卸载该标签的内容并重新建立连接。
+`+` 面板管理**已保存连接**与 `~/.ssh/config` 的 SSH 主机：搜索筛选、分组折叠、悬停编辑/
+删除、右侧启动参数面板；激活一个需要连接的标签时**立即**切到该标签的空白占位页并显示
+连接日志（轮询 `/desktop-tabs/api/connections`），连接成功后再加载 webview。
 
 本插件是 desktop-shell-only 原型：`install.mjs` 只在 `DSH_PLUGIN_PROFILE=desktop` 时安装，
 普通 `web` profile 的组合不会被改动。浏览器半在非 desktop 环境（没有
@@ -25,7 +26,7 @@ SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参
 | client 半 | `src/client/config-panel.ts` | 右侧启动参数面板：工作路径、启动命令、两个内置预设、确认/取消 |
 | client 半 | `src/client/api.ts` | 宿主 API 客户端（读写 `{ tabs, connections }`、连接状态、`up`/`down`、SSH 主机） |
 | client 半 | `src/client/types.ts` | client 半共享的 `DesktopTab`、`SavedConnection`、`ConnectionStatus`、`SshHost` |
-| client 半 | `src/client/view.ts` | 远端视图层：占位页、状态行、连接日志、租约与 webview 生命周期 |
+| client 半 | `src/client/view.ts` | 远端视图层：按标签各自保留的 guest（切走只隐藏）、占位页、状态行、连接日志、租约与 webview 生命周期 |
 | client 半 | `src/client/webview-host.ts` | 远端 guest 的求值面（`executeJavaScript`），视图层与通知转接共用 |
 | client 半 | `src/client/notify-relay.ts` | 远端通知转接：向 guest 注入 Notification shim、取回队列并在应用文档重放 |
 | client 半 | `src/client/clipboard-relay.ts` | 远端剪贴板回退：向 guest 注入 writeText 回退，异步写被拒时走 `execCommand('copy')` |
@@ -84,9 +85,18 @@ SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参
 ## 交互
 
 - 标签行是**一个控件**：外层容器承担整行的 hover/激活背景（`--dsw-alias-interactive-bg-hover`
-  等与标题栏菜单一致的 token），内部的文本按钮与 `✕` 都没有自己的背景（`✕` 只在自身 hover 时
-  改颜色）。文本按钮保留 `aria-pressed` 与 `aria-label` 语义、`✕` 带 `aria-label`，键盘仍可
-  分别聚焦；点文本激活标签，点 `✕` 关闭该标签（`stopPropagation`，不触发激活）。
+  等与标题栏菜单一致的 token），内部的文本按钮、`⟳` 与 `✕` 都没有自己的背景（`⟳`/`✕` 只在
+  自身 hover 时改颜色）。文本按钮保留 `aria-pressed` 与 `aria-label` 语义、`⟳`/`✕` 带
+  `aria-label`，键盘仍可分别聚焦；点文本激活标签，点 `⟳` 刷新该标签，点 `✕` 关闭该标签
+  （`stopPropagation`，不触发激活）。
+- 切换标签只切换可见的 surface：旧标签的 webview **不销毁、不重新导航**，切回时原样露出，
+  文档状态、滚动位置与在页任务都保留；关闭标签（`✕`）才卸载它的 guest 并 `down` 它的连接。
+  本机标签隐藏整层，其他标签的 guest 仍在后台运行。
+- 只有**活跃标签**带 `⟳` 刷新（紧邻 `✕`；非活跃标签上该按钮带 `hidden`，不占位也不进
+  tab 序）：点击后卸载该标签当前内容并重新建立连接。`ssh` 标签先 `down`（只断开本机隧道，
+  远端 tmux 里的后端不动）再走一次正常的 `up` 流程，占位页与连接日志照常显示；`url` 标签
+  没有连接，卸载后重新加载同一地址即可。连接正在进行中的标签忽略刷新，以免中断刚建立的
+  会话；刷新不写配置，标签与连接条目保持不变。
 - 标签条右侧的 `+` 打开面板：**搜索框**对「已配置」与「SSH 主机」两组做大小写不敏感的模糊
   筛选（子序列匹配 `title`、`id`、`ssh.host`，以及主机的 `alias`/`HostName`/`User`），每次输入
   即刷新；无匹配显示空提示。
@@ -101,8 +111,8 @@ SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参
 - 面板会自动隐藏：点击两个面板之外的任何区域（含标签条与应用其它区域）或按 `Esc` 都关闭两个
   面板；配置面板**确认成功**、以及点「已配置」行开始打开连接后，两个面板一并关闭。失败时面板
   保留并显示原因。
-- 激活一个 `ssh` 且尚无地址的标签时，视图层**立刻**切到该标签的空白占位页（上一个标签的
-  webview 已销毁，不会继续显示）。整层 `position: fixed` + `var(--dsw-alias-bg-base)` 覆盖
+- 激活一个 `ssh` 且尚无地址的标签时，视图层**立刻**切到该标签自己的空白占位页（其他标签的
+  guest 只是隐藏，仍在运行）。整层 `position: fixed` + `var(--dsw-alias-bg-base)` 覆盖
   标题栏以下的内容区，底下原生 UI 完全不可见；状态行显示当前步骤，日志区自带背景与内边距，
   按 500 ms 轮询连接日志并自动滚到底部；成功后用 webview 替换占位页，失败时保留日志、在状态
   行与标签上显示失败原因。
@@ -130,8 +140,8 @@ SSH 主机：搜索筛选、分组折叠、悬停编辑/删除、右侧启动参
   Electron 线上不暴露 `contentWindow`/`postMessage`，且 guest 被外壳剥掉全部
   `webPreferences`、无法挂 preload，求值取回是唯一稳定通道）；应用文档用自身的 `Notification`
   重放每条载荷（应用会话放行通知权限），得到真实系统通知，点通知聚焦应用窗口并关闭它。
-- 挂载 guest 后先 `webview.focus()`，覆盖「刚切到标签还未点击」的聚焦缺口（聚焦也是复制按钮
-  失效的成因之一）。
+- 可见标签的 guest 在挂载或重新显示时调用 `webview.focus()`，覆盖「刚切到标签还未点击」的
+  聚焦缺口（聚焦也是复制按钮失效的成因之一）；后台完成的标签只挂载不抢焦点。
 
 验证：连上远端标签后，在该 guest 内触发一次通知（如任务完成后 dsh-pet 的 toast，或在
 devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应出现系统通知；点击代码块
@@ -160,20 +170,23 @@ devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应�
   永远是主文档本身，不能做成 guest 标签。
 - 只出现在 `tabs` 里、没有对应 `connections` 条目的旧式 `ssh` 标签仍可打开并连接，但不会
   出现在「已配置」组，也没有可编辑的启动参数；`port`/`url` 标签不是连接，不参与该组。
-- 不支持保活：切走的标签完全卸载，其滚动位置、草稿等客户端视图状态不保留（远端 dsh 与其任务不受影响，见「远程连接生命周期」）。
+- 常驻标签有成本：每个打开的远端标签都保留一个 guest（连同它的页面进程），内存与渲染开销
+  随标签数增加，关闭标签才释放。切走的标签只是隐藏，其滚动位置、草稿等客户端视图状态保留
+  （远端 dsh 与其任务一直不受影响，见「远程连接生命周期」）。
 - 本机视图只隐藏 webview 层，不切换宿主 `main` 面板的 key（避免卸载宿主 conversation 面板）。
 - 标签条只在 Windows 标题栏（`data-windows-menu` 存在）下出现；macOS/Linux 的 desktop
   外壳不渲染。
 - 远端 guest 不带 `data-sidebar-browser-frame` 标记，因此桌面外壳的快捷键转发不会作用到
   远端 guest（普通键盘输入仍由焦点决定）。
 - SSH 主机列表只解析 `Host`/`HostName`/`User`/`Port`，不跟随 `Include`，不展开通配符与取反
-  模式；`up` 失败后标签保留错误标记，直到下一次成功激活。
+  模式；`up` 失败后标签保留错误标记，直到下一次成功激活或刷新。
 - 通知/剪贴板转接是页面层改写：shim 最早在 `dom-ready` 生效，早期就读走并缓存
   `Notification.permission`、或把 `navigator.clipboard.writeText` 引用固化到模块闭包里的
   页面仍会走旧分支；通知 shim 报出的 `granted` 是伪造的授权状态，没有经过真实权限询问。
   远端页面结构或调用方式改变时需要同步 shim。
-- 离开远端标签会销毁 guest（本插件的卸载式切换），因此只有**当前标签**的远端通知会被转接、
-  剪贴板回退生效；切到本机或其他标签期间，远端实例即使完成任务也没有页面在运行其通知引擎。
+- 远端通知按 guest 转接：所有**打开着**的远端标签的 guest 都在运行，各自的通知队列按 1 s
+  轮询取出并在应用文档重放，因此后台标签完成任务也会出现系统通知；关闭标签后它的通知引擎
+  随 guest 一并卸载。
 
 ## 远程连接生命周期（tmux 长期存活）
 
@@ -221,3 +234,7 @@ npm run build:desktop -- --plugins-only   # 装进 <runtime-root>/.dsh/profiles/
 ```
 
 包内直接构建：`pnpm install && pnpm run build`（产出 `lib/index.js` 与 `lib/client.js`）。
+
+行为测试直接以 Node 运行 `tests/` 下的脚本（`pnpm run test` 依次执行）：`remote.test.mjs`
+（host 半的会话脚本与路由）、`view-retention.spec.ts`（切换保留、刷新卸载、租约与轮询释放）、
+`clipboard-relay.spec.ts` 与 `notify-relay.spec.ts`。

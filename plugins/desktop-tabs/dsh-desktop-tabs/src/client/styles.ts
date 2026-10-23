@@ -57,8 +57,9 @@ const CSS = `
   outline: 2px solid var(--dsw-alias-state-business-primary);
   outline-offset: -2px;
 }
-/* One tab row reads as one control: the slot paints the whole row, so the label
-   and the ✕ sit on the same background. The inner buttons never paint. */
+/* One tab row reads as one control: the slot paints the whole row, so the label,
+   the refresh control, and the ✕ sit on the same background. The inner buttons
+   never paint. */
 [data-dsh-desktop-tabs] [data-dsh-desktop-tab-slot] {
   display: inline-flex;
   align-items: center;
@@ -75,6 +76,16 @@ const CSS = `
 }
 [data-dsh-desktop-tabs] [data-dsh-desktop-tab-slot] > button[data-dsh-desktop-tab] {
   min-width: 0;
+}
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-refresh] {
+  padding: 0 4px;
+}
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-refresh][hidden] {
+  display: none;
+}
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-refresh]:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
 }
 [data-dsh-desktop-tabs] [data-dsh-desktop-tab-close] {
   padding: 0 8px 0 4px;
@@ -373,6 +384,15 @@ html[data-dsh-desktop-tabs-cover] body { background: var(--dsw-alias-bg-base, #1
   -webkit-app-region: no-drag;
 }
 [data-dsh-desktop-tabs-view][hidden] { display: none; }
+/* One surface per remote tab: only the active tab's surface is shown, while the
+   others keep their guest attached and running. */
+[data-dsh-desktop-tabs-surface] {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+[data-dsh-desktop-tabs-surface][hidden] { display: none; }
 [data-dsh-desktop-tabs-view] webview {
   flex: 1 1 auto;
   border: 0;

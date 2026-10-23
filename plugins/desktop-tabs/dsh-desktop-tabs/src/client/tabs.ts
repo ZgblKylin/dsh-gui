@@ -12,19 +12,27 @@
  * appearing, being replaced, and `lang` changes. The `+` panel and the
  * connection settings panel hang from the same edge.
  *
- * Switching unloads: selecting a remote tab destroys any previous guest and
- * mounts a new one; selecting the local tab destroys the current guest and
- * hides the layer, which is how the native UI is revealed again. The host
- * conversation panel is never unmounted — this plugin only covers the content
- * area with its own layer.
+ * Switching retains: every open remote tab owns a guest that stays attached
+ * while another tab is shown, so selecting a tab only reveals its surface — the
+ * guest left behind keeps running (document state, scroll position, connections,
+ * in-page work) until its tab is closed. Selecting the local tab hides the layer,
+ * which is how the native UI is revealed again, and leaves every guest alive.
+ * The host conversation panel is never unmounted — this plugin only covers the
+ * content area with its own layer.
  *
  * Connecting shows the tab's own placeholder page: activating a tab that needs a
- * connection immediately switches the layer to an empty page with the status
- * line and the connection's progress log, polled from
- * `/desktop-tabs/api/connections`. The previous tab's guest is already gone at
- * that point, so the window never keeps showing the tab the user just left. A
- * failure keeps the log and adds the reason; success replaces the page with the
- * guest.
+ * connection immediately switches the layer to that tab's empty surface with the
+ * status line and the connection's progress log, polled from
+ * `/desktop-tabs/api/connections`. A failure keeps the log and adds the reason;
+ * success replaces the surface with the guest, whether or not the tab is still
+ * the active one.
+ *
+ * Refreshing replaces the active tab's guest and re-establishes its connection:
+ * the guest is unloaded, the connection is brought down, and the normal connect
+ * flow runs again (persisting nothing, since the tab and connection already
+ * exist). Only the active tab offers the refresh control, beside its close
+ * button; an addressed (`url`) tab has no connection behind it, so refreshing it
+ * just unloads the guest and loads the address again.
  *
  * Editing: tabs stay open independently of the saved connections that produced
  * them, so closing a tab never forgets a connection. Every change is persisted
@@ -42,7 +50,7 @@ import { CONFIG_PANEL_ATTR, createConfigPanel, type ConfigPanel, type Connection
 import { createPanel, PANEL_ATTR, type Panel } from './panel.ts'
 import { installStyles, removeStyles } from './styles.ts'
 import { isLocalTab, sshOfAlias, type ConnectionStatus, type DesktopTab, type SavedConnection, type SshHost } from './types.ts'
-import { createRemoteView, VIEW_ATTR, type RemoteView } from './view.ts'
+import { createRemoteView, VIEW_ATTR, type RemoteTarget, type RemoteView } from './view.ts'
 
 /** Marks the strip element. */
 const STRIP_ATTR = 'data-dsh-desktop-tabs'
@@ -62,6 +70,9 @@ const LOCAL_TAB: DesktopTab = { id: 'local', title: '本机' }
 const STRIP_LABEL = '主机标签'
 /** `+` button label. */
 const ADD_LABEL = '新增标签'
+/** The active tab's refresh control: glyph and Chinese label for `title`/`aria-label`. */
+const REFRESH_GLYPH = '⟳'
+const REFRESH_LABEL = '刷新'
 /** How often a connecting tab asks for its progress log. */
 const LOG_POLL_MS = 500
 /** Gap between the `+` panel and the settings panel beside it. */
@@ -103,8 +114,14 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   let connections: SavedConnection[] = []
   let hosts: readonly SshHost[] = []
   let activeId: string | undefined
-  /** Invalidates an ssh activation that is still awaiting `up`. */
-  let activation = 0
+  /** Bumped per connection attempt; a tab's entry invalidates its older attempt. */
+  let attemptSeq = 0
+  /** Current attempt number per tab; absent means no attempt is trusted. */
+  const attempts = new Map<string, number>()
+  /** Tabs whose `up` is in flight (and whose log poller is running). */
+  const connecting = new Set<string>()
+  /** Tabs whose refresh is in flight, so repeated clicks are ignored. */
+  const refreshing = new Set<string>()
   let menu: HTMLElement | undefined
   let resizeObserver: ResizeObserver | undefined
 
@@ -169,10 +186,16 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     for (const button of buttons()) {
       button.setAttribute('aria-pressed', String(button.dataset.dshDesktopTab === activeId))
     }
-    // The row background belongs to the slot, so the label and the `×` share it.
+    // The row background belongs to the slot, so the label, the refresh control,
+    // and the `×` share it.
     for (const slot of strip.querySelectorAll<HTMLElement>(`[${TAB_SLOT_ATTR}]`)) {
       if (slot.dataset.dshDesktopTabSlot === activeId) slot.setAttribute(TAB_ACTIVE_ATTR, '')
       else slot.removeAttribute(TAB_ACTIVE_ATTR)
+    }
+    // Only the active tab reloads itself, so its refresh control is the only one
+    // rendered; `hidden` keeps the inactive ones out of the tab order as well.
+    for (const refreshButton of strip.querySelectorAll<HTMLButtonElement>('[data-dsh-desktop-tab-refresh]')) {
+      refreshButton.hidden = refreshButton.dataset.dshDesktopTabRefresh !== activeId
     }
   }
 
@@ -183,8 +206,8 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
 
   const createTabEntry = (tab: DesktopTab): HTMLElement => {
     // The slot is the visual row (and paints its own hover/active background);
-    // the two inner buttons stay focusable controls, since a button may not
-    // contain another button.
+    // the inner buttons stay focusable controls, since a button may not contain
+    // another button.
     const slot = document.createElement('div')
     slot.setAttribute(TAB_SLOT_ATTR, tab.id)
     slot.setAttribute('role', 'presentation')
@@ -197,6 +220,19 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     label.addEventListener('click', () => { guard(activate(tab.id), 'switch') })
     slot.append(label)
     if (!isLocalTab(tab)) {
+      // The active tab reloads its content and connection; the control sits next
+      // to `×` and is revealed for the active tab only (see `markActive`).
+      const refreshButton = document.createElement('button')
+      refreshButton.type = 'button'
+      refreshButton.textContent = REFRESH_GLYPH
+      refreshButton.title = `${REFRESH_LABEL} ${tab.title}`
+      refreshButton.setAttribute('aria-label', `${REFRESH_LABEL} ${tab.title}`)
+      refreshButton.dataset.dshDesktopTabRefresh = tab.id
+      refreshButton.hidden = tab.id !== activeId
+      refreshButton.addEventListener('click', (event) => {
+        event.stopPropagation()
+        guard(refreshTab(tab.id), 'refresh')
+      })
       const closeButton = document.createElement('button')
       closeButton.type = 'button'
       closeButton.textContent = '✕'
@@ -207,7 +243,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
         event.stopPropagation()
         guard(closeTab(tab.id), 'close')
       })
-      slot.append(closeButton)
+      slot.append(refreshButton, closeButton)
     }
     return slot
   }
@@ -246,6 +282,23 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     })
   }
 
+  /** Start a new connection attempt for a tab, invalidating its previous one. */
+  function beginAttempt(id: string): number {
+    attemptSeq += 1
+    attempts.set(id, attemptSeq)
+    return attemptSeq
+  }
+
+  /** Drop a tab's runtime state: in-flight attempt, retained guest, and its surface. */
+  function forgetTab(id: string): void {
+    // A tab's entry in `attempts` is the validity token of its pending `up`:
+    // deleting it makes every result still on its way stale.
+    attempts.delete(id)
+    connecting.delete(id)
+    refreshing.delete(id)
+    view.unload(id)
+  }
+
   /** Poll one connecting tab's progress log until the connection settles. */
   function pollConnectionLog(id: string, run: number): () => void {
     let timer: number | undefined
@@ -256,7 +309,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
       timer = undefined
     }
     const read = async (): Promise<void> => {
-      if (stopped || run !== activation) {
+      if (stopped || run !== attempts.get(id)) {
         stop()
         return
       }
@@ -267,9 +320,9 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
         // A missed poll is transient; the next tick retries.
         return
       }
-      if (stopped || run !== activation) return
+      if (stopped || run !== attempts.get(id)) return
       const status = list.find((entry) => entry.id === id)
-      if (status?.log !== undefined) view.setLog(status.log)
+      if (status?.log !== undefined) view.setLog(id, status.log)
       // The connection owns the lifetime: once it settles, the log is final.
       if (status?.state === 'up' || status?.state === 'error') stop()
     }
@@ -283,43 +336,97 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     void fetchConnections()
       .then((list) => {
         const status = list.find((entry) => entry.id === id)
-        if (run === activation && status?.log !== undefined) view.setLog(status.log)
+        if (run === attempts.get(id) && status?.log !== undefined) view.setLog(id, status.log)
       })
       .catch(() => {})
   }
 
-  /** Activate one tab, bringing its ssh connection up first when it has no address. */
+  /** The view target of a tab whose address is known. */
+  function targetOf(tab: DesktopTab, url: string): RemoteTarget {
+    return { account: account(tab), url, title: tab.title }
+  }
+
+  /** Reveal a tab: its retained guest, or a fresh connection when it has none. */
   async function activate(id: string | undefined): Promise<void> {
     const tab = tabs.find((candidate) => candidate.id === id)
     if (tab === undefined) return
     activeId = tab.id
     markActive()
-    const run = ++activation
-    if (tab.url !== undefined) {
-      view.show({ account: account(tab), url: tab.url, title: tab.title })
-      return
-    }
     if (isLocalTab(tab)) {
       view.hide()
       return
     }
-    // The placeholder page replaces whatever the previous tab showed before the
-    // connection is even attempted; the log below is the progress feedback.
-    view.open(tab.title)
-    const stopLog = pollConnectionLog(tab.id, run)
+    view.activate(tab.id)
+    if (tab.url !== undefined) {
+      // An addressed tab is never reconnected: its retained guest is the tab.
+      if (!view.hasGuest(tab.id)) view.show(tab.id, targetOf(tab, tab.url))
+      return
+    }
+    // A tab that already has its guest, or is still connecting, only gets revealed.
+    if (view.hasGuest(tab.id) || connecting.has(tab.id)) return
+    await connectTab(tab)
+  }
+
+  /**
+   * Connect one ssh tab and load it into a fresh guest.
+   * @param refresh - tear the local tunnel down first, then reconnect.
+   */
+  async function connectTab(tab: DesktopTab, refresh = false): Promise<void> {
+    const id = tab.id
+    const run = beginAttempt(id)
+    connecting.add(id)
+    // The tab's placeholder replaces its guest before the attempt is made; the
+    // log started below is the progress feedback.
+    view.open(id, tab.title)
+    let stopLog: () => void = () => {}
     try {
-      const url = await upConnection(tab.id)
-      if (run !== activation) return
+      if (refresh) {
+        // `up` returns an established connection as-is, so a refresh must prove
+        // the old tunnel is gone before asking for a new one. Tearing it down
+        // first also drops the settled record whose log would end the poller
+        // before the reconnect writes its own.
+        await downConnection(id).catch((error: unknown) => {
+          console.warn(`[dsh-desktop-tabs] could not bring connection '${id}' down before reconnecting:`, error)
+        })
+        if (attempts.get(id) !== run) return
+      }
+      stopLog = pollConnectionLog(id, run)
+      const url = await upConnection(id)
+      if (attempts.get(id) !== run) return
       stopLog()
-      clearTabError(tab.id)
-      view.show({ account: account(tab), url, title: tab.title })
+      clearTabError(id)
+      view.show(id, targetOf(tab, url))
     } catch (error: unknown) {
-      if (run !== activation) return
+      if (attempts.get(id) !== run) return
       const text = message(error)
       stopLog()
-      failTab(tab.id, text)
-      view.fail(`${tab.title} 连接失败：${text}`)
-      reapLog(tab.id, run)
+      failTab(id, text)
+      view.fail(id, `${tab.title} 连接失败：${text}`)
+      reapLog(id, run)
+    } finally {
+      if (attempts.get(id) === run) connecting.delete(id)
+    }
+  }
+
+  /** Reload the active tab: unload its content and re-establish its connection. */
+  async function refreshTab(id: string): Promise<void> {
+    const tab = tabs.find((candidate) => candidate.id === id)
+    if (tab === undefined || isLocalTab(tab)) return
+    // A connection in flight is already resetting the tab; let it settle instead
+    // of aborting it (an aborted attempt tears down the remote session it made).
+    if (refreshing.has(id) || connecting.has(id)) return
+    refreshing.add(id)
+    try {
+      clearTabError(id)
+      if (tab.url !== undefined) {
+        // No connection behind an addressed tab: unloading and loading the same
+        // address again is the whole refresh.
+        view.show(id, targetOf(tab, tab.url))
+        return
+      }
+      await connectTab(tab, true)
+    } finally {
+      refreshing.delete(id)
     }
   }
 
@@ -327,6 +434,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   async function closeTab(id: string): Promise<void> {
     const tab = tabs.find((candidate) => candidate.id === id)
     if (tab === undefined || isLocalTab(tab)) return
+    forgetTab(id)
     tabs = tabs.filter((candidate) => candidate.id !== id)
     render()
     if (activeId === id) {
@@ -403,6 +511,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
       })
       await persist()
       panel.close()
+      forgetTab(id)
       guard(activate(id), 'switch')
       return
     }
@@ -418,6 +527,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     connections = connections.filter((candidate) => candidate.id !== connection.id)
     const openTab = tabs.find((tab) => tab.id === connection.id)
     if (openTab !== undefined) {
+      forgetTab(connection.id)
       tabs = tabs.filter((tab) => tab.id !== connection.id)
       render()
       if (activeId === connection.id) {

@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop-tabs",
-  "description": "Desktop-shell prototype: a host tab strip anchored to the Windows caption menu, where each remote tab is one leased <webview> that is destroyed when switched away from",
+  "description": "Desktop-shell prototype: a host tab strip anchored to the Windows caption menu, where each remote tab keeps one leased <webview> alive for as long as the tab is open (switching only hides it) and the active tab offers a refresh control beside its close button",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -29,7 +29,8 @@
   },
   "scripts": {
     "build": "tsdown",
-    "watch": "tsdown --watch"
+    "watch": "tsdown --watch",
+    "test": "node tests/remote.test.mjs && node tests/view-retention.spec.ts && node tests/clipboard-relay.spec.ts && node tests/notify-relay.spec.ts"
   },
   "license": "Unlicense",
   "peerDependencies": {
