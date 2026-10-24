@@ -11,7 +11,7 @@
 
 - deepseek-harness: dsh框架本体
 - docs: 文档目录
-- global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把 `AGENTS.global_template.md` 部署为 `.dsh/AGENTS.md`，并把 `global_template.agents/` 下缺失的文件装到运行时根的 `.dsh/`（docs/、skills/），已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；harness 从 harness home 直接读取，无需设置 `DSH_AGENTS_HOME`）
+- global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把 `AGENTS.global_template.md` 部署为 `.dsh/AGENTS.md`，并把 `global_template.agents/` 下缺失的文件装到运行时根的 `.dsh/`（docs/、skills/），已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；harness 从 harness home 直接读取，无需设置 `DSH_AGENTS_HOME`；旧布局的 `.dsh/.agents/` 会先合并到 `.dsh/` 再删除，已安装 `AGENTS.md` 里的旧 `.agents/` 路径引用会被定点改写，其余内容保留）
 - harness.json: dsh 运行时清单（选择 npm 安装还是源码编译，并锁定版本）
 - plugins: 本地插件目录
 - presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到 profile 的 `@deepseek-ai/dsh-agent-preset` 声明行；见 presets/README.md）

@@ -67,7 +67,7 @@ plugins/
 
 靠提示词与现有工具完成的用户级指令（例如 `/review`）做成 skill，不要建 wrapper：
 源文件放 `global_template.agents/skills/<name>/SKILL.md`，构建安装到
-`.dsh/.agents/`；只有需要注册 service、工具或命令的能力才写成插件。
+`$DSH_HOME/skills/`（运行时根的 `.dsh/skills/`）；只有需要注册 service、工具或命令的能力才写成插件。
 
 ### 1.2 两种来源
 

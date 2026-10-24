@@ -10,7 +10,8 @@
  *            entry exe (release unless --debug) -> plugins (each
  *            plugins/<id>/install.mjs) -> install agent presets -> install the
  *            global agent template (AGENTS.global_template.md -> .dsh/AGENTS.md,
- *            and global_template.agents/ -> .dsh/, missing files only)
+ *            and global_template.agents/ -> .dsh/, missing files only, after
+ *            merging up a retired .dsh/.agents/ install)
  *   build    dsh runtime (unless --skip-harness) -> entry exe -> plugins (each
  *            plugins/<id>/install.mjs) -> install agent presets -> install the
  *            global agent template
@@ -87,7 +88,9 @@ import {
   bootstrapPnpm,
   cargoToolchainEnv,
   fillTreeFromTemplate,
+  migrateLegacyAgentsHome,
   pnpm,
+  repairLegacyAgentsReferences,
   resolveCargo,
   run,
 } from './toolchain.mjs'
@@ -497,17 +500,39 @@ function installPresets() {
  *   (`@deepseek-ai/dsh-skill-filesystem`) scans at `<DSH_HOME>/docs` /
  *   `<DSH_HOME>/skills` in every workspace.
  *
+ * An installation made before the template moved into the harness home keeps
+ * its copy under `<DSH_HOME>/.agents/`, which no provider scans any more once
+ * the shell sets no `DSH_AGENTS_HOME`. Merge that tree up into `<DSH_HOME>/`
+ * first, and repair the retired path references an already-installed
+ * `AGENTS.md` still carries — the one edit the no-overwrite rule cannot leave
+ * alone, because those references point at a directory that is gone.
+ *
  * Update `AGENTS.global_template.md` / `global_template.agents/` for content
  * that should change.
  */
 function installGlobalTemplate() {
   const target = WEB_HOME
   let written = 0
+  let repaired = 0
   step('Install the global agent template into the harness home', () => {
     mkdirSync(target, { recursive: true })
+    const migration = migrateLegacyAgentsHome(target)
+    if (migration.merged > 0) {
+      console.log(`Merged ${migration.merged} file(s) from the retired .dsh/.agents layout into .dsh/.`)
+    }
+    if (migration.removed) {
+      console.log('Removed the retired .dsh/.agents tree — every file it held now lives under .dsh/.')
+    } else if (migration.kept.length > 0) {
+      console.log(`Kept .dsh/.agents: ${migration.kept.length} file(s) exist only there (${migration.kept.join(', ')}).`)
+    }
     const agentsFile = join(target, 'AGENTS.md')
     if (existsSync(agentsFile)) {
-      console.log('AGENTS.md already installed — left untouched.')
+      repaired = repairLegacyAgentsReferences(agentsFile)
+      console.log(
+        repaired > 0
+          ? `Repaired ${repaired} retired .agents/ reference(s) in AGENTS.md; every other edit left untouched.`
+          : 'AGENTS.md already installed — left untouched.',
+      )
     } else if (existsSync(AGENTS_FILE_TEMPLATE)) {
       copyFileSync(AGENTS_FILE_TEMPLATE, agentsFile)
       written += 1
@@ -520,7 +545,10 @@ function installGlobalTemplate() {
       written += fillTreeFromTemplate(GLOBAL_AGENTS_TEMPLATE, target)
     }
   })
-  console.log(`Installed the global agent template into ${target} (${written} new file(s); existing files left untouched)`)
+  console.log(
+    `Installed the global agent template into ${target} (${written} new file(s); existing files kept` +
+      `${repaired > 0 ? `; ${repaired} retired reference(s) repaired` : ''}).`,
+  )
 }
 
 /**
@@ -628,7 +656,8 @@ Commands:
               plugins/<id>/install.mjs) -> agent presets (each
               presets/<id>/install.mjs) -> global agent template
               (AGENTS.global_template.md -> .dsh/AGENTS.md, and
-              global_template.agents/ -> .dsh/, missing files only)
+              global_template.agents/ -> .dsh/, missing files only, after
+              merging up a retired .dsh/.agents/ install)
   build       dsh runtime (unless --skip-harness) -> entry exe -> plugins
               (each plugins/<id>/install.mjs) -> agent presets ->
               global agent template

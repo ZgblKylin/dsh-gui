@@ -57,7 +57,7 @@ whenToUse: 需要把 deepseek-harness 或某个插件模块升级到更新的上
    ```powershell
    cd .staging\dsh-gui
    $env:DSH_GUI_PORT = "3090"   # 空闲端口：正在运行的 dsh-gui 占着 3080
-   npm run harness              # scripts/harness.mjs：副本 .dsh 为 DSH_HOME，副本 .dsh\.agents 为 DSH_AGENTS_HOME
+   npm run harness              # scripts/harness.mjs：副本运行时根的 .dsh 为 DSH_HOME；不设 DSH_AGENTS_HOME（全局模板从 harness home 读取）
    ```
 
    在 `http://127.0.0.1:3090`（或所选空闲端口）确认会话界面正常渲染、能新建或载入会话、插件与组合没有加载失败提示或错误覆盖层；在 agent 会话中以后台任务启动它，确认手段不限（浏览器或 computer use），但必须以真实渲染结果为准，不能只看进程起来了。确认后结束该实例，不要把端口或 profile 留给后续步骤复用。

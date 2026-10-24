@@ -11,7 +11,16 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolveRuntimeRoot } from './harness-runtime.mjs'
@@ -157,6 +166,65 @@ export function fillTreeFromTemplate(source, target) {
     }
   }
   return written
+}
+
+/** Path prefix an installed `AGENTS.md` used before the template moved into the harness home. */
+const LEGACY_AGENTS_HOME_PREFIX = '$env:DSH_HOME/.agents/'
+
+/**
+ * Merge a retired `<DSH_HOME>/.agents/` install into the harness home itself.
+ *
+ * The global agent template used to land under `<DSH_HOME>/.agents/`, selected
+ * through a `DSH_AGENTS_HOME` override. The shell sets no override any more, so
+ * nothing scans the retired tree: its docs and skills stop loading as soon as an
+ * installation no longer points there. Copy every missing file up into
+ * `<DSH_HOME>/` under the same no-overwrite rule as the template fill, then
+ * remove the retired tree only once every file it held now lives beside the
+ * home. A file that exists only there keeps the tree in place and is reported
+ * instead of deleted.
+ *
+ * @param {string} home - harness home (`<DSH_HOME>`).
+ * @returns {{ merged: number, removed: boolean, kept: string[] }} files copied
+ *   up, whether the retired tree was removed, and the relative paths that kept
+ *   it in place.
+ */
+export function migrateLegacyAgentsHome(home) {
+  const legacy = join(home, '.agents')
+  if (!existsSync(legacy)) return { merged: 0, removed: false, kept: [] }
+  const merged = fillTreeFromTemplate(legacy, home)
+  const kept = []
+  const collect = (directory, prefix) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const relative = prefix === '' ? entry.name : join(prefix, entry.name)
+      if (entry.isDirectory()) collect(join(directory, entry.name), relative)
+      // The fill copies regular files only; anything else has no counterpart
+      // under the home yet, so it keeps the retired tree from being removed.
+      else if (!entry.isFile() || !existsSync(join(home, relative))) kept.push(relative)
+    }
+  }
+  collect(legacy, '')
+  const removed = kept.length === 0
+  if (removed) rmSync(legacy, { recursive: true, force: true })
+  return { merged, removed, kept }
+}
+
+/**
+ * Point an installed `AGENTS.md` at the current template location.
+ *
+ * The install never rewrites an existing `AGENTS.md` so user edits (a persona
+ * block, for one) survive every build, which also pinned path references
+ * written for the retired `<DSH_HOME>/.agents/` layout forever. Rewrite only
+ * those references; every other byte stays as it was.
+ *
+ * @param {string} file - installed `AGENTS.md`.
+ * @returns {number} how many references were rewritten.
+ */
+export function repairLegacyAgentsReferences(file) {
+  const source = readFileSync(file, 'utf8')
+  const parts = source.split(LEGACY_AGENTS_HOME_PREFIX)
+  if (parts.length === 1) return 0
+  writeFileSync(file, parts.join('$env:DSH_HOME/'))
+  return parts.length - 1
 }
 
 /**

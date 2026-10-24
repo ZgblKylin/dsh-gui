@@ -290,7 +290,12 @@ This is idempotent and writes only under the runtime root:
   and user-level skills (the `review` skill among them) reach every session
   from the harness home — no `DSH_AGENTS_HOME` override is needed. Only missing
   files are written: an already-installed doc or skill is never overwritten, so
-  your edits to the installed copy survive every build.
+  your edits to the installed copy survive every build. An installation from the
+  retired layout is migrated in the same step: a `<runtime-root>/.dsh/.agents/`
+  tree is merged up into `.dsh/` (and removed once every file lives there), and
+  `.agents/` path references in an already-installed `AGENTS.md` are rewritten
+  to the home-relative paths — the only in-place edit, because those references
+  point at a directory that no longer exists.
 
 The result is the entry binary at the runtime root (cargo keeps its own
 output at `src-tauri\target\release\` or `target\debug\`).

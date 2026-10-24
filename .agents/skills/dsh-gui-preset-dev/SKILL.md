@@ -155,21 +155,25 @@ preset 决定「一个 agent 有什么能力」，用户级 skill 决定「任�
 | | preset | 用户级 skill |
 |---|---|---|
 | 仓库源 | `presets/<id>/` | `global_template.agents/skills/<name>/SKILL.md` |
-| 安装目标 | profile patch 里的 preset 声明行（`$DSH_HOME/profiles/web/cordis.patch.yml`） | `.dsh/.agents/skills/<name>/` |
+| 安装目标 | profile patch 里的 preset 声明行（`$DSH_HOME/profiles/web/cordis.patch.yml`） | `$DSH_HOME/skills/<name>/` |
 | 安装者 | `presets/<id>/install.mjs`（每个 preset 自带） | `scripts/dsh-gui.mjs` 的 `installGlobalTemplate()`（`setup` / `build` 都跑） |
 
 - `global_template.agents/` 是整份 agent 配置模板（`docs/` 常驻文档 +
   `skills/` 用户级 skill），构建时把其中**缺失**的文件装到
-  `$DSH_HOME/.agents/`。已存在的文件不覆盖，用户对已安装文档/skill 的修改
-  因此能跨构建保留；要改内容就改 `global_template.agents/` 下的源文件，
-  但已存在的安装副本需要用户自行删掉或同步。
-- harness 只有在 `DSH_AGENTS_HOME` 指向该目录时才把它当 agents home 扫描：
-  外壳 `src-tauri/src/main.rs` 启动 harness 时已 pin
-  `DSH_AGENTS_HOME=<runtime-root>/.dsh/.agents`（`skill-filesystem` 的 `agentsHome`
-  缺省是 `$DSH_AGENTS_HOME` 或 `~/.agents`）。
-- skill 因此以 source `user-agents`（rank 500）被发现，对所有 workspace 生效；
+  `<DSH_HOME>/` 本身（运行时根的 `.dsh/docs/`、`.dsh/skills/`）。已存在的
+  文件不覆盖，用户对已安装文档/skill 的修改因此能跨构建保留；要改内容就改
+  `global_template.agents/` 下的源文件，但已存在的安装副本需要用户自行删掉
+  或同步。
+- harness 直接从 harness home 扫描，不需要额外覆盖：外壳
+  `src-tauri/src/main.rs` 启动 harness 时只 pin `DSH_HOME`，不设
+  `DSH_AGENTS_HOME`（`skill-filesystem` 的 `dshHome` 缺省是 `$DSH_HOME`，
+  `agentsHome` 缺省是 `$DSH_AGENTS_HOME` 或 `~/.agents`）。
+- skill 因此以 source `user-dsh`（rank 400）被发现，对所有 workspace 生效；
   skill 的 frontmatter（`name`/`description`/`whenToUse`/`user-invocable`）与
   写作规范见 [`packages/skill/skill-filesystem/README.md`](../../../deepseek-harness/packages/skill/skill-filesystem/README.md)。
+- 旧安装的 `.dsh/.agents/` 布局会在构建时合并到 `.dsh/` 并删除该目录；已安装
+  `AGENTS.md` 里的 `.agents/docs/` 引用会被改写成 `docs/`，其余内容（含手工
+  添加的段落）原样保留。
 
 ## 3. 编写 preset 声明的技术要点
 
@@ -348,7 +352,7 @@ persona 不发布服务，可以裸放。Windows 上同一 group 里另有 `term
 - [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— 构建时安装 preset 与
   global_template.agents 的入口（`installPresets()` / `installGlobalTemplate()`）。
 - [`global_template.agents/`](../../../global_template.agents) —— 用户级 skill 与
-  常驻文档的源目录（安装到 `.dsh/.agents/`，见 2.3）。
+  常驻文档的源目录（安装到 `.dsh/docs/`、`.dsh/skills/`，见 2.3）。
 - [`.agents/skills/dsh-gui-plugin-dev/SKILL.md`](../../../.agents/skills/dsh-gui-plugin-dev/SKILL.md) —— 插件开发 skill；preset 常引用插件行。
 
 **deepseek-harness 侧**
