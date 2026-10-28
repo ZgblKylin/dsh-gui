@@ -99,6 +99,65 @@ const DESKTOP_PROFILE = join(WEB_HOME, 'profiles', 'desktop')
 /** How long the first app start may take to write the profile, in milliseconds. */
 const PROFILE_INIT_TIMEOUT_MS = 120_000
 
+/**
+ * Local edits applied to the pinned source checkout while it is built, and
+ * reverted afterwards.
+ *
+ * `packages/experimental/inspector/scripts/build-devtools.ts` publishes the
+ * compiled DevTools tree with a bare directory `rename`, which Windows can
+ * reject with `EPERM` while the freshly written tree is still being released.
+ * The patch retries that rename and then copies the tree instead, because
+ * writing files never needs a directory rename. Every anchor is a complete
+ * single line and must match exactly once: an upstream edit fails the build
+ * with the stale anchor named, rather than applying half a patch. Anchors stay
+ * on one line so a CRLF checkout matches them as well.
+ */
+const SOURCE_PATCHES = [
+  {
+    file: 'packages/experimental/inspector/scripts/build-devtools.ts',
+    replacements: [
+      {
+        before: "import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'",
+        after: "import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'",
+      },
+      {
+        before: 'let pending: Promise<{ files: number; bytes: number }> | undefined',
+        after: [
+          'let pending: Promise<{ files: number; bytes: number }> | undefined',
+          '',
+          '/**',
+          ' * Publish the compiled tree into `lib/devtools`.',
+          ' *',
+          ' * Windows can refuse the directory rename with `EPERM` while a freshly',
+          ' * written tree is still held, so the rename is retried with backoff; if it',
+          ' * keeps failing, the tree is copied into place, because writing files never',
+          ' * needs a directory rename.',
+          ' */',
+          'async function publish(source: string, target: string): Promise<void> {',
+          "  const transient = new Set(['EPERM', 'EACCES', 'EBUSY'])",
+          '  for (let attempt = 0; attempt < 8; attempt++) {',
+          '    try {',
+          '      await rename(source, target)',
+          '      return',
+          '    } catch (error) {',
+          '      const code = (error as NodeJS.ErrnoException).code',
+          '      if (code === undefined || !transient.has(code) || attempt === 7) break',
+          '      console.warn(`DevTools publish: rename attempt ${attempt + 1} failed (${code}); retrying`)',
+          '      await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)))',
+          '    }',
+          '  }',
+          '  await cp(source, target, { recursive: true })',
+          '}',
+        ].join('\n'),
+      },
+      {
+        before: '    await rename(temporary, output)',
+        after: '    await publish(temporary, output)',
+      },
+    ],
+  },
+]
+
 function step(name, fn) {
   console.log(`\n==> ${name}`)
   return fn()
@@ -191,6 +250,42 @@ function pinnedRevision() {
 }
 
 /**
+ * Apply {@link SOURCE_PATCHES} to the source checkout.
+ *
+ * @throws when an anchor is missing or matches more than once, which means the
+ *   upstream file changed and the patch needs a review.
+ */
+function applySourcePatches() {
+  for (const patch of SOURCE_PATCHES) {
+    const file = join(SOURCE, patch.file)
+    let text = readFileSync(file, 'utf8')
+    for (const { before, after } of patch.replacements) {
+      const occurrences = text.split(before).length - 1
+      if (occurrences !== 1) {
+        throw new Error(
+          `desktop source patch: ${JSON.stringify(before)} must occur exactly once in ${file}, found ${occurrences}`,
+        )
+      }
+      text = text.replace(before, after)
+    }
+    writeFileSync(file, text)
+    console.log(`patched for the build: ${patch.file}`)
+  }
+}
+
+/** Revert {@link SOURCE_PATCHES}, so the next source sync's dirty check passes. */
+function revertSourcePatches() {
+  const files = SOURCE_PATCHES.map((patch) => patch.file)
+  const result = captureGit(['checkout', '--', ...files], SOURCE)
+  if (!result.ok) {
+    throw new Error(
+      `could not revert the desktop source patches: ${result.stderr.trim() || `exit ${result.status}`}`,
+    )
+  }
+  console.log(`reverted ${files.length} patched source file(s)`)
+}
+
+/**
  * Replace the source checkout with a fresh one at `revision`.
  *
  * `--no-checkout` plus a detached checkout mirrors the submodule pointer rather
@@ -228,9 +323,18 @@ function syncSource(options) {
     } else {
       const dirty = gitOrThrow(['status', '--porcelain'], SOURCE, `git status in ${SOURCE}`)
       if (dirty !== '') {
-        throw new Error(
-          `${SOURCE} has uncommitted changes; commit or discard them, or re-run with --force-source:\n${dirty}`,
-        )
+        // A build interrupted between apply and revert leaves exactly the patched
+        // files dirty; restore those instead of refusing the whole chain. Any
+        // other change is the caller's and still aborts.
+        const lines = dirty.split('\n').filter((line) => line !== '')
+        const patched = new Set(SOURCE_PATCHES.map((patch) => patch.file))
+        if (!lines.every((line) => patched.has(line.slice(3).trim()))) {
+          throw new Error(
+            `${SOURCE} has uncommitted changes; commit or discard them, or re-run with --force-source:\n${dirty}`,
+          )
+        }
+        console.log(`reverting ${lines.length} patched file(s) left by an interrupted build`)
+        revertSourcePatches()
       }
       const head = gitOrThrow(['rev-parse', 'HEAD'], SOURCE, `git rev-parse HEAD in ${SOURCE}`)
       if (head === revision) {
@@ -875,8 +979,16 @@ export function buildDesktop(options = {}) {
   writePackageEnvironment()
   ensureElectron()
   cleanSource()
-  buildOfficial()
-  packageDesktop()
+  // The packaging chain runs `build:official` again before it packages, so the
+  // patch has to cover both steps; reverting in `finally` keeps the checkout
+  // clean for the next sync whether the build succeeds or fails.
+  applySourcePatches()
+  try {
+    buildOfficial()
+    packageDesktop()
+  } finally {
+    revertSourcePatches()
+  }
   const landed = landUnpacked()
   const shim = buildShim(options)
   const plugins = installDesktopPlugins(options)

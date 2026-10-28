@@ -16,8 +16,8 @@ Tauri 外壳（`dsh-gui.exe`）与 desktop 是两个并列的产品：外壳用�
 2. 在 `.desktop\source` 内执行 `pnpm install --frozen-lockfile`；依赖树完整时跳过。
 3. 在 `.desktop\source\apps\desktop\.env.windows` 缺失时生成免签名构建所需的最小包环境配置。
 4. 在 `.desktop\source\apps\desktop\node_modules\electron` 内执行 `node install.js`，安装 Electron 二进制。
-5. 在 `.desktop\source` 内执行 `pnpm run clean`，随后执行 `pnpm run build:official`。
-6. 执行 `pnpm run package:desktop:win:x64:unsigned -- --dir`。
+5. 在 `.desktop\source` 内执行 `pnpm run clean`，随后应用构建期源码补丁并执行 `pnpm run build:official`。
+6. 执行 `pnpm run package:desktop:win:x64:unsigned -- --dir`；该打包链会再执行一次 `pnpm run build:official`，随后还原构建期源码补丁。
 7. 把 `unsigned-artifacts\win-unpacked` 的内容落位到 `<runtime-root>\desktop`。
 8. 编译 shim，产出 `<runtime-root>\dsh-gui-desktop.exe`。
 9. 先用该 CLI 与本次构建出的兼容性判定清理 desktop profile 中当前 dsh 版本拒绝的直接依赖（各 wrapper 随后会重新安装自己的固定版本），再把 `plugins/<id>/install.mjs` 逐个安装到 desktop profile，目标目录是 `<runtime-root>\.dsh\profiles\desktop`；其中 `plugins/auto-update/install.mjs` 是 desktop-only 插件，非 desktop profile 只打印 skip 并退出 0（见下节）。
@@ -106,6 +106,17 @@ Electron 与 electron-builder 的下载镜像不硬编码，而是从 npm regist
 |---|---|---|
 | 打包在 `prepare:packages` 阶段失败，报 `tar (child): Cannot connect to D: resolve failed` | 上游把带盘符的绝对路径交给 `tar`，PATH 上的 Git GNU tar 按 POSIX 把盘符解析为远端主机 | 打包步骤把 `%SystemRoot%\System32` 前置到 `PATH`，让 Windows 内置 bsdtar 先于 Git 的 GNU tar 命中 |
 | primary runtime 资产的下载速率极低 | 上游脚本串行单流拉取 GitHub release 资产，该通道慢；这些下载走 Node 全局 `fetch`，不设置 `NODE_USE_ENV_PROXY` 时任何代理都不生效 | 构建链解析代理并启用 `NODE_USE_ENV_PROXY`，让下载走系统代理（见「联网下载」）；通道仍慢时可用镜像预置锁定资产供产品脚本按 SHA-256 自验后复用 |
+| 发布 DevTools 时 `rename` 报 `EPERM`，Host bundle 失败 | 上游 `packages/experimental/inspector/scripts/build-devtools.ts` 用目录 `rename` 发布 `lib/devtools`；Windows 在刚写完的目录尚未完全释放时拒绝该重命名，脚本不重试 | 构建链对该上游脚本应用构建期补丁，发布改为带退避重试的 `rename`，重试耗尽后回退到递归复制（见「构建期源码补丁」） |
+
+## 构建期源码补丁
+
+`npm run build:desktop` 在 `pnpm run clean` 之后应用构建期源码补丁，在打包步骤结束之后用 `git checkout` 还原。补丁只改 `.desktop\source` 检出内的上游文件，不写入 `deepseek-harness/` 子模块；检出的未提交改动因此只存在于构建期间。
+
+补丁由 `scripts/desktop.mjs` 的 `SOURCE_PATCHES` 定义：每项给出检出内的相对路径与一组「锚点、替换」对，锚点必须是上游文件中的完整单行且恰好出现一次。锚点缺失或出现多次时，构建以指名该锚点的错误中止，不写入半份改动。补丁覆盖第 5 步的构建与打包链内的再次构建，打包结束后无论成败都还原。
+
+`syncSource` 的脏检出检查对补丁文件例外：未提交改动全部是补丁文件时，构建先还原它们再继续；存在其他改动时仍按原规则中止。该例外只用于恢复上一次构建中断留下的状态。
+
+当前补丁针对 DevTools 的发布步骤：`rename` 对 `EPERM`、`EACCES` 与 `EBUSY` 逐次退避重试，重试耗尽后改用递归复制。升级 `deepseek-harness` 后若锚点失配，按新文件内容更新 `SOURCE_PATCHES`。
 
 ## 未签名与 SmartScreen
 
