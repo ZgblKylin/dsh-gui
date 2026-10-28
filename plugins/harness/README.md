@@ -1,8 +1,9 @@
 # plugins/harness
 
 dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在一个 wrapper 里
-管理。平铺结构，没有二级子目录；`install.mjs` 是流水线入口，按顺序加载目录里的
-各插件 installer。本 wrapper 只安装 Browser Use（Playwright MCP）与
+管理。installer 平铺，没有二级子目录；`install.mjs` 是流水线入口，按顺序加载目录里的
+各插件 installer。`skills/` 子目录存放 WSL 专用 skill 模板，由 `wsl-workarounds.mjs`
+安装。本 wrapper 只安装 Browser Use（Playwright MCP）与
 Computer Use（Cua Driver native）两组包；Agent Teams 与 Auto review 是随 dsh
 安装提供的官方可选 bundle，由插件页开关直接管理，本 wrapper 既不安装它们，也不
 派生任何 preset。
@@ -12,6 +13,18 @@ Computer Use（Cua Driver native）两组包；Agent Teams 与 Auto review 是�
 | `install.mjs` | — | 流水线入口，依次加载所有平铺 installer |
 | `browser-use.mjs` | Browser Use (Playwright MCP) | 独占浏览器提供方注册服务 + Playwright MCP 提供方 |
 | `computer-use.mjs` | Computer Use (Cua Driver native) | 独占桌面提供方注册服务 + Cua Driver 原生提供方 |
+| `wsl-workarounds.mjs` | — | WSL 专用 skill 与 AGENTS.md 小节的安装逻辑，由 `scripts/dsh-gui.mjs` 在全局模板安装后调用 |
+| `skills/` | — | WSL skill 模板：`wsl-edge-browser-use`、`wsl-computer-use`，以及一次性安装 skill `wsl-xvfb-service` |
+
+## WSL workaround
+
+WSL 下 browser-use 与 computer-use 各有一处环境限制：browser-use 无法连接 Windows 端 Edge 监听的 loopback 调试端口；computer-use 无法使用 WSLg 的 X 显示（Weston 占用窗口管理器，Xwayland 的 root window 不可截图）。`wsl-workarounds.mjs` 在 `scripts/dsh-gui.mjs` 的 `setup` / `build` 流程中、全局 agent 模板安装之后执行，仅在检测到 WSL 时安装以下内容：
+
+- 把 `skills/wsl-edge-browser-use/SKILL.md` 与 `skills/wsl-computer-use/SKILL.md` 复制到 `<DSH_HOME>/skills/`，目标文件已存在时不覆盖；
+- 在 `<DSH_HOME>/AGENTS.md` 末尾追加两个独立小节（`## WSL workaround：Edge browser-use 端口转发` 与 `## WSL workaround：computer-use 虚拟桌面`），以标题行作为幂等键，已存在时不再写入；
+- 检测 `~/.config/systemd/user/xvfb.service` 与 `openbox.service`，缺失时在终端以强调字体提示用户后续通过 dsh 会话按一次性 skill `wsl-xvfb-service` 安装虚拟桌面。
+
+一次性安装 skill `wsl-xvfb-service` 不复制到 `<DSH_HOME>/skills/`：它检测真实环境（二进制路径、可用显示编号、分辨率、已有 service）后生成 Xvfb 与 openbox 的 systemd user service，只需执行一次。虚拟桌面装好之后，computer-use 的日常说明由 `wsl-computer-use` 提供。
 
 Agent Teams 与 Auto review 是随 dsh 安装提供的官方可选 bundle（`@deepseek-ai/dsh-experimental-agent-team-profile`、`@deepseek-ai/dsh-experimental-auto-review`，见 `deepseek-harness/packages/boot/app-boot/src/profile.ts` 的 `OPTIONAL_BUNDLES`）：插件页（插件 → 智能体团队 / 自动授权审查）的开关把它们写入 profile 的 `dsh.profile.bundles`，本 wrapper 不安装它们，也不向 patch 层写入任何 preset 声明。**Browser Use 与 Computer Use 的包都不声明 `dsh.bundle.patch`**，是普通 npm 依赖，由 `browser-use.mjs` / `computer-use.mjs` 通过共享流水线的显式 `mount` 选项写入 insert 行（Browser Use 的服务行 + 提供方行，提供方行带 `config`；Computer Use 的服务行 + 原生提供方行，原生提供方无配置、行不带 `config`，见下）。
 

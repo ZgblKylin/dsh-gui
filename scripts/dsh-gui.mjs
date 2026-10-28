@@ -97,6 +97,7 @@ import {
 import { pruneIncompatiblePlugins, recordNpmInstall } from './plugin-install.mjs'
 import { resolveDownloadProxy } from './proxy-environment.mjs'
 import { buildDesktop, runDesktop } from './desktop.mjs'
+import { installWslWorkarounds } from '../plugins/harness/wsl-workarounds.mjs'
 
 const SRC_TAURI = join(ROOT, 'src-tauri')
 /** Repository-root template deployed to `<DSH_HOME>/AGENTS.md` when missing. */
@@ -552,6 +553,20 @@ function installGlobalTemplate() {
 }
 
 /**
+ * Install the WSL-only skills and AGENTS.md sections after the global agent
+ * template, and highlight a missing computer-use virtual desktop in the
+ * terminal so the user can install it from a later dsh session.
+ */
+function installWslAgentExtras() {
+  const result = installWslWorkarounds({ dshHome: WEB_HOME })
+  if (result.skipped) return
+  for (const message of result.messages) console.log(message)
+  if (result.warning === null) return
+  const banner = ['', '='.repeat(72), result.warning, '='.repeat(72), ''].join('\n')
+  console.log(process.stdout.isTTY === true ? `\x1b[1;33m${banner}\x1b[0m` : banner)
+}
+
+/**
  * Render the web profile's composition as a build-time smoke check.
  *
  * `--profile web --dump-config` loads every loader entry and the profile's
@@ -581,6 +596,7 @@ function setup(options) {
   plugins(options)
   installPresets()
   installGlobalTemplate()
+  installWslAgentExtras()
   smokeComposition()
   console.log('\nDone. Entry exe at the runtime root; dsh runtime, plugins, agent presets, and the global agent template installed.')
 }
@@ -592,6 +608,7 @@ function build(options) {
   plugins(options)
   installPresets()
   installGlobalTemplate()
+  installWslAgentExtras()
   smokeComposition()
   console.log('\nDone. Entry exe at the runtime root; dsh runtime, plugins, agent presets, and the global agent template installed.')
 }
