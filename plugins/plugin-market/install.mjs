@@ -15,12 +15,12 @@
  * insert is written (that would double-mount it).
  *
  * The dshmarket version is a hard floor, not a preference: the harness
- * dsh-v0.2.1-rc.3 admission gate reads a package's declared dsh requirements
+ * dsh-v0.2.2-alpha.2 admission gate reads a package's declared dsh requirements
  * (`engines.dsh` when present, else its `@deepseek-ai/dsh` /
  * `@deepseek-ai/dsh-*` peers) against the running version, so the
  * `@deepseek-ai/dsh-settings` peer must carry a 0.2-line branch. 1.66.4 is the
  * first release that admits the 0.2 line through `^0.2.0-rc.1`, which covers
- * 0.2.1-rc.3; below it the install preflight exits 1 and `npm run build`
+ * 0.2.2-alpha.2; below it the install preflight exits 1 and `npm run build`
  * fails. 1.70.x extends that peer with `^0.2.1-alpha.3 || ^0.2.1-rc.1` and runs
  * its own peer check with `includePrerelease`, admitting prerelease host lines
  * instead of reporting them unmet; this wrapper pins 1.70.2.

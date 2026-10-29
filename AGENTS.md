@@ -193,12 +193,12 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
   - `cookbook/` — 新增工具、内置包、设置卡片、LLM 适配器、会话格式版本等分步指南
   - `subsystems/` — 逐个子系统一页的类型与语义参考，附生成的 Cordis API 小节
   - `architecture.md` — profile 与组合包、核心包、轮次流程、能力 seam 与新行为归属位置
-  - `capability-seams.md` — 核心服务图与能力 seam 的三种角色
+  - `capability-seams.md` — 核心服务图与能力 seam 的四类服务角色（core spine / capability seam / bundle composition point / standalone）
   - `event-producer-consumer.md` — 事件生产方与消费方矩阵
   - `tool-execution-pipeline.md` — 工具执行流水线
   - `packages-readme.md` — `packages/` 的分组、命名与依赖规则
   - `cordis-plugin-development/` — 官方插件开发 skill（`SKILL.md` 与 `references/`、`templates/` 模板）
-  - `cli-config-examples/` — 交付的可选功能 overlay 示例（`github-review`、`mcp-memory`）
+  - `cli-config-examples/` — 交付的可选功能 overlay 示例（`mcp-memory/` 与 `ptc.yml` 的 PTC overlay；`github-review` 示例已迁到 `packages/experimental/webhook-github/examples/github-review/`）
   - `cli-reference.md` — profile 组合、`dsh plugin add` 与 bundles reconcile 行为
   - `app-boot-profile.ts` — profile 模板、profile 目录与 bundle 层加载契约（`loadProfileDirectory` / `loadProfile`）
   - `package-manifest-types.ts` — `package.json.dsh` 的声明类型，含 `DshBundleManifest`（bundle 层契约）

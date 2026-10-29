@@ -23,11 +23,11 @@
  * version constant would therefore pin the manager to a version that does not
  * exist, so the pins are per package.
  *
- * The harness dsh-v0.2.1-rc.3 admission gate reads a package's `engines.dsh`
+ * The harness dsh-v0.2.2-alpha.2 admission gate reads a package's `engines.dsh`
  * first and only falls back to its dsh peer ranges when that field is absent.
  * The three packages declare no `engines.dsh`; their ranges are
  * `>=0.1.7-rc.1` for the manager and `>=0.2.0-rc.2 <0.3.0-0` for both skins,
- * which admit 0.2.1-rc.3, and the skins record `dshCompatibility: 0.2.1rc2` in
+ * which admit 0.2.2-alpha.2, and the skins record `dshCompatibility: 0.2.1rc2` in
  * their `skin.json` (shown by the skin manager only, not read by the gate), so
  * no exemption is needed.
  *

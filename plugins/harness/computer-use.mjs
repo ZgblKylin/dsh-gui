@@ -29,14 +29,16 @@
  * the shared pipeline's explicit `mount` option.
  *
  * The versions are pinned to the harness revision this repository builds
- * against: both packages declare exact `0.2.1-rc.3` peers, matching the pinned
- * `dsh-v0.2.1-rc.3` runtime. The pin MUST move in lockstep with the harness:
- * the admission gate compares every `@deepseek-ai/dsh*` peer against the
- * running version, so packages pinned to the previous `0.2.1-rc.2` release
- * are rejected under 0.2.1-rc.3. The four packages of this group all declare
- * exact `0.2.1-rc.3` peers, so all four specs stay on that version. The
+ * against: both packages declare exact `0.2.2-alpha.2` peers, matching the
+ * pinned `dsh-v0.2.2-alpha.2` runtime. The pin MUST move in lockstep with the
+ * harness: the admission gate compares every `@deepseek-ai/dsh*` peer against
+ * the running version, so packages pinned to the previous `0.2.1-rc.3` release
+ * are rejected under 0.2.2-alpha.2. The four packages of this group all declare
+ * exact `0.2.2-alpha.2` peers, so all four specs stay on that version. The
  * packages are prereleases, which is why the Community Market cannot carry
- * them.
+ * them. This release only ADDS the darwin-only `@deepseek-ai/dsh-cua` /
+ * `dsh-cua-bundle` layering; the two installed specs keep their names, mounts
+ * and empty Config, so Windows keeps the same mount shape.
  *
  * Mount source: explicit `mount` rows (id `computer-use` /
  * `computer-use-cua-driver-native`) via `installNpmPlugin`; neither package
@@ -51,8 +53,8 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 /** Wrapper id prefix: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'computer-use'
 
-const COMPUTER_USE_SPEC = '@deepseek-ai/dsh-computer-use@0.2.1-rc.3'
-const CUA_DRIVER_NATIVE_SPEC = '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.1-rc.3'
+const COMPUTER_USE_SPEC = '@deepseek-ai/dsh-computer-use@0.2.2-alpha.2'
+const CUA_DRIVER_NATIVE_SPEC = '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-alpha.2'
 
 // The core service first: the provider injects `computerUse`.
 installNpmPlugin({

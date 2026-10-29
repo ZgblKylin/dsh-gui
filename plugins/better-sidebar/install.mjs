@@ -3,8 +3,8 @@
  * install.mjs — install the `better-sidebar` plugin group into the web profile.
  *
  * DSH-better-sidebar 从 npm 安装：v0.28.0 的 13 条 @deepseek-ai/dsh-* peerDeps
- * 全部指向 ^0.2.1-rc.1，与本工程 pinned 的 dsh-v0.2.1-rc.3 harness 匹配——准入
- * 闸门对没有 engines.dsh 的包逐条比对 dsh peer 区间，0.2.1-rc.3 落在
+ * 全部指向 ^0.2.1-rc.1，与本工程 pinned 的 dsh-v0.2.2-alpha.2 harness 匹配——准入
+ * 闸门对没有 engines.dsh 的包逐条比对 dsh peer 区间，0.2.2-alpha.2 落在
  * ^0.2.1-rc.1（>=0.2.1-rc.1 <0.3.0-0）内。上游自 v0.21.1 起把右列交由 DSH 原生
  * 右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与
  * `ctx.betterSidebar` 服务。固定精确版本而非 @latest，是因为 pinned pnpm 11.7
@@ -30,7 +30,7 @@
  * 规范化，修复 LAN / `--trusted-host` 访问 `/sidebarqa/api` 恒 403 的问题。
  * client 半按 `assistantStream` 逐段渲染回答，失败或中断的轮次显示
  * 「本轮回答失败：<原因>」。manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖
- * pinned harness 0.2.1-rc.3，peer 与 `dsh.client.inject` 均无变化。
+ * pinned harness 0.2.2-alpha.2，peer 与 `dsh.client.inject` 均无变化。
  *
  * 两个包都声明 `dsh.bundle.patch`，所以 `dsh plugin add` 各自 reconcile 进
  * `dsh.profile.bundles` 并由其 bundle 层插入 Loader entry——不写手工 insert
@@ -55,7 +55,7 @@ installNpmPlugin({
 // 1.2.1 起信任围栏读 `webStartup`（按 `webServer.host` 与 bind IP 规范化），修复
 // LAN / `--trusted-host` 访问 `/sidebarqa/api` 恒 403 的问题；client 半按
 // `assistantStream` 逐段渲染回答，失败或中断的轮次显示原因。manifest 的
-// `engines.dsh >=0.1.7-alpha.1` 覆盖 pinned harness 0.2.1-rc.3，准入闸门按
+// `engines.dsh >=0.1.7-alpha.1` 覆盖 pinned harness 0.2.2-alpha.2，准入闸门按
 // engines.dsh 判定放行。
 // 版本 pin 到子模块 tag v1.2.1。
 installNpmPlugin({

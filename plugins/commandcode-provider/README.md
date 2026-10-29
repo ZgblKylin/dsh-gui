@@ -41,11 +41,11 @@ plugins/commandcode-provider/
 
 上游 0.15.4 用同通道区间声明引擎：`engines.dsh` 为 `>=0.2.1-rc.2 <0.2.2-0`，`dsh.compatibility.dsh` 与 15 个 `@deepseek-ai/dsh-*` peer 采用同一区间。该区间接纳 0.2.1 线从 rc.2 起的每个 RC，`0.2.1-rc.3` 落在区间内；上界写成 `<0.2.2-0`，因此排除 0.2.2 线的预发布与正式版。上游还把 `0.2.1-rc.2` 与 `0.2.1-rc.3` 记入 `dsh.compatibility.dshReleases`，作为经过完整引擎矩阵验证的版本记录。
 
-本仓库 pin 的 harness 是 **dsh-v0.2.1-rc.3**，落在上述区间内。准入闸门先读 `engines.dsh` 并只按它判定，闸门直接放行，`dsh plugin add` 正常安装、bundle 层正常挂载；本 wrapper 不授予**精确版本例外**（`installNpmPlugin` 的 `exempt`），profile 的 `compatibility.json` 因此不含该包的例外记录。
+本仓库 pin 的 harness 是 **dsh-v0.2.2-alpha.2**，**不在**上述区间内（`0.2.2-alpha.2` 高于上界 `0.2.2-0`），最新 `0.15.5` 的 `engines.dsh` 区间与之相同，registry 也没有放行 0.2.2 的版本。准入闸门先读 `engines.dsh` 并只按它判定，因此闸门会拒绝该包；wrapper 于是通过 `installNpmPlugin` 的 `exempt` 授予**精确版本例外**：安装前以 `dsh plugin allow-version @mars-sea/dsh-commandcode-provider@0.15.4 --dsh-version 0.2.2-alpha.2 --accept-risk` 把「接受风险」写进 profile 的 `compatibility.json`。例外精确绑定包版本与运行版本，下一次 harness 变更即失效；上游发布接纳 0.2.2 的版本后应删除 `install.mjs` 里的 `exempt`。
 
 安装后应满足：
 
-- `dsh plugin add` 成功，profile 依赖写入 `0.15.4`，bundles 保留 `@mars-sea/dsh-commandcode-provider`，无需例外记录；
+- `dsh plugin add` 成功，profile 依赖写入 `0.15.4`，bundles 保留 `@mars-sea/dsh-commandcode-provider`，`compatibility.json` 含该包在 `0.2.2-alpha.2` 上的精确版本例外记录；
 - 组合层仍是单行 `- id: llm-commandcode`（含默认 `config.apiKeyEnv: COMMANDCODE_API_KEY`），无重复 entry id、无跳过 bundle 报告。
 
 > 0.12.0 是 **dsh 0.2.0-rc.1** 线的最后一版（peer 为 `^0.2.0-rc.1`）；更早的插件

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Desktop shell for the DeepSeek Harness web UI",
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": ">=24.9.0"
   },
   "scripts": {
     "setup": "node scripts/dsh-gui.mjs setup",

@@ -15,7 +15,7 @@
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
 保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 版本号。
 
-三个包要求 `@deepseek-ai/dsh >= 0.2.1-rc.2`（v0.4.7 起从 `>= 0.2.0-rc.2` 抬高），本工程 pinned 的 `dsh-v0.2.1-rc.3` 满足该声明。
+三个包要求 `@deepseek-ai/dsh >= 0.2.1-rc.2`（v0.4.7 起从 `>= 0.2.0-rc.2` 抬高），本工程 pinned 的 `dsh-v0.2.2-alpha.2` 满足该声明。
 
 > **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper 安装。**
 > 直到 v0.4.4，排除原因是硬冲突：官方 `@deepseek-ai/dsh-web-app` bundle 自带

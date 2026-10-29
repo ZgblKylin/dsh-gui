@@ -480,7 +480,7 @@ first), `@linxin666/dsh-client-ui-skill-explorer` and
 `dsh-web-ui/README.md`); the plugin-manager tab
 (`@linxin666/dsh-client-ui-plugin-manager`) is no longer installed either,
 because the official `dsh-web-app` bundle of the pinned harness
-(dsh-v0.2.1-rc.3) ships its own `ui-plugin-manager` loader entry that
+(dsh-v0.2.2-alpha.2) ships its own `ui-plugin-manager` loader entry that
 collides with the upstream package's bundle patch id. The bridge is required because
 dsh-host-apiproxy's hard-coded settings allowlist does not expose third-party
 namespaces, so without it a `webUiSettings`-dependent plugin's configuration
