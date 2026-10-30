@@ -7,23 +7,23 @@
 
 ```text
 plugins/dsh-pet/
-├─ install.mjs                   # npm 安装 dsh-pet@0.3.7 + 注入桌面屏蔽配置
+├─ install.mjs                   # npm 安装 dsh-pet@0.3.8 + 注入桌面屏蔽配置
 ├─ inject-config.mjs             # 用户配置注入（纯函数，可单测）
 ├─ README.md                     # 本说明
-└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.3.7）
+└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.3.8-test.2）
    ├─ dsh-pet/                   # 真正的 npm 包源码（package.json / cordis.patch.yml / src/…）
    └─ …                          # 仓库其余部分（scripts / tools / prompts 等，仅源码参考）
 ```
 
 来源形态：git submodule（整仓库，源码参考；npm 发布包在仓库内 `dsh-pet/`
 子目录），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
-`dsh-pet@0.3.7`），不参与构建。
+`dsh-pet@0.3.8`），不参与构建。`npm 发布滞后：tag v0.3.8-test.2 建在 v0.3.8 发布提交之后（含 33 个提交），但 registry 上 dsh-pet 只到 0.3.8（latest 与 test 两个 dist-tag 都指向它），没有 0.3.8-test.2，因此子模块 checkout 只作源码参考、运行时装的仍是 0.3.8 的内容。`
 
 ## 兼容性状态
 
-`dsh-pet` v0.3.7 在本仓库 pin 的 harness（dsh `0.2.1-alpha.2`）下**可正常安装运行**：
+`dsh-pet` 0.3.8 在本仓库 pin 的 harness（dsh `0.2.2-alpha.2`）下**可正常安装运行**：
 
-- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.1-alpha.2`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；
+- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.2-alpha.2`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；
 - host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm', 'commands']`：`agentDefaultModel` 服务由 base bundle 的 `@deepseek-ai/dsh-agent-default-model` 提供，其余服务随 base 与 web-app bundle 挂载，host 半可正常激活；
 - 浏览器半在 `src/client/app.ts` 声明本地 inject
   `['slots', 'locale', 'connection', 'remote', 'remote.commands', 'commandUi']`：

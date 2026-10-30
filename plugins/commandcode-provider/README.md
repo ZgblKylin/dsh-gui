@@ -7,17 +7,17 @@
 模型选择、推理强度、图片输入、联网搜索承载与多账户轮换。
 
 来源形态：**git submodule（整仓库，仅作源码参考）+ npm 安装**。子模块 pin 到
-tag `v0.15.4`，安装走 npm 受管安装器 `installNpmPlugin`，精确版本
-`@mars-sea/dsh-commandcode-provider@0.15.4`；本 wrapper **不构建、不 link** 本地
+tag `v0.15.5`，安装走 npm 受管安装器 `installNpmPlugin`，精确版本
+`@mars-sea/dsh-commandcode-provider@0.15.5`；本 wrapper **不构建、不 link** 本地
 checkout。
 
 ## 目录
 
 ```text
 plugins/commandcode-provider/
-├─ install.mjs                              # npm 安装 0.15.4（bundle 自挂载）
+├─ install.mjs                              # npm 安装 0.15.5（bundle 自挂载）
 ├─ README.md                                # 本说明
-└─ dsh-commandcode-provider/                # Mars-Sea/dsh-commandcode-provider（git submodule，pin v0.15.4）
+└─ dsh-commandcode-provider/                # Mars-Sea/dsh-commandcode-provider（git submodule，pin v0.15.5）
    ├─ package.json                          # dsh.bundle.patch 指向 ./cordis.patch.yml
    ├─ cordis.patch.yml                      # bundle 层：insert id llm-commandcode
    ├─ src/ lib/ locale/ assets/ …            # 源码与预构建产物（仅源码参考）
@@ -32,20 +32,20 @@ plugins/commandcode-provider/
 - 固定 **精确版本**（而非 `@latest`）：pinned pnpm 11.7 的 supply-chain
   `minimumReleaseAge`（1440 分钟）会把发布不足 24h 的版本挡在 `@latest` 之外并
   **静默回退到上一版**，命令照样成功；精确 pin 绕过这一回退，同时让版本与子模块
-  tag 对齐。`0.15.4` 发布于 2026-10-24（CHANGELOG 顶部），精确 pin 同样绕过年龄门禁。
+  tag 对齐。`0.15.5` 发布于 2026-10-27（CHANGELOG 顶部），精确 pin 同样绕过年龄门禁。
 - 包声明了 `dsh.bundle.patch`，于是 `dsh plugin add` 把它 reconcile 进
   `dsh.profile.bundles`，由包自己的 `cordis.patch.yml` 挂载 entry——本 wrapper
   **不写** `cordis.patch.yml` insert（手写会双挂载）。
 
 ## 兼容性状态
 
-上游 0.15.4 用同通道区间声明引擎：`engines.dsh` 为 `>=0.2.1-rc.2 <0.2.2-0`，`dsh.compatibility.dsh` 与 15 个 `@deepseek-ai/dsh-*` peer 采用同一区间。该区间接纳 0.2.1 线从 rc.2 起的每个 RC，`0.2.1-rc.3` 落在区间内；上界写成 `<0.2.2-0`，因此排除 0.2.2 线的预发布与正式版。上游还把 `0.2.1-rc.2` 与 `0.2.1-rc.3` 记入 `dsh.compatibility.dshReleases`，作为经过完整引擎矩阵验证的版本记录。
+上游 0.15.5 用同通道区间声明引擎：`engines.dsh` 为 `>=0.2.1-rc.2 <0.2.2-0`，`dsh.compatibility.dsh` 与 15 个 `@deepseek-ai/dsh-*` peer 采用同一区间。该区间接纳 0.2.1 线从 rc.2 起的每个 RC，`0.2.1-rc.3` 落在区间内；上界写成 `<0.2.2-0`，因此排除 0.2.2 线的预发布与正式版。上游还把 `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` 记入 `dsh.compatibility.dshReleases`，作为经过完整引擎矩阵验证的版本记录。
 
-本仓库 pin 的 harness 是 **dsh-v0.2.2-alpha.2**，**不在**上述区间内（`0.2.2-alpha.2` 高于上界 `0.2.2-0`），最新 `0.15.5` 的 `engines.dsh` 区间与之相同，registry 也没有放行 0.2.2 的版本。准入闸门先读 `engines.dsh` 并只按它判定，因此闸门会拒绝该包；wrapper 于是通过 `installNpmPlugin` 的 `exempt` 授予**精确版本例外**：安装前以 `dsh plugin allow-version @mars-sea/dsh-commandcode-provider@0.15.4 --dsh-version 0.2.2-alpha.2 --accept-risk` 把「接受风险」写进 profile 的 `compatibility.json`。例外精确绑定包版本与运行版本，下一次 harness 变更即失效；上游发布接纳 0.2.2 的版本后应删除 `install.mjs` 里的 `exempt`。
+本仓库 pin 的 harness 是 **dsh-v0.2.2-alpha.2**，**不在**上述区间内（`0.2.2-alpha.2` 高于上界 `0.2.2-0`），`0.15.5` 是最新发布，`0.15.4` 的 `engines.dsh` 区间与之相同，registry 也没有放行 0.2.2 的版本。准入闸门先读 `engines.dsh` 并只按它判定，因此闸门会拒绝该包；wrapper 于是通过 `installNpmPlugin` 的 `exempt` 授予**精确版本例外**：安装前以 `dsh plugin allow-version @mars-sea/dsh-commandcode-provider@0.15.5 --dsh-version 0.2.2-alpha.2 --accept-risk` 把「接受风险」写进 profile 的 `compatibility.json`。例外精确绑定包版本与运行版本，下一次 harness 变更即失效；上游发布接纳 0.2.2 的版本后应删除 `install.mjs` 里的 `exempt`。
 
 安装后应满足：
 
-- `dsh plugin add` 成功，profile 依赖写入 `0.15.4`，bundles 保留 `@mars-sea/dsh-commandcode-provider`，`compatibility.json` 含该包在 `0.2.2-alpha.2` 上的精确版本例外记录；
+- `dsh plugin add` 成功，profile 依赖写入 `0.15.5`，bundles 保留 `@mars-sea/dsh-commandcode-provider`，`compatibility.json` 含该包在 `0.2.2-alpha.2` 上的精确版本例外记录；
 - 组合层仍是单行 `- id: llm-commandcode`（含默认 `config.apiKeyEnv: COMMANDCODE_API_KEY`），无重复 entry id、无跳过 bundle 报告。
 
 > 0.12.0 是 **dsh 0.2.0-rc.1** 线的最后一版（peer 为 `^0.2.0-rc.1`）；更早的插件
@@ -120,7 +120,7 @@ node ..\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --dump-c
 
 - **非官方集成**：需要自己的 Command Code 账号与 key，并遵守其服务条款；与
   Command Code, Inc. 无关。
-- 插件仅面向其配对的 dsh 版本维护，跨版本升级需要上游跟进；当前 pin 的 0.15.4 在其声明的 `>=0.2.1-rc.2 <0.2.2-0` 区间内运行，无需例外。
+- 插件仅面向其配对的 dsh 版本维护，跨版本升级需要上游跟进；当前 pin 的 0.15.5 声明 `>=0.2.1-rc.2 <0.2.2-0`，不覆盖 0.2.2 线，因此 wrapper 授予精确版本例外并记录接受的风险（例外精确绑定包版本与运行版本，harness 换版即失效）。
 - 图片输入受模型能力限制（仅 Vision 模型），且含图片的会话切到纯文本模型会被 dsh
   拒绝；不支持 `stop` 序列。
 - 浏览器内登录依赖 Host 与浏览器同机（回环回调）；远程 Host 请手动粘贴 key。

@@ -2,7 +2,7 @@
 /**
  * install.mjs — install the `better-sidebar` plugin group into the web profile.
  *
- * DSH-better-sidebar 从 npm 安装：v0.28.0 的 13 条 @deepseek-ai/dsh-* peerDeps
+ * DSH-better-sidebar 从 npm 安装：v0.28.2 的 13 条 @deepseek-ai/dsh-* peerDeps
  * 全部指向 ^0.2.1-rc.1，与本工程 pinned 的 dsh-v0.2.2-alpha.2 harness 匹配——准入
  * 闸门对没有 engines.dsh 的包逐条比对 dsh peer 区间，0.2.2-alpha.2 落在
  * ^0.2.1-rc.1（>=0.2.1-rc.1 <0.3.0-0）内。上游自 v0.21.1 起把右列交由 DSH 原生
@@ -15,12 +15,18 @@
  * checkout 仅作源码参考）。
  *
  * 与 harness 的硬依赖：0.26.0 的 host inject 仍含 `webRuntime`，而 rc.2 已移除该
- * 服务，旧包在 rc.2 上会因依赖缺失整层 pending；0.28.0 改用 `connection` 服务与
+ * 服务，旧包在 rc.2 上会因依赖缺失整层 pending；0.28.x 改用 `connection` 服务与
  * `ctx.connection.requestRejection`，由官方 web-app bundle 的 `ui-connection` 行提供。
  * 因此本 pin 必须与 harness 同批更换。
  *
+ * 已知限制（上游 0.28.2 仍未适配 harness 0.2.2 的模型选择契约）：`src/sidechat-routes.ts`
+ * 依旧以两参调用 `installModelSelection(agent.ctx, ref)`，而 0.2.2 起该函数只接收
+ * `agentCtx`、选择改由 `agent.model.select()` 记录，因此侧聊的模型选择 ref 路径
+ * 失效（选择本身仍经 `session.append('model/selection', …)` 生效）。等上游适配或
+ * 改写为 `agent.model.select()/current()` 后移除本记录。
+ *
  * dsh-sidebar-qa 同样从 npm 安装，pin 到与其 git submodule tag 一致的精确版本
- * dsh-sidebar-qa@1.2.1，不用 `@latest`：pinned pnpm 11.7 默认
+ * dsh-sidebar-qa@1.2.2，不用 `@latest`：pinned pnpm 11.7 默认
  * supply-chain minimumReleaseAge 会对 `@latest`/范围静默回退到更旧版本，精确
  * pin 则直接安装并自动豁免，保证结果确定。安装顺序为 better-sidebar →
  * sidebar-qa，同一相对顺序也落在 `dsh.profile.bundles`；dsh-sidebar-qa 自
@@ -30,7 +36,12 @@
  * 规范化，修复 LAN / `--trusted-host` 访问 `/sidebarqa/api` 恒 403 的问题。
  * client 半按 `assistantStream` 逐段渲染回答，失败或中断的轮次显示
  * 「本轮回答失败：<原因>」。manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖
- * pinned harness 0.2.2-alpha.2，peer 与 `dsh.client.inject` 均无变化。
+ * pinned harness 0.2.2-alpha.2，peer 与 `dsh.client.inject` 均与 1.2.1 一致。
+ *
+ * 已知限制（上游 1.2.2 仍未适配）：`src/client/session-wire.ts` 的
+ * `ctx.remote.session.follow(...)` 没有传 `activate: true`，而 harness 0.2.2 起
+ * 省略该字段不再自动恢复冷普通 Agent，因此跟随一个未激活会话时面板显示历史但
+ * 不产生回答。等上游补 `activate` 后移除本记录。
  *
  * 两个包都声明 `dsh.bundle.patch`，所以 `dsh plugin add` 各自 reconcile 进
  * `dsh.profile.bundles` 并由其 bundle 层插入 Loader entry——不写手工 insert
@@ -44,8 +55,8 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'better-sidebar',
-  // 固定 0.2.1 线适配版 0.28.0（见头部注释；@latest 会被 minimumReleaseAge 挡回更旧版本）。
-  packageSpec: 'dsh-better-sidebar@0.28.0',
+  // 固定 0.2.1 线适配版 0.28.2（见头部注释；@latest 会被 minimumReleaseAge 挡回更旧版本）。
+  packageSpec: 'dsh-better-sidebar@0.28.2',
 })
 
 // 然后 dsh-sidebar-qa：独占的「追问」原生面板（选中文本 → 右栏追问 → 独立同
@@ -60,5 +71,5 @@ installNpmPlugin({
 // 版本 pin 到子模块 tag v1.2.1。
 installNpmPlugin({
   id: 'sidebar-qa',
-  packageSpec: 'dsh-sidebar-qa@1.2.1',
+  packageSpec: 'dsh-sidebar-qa@1.2.2',
 })

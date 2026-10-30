@@ -3,7 +3,7 @@
  * install.mjs — install the `dshmarket` plugin into the web profile.
  *
  * ⚠️ Installed from npm pinned to an exact version matching the git
- * submodule tag (`v1.70.2`), not `@latest` — exact pins bypass pnpm 11's
+ * submodule tag (`v1.73.3`), not `@latest` — exact pins bypass pnpm 11's
  * 24h `minimumReleaseAge` gate (which silently falls back to an older
  * version for `@latest`/ranges), and keep the installed body in sync with
  * the checkout beside this script (per plugins/README.md's 安装方式
@@ -23,7 +23,8 @@
  * 0.2.2-alpha.2; below it the install preflight exits 1 and `npm run build`
  * fails. 1.70.x extends that peer with `^0.2.1-alpha.3 || ^0.2.1-rc.1` and runs
  * its own peer check with `includePrerelease`, admitting prerelease host lines
- * instead of reporting them unmet; this wrapper pins 1.70.2.
+ * instead of reporting them unmet; 1.73.x keeps the same disjunction and this
+ * wrapper pins 1.73.3.
  *
  * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`
  * by the desktop shell; this script honors an explicit `DSH_HOME` override
@@ -34,5 +35,5 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'plugin-market',
-  packageSpec: 'dshmarket@1.70.2',
+  packageSpec: 'dshmarket@1.73.3',
 })
