@@ -1,0 +1,18 @@
+# dsh-mcp-on-demand bundle layer: one Host-only entry.
+#
+# config.bindings  skill name -> MCP server (`serverName` of an mcp-client entry)
+#                  the server is enabled the first time that skill is loaded.
+# config.servers   optional inline mcp-client entries created disabled at boot
+#                  (same object shape as a `@deepseek-ai/dsh-mcp-client` config,
+#                  minus serverName, which is the object key).
+#
+# The REA MCP server stays disabled in the profile patch (`disabled: true`) and
+# connects only after the model loads the `reverse-engineer-anything` skill.
+- insert:
+    - id: mcp-on-demand
+      name: 'dsh-mcp-on-demand'
+      config:
+        bindings:
+          - skill: reverse-engineer-anything
+            server: rea
+            timeoutMs: 180000

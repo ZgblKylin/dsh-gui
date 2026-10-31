@@ -1,0 +1,32 @@
+{
+  "name": "dsh-mcp-on-demand",
+  "version": "0.1.0",
+  "description": "Connect a disabled MCP server only when a bound skill is loaded (reverse-engineer-anything -> rea), so idle MCP tools cost no context.",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "mcp",
+    "skill"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "private": true
+}
