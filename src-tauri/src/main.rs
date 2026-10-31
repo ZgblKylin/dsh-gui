@@ -63,8 +63,8 @@ use tauri::{Emitter, Manager, State};
 // Tab-view commands live in `views`; plain imports (not `views::fn` paths)
 // keep the `generate_handler!` / permission-autogen name extraction working.
 use views::{
-    ai_update_result, page_theme, view_answer_permission, view_close, view_create, view_eval,
-    view_set_bounds, view_set_visible,
+    ai_update_result, page_theme, tab_title, view_answer_permission, view_close, view_create,
+    view_eval, view_set_bounds, view_set_visible,
 };
 // Native dialog-window commands (see `dialogs`).
 use dialogs::{
@@ -201,6 +201,10 @@ mod job {
         }
     }
 }
+
+/// Product name: the window title until a tab page reports its own frontend
+/// title, and again once the last tab closes (see `views::close`).
+pub(crate) const PRODUCT_TITLE: &str = "DeepSeek Harness";
 
 /// Default loopback port (matches the dsh `web` profile default; override with
 /// the `DSH_GUI_PORT` environment variable).
@@ -1797,7 +1801,7 @@ fn main() {
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("DeepSeek Harness")
+            .title(PRODUCT_TITLE)
             .inner_size(1280.0, 800.0)
             .min_inner_size(800.0, 600.0)
             // Repo-local WebView2 profile (see `webview_data_dir`): the
@@ -1994,6 +1998,7 @@ fn main() {
             view_close,
             view_eval,
             page_theme,
+            tab_title,
             ai_update_result,
             view_answer_permission,
         ])

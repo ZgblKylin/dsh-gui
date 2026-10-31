@@ -61,10 +61,15 @@ pub const TAB_LABEL_PREFIX: &str = "tab-";
 /// a black void).
 pub const DIALOG_LABEL_PREFIX: &str = "dialog-";
 
-/// Live tab views: shell tab id → webview handle.
+/// Live tab views: shell tab id → webview handle, plus the frontend titles the
+/// tab pages reported and the tab that is currently on screen.
 #[derive(Default)]
 pub struct ViewRegistry {
     views: Mutex<HashMap<String, Webview>>,
+    /// `document.title` of each tab's harness page, as reported by the bridge.
+    titles: Mutex<HashMap<String, String>>,
+    /// Tab id whose webview is shown; it owns the window title.
+    active: Mutex<Option<String>>,
 }
 
 impl ViewRegistry {
@@ -78,6 +83,45 @@ impl ViewRegistry {
 
     pub(crate) fn remove(&self, tab_id: &str) -> Option<Webview<tauri::Wry>> {
         self.views.lock().unwrap().remove(tab_id)
+    }
+
+    /// `true` once the last tab view is gone (the shell closed every tab).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.views.lock().unwrap().is_empty()
+    }
+
+    pub(crate) fn set_title(&self, tab_id: &str, title: String) {
+        self.titles
+            .lock()
+            .unwrap()
+            .insert(tab_id.to_string(), title);
+    }
+
+    pub(crate) fn title(&self, tab_id: &str) -> Option<String> {
+        self.titles.lock().unwrap().get(tab_id).cloned()
+    }
+
+    pub(crate) fn remove_title(&self, tab_id: &str) {
+        self.titles.lock().unwrap().remove(tab_id);
+    }
+
+    pub(crate) fn set_active(&self, tab_id: &str) {
+        *self.active.lock().unwrap() = Some(tab_id.to_string());
+    }
+
+    pub(crate) fn is_active(&self, tab_id: &str) -> bool {
+        self.active.lock().unwrap().as_deref() == Some(tab_id)
+    }
+
+    /// Drop the active marker when it names `tab_id`; returns whether it did.
+    pub(crate) fn clear_active(&self, tab_id: &str) -> bool {
+        let mut active = self.active.lock().unwrap();
+        if active.as_deref() == Some(tab_id) {
+            *active = None;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -156,8 +200,60 @@ fn as_rect(bounds: LogicalBounds) -> Rect {
     }
 }
 
+/// Trim a page-reported title and treat an all-whitespace one as absent: an
+/// empty title must neither blank the window nor overwrite a cached one.
+fn normalize_title(raw: &str) -> Option<String> {
+    let title = raw.trim();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title.to_string())
+    }
+}
+
+/// Publish `title` as the window title: the native title (taskbar / Alt-Tab)
+/// and the shell page's custom title bar, which is what the user actually
+/// sees on the frameless window.
+fn apply_window_title(window: &Window, title: &str) -> Result<(), String> {
+    window
+        .set_title(title)
+        .map_err(|e| format!("failed to set the window title: {e}"))?;
+    window
+        .emit_to(
+            SHELL_WEBVIEW,
+            "window-title",
+            serde_json::json!({ "title": title }),
+        )
+        .map_err(|e| format!("failed to forward the window title: {e}"))
+}
+
+/// Republish the cached title of `tab_id`, if its page already reported one. A
+/// tab without a cached title leaves the current window title alone: its
+/// `tab_title` call applies the title as soon as the page reports it.
+fn apply_cached_title(
+    window: &Window,
+    registry: &ViewRegistry,
+    tab_id: &str,
+) -> Result<(), String> {
+    match registry.title(tab_id) {
+        Some(title) => apply_window_title(window, &title),
+        None => Ok(()),
+    }
+}
+
+/// Mark the tab whose webview was just ensured/shown as the active one and
+/// republish its cached title. Title updates are cosmetic, so a failure is
+/// logged instead of failing the tab operation that triggered it.
+fn activate(window: &Window, registry: &ViewRegistry, tab_id: &str) {
+    registry.set_active(tab_id);
+    if let Err(error) = apply_cached_title(window, registry, tab_id) {
+        log::warn!("tab {tab_id}: could not apply the cached window title: {error}");
+    }
+}
+
 /// Create the webview for a tab (or re-target an existing one) and place it
-/// inside the window's content area below the custom title bar.
+/// inside the window's content area below the custom title bar. The ensured
+/// tab becomes the active one: it owns the window title from here on.
 pub fn ensure(
     window: &Window,
     tab_id: &str,
@@ -171,12 +267,14 @@ pub fn ensure(
             .map_err(|e| format!("failed to navigate the tab webview: {e}"))?;
         set_bounds(&view, bounds)?;
         set_visible(&view, true)?;
+        activate(window, &registry, tab_id);
         return Ok(());
     }
 
     let label = format!("{TAB_LABEL_PREFIX}{tab_id}");
     let mut builder = WebviewBuilder::new(label, WebviewUrl::External(parse_url(url)?))
-        // Run the page-theme + AI-update bridge inside the harness page.
+        // Run the page-theme / AI-update / window-title bridge inside the
+        // harness page.
         .initialization_script(include_str!("../ui/view-bridge.js"))
         // The harness walks WebView2's natural new-window flow (popups open
         // in their own WebView2 window); no shell-side popup handling for now.
@@ -225,6 +323,7 @@ pub fn ensure(
     #[cfg(windows)]
     install_webview_permissions(&view, origin_of(url));
     registry.insert(tab_id.to_string(), view);
+    activate(window, &registry, tab_id);
     Ok(())
 }
 
@@ -251,6 +350,17 @@ pub fn close(window: &Window, tab_id: &str) -> Result<(), String> {
     if let Some(view) = registry.remove(tab_id) {
         view.close()
             .map_err(|e| format!("failed to close the tab webview: {e}"))?;
+    }
+    // A closed tab's cached title and active marker never outlive its webview;
+    // re-showing a tab with the same id must not resurrect a stale title.
+    registry.remove_title(tab_id);
+    let was_active = registry.clear_active(tab_id);
+    // Last view gone: the shell is back to "no tab", so drop the per-tab window
+    // title — the taskbar must not keep naming a tab that no longer exists.
+    if was_active && registry.is_empty() {
+        if let Err(error) = apply_window_title(window, crate::PRODUCT_TITLE) {
+            log::warn!("could not restore the product window title: {error}");
+        }
     }
     // Drop the tab's private profile with the tab: the wrapper page persists
     // only the tabs that are still open, so a closed tab never comes back and
@@ -351,7 +461,15 @@ pub async fn view_set_visible(
         let view = view.clone();
         tauri::async_runtime::spawn_blocking(move || set_visible(&view, visible))
             .await
-            .map_err(|e| format!("tab view task failed: {e}"))?
+            .map_err(|e| format!("tab view task failed: {e}"))??;
+        if visible {
+            // Switching tabs makes the shown tab the source of the window
+            // title: republish its cached page title. A tab without one yet
+            // keeps the current title until its page reports through
+            // `tab_title`.
+            activate(&webview.window(), &registry, &tab_id);
+        }
+        Ok(())
     } else {
         Err(format!("unknown tab: {tab_id}"))
     }
@@ -406,6 +524,31 @@ pub fn page_theme(
         serde_json::json!({ "tabId": tab_id, "colors": { "background": background, "text": text } }),
     )
     .map_err(|e| format!("failed to forward the page theme: {e}"))
+}
+
+/// Frontend title reported by a harness page (view-bridge.js): remember the
+/// page's `document.title` for its tab and, when that tab is the one on
+/// screen, publish it as the window title.
+#[tauri::command]
+pub fn tab_title(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    title: String,
+) -> Result<(), String> {
+    let tab_id = view_tab_id(&webview)?;
+    let Some(title) = normalize_title(&title) else {
+        return Ok(());
+    };
+    let registry = app.state::<ViewRegistry>();
+    registry.set_title(&tab_id, title.clone());
+    // Background tabs only cache their title; it is applied when the shell
+    // shows them (ensure / view_set_visible).
+    let active = registry.is_active(&tab_id);
+    log::info!("tab_title: tab={tab_id} title={title:?} active={active}");
+    if active {
+        apply_window_title(&webview.window(), &title)?;
+    }
+    Ok(())
 }
 
 /// AI-update result replied by the harness page (view-bridge.js forwards the
@@ -656,11 +799,29 @@ pub fn view_answer_permission(
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::TAB_LABEL_PREFIX;
+    use super::{normalize_title, TAB_LABEL_PREFIX};
 
     #[test]
     fn tab_labels_carry_the_prefix() {
         assert!(TAB_LABEL_PREFIX.starts_with("tab-"));
         assert!(!TAB_LABEL_PREFIX.starts_with("main"));
+    }
+
+    #[test]
+    fn reported_titles_are_trimmed() {
+        assert_eq!(
+            normalize_title("  会话标题 — DeepSeek Harness  "),
+            Some("会话标题 — DeepSeek Harness".to_string())
+        );
+        assert_eq!(
+            normalize_title("DeepSeek Harness"),
+            Some("DeepSeek Harness".to_string())
+        );
+    }
+
+    #[test]
+    fn blank_titles_are_dropped() {
+        assert_eq!(normalize_title(""), None);
+        assert_eq!(normalize_title("  \t\n "), None);
     }
 }

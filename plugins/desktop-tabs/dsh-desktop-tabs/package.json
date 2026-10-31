@@ -30,7 +30,7 @@
   "scripts": {
     "build": "tsdown",
     "watch": "tsdown --watch",
-    "test": "node tests/remote.test.mjs && node tests/view-retention.spec.ts && node tests/clipboard-relay.spec.ts && node tests/notify-relay.spec.ts"
+    "test": "node tests/remote.test.mjs && node tests/view-retention.spec.ts && node tests/window-title.spec.ts && node tests/clipboard-relay.spec.ts && node tests/notify-relay.spec.ts"
   },
   "license": "Unlicense",
   "peerDependencies": {

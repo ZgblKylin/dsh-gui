@@ -12,6 +12,11 @@
  * lifetime of the application process (the partitions are not `persist:` — they
  * do not survive a restart).
  *
+ * Window title: the desktop window follows the main document's title, so while a
+ * remote page is shown this layer takes that title over with the page's own
+ * title and restores the native title for the local tab, a connecting tab, or a
+ * failure (see `./window-title.ts`).
+ *
  * Concurrency: each surface carries a generation number that every transition
  * replacing or unloading its guest increments. A mount still awaiting
  * `acquire()` for a superseded surface is released instead of attaching a guest
@@ -26,12 +31,15 @@ import {
   playRemoteNotification,
   REMOTE_NOTIFY_POLL_MS,
 } from './notify-relay.ts'
+import { createWindowTitle, type WindowTitle } from './window-title.ts'
 
 /** The Electron tag API this layer calls. */
 interface WebviewElement extends HTMLElement {
   loadURL(url: string): Promise<void>
   isLoading(): boolean
   executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>
+  /** Current guest page title; the fallback when a title event carries none. */
+  getTitle?(): string
 }
 
 /** A main-frame navigation failure event. */
@@ -39,6 +47,11 @@ interface LoadFailureEvent extends Event {
   readonly isMainFrame: boolean
   readonly errorCode: number
   readonly errorDescription: string
+}
+
+/** A guest main-frame title update (`page-title-updated`); `title` may be empty. */
+interface PageTitleEvent extends Event {
+  readonly title: string
 }
 
 /** One remote destination to present. */
@@ -99,6 +112,8 @@ interface Surface {
   readonly log: HTMLElement
   /** The tab's retained guest, absent while connecting or after a failure. */
   guest?: WebviewElement
+  /** The title last reported by {@link guest}'s page; cleared with the guest. */
+  title?: string
   /** Lease owned by {@link guest}. */
   lease?: string
   /** Invalidates mounts and listeners of a replaced or unloaded guest. */
@@ -120,6 +135,8 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
   const surfaces = new Map<string, Surface>()
   /** The tab whose surface is currently visible; undefined reveals the native UI. */
   let activeId: string | undefined
+  /** The window-title layer: takes the document title over for the active remote page. */
+  const windowTitle: WindowTitle = createWindowTitle()
 
   const setCover = (covered: boolean): void => {
     if (covered) document.documentElement.setAttribute(COVER_ATTR, '')
@@ -154,6 +171,13 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
   const showActive = (id: string | undefined): void => {
     activeId = id
     for (const [key, surface] of surfaces) surface.root.hidden = key !== id
+    // The window title follows the active remote page. A tab that has not
+    // reported a title yet (connecting, failed, or the local tab) shows the
+    // native title instead; the guest's `page-title-updated` hands it over once
+    // its document sets one.
+    const title = id === undefined ? undefined : surfaces.get(id)?.title
+    if (title === undefined || title.trim() === '') windowTitle.showNative()
+    else windowTitle.showRemote(title)
     if (id === undefined) {
       element.hidden = true
       setCover(false)
@@ -216,6 +240,7 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
     const lease = surface.lease
     surface.guest = undefined
     surface.lease = undefined
+    surface.title = undefined
     guest?.remove()
     // Nothing but this surface's own guest may ever sit in it.
     for (const stray of surface.root.querySelectorAll('webview')) stray.remove()
@@ -288,6 +313,19 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
         setStatus(surface, `${target.title} 加载失败：${failure.errorDescription || String(failure.errorCode)}`)
       }
     })
+    // The guest's page title is the harness document title (the DocumentTitle
+    // component's `会话标题 — 产品标题`); the application window shows it while
+    // this tab covers the native UI. An empty title means no page title yet, so
+    // the active tab falls back to the native title.
+    webview.addEventListener('page-title-updated', (event) => {
+      if (generation !== surface.generation) return
+      // The DOM event carries the guest's title; `getTitle()` covers the hosts or
+      // versions that only fire the notification.
+      const reported = (event as PageTitleEvent).title
+      const title = typeof reported === 'string' ? reported : (webview.getTitle?.() ?? '')
+      surface.title = title
+      if (surface.id === activeId) windowTitle.showRemote(title)
+    })
     surface.guest = webview
     surface.root.append(webview)
     // Hand keyboard focus to the shown guest (the same cause class the parity
@@ -339,6 +377,10 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
       activeId = undefined
       element.remove()
       setCover(false)
+      // The layer stops covering the application, so the window title returns to
+      // the native UI's title before the title layer is released.
+      windowTitle.showNative()
+      windowTitle.dispose()
     },
   }
 }

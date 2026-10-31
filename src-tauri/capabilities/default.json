@@ -48,6 +48,7 @@
     "allow-view-close",
     "allow-view-eval",
     "allow-page-theme",
+    "allow-tab-title",
     "allow-ai-update-result"
   ]
 }

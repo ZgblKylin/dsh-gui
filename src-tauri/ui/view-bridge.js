@@ -6,6 +6,8 @@
 //
 //   * the page-theme sampler reports colors over Tauri IPC instead of
 //     window.postMessage (there is no parent frame to talk to);
+//   * the page title (harness "document.title") is reported over IPC so the
+//     shell can use it as the native window title;
 //   * the dsh-ai-update plugin's reply ("dsh-gui:ai-update-result" posted to
 //     window.parent) lands on this very window (at top level window.parent ===
 //     window) and is forwarded over IPC so the shell update dialog can
@@ -87,6 +89,55 @@
       /* ignore */
     }
   };
+
+  /* ── Frontend page-title reporting ─────────────────────────── */
+  // The shell shows this page's own `document.title` (the harness renders
+  // "<session title> — <product title>") in the native window title and in
+  // its custom title bar. Report every change over IPC; the Rust side
+  // forwards it to the shell only while this tab is the visible one.
+  let reportedTitle = "";
+  function reportTitle() {
+    let title;
+    try {
+      title = (document.title || "").trim();
+    } catch {
+      return;
+    }
+    if (title === "" || title === reportedTitle) return;
+    reportedTitle = title;
+    invoke("tab_title", { title });
+  }
+
+  // `document.title = …` rewrites the <title> element, so observing the
+  // document element catches it. At document-start the element may not exist
+  // yet, hence the retry from DOMContentLoaded plus the load fallback.
+  let titleObserver = null;
+  function installTitleObserver() {
+    if (titleObserver !== null) return;
+    try {
+      if (!document.documentElement) return;
+      titleObserver = new MutationObserver(reportTitle);
+      titleObserver.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    } catch {
+      // Leave the slot empty so a lifecycle call retries; reporting is
+      // best-effort and the DOMContentLoaded/load fallbacks still run.
+      titleObserver = null;
+    }
+  }
+  installTitleObserver();
+  document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      installTitleObserver();
+      reportTitle();
+    },
+    { once: true }
+  );
+  window.addEventListener("load", reportTitle, { once: true });
 
   /* ── WebView2 notification-permission consent ─────────────────── */
   // The Rust side (src-tauri/src/views.rs) registers a permission handler on

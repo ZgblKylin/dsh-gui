@@ -27,6 +27,7 @@ desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条
 | client 半 | `src/client/api.ts` | 宿主 API 客户端（读写 `{ tabs, connections }`、连接状态、`up`/`down`、SSH 主机） |
 | client 半 | `src/client/types.ts` | client 半共享的 `DesktopTab`、`SavedConnection`、`ConnectionStatus`、`SshHost` |
 | client 半 | `src/client/view.ts` | 远端视图层：按标签各自保留的 guest（切走只隐藏）、占位页、状态行、连接日志、租约与 webview 生命周期 |
+| client 半 | `src/client/window-title.ts` | 窗口标题层：激活的远程页面上报标题时接管主文档 `document.title`，切回本机/连接中/失败时恢复本机标题，接管期间被 harness 改写的本机标题会被记录并立即写回 |
 | client 半 | `src/client/webview-host.ts` | 远端 guest 的求值面（`executeJavaScript`），视图层与通知转接共用 |
 | client 半 | `src/client/notify-relay.ts` | 远端通知转接：向 guest 注入 Notification shim、取回队列并在应用文档重放 |
 | client 半 | `src/client/clipboard-relay.ts` | 远端剪贴板回退：向 guest 注入 writeText 回退，异步写被拒时走 `execCommand('copy')` |
@@ -92,6 +93,12 @@ desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条
 - 切换标签只切换可见的 surface：旧标签的 webview **不销毁、不重新导航**，切回时原样露出，
   文档状态、滚动位置与在页任务都保留；关闭标签（`✕`）才卸载它的 guest 并 `down` 它的连接。
   本机标签隐藏整层，其他标签的 guest 仍在后台运行。
+- **窗口标题跟随活跃远程标签页自身的 `document.title`**（harness 的 DocumentTitle，形如
+  `会话标题 — 产品标题`）：desktop 主窗口标题默认跟随主文档 `document.title`，而远程 guest
+  的页面标题不会影响主文档，所以由视图层接管。首个远程标题到达时采样当时的本机标题并开始
+  监听主文档标题改动，再把窗口标题写成远程标题；接管期间 harness 改写本机标题会被**记录为
+  最新本机标题并立即写回远程标题**。切到本机标签、切到一个还没上报标题的标签（连接中/失败）、
+  刷新/关闭活跃标签、隐藏或 dispose 时恢复最新本机标题。空/纯空白标题视为本机标题，不接管。
 - 只有**活跃标签**带 `⟳` 刷新（紧邻 `✕`；非活跃标签上该按钮带 `hidden`，不占位也不进
   tab 序）：点击后卸载该标签当前内容并重新建立连接。`ssh` 标签先 `down`（只断开本机隧道，
   远端 tmux 里的后端不动）再走一次正常的 `up` 流程，占位页与连接日志照常显示；`url` 标签
@@ -187,6 +194,10 @@ devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应�
 - 远端通知按 guest 转接：所有**打开着**的远端标签的 guest 都在运行，各自的通知队列按 1 s
   轮询取出并在应用文档重放，因此后台标签完成任务也会出现系统通知；关闭标签后它的通知引擎
   随 guest 一并卸载。
+- 窗口标题接管依赖 desktop 外壳（Electron 主窗口）保持默认的 `page-title-updated` 行为：
+  主窗口标题跟随主文档 `document.title`。若外壳改为自行管理窗口标题（例如 `preventDefault`），
+  本插件便无法再影响窗口标题（标签页内行为不受影响）。远程标题**原样使用**，不截断、不拼接
+  标签名；空/纯空白标题按本机标题处理。后台标签的标题更新只会被记录，等它再次激活才应用。
 
 ## 远程连接生命周期（tmux 长期存活）
 
@@ -236,5 +247,6 @@ npm run build:desktop -- --plugins-only   # 装进 <runtime-root>/.dsh/profiles/
 包内直接构建：`pnpm install && pnpm run build`（产出 `lib/index.js` 与 `lib/client.js`）。
 
 行为测试直接以 Node 运行 `tests/` 下的脚本（`pnpm run test` 依次执行）：`remote.test.mjs`
-（host 半的会话脚本与路由）、`view-retention.spec.ts`（切换保留、刷新卸载、租约与轮询释放）、
-`clipboard-relay.spec.ts` 与 `notify-relay.spec.ts`。
+（host 半的会话脚本与路由）、`view-retention.spec.ts`（切换保留、刷新卸载、租约与轮询释放、
+窗口标题跟随活跃标签与恢复）、`window-title.spec.ts`（窗口标题状态机：采样、接管期间写回、
+远程切换不重采样、恢复与 dispose）、`clipboard-relay.spec.ts` 与 `notify-relay.spec.ts`。

@@ -40,6 +40,7 @@ fn main() {
         "view_close",
         "view_eval",
         "page_theme",
+        "tab_title",
         "ai_update_result",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))

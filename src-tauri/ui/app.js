@@ -192,6 +192,25 @@ function wirePageTheme() {
     if (tab && tab.id === data.tabId) applyPageTheme(colors);
   });
 }
+
+/* ── Window title from the visible tab's page ──────────────────
+   The Rust side owns the native window title: the visible tab's page reports
+   its `document.title` through view-bridge.js, and the shell receives the
+   title that currently owns the window (views.rs emits `window-title`). Mirror
+   it in the custom title bar, which is what the frameless window displays. */
+const WINDOW_TITLE_EVENT = "window-title";
+
+function wireWindowTitle() {
+  if (!tauri || !tauri.event) return;
+  tauri.event.listen(WINDOW_TITLE_EVENT, (event) => {
+    const data = event.payload;
+    const title = data && typeof data.title === "string" ? data.title : "";
+    if (title === "") return;
+    const el = document.querySelector(".titlebar-title");
+    if (el) el.textContent = title;
+  });
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -2986,6 +3005,7 @@ document.addEventListener("keydown", (e) => {
 /* ── Boot ──────────────────────────────────────────────────── */
 async function boot() {
   wirePageTheme();
+  wireWindowTitle();
   wireAiUpdateResults();
   wireConfigMenuActions();
   wireConnectionAdded();

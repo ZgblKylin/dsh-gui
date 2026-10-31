@@ -6,6 +6,12 @@
  * surface without touching the guest left behind, and only a refresh, a tab
  * close, or a dispose unloads a guest and releases its lease.
  *
+ * The layer also takes the main document title over while a remote page is shown
+ * (see `src/client/window-title.ts`). The fake document therefore carries a
+ * writable title and an inert `MutationObserver`, and the test asserts the title
+ * follows the active guest's `page-title-updated` and returns to the native
+ * title for the local tab, an untitled tab, a failure, and a dispose.
+ *
  * Runs under plain Node (type stripping) as one in-process script — no test
  * runner and no child processes. The DOM is a minimal fake: elements with
  * attributes, children, hidden state, listeners, and the `<webview>` API the
@@ -121,15 +127,31 @@ class FakeElement {
   }
 }
 
-/** Install the fake document/window the layer expects; returns their timers. */
+/** The fake document the window-title layer reads and writes. */
+interface FakeDocument {
+  title: string
+  createElement(tag: string): FakeElement
+  documentElement: FakeElement
+}
+
+/** An inert `MutationObserver`: the title layer only needs its start/stop API. */
+class FakeMutationObserver {
+  constructor(_listener: () => void) {}
+  observe(): void {}
+  disconnect(): void {}
+}
+
+/** Install the fake document/window the layer expects; returns them and their timers. */
 function installFakeDom(): {
+  document: FakeDocument
   documentElement: FakeElement
   timers: Map<number, Listener>
 } {
   const documentElement = new FakeElement('html')
   const timers = new Map<number, Listener>()
   let nextTimer = 1
-  const document = {
+  const document: FakeDocument = {
+    title: '本机标题',
     createElement: (tag: string): FakeElement => new FakeElement(tag),
     documentElement,
   }
@@ -146,7 +168,8 @@ function installFakeDom(): {
   }
   ;(globalThis as unknown as { document: unknown }).document = document
   ;(globalThis as unknown as { window: unknown }).window = window
-  return { documentElement, timers }
+  ;(globalThis as unknown as { MutationObserver: unknown }).MutationObserver = FakeMutationObserver
+  return { document, documentElement, timers }
 }
 
 /** A bridge that hands out ordered leases and records acquire/release. */
@@ -203,7 +226,7 @@ function statusOf(surface: FakeElement | undefined): FakeElement | undefined {
 const viewAttrs = { view: 'data-dsh-desktop-tabs-view', cover: 'data-dsh-desktop-tabs-cover' }
 
 async function retention(): Promise<void> {
-  const { documentElement, timers } = installFakeDom()
+  const { document, documentElement, timers } = installFakeDom()
   const bridge = recordingBridge()
   const view = createRemoteView(bridge)
 
@@ -220,9 +243,13 @@ async function retention(): Promise<void> {
   guestA?.dispatch('dom-ready')
   await tick()
   check(guestA?.loadedUrls[0] === 'http://a.test/', 'a shown: target URL loaded on dom-ready')
+  check(document.title === '本机标题', 'a shown: no page title yet, the native title is kept')
+  guestA?.dispatch('page-title-updated', { title: '会话 A — DeepSeek Harness' })
+  check(document.title === '会话 A — DeepSeek Harness', 'a shown: the window title follows the guest page title')
 
   // Switching creates b's surface and hides a's; a's guest is untouched.
   view.activate('b')
+  check(document.title === '本机标题', 'b activated: a tab without a page title shows the native title')
   view.show('b', { account: 'desktop-tabs:b', url: 'http://b.test/', title: 'B' })
   await tick()
   const b = surfaceOf(view, 'b')
@@ -234,6 +261,8 @@ async function retention(): Promise<void> {
   check(bridge.released.length === 0, 'b shown: switching releases no lease')
   check(guestB?.getAttribute('src') === 'about:blank#lease-2', 'b shown: b guest attached')
   check(timers.size === 2, 'b shown: each live guest keeps its own notification poll')
+  guestB?.dispatch('page-title-updated', { title: '会话 B — DeepSeek Harness' })
+  check(document.title === '会话 B — DeepSeek Harness', 'b shown: the window title follows b page title')
 
   // Switching back reveals a's original guest without acquiring anything new.
   if (guestA !== undefined) guestA.focused = false
@@ -243,6 +272,7 @@ async function retention(): Promise<void> {
   check(guestOf(a) === guestA, 'a revealed: same guest node')
   check(bridge.acquired.length === 2, 'a revealed: no new lease acquired')
   check(guestA?.focused === true, 'a revealed: shown guest focused')
+  check(document.title === '会话 A — DeepSeek Harness', 'a revealed: its retained page title comes back')
 
   // Hiding the layer (the local tab) leaves every guest alive.
   view.hide()
@@ -251,11 +281,14 @@ async function retention(): Promise<void> {
   check(guestA?.parent === a && guestB?.parent === b, 'hidden: both guests stay attached')
   check(bridge.released.length === 0, 'hidden: hiding releases no lease')
   check(timers.size === 2, 'hidden: both notification polls keep running')
+  check(document.title === '本机标题', 'hidden: the native title is restored')
 
   // Refreshing a tab unloads only that tab's guest and lease.
   view.activate('a')
+  check(document.title === '会话 A — DeepSeek Harness', 'a shown again: its page title is restored')
   const staleA = guestOf(a)
   view.show('a', { account: 'desktop-tabs:a', url: 'http://a.test/next', title: 'A' })
+  check(document.title === '本机标题', 'refresh: the reloading tab shows the native title')
   await tick()
   const freshA = guestOf(a)
   check(freshA !== staleA, 'refresh: a has a new guest')
@@ -268,6 +301,8 @@ async function retention(): Promise<void> {
   freshA?.dispatch('dom-ready')
   await tick()
   check(freshA?.loadedUrls[0] === 'http://a.test/next', 'refresh: a loads the address again')
+  freshA?.dispatch('page-title-updated', { title: '会话 A2 — DeepSeek Harness' })
+  check(document.title === '会话 A2 — DeepSeek Harness', 'refresh: the fresh guest page title is shown')
 
   // Placeholder, status, and log are per tab.
   view.open('a', 'A')
@@ -276,9 +311,14 @@ async function retention(): Promise<void> {
   check(bridge.released.includes('lease-3'), 'placeholder: a released its guest lease')
   check(timers.size === 1, 'placeholder: a stopped its notification poll')
   check(statusOf(a)?.textContent.includes('A'), 'placeholder: a shows its own status')
+  check(document.title === '本机标题', 'placeholder: a connecting tab shows the native title')
   view.setLog('b', ['b-line'])
   check(logOf(a)?.textContent === 'a-line', 'placeholder: a keeps its own log')
   check(logOf(b)?.textContent === 'b-line', 'placeholder: b keeps its own log')
+
+  view.fail('a', 'A 连接失败：boom')
+  check(statusOf(a)?.textContent.includes('连接失败'), 'failure: a shows the failure status')
+  check(document.title === '本机标题', 'failure: the failed tab keeps the native title')
 
   // Closing a tab drops its surface and unloads only its guest.
   view.unload('a')
@@ -286,12 +326,18 @@ async function retention(): Promise<void> {
   check(view.element.hidden === true, 'unload: the layer stops covering the application')
   check(documentElement.getAttribute(viewAttrs.cover) === null, 'unload: cover removed')
   check(logOf(b) !== undefined, 'unload: b surface stays')
+  check(document.title === '本机标题', 'unload: the native title stays')
 
+  // Switching to b's retained page takes the title over again; a dispose hands
+  // it back to the native UI.
+  view.activate('b')
+  check(document.title === '会话 B — DeepSeek Harness', 'b activated: its retained page title is shown')
   view.dispose()
   check(view.element.parent === undefined, 'dispose: layer detached')
   check(bridge.released.includes('lease-2'), 'dispose: b lease released')
   check(timers.size === 0, 'dispose: every notification poll stopped')
   check(documentElement.getAttribute(viewAttrs.cover) === null, 'dispose: cover removed')
+  check(document.title === '本机标题', 'dispose: the native title is restored')
 }
 
 /** A mount whose lease arrives after its tab was already unloaded must not attach. */
