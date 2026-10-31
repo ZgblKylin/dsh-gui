@@ -4,10 +4,12 @@ Local DeepSeek Harness plugin packages, in the same preset-style layout as
 `presets/`: every first-level directory is a **plugin wrapper** that owns an
 `install.mjs` plus the plugin package/repo checkout it installs from, if any.
 A wrapper may own several checkouts and install several npm
-packages in one script. Two wrappers own no package checkout at all:
+packages in one script. Three wrappers own no package checkout at all:
 `dsh-web-ui` installs three npm bundles of its distribution repo —
-`dsh-web-ui-settings`, `dsh-skill-explorer` and `dsh-usage` — and `harness` owns
-the official dsh-family plugins it installs as one flat group: `browser-use.mjs`
+`dsh-web-ui-settings`, `dsh-skill-explorer` and `dsh-usage` — `skill-mcp-center`
+installs one npm package whose upstream repository is not vendored here, and
+`harness` owns the official dsh-family plugins it installs as one flat group:
+`browser-use.mjs`
 installs the Playwright MCP browser provider (the exclusive `dsh-browser-use`
 registration service + the experimental provider — see `harness/README.md`),
 and `computer-use.mjs` installs the Cua Driver native desktop provider (the
@@ -195,6 +197,7 @@ tree with `duplicate loader entry id`.
   `display:"web"` 屏蔽桌面 Electron 模式（见
   [dsh-pet/README.md](dsh-pet/README.md)）
 - [dsh-commandcode-provider](https://github.com/Mars-Sea/dsh-commandcode-provider) npm包（pin 子模块 tag `v0.15.5`，packageSpec `@mars-sea/dsh-commandcode-provider@0.15.5`；`engines.dsh` 是区间 `>=0.2.1-rc.2 <0.2.2-0`，上界把 0.2.2 整条 prerelease 线排除在外（`0.2.2-alpha.2` 高于 `0.2.2-0`），`0.15.5` 是最新发布、区间与之相同、registry 无放行版本，且包内 `dsh.compatibility.dshReleases` 只记录 rc.2 / rc.3 / rc.4，因此 wrapper 授予精确版本例外（精确绑定 `0.15.5` + `0.2.2-alpha.2`，上游发布放行 0.2.2 的版本后撤销；子模块 checkout 仅作源码参考；其 bundle 层插入 entry id `llm-commandcode`）
+- [dsh-skill-mcp-center](https://github.com/Max-Null/dsh-skill-mcp-center) npm包（pin `@max-null/dsh-skill-mcp-center@0.7.0`；不引入子模块，仓库侧只有 wrapper 的 `install.mjs`，包以发布形态提供预构建 `dist/` 与 `client.js`，无构建步骤。host 半 inject 为 `loader` / `tools` 并从 `ctx.skills` 读取技能目录；client 半在设置页新增「Skill & MCP」分区，`dsh-better-sidebar` 存在时另在右侧栏提供 MCP 实时状态面板（可选 peer，本工程已安装）。manifest 无 `engines.dsh`，准入闸门按 `@deepseek-ai/dsh*` peer（`>=0.1.1-rc.1 <0.3.0`）放行 0.2.2-alpha.2；声明 `dsh.bundle.patch`，entry id `skill-mcp-center`）
 
 ## Current plugins
 
@@ -350,6 +353,20 @@ tree with `duplicate loader entry id`.
   system notifications are relayed through the host
   (`session/event` / `agent/error` consumed by the host half, polled by the
   browser half over `/dsh-pet-7340/notify`). See `dsh-pet/README.md`.
+- `skill-mcp-center` — npm-only wrapper installing
+  `@max-null/dsh-skill-mcp-center@0.7.0` (exact pin; the upstream repository is
+  not vendored as a submodule, so `install.mjs` is the wrapper's only file). The
+  plugin adds a "Skill & MCP" settings section for browsing, enabling and
+  deleting skills and for adding, editing, enabling and removing `mcp-client`
+  servers (hot-applied through `ctx.loader`), plus an MCP live-status sidebar
+  tab when `dsh-better-sidebar` is installed (optional peer, mounted here). Its
+  host half injects `loader` and `tools` and reads the skill catalog from
+  `ctx.skills`. The package declares `dsh.bundle.patch`, so `dsh plugin add`
+  reconciles it into `dsh.profile.bundles` and it mounts through its own bundle
+  layer (entry id `skill-mcp-center`). No `engines.dsh` is declared; the
+  admission gate evaluates its `@deepseek-ai/dsh*` peers
+  (`>=0.1.1-rc.1 <0.3.0`), which admit the pinned 0.2.2-alpha.2 runtime without
+  an exemption. See the upstream `README.md`.
 - `harness` — a single flat wrapper at `harness/` that owns the official
   dsh-family plugins it installs: `install.mjs` only loads the sibling installers
   `browser-use.mjs` and `computer-use.mjs`, so the group stays

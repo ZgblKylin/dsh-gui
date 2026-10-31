@@ -149,6 +149,10 @@ browser.
 - **`dsh-deep-whale`** — whale-girl skin series; currently ships the
   hot-pluggable `maid-atelier` skin (light/dark palace backgrounds, navy lace
   UI overlay, Q-version sidebar, embedded assets).
+- **`dsh-skill-mcp-center`** — Skill & MCP management center: a "Skill & MCP"
+  settings section for browsing, enabling and deleting skills and for adding,
+  editing, enabling and removing MCP servers (hot-applied without restart),
+  plus an MCP live-status sidebar tab when `dsh-better-sidebar` is installed.
 
 ![dsh-gui with the plugin features expanded](docs/dsh-gui/images/dsh-gui-features.png)
 
@@ -487,6 +491,11 @@ namespaces, so without it a `webUiSettings`-dependent plugin's configuration
 form is read-only. `dsh-web-ui/` stays as the source reference only (v0.3.x layout:
 `packages/dsh-web-settings`, `packages/dsh-web-all`); every other dsh-web
 package stays uninstalled and unmounted.
+
+`plugins/skill-mcp-center` is npm-only as well: its `install.mjs` installs
+`@max-null/dsh-skill-mcp-center@0.7.0` through `installNpmPlugin`, with no
+checkout in this repository, and the package's own `dsh.bundle.patch`
+reconciles it into `dsh.profile.bundles`.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing
