@@ -9,9 +9,11 @@ node_modules/
 .npm-tmp-cache/
 # Scratch: ad-hoc smoke scripts / probe bundles / throwaway cargo target dirs.
 .work/
-# Persistent upgrade-validation workspace: a clone of this repository plus every
-# submodule, where a plugin/harness upgrade is built and smoke-tested before it
-# is applied here. Maintained by scripts/staging.mjs; never a source of truth.
+# Upgrade-validation workspace: a `git worktree` of this repository plus every
+# submodule, checked out on the `staging/verify` work branch and built inside
+# `.staging/`, which is also that worktree's runtime root (DSH_HOME, toolchain,
+# pnpm store, entry exe). Maintained by scripts/staging.mjs; never a source of
+# truth.
 .staging/
 # Desktop packaging download caches (Electron runtime, electron-builder tools)
 # kept in the workspace because the sandbox denies writing %LOCALAPPDATA%.

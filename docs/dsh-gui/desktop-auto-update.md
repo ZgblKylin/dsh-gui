@@ -120,7 +120,7 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 
 可发起 AI 更新的行与外壳的资格规则一致：顶层 `dsh-gui` 行不进入 AI 流程（行内按钮灰显，批量时也被过滤，顶层只走就地 git 更新）；当前正好停留在某个 tag、而远端只有更新的提交没有更新的 tag（`behind && announce === false`）的行同样灰显，提示改用「更新」。批量入口因此只包含子模块行。
 
-目标工作区选择与「创造模式」预设由 `dsh-ai-update` 承担（该插件已在 desktop profile 中，见 [update-check.md](update-check.md) 的「AI 更新的提示词与预设」）；提示词由 client 半的 `ai-prompt.ts` 生成，语义对齐 `src-tauri/ui/app.js` 的 `buildAiUpdatePrompt` 与两个基座构造器，`/dsh-gui-update` skill 手势与验收门槛（先在 `.staging/dsh-gui` 副本验证；含 harness 时用 computer use 验证 GUI；报告并取得用户审批后再实装）保留，构建命令统一写成 `npm run build:desktop`。
+目标工作区选择与「创造模式」预设由 `dsh-ai-update` 承担（该插件已在 desktop profile 中，见 [update-check.md](update-check.md) 的「AI 更新的提示词与预设」）；提示词由 client 半的 `ai-prompt.ts` 生成，语义对齐 `src-tauri/ui/app.js` 的 `buildAiUpdatePrompt` 与两个基座构造器，`/dsh-gui-update` skill 手势与验收门槛（先在验证 worktree `.staging/dsh-gui` 中验证——本仓库的 git worktree，检出工作分支 `staging/verify`，适配改动直接提交在该分支、无需审批；含 harness 时用 computer use 验证 GUI；报告并取得用户审批后再把工作分支合并回主分支实装）保留，构建命令统一写成 `npm run build:desktop`。
 
 ## 明确不做的项
 

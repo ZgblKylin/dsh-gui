@@ -4,7 +4,7 @@
 
 `harness.json` 决定本仓库运行的 dsh CLI 来自哪里：`npm` 用 registry 安装的 `@deepseek-ai/dsh`，`source` 编译 `deepseek-harness` 子模块。外壳、构建 CLI、插件安装器与 `npm run harness` 共用同一份解析契约：JS 侧实现在 `scripts/harness-runtime.mjs`，Rust 侧实现在 `src-tauri/src/harness.rs`，两侧在清单文件、环境变量名与解析路径上保持一致。
 
-解析涉及两个根。**仓库根**保存 `harness.json`、`deepseek-harness/` 子模块与构建脚本；**运行时根**保存 `.harness`、`.dsh`、`.toolchain`、`.pnpm-store`、`.staging` 与入口 exe。默认取仓库根的父目录当检出目录名为 `dsh-gui`（或其父目录已含 `.dsh`/`.harness`）时，否则退回单目录布局；`DSH_GUI_ROOT` 与 `DSH_GUI_RUNTIME_ROOT` 分别显式覆盖。判定实现见 `scripts/harness-runtime.mjs` 的 `resolveRuntimeRoot` 与 `src-tauri/src/roots.rs`，布局与硬约束见 [nested-clone-layout.md](nested-clone-layout.md)。
+解析涉及两个根。**仓库根**保存 `harness.json`、`deepseek-harness/` 子模块与构建脚本；**运行时根**保存 `.harness`、`.dsh`、`.toolchain`、`.pnpm-store` 与入口 exe。默认取仓库根的父目录当检出目录名为 `dsh-gui`（或其父目录已含 `.dsh`/`.harness`）时，否则退回单目录布局；`DSH_GUI_ROOT` 与 `DSH_GUI_RUNTIME_ROOT` 分别显式覆盖。判定实现见 `scripts/harness-runtime.mjs` 的 `resolveRuntimeRoot` 与 `src-tauri/src/roots.rs`，布局与硬约束见 [nested-clone-layout.md](nested-clone-layout.md)。
 
 ## 清单
 
@@ -90,12 +90,12 @@ source 模式以 revision 为增量判据：`harness-build.json` 记录的 revis
 
 harness 升级先由更新对话框把子模块 fast-forward 到新 tag，再运行 `node scripts/dsh-gui.mjs build`；build 按新检出的 `apps/cli/package.json` 版本从 registry 安装对应包。
 
-`npm-installs.json` 记有 `@deepseek-ai/dsh`，更新检查因此把 deepseek-harness 行视为 npm 安装型条目，核对最新 tag 是否已有对应的 npm 发布；该核对只作为对话框附注，不影响行的更新徽标判定。流程见 skill `dsh-gui-update`，验证位置见 [upgrade-staging-workspace.md](upgrade-staging-workspace.md)。
+`npm-installs.json` 记有 `@deepseek-ai/dsh`，更新检查因此把 deepseek-harness 行视为 npm 安装型条目，核对最新 tag 是否已有对应的 npm 发布；该核对只作为对话框附注，不影响行的更新徽标判定。流程见 skill `dsh-gui-update`，验证位置是仓库内的验证 worktree `.staging/dsh-gui`，验收命令与判据见 [upgrade-staging-workspace.md](upgrade-staging-workspace.md)。
 
 ## 限制与风险
 
 - `@deepseek-ai/dsh` 的 `latest` dist-tag 落后于预发布（`0.1.6-alpha.2` 发布在 `alpha`），因此只能按精确版本安装，不能依赖 `latest`。
-- 上游只验收 `dsh --version`；端到端组合渲染由构建期的冒烟检查兜底：build/setup 在插件安装后执行 `--profile web --dump-config`（见下节「故障排查」），`.staging` 副本的冒烟检查同样跑该命令。
+- 上游只验收 `dsh --version`；端到端组合渲染由构建期的冒烟检查兜底：build/setup 在插件安装后执行 `--profile web --dump-config`（见下节「故障排查」），验证 worktree 的冒烟检查同样跑该命令。
 - `.harness/` 中带 install 或 postinstall 脚本的包需要 pinned pnpm 的 `allowBuilds` 决策，未决策会让后续安装失败。
 - npm 模式失去修改 harness 源码或以源码启动它的能力；按 `AGENTS.md`，子模块本来就不允许修改。
 

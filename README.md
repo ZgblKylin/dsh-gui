@@ -95,12 +95,16 @@ browser.
   button that returns to the project home screen, selects the dsh-gui
   directory there, selects the 「创造模式」(cordis) preset, and prefills a
   prompt that asks the agent to sync the submodule(s) to the chosen target and
-  verify the result in the persistent `.staging/dsh-gui` clone — the staging
-  WebUI must actually load, a harness update additionally needs a computer-use
-  check that the GUI starts and runs, and phase two only touches this checkout
-  after you approve the verification report (the bottom button lists every
-  updatable module with its combo choice; the preset can still be changed
-  before sending). Each behind row also has an **更新日志** button:
+  verify the result in the `.staging/dsh-gui` validation worktree — a git
+  worktree of this checkout on the `staging/verify` branch whose runtime root
+  is `<repository root>/.staging`, so the whole copy lives inside the session
+  workspace — the worktree's WebUI must actually load, adaptation commits go
+  straight onto `staging/verify` without approval, a harness update
+  additionally needs a computer-use check that the GUI starts and runs, and
+  phase two merges that branch back into this checkout only after you approve
+  the verification report (the bottom button lists every updatable module with
+  its combo choice; the preset can still be changed before sending). Each
+  behind row also has an **更新日志** button:
   for a tag target it shows the official GitHub Release notes for **every**
   release the update brings in — all tags between the current checkout and the
   update target, newest first, so a checkout several releases behind sees the
@@ -192,9 +196,10 @@ executable inside that tree inherits it (see
 ├─ .dsh/                    # (runtime) harness home: profiles/plugins/sessions
 ├─ .harness/                # npm-runtime install of @deepseek-ai/dsh
 ├─ .toolchain/ .pnpm-store/ # pinned pnpm and the shared package cache
-├─ .staging/                # upgrade staging clone (scripts/staging.mjs)
 ├─ dsh-gui.exe              # the Tauri shell entry binary (`dsh-gui` elsewhere)
 └─ dsh-gui/                 # the git checkout — also the DSH workspace
+   ├─ .staging/             # upgrade validation worktree (.staging/dsh-gui on the
+   │                        #   staging/verify branch) and its runtime root
    ├─ harness.json          # selects the dsh runtime (npm registry or source build)
    ├─ deepseek-harness/     # git submodule: the pinned harness checkout — version
    │                        #   source, built in place only in `source` mode
@@ -245,7 +250,7 @@ detailed sections marked in the table are expanded further down.
 | `npm run rebuild` | `node scripts/dsh-gui.mjs rebuild` | full build with every skip disabled: runtime reinstalled, every plugin installed again (see [Build (one shot)](#build-one-shot)) |
 | `npm run install:plugins` / `npm run plugins` | `node scripts/dsh-gui.mjs install` | run every plugin install script under `plugins/` (see [Adding plugins at runtime](#adding-plugins-at-runtime)) |
 | `npm run test:scripts` | `node --test scripts/plugin-install.test.mjs` | unit tests for the plugin-install fast path and reinstall switches |
-| `npm run staging` | `node scripts/staging.mjs` | staging-clone workflow: `ensure`, `sync`, `status`, `clean --yes` (see [Validating an upgrade in the staging clone](#validating-an-upgrade-in-the-staging-clone)) |
+| `npm run staging` | `node scripts/staging.mjs` | staging-workspace workflow: `ensure`, `sync [--rebase]`, `status`, `clean --yes [--branch]` (see [Validating an upgrade in the staging worktree](#validating-an-upgrade-in-the-staging-worktree)) |
 | `npm run harness` | `node scripts/harness.mjs` | foreground harness backend, no shell window or browser (see [Run](#run)) |
 | `npm start` | `node scripts/dsh-gui.mjs run` | detached desktop shell (see [Run](#run)) |
 | `npm run shortcut` | `node scripts/dsh-gui.mjs shortcut` | Windows desktop shortcut (see [System shortcut (Windows)](#system-shortcut-windows)) |
@@ -392,24 +397,32 @@ build installs `@deepseek-ai/dsh` at the version the submodule's
 `apps/cli/package.json` records, and in `source` it compiles the checkout in
 place — see [docs/dsh-gui/harness-runtime.md](docs/dsh-gui/harness-runtime.md).
 
-## Validating an upgrade in the staging clone
+## Validating an upgrade in the staging worktree
 
-`.staging/dsh-gui` is a persistent clone of this checkout, submodules included;
-`<runtime-root>/.staging/` is that clone's runtime root and carries its own
-`DSH_HOME`, toolchain, pnpm store, harness install, and build output. Move an
-upgrade through the clone first, so a broken harness or plugin revision never
-reaches the installation this checkout serves:
+`.staging/dsh-gui` is a git worktree of this checkout on the dedicated
+`staging/verify` branch, submodules included; `<repository root>/.staging/` is
+that worktree's runtime root and carries its own `DSH_HOME`, toolchain, pnpm
+store, harness install, and build output, so the whole copy lives inside the
+session workspace. Move an upgrade through the worktree first, so a broken
+harness or plugin revision never reaches the installation this checkout
+serves:
 
 ```powershell
-npm run staging -- ensure        # first time only: create the clone
-npm run staging -- sync          # move the clone onto this checkout's revision
-cd ..\.staging\dsh-gui           # from the repository root
+npm run staging -- ensure        # first time only: create the worktree
+npm run staging -- sync          # move the branch onto this checkout's revision
+cd .staging\dsh-gui              # from the repository root
+$env:DSH_HOME = 'E:\Git\dsh-gui-home\dsh-gui\.staging\.dsh'   # required: the worktree's own DSH home
 npm run build -- --skip-exe      # dsh runtime install/build -> plugin installs -> presets
 ```
 
-`npm run staging -- status` reports both revisions, submodule drift, and how far
-the clone's build has come; `npm run staging -- clean --yes` deletes the clone and
-its runtime directories.
+`npm run staging -- sync` resets the branch onto this checkout's HEAD while the
+branch holds no unmerged commits, and with `--rebase` rebases those commits on
+top otherwise. `npm run staging -- status` reports both revisions, submodule
+drift, and how far the worktree's build has come; `npm run staging -- clean
+--yes` removes the worktree and its runtime directories and keeps the
+`staging/verify` branch (add `--branch` to delete it). Adaptation commits go
+straight onto `staging/verify` without approval; merging the branch back into
+this checkout is a separate, approved step.
 The full upgrade workflow is the `dsh-gui-update` skill; the workspace itself is
 documented in
 [docs/dsh-gui/upgrade-staging-workspace.md](docs/dsh-gui/upgrade-staging-workspace.md).

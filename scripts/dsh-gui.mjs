@@ -573,8 +573,9 @@ function installWslAgentExtras() {
  * bundles, so it surfaces exactly the failures the shell would hit at boot —
  * missing plugins, duplicate loader entry ids, and import errors from a mixed
  * dsh family tree — while the build is still on the machine that can fix it.
- * The staging upgrade workspace runs the same command as its acceptance gate;
- * the working repo now fails the build on it instead of handing a broken
+ * The verification worktree (`<repository root>/.staging/dsh-gui`, checked out
+ * on the `staging/verify` work branch) runs the same command as its acceptance
+ * gate; the working repo now fails the build on it instead of handing a broken
  * harness to the next launch.
  */
 function smokeComposition() {

@@ -16,9 +16,10 @@
  *   workspace and switched the session to the 「创造模式」 preset, instead of
  *   asking the model to confirm a workspace the shell cannot select;
  * - the acceptance gate keeps the shell's criteria verbatim in substance:
- *   verify in the `.staging/dsh-gui` clone first, add a computer-use check of
- *   the GUI when the batch contains deepseek-harness, then report and wait for
- *   the user's approval before touching this checkout.
+ *   verify in the `.staging/dsh-gui` worktree first, add a computer-use check
+ *   of the GUI when the batch contains deepseek-harness, then report and wait
+ *   for the user's approval before the `staging/verify` branch is merged back
+ *   into the main branch.
  */
 
 import type { UpdateProject } from './api.ts'
@@ -58,19 +59,23 @@ export const HARNESS_MODULE_NOTE = '说明：deepseek-harness 是本工程的基
 export const AI_UPDATE_WORKSPACE_NOTE = '注意：以上路径均相对于 dsh-gui 仓库根目录。本次会话由 dsh-ai-update 在项目首页选中 dsh-gui 目录并自动切到「创造模式」预设，工作区就是该仓库（包含 plugins/、presets/、deepseek-harness/ 等目录的目录）。'
 
 /**
- * Closing gate of every AI-update prompt: what "verified in the staging clone"
- * means, and the approval barrier before anything reaches this checkout. The
- * per-step commands live in the dsh-gui-update skill (loaded by the gesture
- * above), so this note fixes only the acceptance criteria the skill cannot
- * infer from the dialog.
+ * Closing gate of every AI-update prompt: what "verified in the staging
+ * worktree" means, and the approval barrier before the work branch is merged
+ * back into the main branch. The verification copy is a git worktree at
+ * `.staging/dsh-gui` on the `staging/verify` branch, inside the session
+ * workspace: its files and the commits on that branch need no extra approval,
+ * while the build commands and the `sh.exe` that `git submodule` invokes still
+ * may. The per-step commands live in the dsh-gui-update skill (loaded by the
+ * gesture above), so this note fixes only the acceptance criteria the skill
+ * cannot infer from the dialog.
  */
 export const AI_UPDATE_GATE_NOTE = [
-  '验证与实装门槛（阶段一全部通过、并经用户审批之前，不得改动本工程）：',
-  '1. 先在持久化验证副本 .staging/dsh-gui 中完成更新、适配与构建，不碰本工程。',
-  '2. 「验证通过」指副本的 WebUI 能正确加载：以副本自身的 DSH_HOME 在空闲端口启动副本的 web 后端，确认会话界面正常渲染、插件与组合无加载报错或错误覆盖层，然后停掉该实例；构建全绿与配置 dump 无报错都只是前置条件，不算通过。',
-  `3. 本次更新包含 deepseek-harness 时，还要用 computer use 验证 GUI 能正常启动和运行：在副本内执行 \`${BUILD_COMMAND}\` 构建 desktop 产物，再启动副本自己的 desktop 应用（指向副本的 DSH_HOME，用空闲端口以免与正在运行的实例争用），确认窗口出现、加载页过渡到标签页、harness 就绪且可正常交互，然后关闭该实例。`,
+  '验证与实装门槛（阶段一全部通过、并经用户审批之前，不得改动主工程）：',
+  '1. 先在验证 worktree .staging/dsh-gui 中完成更新、适配与构建。它是本仓库在 .staging/ 下的 git worktree，检出工作分支 staging/verify；整个副本位于会话工作区内，文件读写与工作分支上的提交都复用工作区写权限，不需要额外审批，构建产物也落在工作区内的 .staging 运行时根下。需要额外审批的只有执行（构建命令，以及 git submodule 依赖的 sh.exe）与写出工作区的动作：构建时把 DSH_HOME 显式设为 <仓库根>/.staging/.dsh，不要让它继承到仓库外的 dsh-gui-home。',
+  '2. 「验证通过」指 worktree 的 WebUI 能正确加载：以它自身的 DSH_HOME 在空闲端口启动它的 web 后端，确认会话界面正常渲染、插件与组合无加载报错或错误覆盖层，然后停掉该实例；构建全绿与配置 dump 无报错都只是前置条件，不算通过。',
+  `3. 本次更新包含 deepseek-harness 时，还要用 computer use 验证 GUI 能正常启动和运行：在 worktree 内执行 \`${BUILD_COMMAND}\` 构建 desktop 产物，再启动它自己的 desktop 应用（指向它的 DSH_HOME，用空闲端口以免与正在运行的实例争用），确认窗口出现、加载页过渡到标签页、harness 就绪且可正常交互，然后关闭该实例。`,
   `4. 构建命令统一为 \`${BUILD_COMMAND}\`（desktop 应用的构建入口；不要改用它以外的构建入口）。完成实装后由用户在停止运行中的 Desktop 实例时自行重新构建，会话只负责通知，不代跑构建或安装。`,
-  '5. 验证全部通过后先向用户报告结论（副本路径、目标修订、验证命令与结果、适配改动清单、屏蔽项与未决风险），等用户明确审批后再执行阶段二，把更新同步到本工程。',
+  '5. 适配改动直接提交到 staging/verify 工作分支（worktree 内的提交不需要等待用户审批）；全部验证通过后向用户报告结论（worktree 路径、工作分支与提交、目标修订、验证命令与结果、适配改动清单、屏蔽项与未决风险），等用户明确审批后再执行阶段二，把工作分支合并回主分支完成实装。',
 ].join('\n')
 
 /**

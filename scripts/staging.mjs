@@ -1,32 +1,39 @@
 #!/usr/bin/env node
 /**
- * dsh-gui — upgrade staging workspace.
+ * dsh-gui — upgrade verification worktree.
  *
- * `.staging/dsh-gui` holds a persistent clone of this repository together with
- * every submodule, and `.staging/` is that clone's runtime root: it carries the
- * clone's DSH_HOME (`.dsh/`), toolchain (`.toolchain/`), pnpm store
- * (`.pnpm-store/`), harness install and build output, so a failed upgrade never
- * touches the installation this repository serves.
+ * `.staging/dsh-gui` is a git worktree of this repository, checked out on the
+ * `staging/verify` work branch and carrying every submodule: a plugin or
+ * harness upgrade is built and smoke-tested there before it is merged here.
+ * `.staging/` is that worktree's runtime root, holding its DSH_HOME (`.dsh/`),
+ * toolchain (`.toolchain/`), pnpm store (`.pnpm-store/`), harness install
+ * (`.harness/`) and the entry exe, so a failed upgrade never touches the
+ * installation this repository serves. The copy lives inside this repository,
+ * which keeps its files and work-branch commits inside the session workspace.
+ *
+ * The worktree shares this repository's object database and refs, so creating
+ * and syncing it never fetches the superproject history again.
  *
  * Commands:
- *   ensure   create the clone: clone this repository, seed the submodule URLs
- *            this repository already resolved, initialize every submodule, and
- *            register the real origin URL as the `upstream` remote
- *   sync     move the clone onto this repository's current revision and re-pin
- *            its submodules
- *   status   report revisions, drift, and how far the clone's build has come
- *   clean    delete the clone and its runtime directories
+ *   ensure   create the worktree on the work branch and initialize every
+ *            submodule
+ *   sync     align the work branch with this repository's current HEAD and
+ *            re-pin the submodules
+ *   status   report revisions, the work branch, submodule drift, and how far
+ *            the worktree's build has come
+ *   clean    delete the worktree and its runtime directories
  *
  * Flags:
- *   --from-origin  ensure: clone the superproject from its origin URL instead
- *                  of this repository's working path
- *   --recreate     ensure: replace an existing clone
+ *   --recreate     ensure: replace an existing worktree
+ *   --rebase       sync: rebase the work branch onto this repository's HEAD
+ *                  when it carries unmerged commits
  *   --yes          clean: confirm deletion
+ *   --branch       clean: also delete the work branch
  *
- * Run outside a sandbox: `git submodule` on Windows is a shell script and git's
- * local transport spawns the same shell, so both need a mode that permits
- * `sh.exe`. From a dsh session that means approving the elevation prompt for
- * this command; a normal terminal needs nothing.
+ * `git worktree add` runs git-lfs smudge filters, and `git submodule` is a
+ * shell script on Windows: both need a mode that permits spawning `sh.exe`.
+ * From a dsh session, approve the elevation prompt for this command; a normal
+ * terminal needs nothing.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -40,17 +47,19 @@ import {
   rmSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import { ROOT, RUNTIME_ROOT } from './toolchain.mjs'
+import { join, resolve, sep } from 'node:path'
+import { BIN_NAME, ROOT, RUNTIME_ROOT } from './toolchain.mjs'
 
-const STAGING_ROOT = join(RUNTIME_ROOT, '.staging')
-const CLONE = join(STAGING_ROOT, 'dsh-gui')
-/** Runtime root of the clone: the staging directory itself. */
-const CLONE_RUNTIME = STAGING_ROOT
-/** Remote of the clone holding this repository's origin URL (the GitHub side). */
-const UPSTREAM_REMOTE = 'upstream'
-/** Build stages `status` probes inside the clone. */
-const HARNESS = 'deepseek-harness'
+/** Upgrade-validation workspace: inside this repository, so the sandbox already covers it. */
+const STAGING_ROOT = join(ROOT, '.staging')
+/** The repository's verification worktree. */
+const WORKTREE = join(STAGING_ROOT, 'dsh-gui')
+/** Runtime root of the worktree: the staging directory itself (nested checkout layout). */
+const WORKTREE_RUNTIME = STAGING_ROOT
+/** Work branch the verification worktree is checked out on. */
+const WORK_BRANCH = 'staging/verify'
+/** Runtime directories `clean` deletes under the staging root. */
+const RUNTIME_DIRS = ['.toolchain', '.pnpm-store', '.harness', '.dsh', 'dsh-gui.exe', 'dsh-gui']
 
 function fail(message) {
   console.error(`\n[error] ${message}`)
@@ -63,7 +72,7 @@ function fail(message) {
  * pipes, so the file form keeps the captured diagnostics available inside a
  * sandboxed session.
  * @param {string[]} args - git arguments, without `-C`.
- * @param {string} dir - repository or clone to run in.
+ * @param {string} dir - repository or worktree to run in.
  * @returns {{ ok: boolean, status: number|null, stdout: string, stderr: string, spawnError: Error|undefined }}
  */
 function captureGit(args, dir = ROOT) {
@@ -98,7 +107,7 @@ function captureGit(args, dir = ROOT) {
  * Same as {@link captureGit}, but stderr stays on the terminal: a submodule
  * update is long enough that its progress belongs in front of the user.
  * @param {string[]} args - git arguments, without `-C`.
- * @param {string} dir - repository or clone to run in.
+ * @param {string} dir - repository or worktree to run in.
  * @returns {{ ok: boolean, status: number|null, stdout: string }}
  */
 function captureGitStdout(args, dir = ROOT) {
@@ -128,23 +137,40 @@ function git(args, dir = ROOT) {
 }
 
 /**
+ * Run a git command whose failure should stop the script, printing the captured
+ * diagnostics before the error so a sandbox refusal is not reported blind.
+ * @param {string[]} args - git arguments, without `-C`.
+ * @param {string} dir - repository or worktree to run in.
+ * @param {string} what - operation name used in the error message.
+ * @returns {string} trimmed stdout of the successful command.
+ */
+function runGit(args, dir, what) {
+  const result = captureGit(args, dir)
+  if (result.spawnError) fail(`cannot spawn git: ${result.spawnError.message}`)
+  if (result.ok) return result.stdout.trim()
+  const output = `${result.stdout}${result.stderr}`.trim()
+  if (output !== '') console.error(output)
+  fail(`${what} failed (exit ${result.status})${sandboxHint(result.stderr)}`)
+}
+
+/**
  * The sandbox leaves a recognizable signature when it blocks the Cygwin shell
- * that `git submodule` and the local git transport need, so the failure points
- * at the fix instead of at git.
+ * that `git worktree add`'s git-lfs filters and `git submodule` need, so the
+ * failure points at the fix instead of at git.
  * @param {string} text - captured stdout/stderr of the failed command.
  * @returns {string} hint line, or an empty string for unrelated failures.
  */
 function sandboxHint(text = '') {
   return /sh\.exe|CreateFileMapping/.test(text)
-    ? '\nhint: the sandbox blocked sh.exe, which git submodule and the local git transport need.\n      Approve the elevation prompt for this command, or run it in a normal terminal.'
+    ? '\nhint: the sandbox blocked sh.exe, which git-lfs filters (git worktree add) and git submodule need.\n      Approve the elevation prompt for this command, or run it in a normal terminal.'
     : ''
 }
 
 /**
- * Fail before any clone work when the sandbox already blocks the shell that
+ * Fail before any worktree work when the sandbox already blocks the shell that
  * every submodule operation runs on (`git submodule` is a shell script on
  * Windows).
- * @param {string} dir - repository or clone to probe in.
+ * @param {string} dir - repository or worktree to probe in.
  */
 function assertSubmoduleShell(dir) {
   const probe = captureGit(['submodule', 'status'], dir)
@@ -163,21 +189,96 @@ function stream(command, args, cwd = ROOT, what = `${command} ${args.join(' ')}`
   if (result.status !== 0) fail(`${what} failed (exit ${result.status})`)
 }
 
-/** Refuse to nest a staging clone inside another one. */
+/** Refuse to nest a verification worktree inside another one. */
 function assertNotInsideStaging() {
   const segments = resolve(ROOT).split(sep)
   if (segments.includes('.staging')) {
-    fail(`this is the staging clone itself (${ROOT}); run the command from the working repository`)
+    fail(`this is the verification worktree itself (${ROOT}); run the command from the working repository`)
   }
 }
 
-function assertClone() {
-  if (!existsSync(CLONE)) {
-    fail(`the staging clone does not exist yet: ${CLONE} — run "npm run staging -- ensure" first`)
+/** Every worktree git records for this repository: `{ path, branch }`. */
+function worktrees() {
+  const text = git(['worktree', 'list', '--porcelain']) ?? ''
+  const entries = []
+  let current = null
+  for (const raw of text.split(/\r?\n/)) {
+    if (raw.startsWith('worktree ')) {
+      current = { path: resolve(raw.slice('worktree '.length).trim()), branch: null }
+      entries.push(current)
+    } else if (current && raw.startsWith('branch ')) {
+      current.branch = raw.slice('branch '.length).trim().replace(/^refs\/heads\//, '')
+    }
   }
-  if (git(['rev-parse', '--is-inside-work-tree'], CLONE) !== 'true') {
-    fail(`${CLONE} exists but is not a git repository — remove it or run "npm run staging -- ensure --recreate"`)
+  return entries
+}
+
+/** The registered worktree record for {@link WORKTREE}, or null. */
+function worktreeEntry() {
+  return worktrees().find((entry) => entry.path === resolve(WORKTREE)) ?? null
+}
+
+/** Branch the verification worktree is checked out on, or null when detached. */
+function worktreeBranch() {
+  return worktreeEntry()?.branch ?? null
+}
+
+function branchExists(name = WORK_BRANCH) {
+  return git(['rev-parse', '--verify', '--quiet', `refs/heads/${name}`]) !== null
+}
+
+function assertWorktree() {
+  if (!existsSync(WORKTREE)) {
+    fail(`the verification worktree does not exist yet: ${WORKTREE} — run "npm run staging -- ensure" first`)
   }
+  // `rev-parse --is-inside-work-tree` is also true for any directory inside the
+  // main work tree, so the registration check is what rules out a plain
+  // directory left at this path.
+  if (worktreeEntry() === null || git(['rev-parse', '--is-inside-work-tree'], WORKTREE) !== 'true') {
+    fail(`${WORKTREE} exists but is not a worktree of this repository — remove it or run "npm run staging -- ensure --recreate"`)
+  }
+}
+
+/**
+ * Whether `ancestor` is contained in `descendant` (`git merge-base --is-ancestor`).
+ * @param {string} ancestor - revision name.
+ * @param {string} descendant - revision name.
+ * @returns {boolean} true when every commit of `ancestor` is in `descendant`.
+ */
+function isAncestor(ancestor, descendant) {
+  const result = captureGit(['merge-base', '--is-ancestor', ancestor, descendant])
+  if (result.spawnError) fail(`cannot spawn git: ${result.spawnError.message}`)
+  if (result.status === 1) return false
+  const output = `${result.stdout}${result.stderr}`.trim()
+  if (!result.ok) {
+    if (output !== '') console.error(output)
+    fail(`git merge-base --is-ancestor failed (exit ${result.status})`)
+  }
+  return true
+}
+
+/**
+ * How many commits `branch` carries that this repository's HEAD does not.
+ * @param {string} branch - branch name.
+ * @returns {number|null} commit count, or null when git cannot compute it.
+ */
+function unmergedCount(branch) {
+  const count = git(['rev-list', '--count', `HEAD..refs/heads/${branch}`])
+  if (count === null) return null
+  const parsed = Number.parseInt(count, 10)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+function describeRevision(dir, revision = 'HEAD') {
+  const tag = git(['describe', '--tags', '--exact-match', revision], dir)
+  const short = git(['rev-parse', '--short', revision], dir)
+  return tag ?? short ?? 'unknown'
+}
+
+/** Count working-tree entries git reports as changed. */
+function dirtyCount(dir) {
+  const porcelain = git(['status', '--porcelain'], dir) ?? ''
+  return porcelain === '' ? 0 : porcelain.split(/\r?\n/).filter((line) => line.trim() !== '').length
 }
 
 /** `[submodule "<name>"]` entries of this repository's `.gitmodules`. */
@@ -199,206 +300,19 @@ function submoduleEntries() {
   return entries
 }
 
-/**
- * Resolve a `.gitmodules` URL that is relative to the superproject's origin
- * (a submodule that records its source as `../<repo>` rather than an absolute
- * URL). No in-tree submodule uses that form today; the branch is kept because
- * `.gitmodules` is editable by hand.
- * @returns {string|null} absolute URL, or null when the base cannot be parsed.
- */
-function resolveRelativeUrl(url, base) {
-  if (!url.startsWith('./') && !url.startsWith('../')) return url
-  if (base === null || base === '') return null
-  if (/^https?:\/\//i.test(base)) {
-    try {
-      return new URL(url, base.endsWith('/') ? base : `${base}/`).toString()
-    } catch {
-      return null
-    }
+/** Remove the worktree, keeping the work branch: `git worktree prune`, then `remove --force`. */
+function removeWorktree() {
+  // A worktree deleted by hand keeps a stale administrative entry; prune drops it
+  // so the remove below runs against a consistent record.
+  git(['worktree', 'prune'])
+  if (worktreeEntry() !== null) {
+    runGit(['worktree', 'remove', '--force', WORKTREE], ROOT, `git worktree remove ${WORKTREE}`)
   }
-  const basePath = base.startsWith('file://') ? base.slice('file://'.length) : base
-  if (!isAbsolute(basePath)) return null
-  return resolve(dirname(basePath), url).replace(/\\/g, '/')
-}
-
-/**
- * Whether a configured submodule URL is a local filesystem path rather than a
- * remote URL: the signature of a path frozen by a checkout location that no
- * longer exists. `file://` URLs count as local paths for the same reason.
- * @param {string} url - configured submodule URL.
- * @returns {boolean} true when the value names a directory instead of a remote.
- */
-function isLocalPathUrl(url) {
-  const value = String(url ?? '').trim()
-  if (value === '') return false
-  if (value.slice(0, 7).toLowerCase() === 'file://') return true
-  if (value.includes('://')) return false // https://, ssh://, git://
-  if (value.startsWith('.') || value.startsWith('/') || value.startsWith('\\')) return true
-  // Windows drive path (`E:/x`, `E:\x`).
-  return value.length >= 2 && value[1] === ':' && /[a-zA-Z]/.test(value[0])
-}
-
-/**
- * Every submodule URL this repository can resolve: a *remote* value already
- * written to its config wins (a mirror or a fork is deliberate configuration),
- * then relative `.gitmodules` URLs are resolved against the origin so the clone
- * never inherits a path that only exists relative to the working copy.
- *
- * A local path recorded in the config is never forwarded: git freezes the URL
- * it resolved at `git submodule update --init` time into
- * `submodule.<name>.url`, so a checkout that once lived elsewhere keeps the old
- * absolute path there, and seeding it into the clone makes every submodule
- * operation in the clone fail. The `.gitmodules` value is used instead — it
- * lives inside the checkout, so it always resolves against the current root.
- * @returns {Map<string, string>} config key (`submodule.<name>.url`) -> URL.
- */
-function resolvedSubmoduleUrls() {
-  const urls = new Map()
-  const configured = git(['config', '--get-regexp', '^submodule\\..*\\.url$']) ?? ''
-  for (const line of configured.split(/\r?\n/)) {
-    const match = line.trim().match(/^(submodule\..*?\.url)\s+(.+)$/)
-    if (match && !isLocalPathUrl(match[2])) urls.set(match[1], match[2].trim())
+  // A plain directory at the same path (an interrupted creation) has no worktree
+  // record to remove; delete it directly so `ensure` can start from scratch.
+  if (existsSync(WORKTREE)) {
+    rmSync(WORKTREE, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   }
-  const origin = git(['remote', 'get-url', 'origin'])
-  for (const entry of submoduleEntries()) {
-    const key = `submodule.${entry.name}.url`
-    if (urls.has(key) || entry.url === '') continue
-    const resolved = resolveRelativeUrl(entry.url, origin)
-    if (resolved !== null) urls.set(key, resolved)
-  }
-  return urls
-}
-
-/** Copy this repository's resolved submodule URLs into the clone's config. */
-function seedSubmoduleUrls() {
-  const urls = resolvedSubmoduleUrls()
-  if (urls.size === 0) return
-  for (const [key, url] of urls) git(['config', key, url], CLONE)
-}
-
-/** Register the working repository's origin URL as the clone's `upstream`. */
-function registerUpstreamRemote() {
-  const origin = git(['remote', 'get-url', 'origin'])
-  if (origin === null) return
-  if (git(['remote', 'get-url', UPSTREAM_REMOTE], CLONE) !== null) return
-  git(['remote', 'add', UPSTREAM_REMOTE, origin], CLONE)
-}
-
-function describeRevision(dir, revision = 'HEAD') {
-  const tag = git(['describe', '--tags', '--exact-match', revision], dir)
-  const short = git(['rev-parse', '--short', revision], dir)
-  return tag ?? short ?? 'unknown'
-}
-
-/** Count worktree entries git reports as changed. */
-function dirtyCount(dir) {
-  const porcelain = git(['status', '--porcelain'], dir) ?? ''
-  return porcelain === '' ? 0 : porcelain.split(/\r?\n/).filter((line) => line.trim() !== '').length
-}
-
-function removeClone() {
-  if (!existsSync(CLONE)) return
-  // Remove the module git directories first: on Windows a read-only file inside
-  // them aborts the recursive delete otherwise.
-  git(['submodule', 'deinit', '-f', '--all'], CLONE)
-  rmSync(CLONE, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
-}
-
-function ensure(options) {
-  assertNotInsideStaging()
-  if (existsSync(CLONE)) {
-    if (!options.recreate) {
-      console.log(`staging clone already present: ${CLONE}`)
-      console.log('run "npm run staging -- sync" to move it onto this repository\'s revision')
-      return
-    }
-    console.log(`removing the existing clone: ${CLONE}`)
-    removeClone()
-  }
-  mkdirSync(STAGING_ROOT, { recursive: true })
-  assertSubmoduleShell(ROOT)
-
-  const source = options.fromOrigin ? git(['remote', 'get-url', 'origin']) : ROOT
-  if (source === null) fail('this repository has no origin remote to clone from')
-  console.log(`==> clone ${source}\n    -> ${CLONE}`)
-  stream('git', ['clone', '--quiet', source, CLONE], ROOT, `git clone ${source}`)
-
-  console.log('==> seed submodule URLs resolved by this repository')
-  seedSubmoduleUrls()
-
-  console.log('==> initialize submodules (git submodule update --init --recursive)')
-  const update = captureGitStdout(['submodule', 'update', '--init', '--recursive', '--progress'], CLONE)
-  if (!update.ok) {
-    fail(`submodule initialization failed (exit ${update.status}) — rerun "npm run staging -- ensure --recreate" after fixing the cause`)
-  }
-
-  registerUpstreamRemote()
-  console.log('\nstaging clone ready:')
-  report()
-  console.log(`
-next:
-  cd ${CLONE}
-  npm run build -- --skip-exe     # harness install+build, plugins, presets (no cargo/exe)
-  npm run build                   # full validation, including the entry exe`)
-}
-
-function sync() {
-  assertNotInsideStaging()
-  assertClone()
-  assertSubmoduleShell(CLONE)
-  const dirty = dirtyCount(CLONE)
-  if (dirty > 0) {
-    fail(`the staging clone has ${dirty} uncommitted change(s); commit or discard them in ${CLONE} before syncing`)
-  }
-  const sourceHead = git(['rev-parse', 'HEAD'])
-  const sourceBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'])
-  const sourceDirty = dirtyCount(ROOT)
-  if (sourceHead === null) fail('cannot read this repository\'s HEAD')
-
-  // The clone's `origin` is this repository's working path, so a checkout moved
-  // since the clone was created leaves the previous location baked into that
-  // remote. Re-derive it from the current root instead of fetching through a
-  // recorded absolute path (the clone was cloned with `--from-origin` when the
-  // remote is not a local path — that one is left alone).
-  const cloneOrigin = git(['remote', 'get-url', 'origin'], CLONE)
-  if (cloneOrigin !== null && isLocalPathUrl(cloneOrigin) && resolve(cloneOrigin) !== resolve(ROOT)) {
-    console.log(`==> re-point the clone origin at this repository: ${ROOT}`)
-    if (git(['remote', 'set-url', 'origin', ROOT], CLONE) === null) {
-      fail(`cannot re-point the clone origin at ${ROOT}`)
-    }
-  }
-
-  console.log('==> fetch origin (this repository)')
-  const fetched = captureGitStdout(['fetch', '--prune', 'origin'], CLONE)
-  if (!fetched.ok) fail(`git fetch failed (exit ${fetched.status}) in ${CLONE}`)
-  if (sourceBranch !== null && sourceBranch !== 'HEAD') {
-    console.log(`==> check out ${sourceBranch} at origin/${sourceBranch}`)
-    if (git(['checkout', '--force', '-B', sourceBranch, `origin/${sourceBranch}`], CLONE) === null) {
-      fail(`cannot check out origin/${sourceBranch} in ${CLONE}`)
-    }
-  } else {
-    console.log(`==> detach the clone at ${sourceHead.slice(0, 7)}`)
-    if (git(['checkout', '--force', '--detach', sourceHead], CLONE) === null) {
-      fail(`cannot detach ${CLONE} at ${sourceHead.slice(0, 7)}`)
-    }
-  }
-
-  seedSubmoduleUrls()
-  console.log('==> re-pin submodules')
-  const updated = captureGitStdout(['submodule', 'update', '--init', '--recursive'], CLONE)
-  if (!updated.ok) fail(`submodule update failed (exit ${updated.status}) in ${CLONE}`)
-
-  report()
-  if (sourceDirty > 0) {
-    console.log(`note: this repository has ${sourceDirty} uncommitted change(s); the clone carries its committed revision only.
-      apply the same edits in the clone (or "git -C ${ROOT} diff HEAD > patch && git -C ${CLONE} apply patch")
-      before validating them.`)
-  }
-}
-
-/** Does the clone contain one of the listed paths? */
-function present(...parts) {
-  return presentAt(CLONE, ...parts)
 }
 
 /** Does `base` contain one of the listed paths? */
@@ -406,110 +320,199 @@ function presentAt(base, ...parts) {
   return existsSync(join(base, ...parts))
 }
 
-/**
- * The runtime the clone is configured for, read from its own `harness.json`.
- * A clone that predates the manifest keeps the source runtime, matching both
- * resolvers' default.
- * @returns {{ runtime: 'npm' | 'source', version: string | null }}
- */
-function cloneRuntime() {
-  try {
-    const config = JSON.parse(readFileSync(join(CLONE, 'harness.json'), 'utf8'))
-    return {
-      runtime: config?.runtime === 'npm' ? 'npm' : 'source',
-      version: typeof config?.version === 'string' && config.version !== '' ? config.version : null,
-    }
-  } catch {
-    return { runtime: 'source', version: null }
-  }
-}
-
 function report() {
-  const sourceHead = git(['rev-parse', 'HEAD'])
-  const cloneHead = git(['rev-parse', 'HEAD'], CLONE)
+  const repoHead = git(['rev-parse', 'HEAD'])
+  const worktreeHead = git(['rev-parse', 'HEAD'], WORKTREE)
+  const branch = worktreeBranch()
+  const unmerged = branch === null ? null : unmergedCount(branch)
   const lines = []
-  lines.push(`  repository : ${ROOT}`)
-  lines.push(`    HEAD     : ${describeRevision(ROOT)} (${sourceHead === null ? 'unknown' : sourceHead.slice(0, 7)})`)
-  lines.push(`    worktree : ${dirtyCount(ROOT)} changed entr(ies)`)
-  lines.push(`  clone      : ${CLONE}`)
-  lines.push(`    HEAD     : ${describeRevision(CLONE)} (${cloneHead === null ? 'unknown' : cloneHead.slice(0, 7)})`)
-  lines.push(`    worktree : ${dirtyCount(CLONE)} changed entr(ies)`)
-  lines.push(`    revision : ${sourceHead === cloneHead ? 'matches the repository' : 'DIFFERS from the repository'}`)
-  lines.push(`    remotes  : ${(git(['remote'], CLONE) ?? '').split(/\r?\n/).filter(Boolean).join(', ')}`)
+  lines.push(`  repository  : ${ROOT}`)
+  lines.push(`    HEAD      : ${describeRevision(ROOT)} (${repoHead === null ? 'unknown' : repoHead.slice(0, 7)})`)
+  lines.push(`    changes   : ${dirtyCount(ROOT)} changed entr(ies)`)
+  lines.push(`  worktree    : ${WORKTREE}`)
+  lines.push(`    branch    : ${branch ?? 'detached HEAD'}`)
+  lines.push(`    HEAD      : ${describeRevision(WORKTREE)} (${worktreeHead === null ? 'unknown' : worktreeHead.slice(0, 7)})`)
+  lines.push(`    changes   : ${dirtyCount(WORKTREE)} changed entr(ies)`)
+  lines.push(`    unmerged  : ${unmerged === null ? 'unknown' : `${unmerged} commit(s) not in this repository's HEAD`}`)
 
-  // Drift = the clone checked out a commit other than the one this repository
+  // Drift = the worktree checked out a commit other than the one this repository
   // records for that submodule (a half-finished update, or a stale checkout).
+  const entries = submoduleEntries()
   const drifted = []
-  for (const entry of submoduleEntries()) {
+  for (const entry of entries) {
     const recorded = git(['ls-tree', 'HEAD', entry.path]) ?? ''
     const pinned = recorded.split(/\s+/)[2] ?? ''
-    const checkedOut = git(['rev-parse', 'HEAD'], join(CLONE, entry.path))
+    const checkedOut = git(['rev-parse', 'HEAD'], join(WORKTREE, entry.path))
     if (checkedOut === null) drifted.push(`${entry.path}: missing`)
     else if (checkedOut !== pinned) drifted.push(`${entry.path}: ${checkedOut.slice(0, 7)} != ${pinned.slice(0, 7)}`)
   }
-  lines.push(`    submodules: ${drifted.length === 0 ? `${submoduleEntries().length} pinned as recorded` : `DRIFT — ${drifted.join('; ')}`}`)
+  lines.push(`    submodules: ${drifted.length === 0 ? `${entries.length} pinned as recorded` : `DRIFT — ${drifted.join('; ')}`}`)
 
-  lines.push('  clone build stages:')
-  lines.push(`    toolchain        : ${presentAt(CLONE_RUNTIME, '.toolchain', 'node_modules', 'pnpm') ? 'bootstrapped' : 'missing'} (.staging/.toolchain/node_modules/pnpm/)`)
-  lines.push(`    pnpm store       : ${presentAt(CLONE_RUNTIME, '.pnpm-store') ? 'present' : 'missing'} (.staging/.pnpm-store/)`)
-  const runtime = cloneRuntime()
-  if (runtime.runtime === 'npm') {
-    const version = runtime.version ?? 'version from the submodule manifest'
-    lines.push(`    dsh runtime      : npm (${version}) — ${presentAt(CLONE_RUNTIME, '.harness', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js') ? 'installed' : 'missing'} (.staging/.harness/node_modules/@deepseek-ai/dsh/lib/bin.js)`)
-    lines.push(`    harness submodule: not compiled (npm runtime); ${present(HARNESS, 'apps', 'cli', 'package.json') ? 'checkout present' : 'checkout missing'} (${HARNESS}/)`)
-  } else {
-    lines.push(`    dsh runtime      : source — ${present(HARNESS, 'apps', 'cli', 'lib', 'bin.js') ? 'built' : 'missing'} (${HARNESS}/apps/cli/lib/bin.js)`)
-    lines.push(`    harness deps     : ${present(HARNESS, 'node_modules') ? 'installed' : 'missing'} (${HARNESS}/node_modules/)`)
-  }
-  lines.push(`    entry exe        : ${presentAt(CLONE_RUNTIME, 'dsh-gui.exe') || presentAt(CLONE_RUNTIME, 'dsh-gui') ? 'built' : 'not built'} (.staging/dsh-gui.exe)`)
-  lines.push(`    installed profile: ${presentAt(CLONE_RUNTIME, '.dsh', 'profiles', 'web', 'cordis.patch.yml') ? 'present' : 'absent'} (.staging/.dsh/profiles/web/)`)
-  lines.push(`    agent presets    : declarative profile-patch rows; legacy dir ${presentAt(CLONE_RUNTIME, '.dsh', '.agent-presets') ? 'present (no longer discovered)' : 'absent'} (.staging/.dsh/.agent-presets/)`)
+  lines.push(`  worktree runtime: ${WORKTREE_RUNTIME}`)
+  lines.push(`    toolchain : ${presentAt(WORKTREE_RUNTIME, '.toolchain', 'node_modules', 'pnpm') ? 'bootstrapped' : 'missing'} (.staging/.toolchain/node_modules/pnpm/)`)
+  lines.push(`    pnpm store: ${presentAt(WORKTREE_RUNTIME, '.pnpm-store') ? 'present' : 'missing'} (.staging/.pnpm-store/)`)
+  lines.push(`    harness   : ${presentAt(WORKTREE_RUNTIME, '.harness') ? 'present' : 'missing'} (.staging/.harness/)`)
+  lines.push(`    entry exe : ${presentAt(WORKTREE_RUNTIME, BIN_NAME) ? 'built' : 'not built'} (.staging/${BIN_NAME})`)
+  lines.push(`    web profile: ${presentAt(WORKTREE_RUNTIME, '.dsh', 'profiles', 'web') ? 'present' : 'absent'} (.staging/.dsh/profiles/web/)`)
   console.log(lines.join('\n'))
+}
+
+function ensure(options) {
+  assertNotInsideStaging()
+  // A worktree directory deleted by hand leaves its registration behind; prune
+  // it so the existence check below reflects the disk.
+  git(['worktree', 'prune'])
+  if (worktreeEntry() !== null || existsSync(WORKTREE)) {
+    if (!options.recreate) {
+      console.log(`the verification worktree already exists: ${WORKTREE}`)
+      console.log('run "npm run staging -- sync" to align its work branch with this repository\'s HEAD,')
+      console.log('or "npm run staging -- ensure --recreate" to replace it')
+      return
+    }
+    console.log(`==> remove the existing verification worktree (the work branch ${WORK_BRANCH} is kept)`)
+    removeWorktree()
+  }
+  mkdirSync(STAGING_ROOT, { recursive: true })
+  const head = git(['rev-parse', 'HEAD'])
+  if (head === null) fail('cannot read this repository\'s HEAD')
+  assertSubmoduleShell(ROOT)
+
+  if (branchExists()) {
+    console.log(`==> add the worktree on the existing work branch ${WORK_BRANCH}`)
+    runGit(['worktree', 'add', WORKTREE, WORK_BRANCH], ROOT, `git worktree add ${WORKTREE} ${WORK_BRANCH}`)
+  } else {
+    console.log(`==> add the worktree on a new work branch ${WORK_BRANCH} at ${describeRevision(ROOT)} (${head.slice(0, 7)})`)
+    runGit(['worktree', 'add', '-b', WORK_BRANCH, WORKTREE, 'HEAD'], ROOT, `git worktree add -b ${WORK_BRANCH} ${WORKTREE} HEAD`)
+  }
+
+  console.log('==> initialize submodules (git -C .staging/dsh-gui submodule update --init --recursive)')
+  const update = captureGitStdout(['submodule', 'update', '--init', '--recursive', '--progress'], WORKTREE)
+  if (!update.ok) {
+    fail(`submodule initialization failed (exit ${update.status}) — rerun "npm run staging -- ensure --recreate" after fixing the cause`)
+  }
+
+  console.log('\nthe verification worktree is ready:')
+  report()
+  console.log(`
+next:
+  cd ${WORKTREE}
+  # set DSH_HOME to ${join(WORKTREE_RUNTIME, '.dsh')} so the build does not inherit the installed home
+  npm run build -- --skip-exe     # dsh runtime + plugins + presets (no cargo/exe)
+  npm run build                   # full validation, including the entry exe`)
+}
+
+function sync(options) {
+  assertNotInsideStaging()
+  assertWorktree()
+  const branch = worktreeBranch()
+  // Never reset or rebase a branch other than the work branch: the worktree is
+  // defined as checked out on it, and moving anything else would be a surprise.
+  if (branch !== WORK_BRANCH) {
+    fail(`the verification worktree is checked out on ${branch ?? 'a detached HEAD'}, not ${WORK_BRANCH} — check out ${WORK_BRANCH} in ${WORKTREE} before syncing`)
+  }
+  const dirty = dirtyCount(WORKTREE)
+  if (dirty > 0) {
+    fail(`the verification worktree has ${dirty} uncommitted change(s); commit or discard them on ${branch} in ${WORKTREE} before syncing`)
+  }
+  assertSubmoduleShell(WORKTREE)
+
+  const head = git(['rev-parse', 'HEAD'])
+  if (head === null) fail('cannot read this repository\'s HEAD')
+  const repoDirty = dirtyCount(ROOT)
+  if (repoDirty > 0) {
+    console.log(`note: this repository has ${repoDirty} uncommitted change(s); the worktree carries its committed revision only.`)
+  }
+
+  if (isAncestor(branch, 'HEAD')) {
+    console.log(`==> reset ${branch} to this repository's HEAD ${describeRevision(ROOT)} (${head.slice(0, 7)})`)
+    runGit(['reset', '--hard', head], WORKTREE, 'git reset --hard')
+  } else if (options.rebase) {
+    console.log(`==> rebase ${branch} onto this repository's HEAD ${describeRevision(ROOT)} (${head.slice(0, 7)})`)
+    const rebase = captureGit(['rebase', head], WORKTREE)
+    if (!rebase.ok) {
+      const output = `${rebase.stdout}${rebase.stderr}`.trim()
+      if (output !== '') console.error(output)
+      // Leave the worktree in its pre-rebase state: a half-resolved conflict is
+      // worse than the failure itself.
+      captureGit(['rebase', '--abort'], WORKTREE)
+      fail(`git rebase failed (exit ${rebase.status}); the worktree was returned to its pre-rebase state with "git rebase --abort"`)
+    }
+  } else {
+    const unmerged = unmergedCount(branch) ?? 'some'
+    fail(`the work branch ${branch} carries ${unmerged} commit(s) this repository's HEAD does not contain.
+       rebase it onto the repository HEAD with "npm run staging -- sync --rebase", or merge the work branch back first:
+       git -C ${ROOT} merge --no-ff ${branch}`)
+  }
+
+  console.log('==> re-pin submodules (git -C .staging/dsh-gui submodule update --init --recursive)')
+  const update = captureGitStdout(['submodule', 'update', '--init', '--recursive'], WORKTREE)
+  if (!update.ok) fail(`submodule update failed (exit ${update.status}) in ${WORKTREE}`)
+  report()
 }
 
 function clean(options) {
   assertNotInsideStaging()
-  if (!existsSync(CLONE)) {
-    console.log(`no staging clone at ${CLONE}`)
-    return
-  }
   if (!options.yes) {
-    fail(`refusing to delete ${STAGING_ROOT} without --yes`)
+    fail(`refusing to delete the verification worktree and its runtime directories without --yes`)
   }
-  console.log(`==> remove ${STAGING_ROOT}`)
-  removeClone()
-  for (const name of ['.toolchain', '.pnpm-store', '.harness', '.dsh', 'dsh-gui.exe', 'dsh-gui']) {
-    rmSync(join(STAGING_ROOT, name), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+
+  console.log(`==> remove the worktree: ${WORKTREE}`)
+  removeWorktree()
+  console.log('==> remove the worktree runtime directories')
+  for (const name of RUNTIME_DIRS) {
+    const target = join(STAGING_ROOT, name)
+    if (existsSync(target)) rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   }
-  console.log('staging clone and its runtime directories removed')
+
+  if (options.branch) {
+    if (branchExists()) {
+      console.log(`==> delete the work branch ${WORK_BRANCH}`)
+      runGit(['branch', '-D', WORK_BRANCH], ROOT, `git branch -D ${WORK_BRANCH}`)
+    }
+  } else if (branchExists()) {
+    console.log(`kept the work branch ${WORK_BRANCH}: it can carry verification commits that are not merged yet`)
+    console.log('pass --branch to delete it as well')
+  }
+
+  // The old workspace lived beside the repository, i.e. in the runtime root.
+  // Only report it when that is a different path from the staging root here.
+  const legacy = join(RUNTIME_ROOT, '.staging')
+  if (resolve(legacy) !== resolve(STAGING_ROOT)) {
+    console.log(`note: ${legacy} is the former repository-external staging workspace; this script no longer maintains it.`)
+    console.log('      confirm it holds nothing you need, then delete it manually.')
+  }
+  console.log('the verification worktree and its runtime directories are removed')
 }
 
 function help() {
-  console.log(`dsh-gui — upgrade staging workspace (.staging/dsh-gui).
+  console.log(`dsh-gui — upgrade verification worktree (.staging/dsh-gui).
 
 Usage:
   node scripts/staging.mjs <command> [flags]
   npm run staging -- <command> [flags]     (from the repository root)
 
 Commands:
-  ensure   create the staging clone: clone this repository, seed the submodule
-           URLs it resolved, initialize every submodule, add the origin URL as
-           the "upstream" remote
-  sync     fetch this repository into the clone, move it onto the repository's
-           current revision, and re-pin its submodules
-  status   report revisions, submodule drift, and the clone's build stages
-  clean    delete the staging clone and its runtime directories (requires --yes)
+  ensure   create the verification worktree on the work branch ${WORK_BRANCH}
+           and initialize every submodule
+  sync     align the work branch with this repository's current HEAD and re-pin
+           the submodules
+  status   report revisions, the work branch, submodule drift, and the
+           worktree's build stages
+  clean    delete the worktree and its runtime directories (requires --yes)
 
 Flags:
-  --from-origin  ensure: clone the superproject from its origin URL instead of
-                 this repository's working path
-  --recreate     ensure: replace an existing clone
+  --recreate     ensure: replace an existing worktree (the work branch is kept)
+  --rebase       sync: rebase the work branch onto this repository's HEAD when
+                 it carries unmerged commits
   --yes          clean: confirm deletion
+  --branch       clean: also delete the work branch ${WORK_BRANCH}
 
-Validate an upgrade in the clone:
+Validate an upgrade in the verification worktree:
   npm run staging -- sync
-  cd .staging/dsh-gui && npm run build -- --skip-exe
-  cd .staging/dsh-gui && npm run build          # including the entry exe`)
+  cd .staging/dsh-gui
+  # set DSH_HOME to <repository root>/.staging/.dsh before building
+  npm run build -- --skip-exe
+  npm run build          # including the entry exe`)
 }
 
 function main() {
@@ -517,14 +520,15 @@ function main() {
   const command = argv.find((arg) => !arg.startsWith('-')) ?? 'help'
   const flags = new Set(argv.filter((arg) => arg.startsWith('-')))
   const options = {
-    fromOrigin: flags.has('--from-origin'),
     recreate: flags.has('--recreate'),
+    rebase: flags.has('--rebase'),
     yes: flags.has('--yes'),
+    branch: flags.has('--branch'),
   }
   switch (command) {
     case 'ensure': ensure(options); break
-    case 'sync': sync(); break
-    case 'status': assertClone(); report(); break
+    case 'sync': sync(options); break
+    case 'status': assertWorktree(); report(); break
     case 'clean': clean(options); break
     case 'help':
     case '--help':

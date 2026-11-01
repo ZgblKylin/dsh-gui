@@ -18,12 +18,12 @@
 - src-tauri: tauri源码目录
 - src-shim: desktop 快捷方式 shim 的 Rust crate（`npm run build:desktop` 编译）
 - scripts: 启动脚本目录
+- .staging: 升级验证工作区（`scripts/staging.mjs` 维护的 git worktree `.staging/dsh-gui`，检出工作分支 `staging/verify`；`.staging/` 同时是它的运行时根，验证产出的 DSH home、工具链与入口 exe 都落在其中，见 `dsh-gui-update` skill）
 
 运行时根：
 
 - .dsh: dsh配置目录（会话、profile、凭据、GUI 日志）
 - .harness: npm 运行时的 dsh CLI 安装目录（由 `npm run build` 按 `harness.json` 生成）
-- .staging: 升级验证工作区（持久化 clone 副本，由 `scripts/staging.mjs` 维护，见 `dsh-gui-update` skill）
 - .desktop: desktop 构建工作区（出仓的 deepseek-harness 检出、已检出 commit 与 shim 的 cargo target）
 - .toolchain、.pnpm-store: pinned pnpm 与共享 store
 - dsh-gui.exe: 入口 exe，由 `npm run build` 产出后拷贝到此处
@@ -32,7 +32,7 @@
 
 `npm run build:desktop` 构建 desktop 应用，把解包产物落位到运行时根的 `desktop`，编译 `dsh-gui-desktop.exe`，并把 `plugins/` 的安装脚本装到 desktop profile（运行时根的 `.dsh\profiles\desktop`）；`npm run desktop` 启动它；`npm run build` 不包含 desktop，见 [docs/dsh-gui/desktop-app.md](docs/dsh-gui/desktop-app.md)。两个目标一起构建用 `npm run build:all`（`npm run build` 后接 `npm run build:desktop`）。
 
-两条硬约束：**运行时根禁止作为 DSH 工作区**（会话工作区取仓库根，否则 `.dsh`、`.harness` 与入口 exe 会进入沙箱的低完整性打标范围）；**仓库内不放 `node_modules`**（pnpm 硬链接会让标签沿共享文件对象外溢到 store）。
+两条硬约束：**运行时根禁止作为 DSH 工作区**（会话工作区取仓库根，否则 `.dsh`、`.harness` 与入口 exe 会进入沙箱的低完整性打标范围）；**仓库内不放 `node_modules`**（pnpm 硬链接会让标签沿共享文件对象外溢到 store）。验证 worktree 的运行时根是 `<仓库根>/.staging`，位于会话工作区内，其中的 `.dsh`、`.harness` 与入口 exe 会进入打标范围；这不影响本工程的安装——该 worktree 只用于验证，可以随时删除重建。
 
 - `harness.json` 的 `runtime` 决定外壳与构建用哪个 dsh：`npm` 从 registry 安装 `@deepseek-ai/dsh@<version>` 到运行时根的 `.harness/`（不再编译子模块），`source` 编译 `deepseek-harness` 子模块；契约见 `scripts/harness-runtime.mjs` 与 `src-tauri/src/harness.rs`，说明见 `docs/dsh-gui/harness-runtime.md`。
 - `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范与提供版本；不要编辑其中的任何文件，不要从该目录向插件源码复制代码。
@@ -57,7 +57,7 @@ console.log({ platform: process.platform, arch: process.arch })
 ## 项目 Skills
 
 - **`dsh-plugin-install`**：安装/卸载 DSH 插件到 profile 的标准流程。涉及插件安装、卸载、更新、源码编译安装时，先加载该 skill。其内容基于 `dsh plugin --profile <profile> add --help`（受管安装器转发的 pnpm add）的权威安装方式列表：npm 包 / tag / 版本 / 版本范围 / git 简写 / git URL / 本地 tgz / tarball URL / 目录。
-- **`dsh-gui-update`**：把 `deepseek-harness` 或某插件模块升级到更新的上游修订（最新 tag / 最新提交）的标准流程。涉及模块升级、升级前验证、插件屏蔽与实装时，先加载该 skill；它基于更新对话框的 AI 更新提示词：升级先在 `.staging/dsh-gui` 副本中验证（「验证通过」指副本 WebUI 能正确加载；更新含 harness 时另用 computer use 验证 GUI 能启动运行），报告并取得用户审批后才实装到本工程。
+- **`dsh-gui-update`**：把 `deepseek-harness` 或某插件模块升级到更新的上游修订（最新 tag / 最新提交）的标准流程。涉及模块升级、升级前验证、插件屏蔽与实装时，先加载该 skill；它基于更新对话框的 AI 更新提示词：升级先在验证 worktree `.staging/dsh-gui` 中验证（本仓库的 git worktree，检出工作分支 `staging/verify`；「验证通过」指 worktree 的 WebUI 能正确加载，更新含 harness 时另用 computer use 验证 GUI 能启动运行），适配改动直接提交在工作分支上、不需要用户审批；报告并取得用户审批后才把工作分支合并回主分支实装到本工程。
 - Skill 分两级：仓库级开发 skill 存放于 `.agents/skills/<skill-name>/SKILL.md`；用户级 skill（对所有 workspace 生效）源文件存放于 `global_template.agents/skills/<skill-name>/SKILL.md`，由构建安装到 `.dsh/skills/`。frontmatter 含 `name`、`description`、`whenToUse`。
 
 ## 工具与终端
@@ -146,6 +146,7 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
 - 构建、安装、运行、调试等操作可能被 dsh 沙箱拦截。
 - 被拦截时**不要尝试用非标手段绕过**（改路径、直接调底层二进制、禁用安全检查、手工模拟产物等）。
 - 正确做法：**通过工具（pwsh 等）以 `sandbox_permissions` 向用户申请提权**，使用最窄的足够宽模式（通常 `danger-full-access`），并附一句理由；由用户在审批弹窗中决定是否放行。
+- 验证 worktree `.staging/dsh-gui` 位于会话工作区内：其中的文件读写与编辑、工作分支上的提交不需要额外审批；仍可能被拦截的是构建命令（pnpm 生命周期脚本、cargo）、依赖 `sh.exe` 的 git 操作（`git worktree`、`git submodule`），以及任何写出工作区的动作——构建时显式把 `DSH_HOME` 设为 `<仓库根>/.staging/.dsh`，不要让它继承到仓库外的主 home。
 - 提权只针对被拦截的那条命令；审批被拒或环境限制（如沙箱端口/连接数限制）依然存在时，如实报告并换用合规手段（如降低并发重试），不反复尝试绕过。
 
 ## Git 提交规范
@@ -153,6 +154,7 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
 - 采用 Conventional Commits：`feat:` / `fix:` / `chore:` / `docs:` / `build:` / `refactor:`，正文按需使用。
 - 外层仓库与 `plugins/<id>/` 子模块各自独立提交；改动跨越两者时分别编写 commit message。
 - **不主动执行 `git commit`**：dsh 沙箱限制下由 dsh 生成的提交无法引用用户 GPG 签名，直接提交会绕过用户的签名配置。
+- 例外：验证 worktree `.staging/dsh-gui` 的 `staging/verify` 工作分支上的提交不需要用户审批，可直接 `git add` 与 `git commit`（不改变主分支，也不影响正在运行的实例）；本仓库配置了 `commit.gpgsign=true`，沙箱内无法引用用户的签名密钥，提交时必须用 `git -c commit.gpgsign=false commit ...`（或 `git commit --no-gpg-sign`）只关闭本次提交的签名，不要改动全局或仓库配置。commit message 同样采用 Conventional Commits；把该工作分支合并回主分支仍需要用户明确审批，merge commit 仍由用户签名。
 - 完成代码改动后，无需提交或者暂存，只需编写 commit message，并在回复中提醒用户手动执行 `git commit`（以便 GPG 签名与提交钩子生效）。
 - 用户要求暂存时，操作完成后检查 `git status` 确认暂存范围正确；不要添加 `node_modules/`、`lib/` 等构建产物和缓存目录（需由 `.gitignore` 排除）。
 

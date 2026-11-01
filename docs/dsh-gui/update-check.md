@@ -43,13 +43,15 @@ desktop 应用内的 `dsh-auto-update` 插件也做同一套检测，并自带�
 （`AI_UPDATE_GATE_NOTE`，三类提示词——单模块、仅 harness、harness 与插件批量
 ——都带这段）：
 
-1. 先在 `.staging/dsh-gui` 副本中更新与验证；**「验证通过」指副本的 WebUI
-   能正确加载**（会话界面正常渲染、能新建或载入会话、插件与组合无加载报错），
-   构建全绿与 `--dump-config` 无报错都只是前置条件；
+1. 先在验证 worktree `.staging/dsh-gui` 中完成更新与验证（它是本仓库的 git
+   worktree，检出工作分支 `staging/verify`）；**「验证通过」指该 worktree 的
+   WebUI 能正确加载**（会话界面正常渲染、能新建或载入会话、插件与组合无加载
+   报错），构建全绿与 `--dump-config` 无报错都只是前置条件；适配改动直接提交
+   在工作分支上，不需要用户审批；
 2. 本次更新包含 `deepseek-harness` 时，还要用 computer use 验证 GUI（桌面
-   外壳）能在副本中正常启动和运行；
-3. 验证全部通过后先向用户报告结论，**等用户明确审批后**才执行阶段二，把更新
-   同步到本工程。
+   外壳）能在该 worktree 中正常启动和运行；
+3. 验证全部通过后先向用户报告结论，**等用户明确审批后**才执行阶段二，把工作
+   分支合并回主分支并更新主工程子模块指针完成实装。
 
 验收命令与判据见
 [upgrade-staging-workspace.md](upgrade-staging-workspace.md) 与 skill
@@ -137,8 +139,8 @@ git 在 `git submodule update --init` 时会把解析出的 URL 固化进仓库�
 改写成 `.gitmodules` 记录的 URL；远端形式的覆盖（镜像、fork）视为刻意配置，保持
 不动。修复计数写入 `.dsh/gui/gui.log`。
 
-`scripts/staging.mjs` 遵循同一规则：把子模块 URL 写进验证副本时忽略配置里的本地
-路径覆盖，`sync` 也按当前仓库根重写副本的 `origin`。
+验证 worktree 与主仓库共享 git 配置，`scripts/staging.mjs` 因此不单独处理子模块
+URL：其中的 `git submodule update --init --recursive` 直接沿用主仓库解析出的远端。
 
 ## 相关文件
 
@@ -147,4 +149,4 @@ git 在 `git submodule update --init` 时会把解析出的 URL 固化进仓库�
   `release_page_for` 的行内链接解析
 - `src-tauri/src/changelog.rs` —— `releases_page_url`（行内与标题链接共用的 URL 解析）
 - `src-tauri/ui/app.js`、`src-tauri/ui/titlebar.css` —— 行内标注与模块名链接渲染
-- `scripts/staging.mjs`、`docs/dsh-gui/upgrade-staging-workspace.md` —— 升级验证副本
+- `scripts/staging.mjs`、`docs/dsh-gui/upgrade-staging-workspace.md` —— 升级验证 worktree

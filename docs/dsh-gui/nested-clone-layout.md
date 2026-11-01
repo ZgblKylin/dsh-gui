@@ -14,16 +14,16 @@
 ├─ .toolchain/            pinned pnpm
 ├─ .pnpm-store/           shared pnpm store
 ├─ .cache/                构建缓存
-├─ .staging/dsh-gui/      升级验证副本
 ├─ .desktop/              desktop 构建工作区：出仓的 deepseek-harness 检出、已检出 commit 与 shim 的 cargo target
 ├─ desktop/               解包后的 desktop 应用，入口 DeepSeek Harness.exe
 ├─ dsh-gui-desktop.exe    desktop 快捷方式 shim，等价于 npm run desktop
 └─ dsh-gui/               git 仓库根，也是 DSH 工作区
    ├─ .git/  deepseek-harness/  plugins/  presets/  src-tauri/  scripts/  docs/
+   ├─ .staging/dsh-gui/   升级验证 worktree，检出工作分支 staging/verify；.staging/ 是它的运行时根
    └─ src-tauri/target/    cargo 构建目录
 ```
 
-路由器根之外的目录不含低标签，因此其中的可执行文件与 DSH home 都保持中等完整性；仓库内只有源码、子模块与构建目录，被低标签覆盖的代价限于源码。
+运行时根位于会话工作区之外，不含低标签，因此其中的可执行文件与 DSH home 都保持中等完整性；仓库内只有源码、子模块、构建目录与验证 worktree 的产物，被低标签覆盖的代价限于这些可丢弃的内容。
 
 ## 两个根
 
@@ -31,8 +31,8 @@
 
 | 名称 | 内容 | 解析顺序 |
 |---|---|---|
-| 仓库根 | `harness.json`、`deepseek-harness/`、`plugins/`、`presets/`、`src-tauri/`、`scripts/` | `DSH_GUI_ROOT` → 从 exe 所在目录向上查找 `harness.json` 与 `src-tauri/tauri.conf.json` → exe 同级的 `dsh-gui/` 子目录 |
-| 运行时根 | `.dsh/`、`.harness/`、`.toolchain/`、`.pnpm-store/`、`.cache/`、`.staging/`、`.desktop/`、`desktop/`、入口 exe 与 desktop shim | `DSH_GUI_RUNTIME_ROOT` → 若父目录含 `.dsh` 或 `.harness` 则取父目录 → 仓库根本身 |
+| 仓库根 | `harness.json`、`deepseek-harness/`、`plugins/`、`presets/`、`src-tauri/`、`scripts/`、`.staging/`（验证 worktree） | `DSH_GUI_ROOT` → 从 exe 所在目录向上查找 `harness.json` 与 `src-tauri/tauri.conf.json` → exe 同级的 `dsh-gui/` 子目录 |
+| 运行时根 | `.dsh/`、`.harness/`、`.toolchain/`、`.pnpm-store/`、`.cache/`、`.desktop/`、`desktop/`、入口 exe 与 desktop shim | `DSH_GUI_RUNTIME_ROOT` → 若父目录含 `.dsh` 或 `.harness` 则取父目录 → 仓库根本身 |
 
 第三种解析结果保留了对既有单目录布局的兼容：仓库根同时充当运行时根。
 
@@ -60,7 +60,7 @@
 | `scripts/dsh-gui.mjs` | `buildExe()` 把 exe 拷到运行时根；`runApp()` 先找运行时根的 exe，并注入 `DSH_GUI_ROOT` 与 `DSH_HOME`；`makeShortcut()` 的目标与工作目录取运行时根；`smokeComposition()` 与 `harnessNpmRuntime()` 传入两个根 |
 | `scripts/harness.mjs` | 传入两个根；`DSH_HOME` 取运行时根的 `.dsh` |
 | `scripts/plugin-install.mjs` | 核对 `ROOT`、`WEB_HOME` 的使用并传入两个根 |
-| `scripts/staging.mjs` | 副本位置改到运行时根的 `.staging/dsh-gui`，否则副本自身的入口 exe 与运行时目录会落在工作区内 |
+| `scripts/staging.mjs` | 验证位置改到仓库根下的验证 worktree `.staging/dsh-gui`（工作分支 `staging/verify`），其运行时根为 `.staging`；脚本负责 worktree 的创建、同步与清理 |
 
 ### 插件与文档
 
@@ -68,8 +68,8 @@
 |---|---|
 | `plugins/remote/dsh-remote/src/index.ts` | `discover()` 优先读取 `DSH_GUI_ROOT`，其次保留现有的向上查找 |
 | `AGENTS.md` | 目录结构段改为运行时根与仓库根两个根 |
-| `docs/dsh-gui/harness-runtime.md`、`docs/dsh-gui/upgrade-staging-workspace.md` | 契约与副本位置 |
-| `.agents/skills/dsh-gui-update`、`dsh-gui-plugin-dev`、`dsh-gui-preset-dev`、`dsh-plugin-install` | 路径约定与副本位置 |
+| `docs/dsh-gui/harness-runtime.md`、`docs/dsh-gui/upgrade-staging-workspace.md` | 契约与验证 worktree 位置 |
+| `.agents/skills/dsh-gui-update`、`dsh-gui-plugin-dev`、`dsh-gui-preset-dev`、`dsh-plugin-install` | 路径约定与验证 worktree 位置 |
 | 本文与 [windows-acl-low-integrity-label.md](windows-acl-low-integrity-label.md) | 新增 |
 
 ## 硬约束
@@ -77,7 +77,7 @@
 - **运行时根禁止作为 DSH 工作区。** 会话工作区取仓库根；以外层目录建立工作区会让 `.dsh`、`.harness` 与入口 exe 重新进入打标范围，[windows-acl-low-integrity-label.md](windows-acl-low-integrity-label.md) 描述的全部症状随即复现。
 - **仓库内不放 `node_modules`。** pnpm 以硬链接把 store 文件链接进 `node_modules`，硬链接共享同一个文件对象；仓库内的别名被打标时，store 中的同一对象连同其在别处的别名一并变为低标签。
 - **desktop 的构建工作区与产物都位于运行时根。** `.desktop/`、`desktop/` 与 `dsh-gui-desktop.exe` 都在运行时根之下，仓库内不产生依赖树与打包中间产物。低标签按目标父目录的可继承标签继承，在工作区内构建会让产物与 pnpm 硬链接共享的文件对象带上低标签，见 [desktop-app.md](desktop-app.md)。
-- **`npm run build` 由运行时根一侧执行。** 构建写入运行时根下的 `.harness`、`.toolchain`、`.pnpm-store` 与入口 exe；在仓库内以受限会话执行时这些写入位于工作区之外，需要按沙箱策略申请提权。
+- **`npm run build` 由运行时根一侧执行。** 构建写入运行时根下的 `.harness`、`.toolchain`、`.pnpm-store` 与入口 exe；在仓库内以受限会话执行时这些写入位于工作区之外，需要按沙箱策略申请提权。验证 worktree 是例外：它的运行时根是仓库根下的 `.staging`，构建产物落在工作区内，不需要为写出工作区申请提权，但构建命令本身仍可能被沙箱拦截。
 
 ## 验证清单
 
@@ -90,13 +90,13 @@
 
 ## 回滚
 
-改动集中在上述文件内，回滚即还原这些文件。运行时根下由新布局新增的目录（`.harness`、`.toolchain`、`.pnpm-store`、入口 exe、`.staging`）可以删除；既有单目录布局在两种根解析都退化为同一目录时仍可启动。
+改动集中在上述文件内，回滚即还原这些文件。运行时根下由新布局新增的目录（`.harness`、`.toolchain`、`.pnpm-store`、入口 exe）可以删除；验证 worktree `<仓库根>/.staging` 位于仓库内，删除它不属于运行时根回滚，需要时用 `npm run staging -- ensure` 重建。既有单目录布局在两种根解析都退化为同一目录时仍可启动。
 
 ## 迁移步骤
 
 1. 在运行时根一侧执行完整的 `npm run build`，产出入口 exe、`.harness`、`.toolchain`、`.pnpm-store` 与 profile。
 2. 重跑插件安装（`npm run install:plugins`）。profile 里的本地插件以绝对 `link:` 记录，形如 `dsh-remote = link:<旧检出>/plugins/remote/dsh-remote`；检出移动到 `<runtime-root>/dsh-gui/` 之后这些链接仍指向旧路径，必须重装才会指向新检出。
-3. 运行时根**发生位移**时（例如把一个单目录检出改成嵌套布局，或移动 `.staging`），profile 的依赖树仍按旧位置链接，pnpm 会以 `ERR_PNPM_UNEXPECTED_STORE` 拒绝按新 store 重链。此时先删除 `<DSH_HOME>/profiles/web/node_modules` 与同目录的锁文件，再重跑安装。运行时根本身没有位移时（原有运行时目录已在目标位置）不需要这一步。
+3. 运行时根**发生位移**时（例如把一个单目录检出改成嵌套布局，或移动整个检出——验证 worktree 的运行时根 `<仓库根>/.staging` 随仓库根一起位移），profile 的依赖树仍按旧位置链接，pnpm 会以 `ERR_PNPM_UNEXPECTED_STORE` 拒绝按新 store 重链。此时先删除 `<DSH_HOME>/profiles/web/node_modules` 与同目录的锁文件，再重跑安装。运行时根本身没有位移时（原有运行时目录已在目标位置）不需要这一步。
 4. 关闭 dsh-gui，执行下节的权限还原。
 5. 以 `<runtime-root>/dsh-gui` 建立新的会话工作区，按验证清单逐项确认。
 

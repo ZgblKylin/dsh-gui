@@ -13,7 +13,9 @@
  *
  * The repository root holds `harness.json`, the `deepseek-harness` submodule and
  * the build sources; the runtime root holds `.harness`, `.dsh`, `.toolchain`,
- * `.pnpm-store` and the entry exe. `resolveRuntimeRoot` derives the latter.
+ * `.pnpm-store` and the entry exe. `resolveRuntimeRoot` derives the latter,
+ * which is also what makes the verification worktree under `.staging/` build
+ * into `.staging/` itself.
  *
  * The same contract is implemented for the Rust shell in
  * `src-tauri/src/harness.rs`; the two must agree on the file, the environment
@@ -131,7 +133,7 @@ export function submoduleRevision(root) {
 
 /**
  * Resolve the runtime root that holds `.dsh`, `.harness`, `.toolchain`,
- * `.pnpm-store`, `.staging` and the entry exe.
+ * `.pnpm-store` and the entry exe.
  *
  * An explicit `DSH_GUI_RUNTIME_ROOT` wins. Otherwise a checkout named
  * `dsh-gui/`, or one whose parent already carries `.dsh` or `.harness`, uses

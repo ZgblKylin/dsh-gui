@@ -72,7 +72,7 @@ pub(crate) fn repo_root() -> Result<PathBuf, String> {
 }
 
 /// Resolve the runtime root that holds `.dsh`, `.harness`, `.toolchain`,
-/// `.pnpm-store`, `.staging` and the entry exe: `DSH_GUI_RUNTIME_ROOT` when set,
+/// `.pnpm-store` and the entry exe: `DSH_GUI_RUNTIME_ROOT` when set,
 /// otherwise the repository's parent when the checkout is named `dsh-gui` or
 /// that parent already carries `.dsh` or `.harness`, and otherwise the
 /// repository root itself.

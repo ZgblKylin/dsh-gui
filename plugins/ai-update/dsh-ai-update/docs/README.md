@@ -51,7 +51,8 @@ answers, and no client command owns this name, so the composer submits the line
 as an ordinary prompt. The upgrade procedure therefore lives in that skill —
 `.agents/skills/dsh-gui-update/SKILL.md`, discovered through the workspace's
 `.agents/skills` root, and referenced by `AI_UPDATE_SKILL` in the shell: the
-persistent `.staging/dsh-gui` staging clone and its sync/verify commands, the
+`.staging/dsh-gui` validation worktree (a git worktree of this repository on
+the `staging/verify` branch) and its sync/verify commands, the
 per-module update targets, the batched plugin updates, the install-script audit
 against the official spec the updated harness pins, masking a plugin that stays
 incompatible, applying to the real project, reporting, and drafting the
@@ -64,11 +65,12 @@ of referencing the `plugins/` layout or the plugin install pipeline.
 The draft closes with two shared notes: `AI_UPDATE_WORKSPACE_NOTE` (the paths
 are relative to the repository root, and the session workspace must be that
 repository) and `AI_UPDATE_GATE_NOTE` — the acceptance gate the skill cannot
-infer from the dialog: the staging copy's WebUI must actually load (a green
-build and a clean `--dump-config` are only preconditions), a batch that
-updates `deepseek-harness` additionally needs a computer-use check that the GUI
-starts and runs, and phase two only touches this checkout after the user
-explicitly approves the verification report.
+infer from the dialog: the worktree's WebUI must actually load (a green
+build and a clean `--dump-config` are only preconditions), adaptation commits
+go straight onto the `staging/verify` work branch without approval, a batch
+that updates `deepseek-harness` additionally needs a computer-use check that
+the GUI starts and runs, and phase two only merges that branch back into this
+checkout after the user explicitly approves the verification report.
 
 Batch AI update (`AI 更新全部`) special-cases the base modules:
 
