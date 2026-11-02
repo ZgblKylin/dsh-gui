@@ -1553,7 +1553,7 @@ async function runRootUpdate(project) {
   if (rootUpdateBusy) return;
   rootUpdateBusy = true;
   clearUpdateProgress();
-  appendUpdateProgress("开始更新顶层工程 dsh-gui（git 层：顶层快进 + 子模块递归同步）…");
+  appendUpdateProgress("开始更新顶层工程 dsh-gui（检出更新目标并递归同步子模块）…");
   appendUpdateProgress("提示：本更新仅完成 git 层；更新完成后需要重新执行 npm run build 做全量构建，再重启 dsh-gui 生效。");
   setRootUpdateControls(true);
   let unlisten = null;
@@ -1691,7 +1691,7 @@ async function applySelectedUpdates() {
       setTimeout(() => void checkForUpdates(false), 300);
     }
     const failureText =
-      failures.length > 0 ? "以下 npm 插件行更新失败：" + failures.join("、") + "。" : "";
+      failures.length > 0 ? "以下插件更新失败：" + failures.join("、") + "。" : "";
     if (gitIds.length > 0) {
       // The detached launcher exits the application: keep the npm outcome in
       // the same notice so it is still visible before the restart.
@@ -1844,7 +1844,7 @@ function updateRow(project, checking) {
       "查看本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明；否则由 dsh AI 汇总当前提交到目标提交之间的变更（可能需要几分钟）";
     if (isRoot) {
       button.title =
-        "在弹窗内直接更新顶层工程（快进到更新目标并把子模块递归同步到顶层修订记录的提交）；完成后按提示手动执行 npm run build 做全量构建";
+        "在弹窗内直接更新顶层工程（reset --hard 到更新目标并把子模块递归同步到顶层修订记录的提交）；完成后按提示手动执行 npm run build 做全量构建";
       action.append(mode, changelog, button);
     } else {
       const ai = document.createElement("button");
@@ -2004,7 +2004,7 @@ function renderUpdateDialog(status, asChecking) {
   } else {
     summary.textContent =
       behind.length > 0
-        ? `${behind.length} 个模块/插件有可用更新。git 行选好更新目标后点「更新」，npm 插件行点「更新」会改写安装脚本并重装（重启后生效）；也可以点「AI 更新」交给 agent。`
+        ? `${behind.length} 个模块/插件有可用更新。点「更新」开始更新，或点「AI 更新」交给 agent。`
         : "所有模块与插件均为最新版本。";
     updateBody.appendChild(summary);
     for (const project of projects) updateBody.appendChild(updateRow(project, false));

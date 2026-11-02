@@ -129,8 +129,8 @@ const FOOTER_ATTR = 'data-dsh-auto-update-footer'
  * profile and a fresh deployment follow the new pin. The resident dialog
  * warning states both; each row's 「更新」 title repeats only its own kind.
  */
-const GIT_UPDATE_WARNING = 'git 行更新以 git reset --hard 检出目标版本：所选工程中未提交的改动会被丢弃（未跟踪文件保留）。'
-const NPM_UPDATE_WARNING = 'npm 插件行更新会修改安装脚本中的版本 pin 并重新安装该插件（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。'
+const GIT_UPDATE_WARNING = '更新以 git reset --hard 检出目标版本：所选工程中未提交的改动会被丢弃（未跟踪文件保留）。'
+const NPM_UPDATE_WARNING = '插件更新会修改安装脚本中的版本 pin 并重新安装该插件（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。'
 const UPDATE_WARNING = `${GIT_UPDATE_WARNING}${NPM_UPDATE_WARNING}`
 
 /**
@@ -181,7 +181,7 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
   const headActions = document.createElement('div')
   headActions.setAttribute(HEAD_ACTIONS_ATTR, '')
   const refreshButton = button('检查更新', REFRESH_ATTR)
-  refreshButton.title = '重新检测所有模块与插件的更新状态（git 行执行 git fetch，npm 插件行查询 npm registry）'
+  refreshButton.title = '重新检测所有模块与插件的更新状态（仓库与子模块执行 git fetch，插件查询 npm registry）'
   const batchButton = button('全部更新', BATCH_ATTR)
   batchButton.setAttribute(PRIMARY_ATTR, '')
   batchButton.title = `按行顺序更新所有有可用更新的模块与插件（顶层 dsh-gui 优先）。${UPDATE_WARNING}`
@@ -301,12 +301,12 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
 
     if (kinds.git && kinds.npm) {
       if (buildCommand === undefined) {
-        footer.textContent = 'git 行更新只完成 git 层，npm 插件行的更新会改写安装脚本并就地重装到当前 profile；完成后需要按仓库说明重新构建 Desktop 应用并重启，改动才会生效。'
+        footer.textContent = '更新完成后：仓库与子模块需要重新构建 Desktop 应用并重启，插件已重装到当前 profile、重启 Desktop 应用后生效。'
       } else {
         footer.append(
-          document.createTextNode('git 行更新只完成 git 层，需要手动执行 '),
+          document.createTextNode('更新完成后：仓库与子模块需要手动执行 '),
           commandElement(),
-          document.createTextNode(' 重新构建并重启 Desktop 应用；npm 插件行的更新会改写安装脚本并就地重装到当前 profile，重启 Desktop 应用后生效。'),
+          document.createTextNode(' 重新构建并重启 Desktop 应用；插件已重装到当前 profile，重启 Desktop 应用后生效。'),
         )
       }
       footer.hidden = false
@@ -315,10 +315,10 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
 
     if (kinds.npm) {
       if (buildCommand === undefined) {
-        footer.textContent = 'npm 插件行的更新会改写安装脚本并就地重装到当前 profile：重启 Desktop 应用后生效。'
+        footer.textContent = '插件已重装到当前 profile：重启 Desktop 应用后生效。'
       } else {
         footer.append(
-          document.createTextNode('npm 插件行的更新会改写安装脚本并就地重装到当前 profile：重启 Desktop 应用后生效；如需重建 desktop 应用产物，可手动执行 '),
+          document.createTextNode('插件已重装到当前 profile：重启 Desktop 应用后生效；如需重建 desktop 应用产物，可手动执行 '),
           commandElement(),
           document.createTextNode('。'),
         )
@@ -349,12 +349,12 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
       return
     }
     if (buildCommand === undefined) {
-      footer.textContent = '更新完成后：git 行需要按仓库说明重新构建 Desktop 应用并重启，npm 插件行需要重启 Desktop 应用后生效。'
+      footer.textContent = '更新完成后：仓库与子模块需要重新构建 Desktop 应用并重启，插件重启 Desktop 应用后生效。'
     } else {
       footer.append(
-        document.createTextNode('更新完成后：git 行需要手动执行 '),
+        document.createTextNode('更新完成后：仓库与子模块需要手动执行 '),
         commandElement(),
-        document.createTextNode(' 重新构建并重启 Desktop 应用，npm 插件行需要重启 Desktop 应用后生效。'),
+        document.createTextNode(' 重新构建并重启 Desktop 应用，插件重启 Desktop 应用后生效。'),
       )
     }
     footer.hidden = false
@@ -534,7 +534,7 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     const runButton = button('更新', RUN_ATTR)
     runButton.setAttribute(PRIMARY_ATTR, '')
     runButton.title = `${isRoot
-      ? '在弹窗内直接更新顶层工程（快进到更新目标并把子模块递归同步到顶层修订记录的提交）；完成后按底部提示重新构建'
+      ? '在弹窗内直接更新顶层工程（reset --hard 到更新目标并把子模块递归同步到顶层修订记录的提交）；完成后按底部提示重新构建'
       : '在该模块目录内 fetch 并检出所选更新目标'}。${GIT_UPDATE_WARNING}`
 
     const aiButton = button('AI 更新', AI_ATTR)
@@ -679,7 +679,7 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     if (asChecking) {
       summary.textContent = `${rows.length} 个模块与插件，正在检查更新…`
     } else if (behind.length > 0) {
-      summary.textContent = `${behind.length} 个模块/插件有可用更新。git 行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）；npm 插件行比较安装脚本中的版本 pin 与 npm registry 的最新版本；「更新」在弹窗内执行更新并逐行回显日志。`
+      summary.textContent = `${behind.length} 个模块/插件有可用更新。点「更新」开始更新，或点「AI 更新」交给 agent。`
     } else {
       summary.textContent = '所有模块与插件均为最新版本。'
     }
@@ -801,10 +801,10 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     setControlsDisabled(true)
     clearProgress()
     appendProgress(gitOnly
-      ? `开始更新 ${targets.map(target => target.id).join('、')}（git 层：按所选目标 fetch 并检出）…`
+      ? `开始更新 ${targets.map(target => target.id).join('、')}（仓库与子模块：按所选目标检出）…`
       : npmOnly
-        ? `开始更新 ${targets.map(target => target.id).join('、')}（npm 插件行：改写安装脚本中的 pin 并重新安装）…`
-        : `开始更新 ${targets.map(target => target.id).join('、')}（git 行按所选目标检出；npm 插件行改写安装脚本中的 pin 并重新安装）…`)
+        ? `开始更新 ${targets.map(target => target.id).join('、')}（插件：改写安装脚本中的 pin 并重新安装）…`
+        : `开始更新 ${targets.map(target => target.id).join('、')}（仓库与子模块按所选目标检出；插件改写安装脚本中的 pin 并重新安装）…`)
     try {
       const result = await streamUpdate(targets, (entry) => {
         if (disposed) return
@@ -828,8 +828,8 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
       appendProgress(gitOnly
         ? '请按底部提示重新构建并重启 Desktop 应用。'
         : npmOnly
-          ? '请按底部提示重启 Desktop 应用，npm 插件行的更新才会生效。'
-          : '请按底部提示处理：git 行需要重新构建并重启 Desktop 应用，npm 插件行重启 Desktop 应用后生效。')
+          ? '请按底部提示重启 Desktop 应用，插件更新才会生效。'
+          : '请按底部提示处理：仓库与子模块需要重新构建并重启 Desktop 应用，插件重启 Desktop 应用后生效。')
     } catch (error) {
       if (disposed) return
       const message = messageOf(error)
