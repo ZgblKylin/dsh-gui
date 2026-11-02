@@ -65,12 +65,14 @@ const ID = 'deep-whale'
  * (`v0.1.9`), in upstream install order (manager first, then the two skins).
  * Exact versions bypass pnpm 11's default supply-chain `minimumReleaseAge` gate,
  * which would otherwise silently fall back to an older release for `@latest` or
- * a range.
+ * a range. Each pin is one `pkg@version` literal: the desktop update panel parses
+ * these literals into plugin rows and rewrites the new version in place, and this
+ * script is the authoritative install target for a fresh deployment.
  */
-const SKIN_PACKAGES = [
-  { name: '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager', version: '0.1.8' },
-  { name: '@smalltailqwq/dsh-client-ui-skin-maid-atelier', version: '0.1.9' },
-  { name: '@smalltailqwq/dsh-client-ui-skin-orca-link', version: '0.1.9' },
+const SKIN_SPECS = [
+  '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@0.1.8',
+  '@smalltailqwq/dsh-client-ui-skin-maid-atelier@0.1.9',
+  '@smalltailqwq/dsh-client-ui-skin-orca-link@0.1.9',
 ]
 
 /** Keys the retired `@dsh-external/*` placeholder scope left behind. */
@@ -132,11 +134,8 @@ function removeLegacyPlaceholderLinks(dshHome) {
   if (readdirSync(scopeDir).length === 0) rmSync(scopeDir, { recursive: true, force: true })
 }
 
-for (const skin of SKIN_PACKAGES) {
-  installNpmPlugin({
-    id: ID,
-    packageSpec: `${skin.name}@${skin.version}`,
-  })
+for (const spec of SKIN_SPECS) {
+  installNpmPlugin({ id: ID, packageSpec: spec })
 }
 
 const dshHome = process.env.DSH_HOME ?? WEB_HOME

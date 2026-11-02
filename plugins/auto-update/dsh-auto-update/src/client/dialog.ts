@@ -16,13 +16,24 @@
  * 「AI 更新」 dispatches the `dsh-gui:ai-update` draft and never creates a
  * session itself.
  *
- * The footer's rebuild hint is built from the host's `buildCommand` — this
- * module never spells a command of its own.
+ * There are two row kinds. A git checkout row (the repository root and its
+ * non-`plugins/` submodules) is the shell's original row. An npm plugin row is
+ * a package whose version is the exact npm pin in a repository install script:
+ * it drops the tag/commit selector and 「更新日志」 (a GitHub release cannot be
+ * mapped reliably onto an npm version), shows the pin against the registry's
+ * latest, and its 「更新」 rewrites that pin and re-runs the wrapper. Batch
+ * actions keep filtering by `behind`, so npm plugin rows take part naturally.
+ *
+ * The footer's post-update hint is built from the host's `buildCommand` — this
+ * module never spells a command of its own — and its sentence depends on the
+ * row kinds: git rows need a rebuild, while npm plugin rows are reinstalled into
+ * the current profile and need the app restarted.
  */
 
 import {
   fetchCachedStatus,
   fetchStatus,
+  isNpmProject,
   streamUpdate,
   type UpdateProject,
   type UpdateStatus,
@@ -110,14 +121,17 @@ const FOOTER_ATTR = 'data-dsh-auto-update-footer'
 /**
  * The cost of one click, stated before it is paid.
  *
- * 「更新」 and 「全部更新」 start immediately (no second confirmation) and the
- * host's semantics are `git reset --hard` onto the target revision: whatever is
- * uncommitted in the selected checkout is discarded. Untracked files survive
- * `reset --hard`, so they are called out separately — the sentence has to be
- * one the user can act on, not a generic caution. It is rendered once as a
- * resident dialog warning and appended verbatim to the two buttons' titles.
+ * 「更新」 and 「全部更新」 start immediately (no second confirmation). A git row
+ * is `git reset --hard` onto the target revision: whatever is uncommitted in
+ * that checkout is discarded (untracked files survive, hence the parenthetical).
+ * An npm plugin row instead rewrites the exact version pin inside the
+ * repository's install script and re-runs that wrapper, so both the current
+ * profile and a fresh deployment follow the new pin. The resident dialog
+ * warning states both; each row's 「更新」 title repeats only its own kind.
  */
-const UPDATE_WARNING = '更新以 git reset --hard 检出目标版本：所选工程中未提交的改动会被丢弃（未跟踪文件保留）。'
+const GIT_UPDATE_WARNING = 'git 行更新以 git reset --hard 检出目标版本：所选工程中未提交的改动会被丢弃（未跟踪文件保留）。'
+const NPM_UPDATE_WARNING = 'npm 插件行更新会修改安装脚本中的版本 pin 并重新安装该插件（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。'
+const UPDATE_WARNING = `${GIT_UPDATE_WARNING}${NPM_UPDATE_WARNING}`
 
 /**
  * The most recent complete status this client rendered, kept at module scope so
@@ -167,10 +181,10 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
   const headActions = document.createElement('div')
   headActions.setAttribute(HEAD_ACTIONS_ATTR, '')
   const refreshButton = button('检查更新', REFRESH_ATTR)
-  refreshButton.title = '重新检测所有工程的更新状态（每行会执行 git fetch）'
+  refreshButton.title = '重新检测所有模块与插件的更新状态（git 行执行 git fetch，npm 插件行查询 npm registry）'
   const batchButton = button('全部更新', BATCH_ATTR)
   batchButton.setAttribute(PRIMARY_ATTR, '')
-  batchButton.title = `按行顺序更新所有有可用更新的工程（顶层 dsh-gui 优先）。${UPDATE_WARNING}`
+  batchButton.title = `按行顺序更新所有有可用更新的模块与插件（顶层 dsh-gui 优先）。${UPDATE_WARNING}`
   batchButton.hidden = true
   const aiAllButton = button('AI 更新全部', AI_ALL_ATTR)
   aiAllButton.title = `回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 ${AI_UPDATE_SKILL} 提示词（发送前可再改）`
@@ -241,19 +255,108 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     note.hidden = text === ''
   }
 
-  /** Keep the footer in step with the host's rebuild command. */
-  const setBuildCommand = (command: string | undefined): void => {
+  /**
+   * Which row kinds among `rows` still need an update (behind and not failed).
+   * @param rows - the rows the footer is describing.
+   * @returns whether a git row and/or an npm plugin row is pending.
+   */
+  const pendingKinds = (rows: readonly UpdateProject[]): { git: boolean; npm: boolean } => {
+    const pending = rows.filter(project => project.behind && (project.error === undefined || project.error === ''))
+    return {
+      git: pending.some(project => !isNpmProject(project)),
+      npm: pending.some(project => isNpmProject(project)),
+    }
+  }
+
+  /**
+   * Keep the footer in step with the host's rebuild command and the kinds of row
+   * the hint is describing (the rendered status, or the batch just updated).
+   *
+   * The command itself always comes from the host (`buildCommand`, the single
+   * source) — this only chooses the sentence around it:
+   *
+   * - git rows need the desktop app rebuilt (and restarted) after the git-layer
+   *   update, so the original hint stays;
+   * - npm plugin rows only rewrite the install script and reinstall the plugin
+   *   into the current profile, so a restart is what makes them take effect —
+   *   the command is offered only as the optional way to rebuild desktop
+   *   artifacts, never as a mandatory step;
+   * - a mixed batch states both, and a list that carries npm rows but nothing
+   *   pending gets the neutral two-kind note instead of the git-only one.
+   *
+   * @param command - the host's rebuild command; the previous one is kept when absent.
+   * @param rows - the rows the hint describes.
+   */
+  const setBuildCommand = (command: string | undefined, rows: readonly UpdateProject[]): void => {
     if (command !== undefined && command !== '') buildCommand = command
     footer.replaceChildren()
-    if (buildCommand === undefined) {
-      footer.textContent = '更新只完成 git 层：完成后需要按仓库说明重新构建 Desktop 应用并重启，改动才会生效。'
+    const kinds = pendingKinds(rows)
+    const hasNpmRows = rows.some(project => isNpmProject(project))
+    /** The host's command as a `<code>` element (only when one was reported). */
+    const commandElement = (): HTMLElement => {
+      const element = document.createElement('code')
+      element.textContent = buildCommand ?? ''
+      return element
+    }
+
+    if (kinds.git && kinds.npm) {
+      if (buildCommand === undefined) {
+        footer.textContent = 'git 行更新只完成 git 层，npm 插件行的更新会改写安装脚本并就地重装到当前 profile；完成后需要按仓库说明重新构建 Desktop 应用并重启，改动才会生效。'
+      } else {
+        footer.append(
+          document.createTextNode('git 行更新只完成 git 层，需要手动执行 '),
+          commandElement(),
+          document.createTextNode(' 重新构建并重启 Desktop 应用；npm 插件行的更新会改写安装脚本并就地重装到当前 profile，重启 Desktop 应用后生效。'),
+        )
+      }
       footer.hidden = false
       return
     }
-    footer.append(document.createTextNode('更新只完成 git 层：完成后需要手动执行 '))
-    const commandElement = document.createElement('code')
-    commandElement.textContent = buildCommand
-    footer.append(commandElement, document.createTextNode(' 重新构建，再重启 Desktop 应用。'))
+
+    if (kinds.npm) {
+      if (buildCommand === undefined) {
+        footer.textContent = 'npm 插件行的更新会改写安装脚本并就地重装到当前 profile：重启 Desktop 应用后生效。'
+      } else {
+        footer.append(
+          document.createTextNode('npm 插件行的更新会改写安装脚本并就地重装到当前 profile：重启 Desktop 应用后生效；如需重建 desktop 应用产物，可手动执行 '),
+          commandElement(),
+          document.createTextNode('。'),
+        )
+      }
+      footer.hidden = false
+      return
+    }
+
+    if (kinds.git) {
+      if (buildCommand === undefined) {
+        footer.textContent = '更新只完成 git 层：完成后需要按仓库说明重新构建 Desktop 应用并重启，改动才会生效。'
+      } else {
+        footer.append(document.createTextNode('更新只完成 git 层：完成后需要手动执行 '), commandElement(), document.createTextNode(' 重新构建，再重启 Desktop 应用。'))
+      }
+      footer.hidden = false
+      return
+    }
+
+    // Nothing is pending. When npm plugin rows exist the old git-only sentence
+    // would misdescribe their updates, so use the neutral two-kind note.
+    if (!hasNpmRows) {
+      if (buildCommand === undefined) {
+        footer.textContent = '更新只完成 git 层：完成后需要按仓库说明重新构建 Desktop 应用并重启，改动才会生效。'
+      } else {
+        footer.append(document.createTextNode('更新只完成 git 层：完成后需要手动执行 '), commandElement(), document.createTextNode(' 重新构建，再重启 Desktop 应用。'))
+      }
+      footer.hidden = false
+      return
+    }
+    if (buildCommand === undefined) {
+      footer.textContent = '更新完成后：git 行需要按仓库说明重新构建 Desktop 应用并重启，npm 插件行需要重启 Desktop 应用后生效。'
+    } else {
+      footer.append(
+        document.createTextNode('更新完成后：git 行需要手动执行 '),
+        commandElement(),
+        document.createTextNode(' 重新构建并重启 Desktop 应用，npm 插件行需要重启 Desktop 应用后生效。'),
+      )
+    }
     footer.hidden = false
   }
 
@@ -296,8 +399,12 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     return anchor
   }
 
-  /** One module row. */
+  /** One module row: a git checkout row, or an npm plugin row (see `renderNpmRow`). */
   const renderRow = (project: UpdateProject, asChecking: boolean): HTMLElement => {
+    // npm plugin rows have a different model: their version is the install
+    // script's pin, so there is no tag/commit target and no changelog (a GitHub
+    // release cannot be mapped reliably onto an npm version).
+    if (isNpmProject(project)) return renderNpmRow(project, asChecking)
     const row = document.createElement('div')
     row.setAttribute(ROW_ATTR, '')
     row.setAttribute('data-project-id', project.id)
@@ -428,7 +535,7 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     runButton.setAttribute(PRIMARY_ATTR, '')
     runButton.title = `${isRoot
       ? '在弹窗内直接更新顶层工程（快进到更新目标并把子模块递归同步到顶层修订记录的提交）；完成后按底部提示重新构建'
-      : '在该模块目录内 fetch 并检出所选更新目标'}。${UPDATE_WARNING}`
+      : '在该模块目录内 fetch 并检出所选更新目标'}。${GIT_UPDATE_WARNING}`
 
     const aiButton = button('AI 更新', AI_ATTR)
     aiButton.title = `回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 ${AI_UPDATE_SKILL} 提示词（发送前可再改）`
@@ -456,6 +563,98 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     return row
   }
 
+  /**
+   * One npm plugin row.
+   *
+   * The row is a package pinned by a repository install script: its version is
+   * compared against the registry's latest, so there is no tag/commit target to
+   * pick and no 「更新日志」 button (a GitHub release cannot be mapped reliably
+   * onto an npm version). Its actions are 「更新」 — rewrite the pin and re-run
+   * the wrapper — and 「AI 更新」.
+   */
+  const renderNpmRow = (project: UpdateProject, asChecking: boolean): HTMLElement => {
+    const row = document.createElement('div')
+    row.setAttribute(ROW_ATTR, '')
+    row.setAttribute('data-project-id', project.id)
+
+    const info = document.createElement('div')
+    info.setAttribute(ROW_INFO_ATTR, '')
+    const name = document.createElement('div')
+    name.setAttribute(ROW_NAME_ATTR, '')
+    const label = project.packageName !== undefined && project.packageName !== ''
+      ? project.packageName
+      : (project.name !== '' ? project.name : project.id)
+    const anchor = releaseAnchor(label, project.releaseUrl)
+    if (anchor !== undefined) name.append(anchor)
+    else name.textContent = label
+
+    const versions = document.createElement('div')
+    versions.setAttribute(ROW_VERSIONS_ATTR, '')
+    versions.append(
+      document.createTextNode('当前 '),
+      code(project.current !== '' ? project.current : 'unknown'),
+      document.createTextNode(' → 最新 '),
+      code(project.latest !== '' ? project.latest : '—'),
+    )
+    info.append(name, versions)
+
+    const action = document.createElement('div')
+    action.setAttribute(ROW_ACTION_ATTR, '')
+
+    if (asChecking) {
+      versions.setAttribute(SKELETON_ATTR, '')
+      const waiting = document.createElement('span')
+      waiting.setAttribute(CHECKING_ATTR, '')
+      waiting.textContent = '检测中…'
+      action.append(waiting)
+      row.append(info, action)
+      return row
+    }
+
+    if (project.error !== undefined && project.error !== '') {
+      const failure = document.createElement('div')
+      failure.setAttribute(ROW_ERROR_ATTR, '')
+      failure.textContent = project.error
+      info.append(failure)
+      const unavailable = document.createElement('span')
+      unavailable.setAttribute(UNAVAILABLE_ATTR, '')
+      unavailable.textContent = '不可检查'
+      action.append(unavailable)
+      row.append(info, action)
+      return row
+    }
+
+    if (!project.behind) {
+      const ok = document.createElement('span')
+      ok.setAttribute(OK_ATTR, '')
+      ok.textContent = '已是最新'
+      const disabledRun = button('更新', RUN_ATTR)
+      disabledRun.title = '已是最新，无需更新'
+      disabledRun.disabled = true
+      disabledRun.setAttribute(ALWAYS_DISABLED_ATTR, '')
+      action.append(ok, disabledRun)
+      row.append(info, action)
+      return row
+    }
+
+    const script = project.installScript !== undefined && project.installScript !== ''
+      ? project.installScript
+      : project.path
+    const target = project.latest !== '' ? project.latest : '最新版本'
+    const runButton = button('更新', RUN_ATTR)
+    runButton.setAttribute(PRIMARY_ATTR, '')
+    runButton.title = `把安装脚本 ${script !== '' ? script : '（未知路径）'} 中的版本 pin 改到 ${target} 并重新执行该脚本，完成本行插件的重新安装（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。完成后按底部提示重新构建。`
+
+    const aiButton = button('AI 更新', AI_ATTR)
+    aiButton.title = `回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 ${AI_UPDATE_SKILL} 提示词（发送前可再改）`
+
+    runButton.addEventListener('click', () => { void runUpdate([project]) })
+    aiButton.addEventListener('click', () => { void runAiUpdate([project]) })
+    action.append(runButton, aiButton)
+    row.append(info, action)
+    return row
+  }
+
   /** Render one status document. */
   const render = (next: UpdateStatus, asChecking: boolean): void => {
     status = next
@@ -463,9 +662,11 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     const rows = [...next.projects]
     // A stored tag target that is no longer usable (the tag moved behind the
     // current commit) falls back to the commit, matching the disabled option.
-    // The skeleton pass must not touch them: its rows carry no tag information.
+    // Only git rows have a target to fall back; npm plugin rows have none. The
+    // skeleton pass must not touch them: its rows carry no tag information.
     if (!asChecking) {
       for (const project of rows) {
+        if (isNpmProject(project)) continue
         if (modes.get(project.id) === 'tag' && defaultMode(project) !== 'tag') modes.set(project.id, 'commit')
       }
     }
@@ -476,11 +677,11 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     const summary = document.createElement('div')
     summary.setAttribute(SUMMARY_ATTR, '')
     if (asChecking) {
-      summary.textContent = `${rows.length} 个工程，正在检查更新…`
+      summary.textContent = `${rows.length} 个模块与插件，正在检查更新…`
     } else if (behind.length > 0) {
-      summary.textContent = `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）；「更新」在弹窗内执行 git 层更新并逐行回显日志。`
+      summary.textContent = `${behind.length} 个模块/插件有可用更新。git 行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）；npm 插件行比较安装脚本中的版本 pin 与 npm registry 的最新版本；「更新」在弹窗内执行更新并逐行回显日志。`
     } else {
-      summary.textContent = '所有工程均为最新版本。'
+      summary.textContent = '所有模块与插件均为最新版本。'
     }
     body.append(summary)
     for (const project of rows) body.append(renderRow(project, asChecking))
@@ -488,7 +689,7 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     statusLine.textContent = formatStatusLine(next, asChecking)
     batchButton.hidden = behind.length === 0
     aiAllButton.hidden = aiEligible.length === 0
-    setBuildCommand(next.buildCommand)
+    setBuildCommand(next.buildCommand, rows)
     setControlsDisabled(busy)
   }
 
@@ -587,12 +788,23 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
   /** Run one update over the given rows and stream its log. */
   const runUpdate = async (rows: readonly UpdateProject[]): Promise<void> => {
     if (disposed || busy) return
-    const targets: UpdateTarget[] = rows.map(project => ({ id: project.id, mode: modeOf(project.id) }))
+    // An npm plugin row carries no update target: the host rewrites the install
+    // script's pin and re-runs the wrapper, so it is always sent as `commit`.
+    const targets: UpdateTarget[] = rows.map(project => ({
+      id: project.id,
+      mode: isNpmProject(project) ? 'commit' : modeOf(project.id),
+    }))
     if (targets.length === 0) return
+    const gitOnly = rows.every(project => !isNpmProject(project))
+    const npmOnly = rows.every(project => isNpmProject(project))
     busy = true
     setControlsDisabled(true)
     clearProgress()
-    appendProgress(`开始更新 ${targets.map(target => target.id).join('、')}（git 层：按所选目标 fetch 并检出）…`)
+    appendProgress(gitOnly
+      ? `开始更新 ${targets.map(target => target.id).join('、')}（git 层：按所选目标 fetch 并检出）…`
+      : npmOnly
+        ? `开始更新 ${targets.map(target => target.id).join('、')}（npm 插件行：改写安装脚本中的 pin 并重新安装）…`
+        : `开始更新 ${targets.map(target => target.id).join('、')}（git 行按所选目标检出；npm 插件行改写安装脚本中的 pin 并重新安装）…`)
     try {
       const result = await streamUpdate(targets, (entry) => {
         if (disposed) return
@@ -605,13 +817,19 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
             ? `✅ ${entry.id ?? ''}：${entry.detail !== undefined && entry.detail !== '' ? entry.detail : '已更新'}`
             : `❌ ${entry.id ?? ''}：${entry.error !== undefined && entry.error !== '' ? entry.error : '更新失败'}`)
         } else if (entry.type === 'end') {
-          if (entry.buildCommand !== undefined) setBuildCommand(entry.buildCommand)
-          appendProgress(entry.ok === true ? '✅ 更新完成（git 层）。' : '❌ 更新未全部成功。')
+          setBuildCommand(entry.buildCommand, rows)
+          appendProgress(entry.ok === true
+            ? (gitOnly ? '✅ 更新完成（git 层）。' : npmOnly ? '✅ 更新完成（npm 插件已重装到当前 profile）。' : '✅ 更新完成。')
+            : '❌ 更新未全部成功。')
         }
       })
       if (disposed) return
       if (!result.ok && result.error !== undefined && result.error !== '') appendProgress(`❌ ${result.error}`)
-      appendProgress('请按底部提示重新构建并重启 Desktop 应用。')
+      appendProgress(gitOnly
+        ? '请按底部提示重新构建并重启 Desktop 应用。'
+        : npmOnly
+          ? '请按底部提示重启 Desktop 应用，npm 插件行的更新才会生效。'
+          : '请按底部提示处理：git 行需要重新构建并重启 Desktop 应用，npm 插件行重启 Desktop 应用后生效。')
     } catch (error) {
       if (disposed) return
       const message = messageOf(error)
@@ -632,7 +850,7 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     const eligible = aiEligibleProjects(rows)
     const prompt = buildAiUpdatePrompt(eligible, modeOf)
     if (prompt === '') {
-      showToast('没有可用的 AI 更新工程')
+      showToast('没有可用的 AI 更新模块或插件')
       return
     }
     busy = true
@@ -763,7 +981,11 @@ function formatStatusLine(status: UpdateStatus, asChecking: boolean): string {
   const mm = String(when.getMinutes()).padStart(2, '0')
   const ss = String(when.getSeconds()).padStart(2, '0')
   const secs = ((status.durationMs ?? 0) / 1000).toFixed(1)
-  const failed = status.projects.filter(project => project.error !== undefined && project.error !== '').length
+  // The host counts only git rows into `allChecked` (a registry failure stays a
+  // per-row note); mirror that so the header never reports a check failure the
+  // rest of the dialog treats as informational.
+  const failed = status.projects.filter(project =>
+    !isNpmProject(project) && project.error !== undefined && project.error !== '').length
   return `上次检查 ${hh}:${mm}:${ss} · 耗时 ${secs}s` + (failed > 0 ? ` · ${failed} 个工程检查失败` : '')
 }
 

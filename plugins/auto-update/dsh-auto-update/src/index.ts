@@ -188,7 +188,7 @@ async function respondUpdate(req: IncomingMessage, res: ServerResponse): Promise
   const root = resolveGuiRoot()
   let targets
   try {
-    targets = resolveUpdateTargets(root, requested)
+    targets = await resolveUpdateTargets(root, requested)
   } catch (error: unknown) {
     json(res, error instanceof UpdateRequestError ? error.status : 400, { error: message(error) })
     return

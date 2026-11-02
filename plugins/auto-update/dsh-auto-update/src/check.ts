@@ -14,7 +14,10 @@
  *   top-level recursive fetch and every row's remote-branch resolution together,
  *   compares each row against its remote default branch with local commands
  *   only, and finally probes the npm registry for every row in one bounded
- *   phase. The finished status is kept as the module's cache.
+ *   phase. The npm plugin rows are scanned locally and probed over the registry
+ *   in a phase of their own that overlaps the git work (see `./plugin-specs.ts`);
+ *   they land after the git rows when the check returns. The finished status is
+ *   kept as the module's cache.
  * - {@link cachedCheck} returns the last finished `check` status (partial
  *   failures included), or `undefined` before the first one.
  *
@@ -41,7 +44,17 @@ import {
   type GitCapture,
 } from './git.ts'
 import { releasesPageUrl } from './changelog.ts'
-import { npmPackagesForProject, npmUpdateChecks, type NpmRequestSpec, type NpmUpdateInfo } from './npm.ts'
+import {
+  githubReleasesUrl,
+  npmPackageLatest,
+  npmPackagesForProject,
+  npmUpdateChecks,
+  type NpmRequestSpec,
+  type NpmUpdateInfo,
+  type PackageLatestInfo,
+} from './npm.ts'
+import { listPluginNpmRows, type PluginNpmRow } from './plugin-specs.ts'
+import { isNewerVersion } from './version.ts'
 
 /** The command the user runs after an update; the dialog prints it verbatim. */
 export const BUILD_COMMAND = 'npm run build:desktop'
@@ -77,6 +90,16 @@ export interface ProjectUpdate {
   releaseUrl?: string
   /** npm publish state for the row's newest tag; present only when it is useful. */
   npm?: NpmUpdateInfo
+  /**
+   * Row source: a git checkout (`'git'`) or an npm-installed plugin (`'npm'`).
+   * Git rows omit it so a status cached before this field existed reads exactly
+   * like a fresh one (the client treats a missing value as `'git'`).
+   */
+  kind?: 'git' | 'npm'
+  /** npm rows: the package the install script pins. */
+  packageName?: string
+  /** npm rows: the install script, relative to the repository root (POSIX). */
+  installScript?: string
 }
 
 /** The complete status response. */
@@ -134,12 +157,18 @@ export function cachedCheck(): UpdateStatus | undefined {
  * marked `checking`, and no network access at all. The rows are read with the
  * same bound as the full check — one `git` spawn per read, seven rows of them,
  * is what would otherwise leave the dialog blank for half a minute.
+ *
+ * npm plugin rows are appended after the git rows with the pin the install
+ * script carries: that part is local, but the registry answer is not, so the
+ * row shows the pinned version and `检查中…`.
+ *
  * @param root - repository root.
  */
 export async function localCheck(root: string): Promise<UpdateStatus> {
   const started = Date.now()
-  const projects = await mapBounded(listProjects(root), CHECK_CONCURRENCY, (project) => localPreview(project))
-  return summarize(root, projects, null, started)
+  const gitRows = await mapBounded(listProjects(root), CHECK_CONCURRENCY, (project) => localPreview(project))
+  const pluginRows = (await listPluginNpmRows(root)).map(localPluginPreview)
+  return summarize(root, [...gitRows, ...pluginRows], null, started)
 }
 
 /**
@@ -165,6 +194,11 @@ export async function check(root: string, options: CheckOptions = {}): Promise<U
 /** Run one detection without joining a run already in flight. */
 async function runCheck(root: string, options: CheckOptions): Promise<UpdateStatus> {
   const started = Date.now()
+  // The npm plugin rows share nothing with git: the scan reads the install
+  // scripts locally and the registry probes are independent of the fetch, so
+  // the phase starts first and its roundtrips overlap the git work. It never
+  // rejects — a registry that is down is per-row error text.
+  const pluginRowsTask = checkPluginRows(root)
   // A checkout that was moved (or created from a local origin) can carry the
   // previous location in its submodule remotes; realign them with `.gitmodules`
   // before fetching, so the check never reports a stale path.
@@ -200,7 +234,10 @@ async function runCheck(root: string, options: CheckOptions): Promise<UpdateStat
     npmRequests.forEach((entry, index) => { rows[entry.row]!.npm = infos[index]! })
   }
 
-  const status = summarize(root, rows, Math.floor(Date.now() / 1000), started)
+  // The npm plugin rows land after every git row: the dialog keeps its
+  // repository order first, then the plugin list in the contract's stable order.
+  const pluginRows = await pluginRowsTask
+  const status = summarize(root, [...rows, ...pluginRows], Math.floor(Date.now() / 1000), started)
   cachedStatus = status
   return status
 }
@@ -223,6 +260,74 @@ async function localPreview(project: ProjectRef): Promise<ProjectUpdate> {
     if (sha !== undefined) row.current = await gitVersion(project.dir, sha)
   }
   const releaseUrl = await releasePageFor(project)
+  if (releaseUrl !== undefined) row.releaseUrl = releaseUrl
+  return row
+}
+
+/**
+ * Local-only preview of one npm plugin row: the install script's pin is known
+ * offline, the registry answer is not.
+ */
+function localPluginPreview(plugin: PluginNpmRow): ProjectUpdate {
+  return {
+    id: plugin.id,
+    name: plugin.packageName,
+    path: plugin.installScript,
+    current: plugin.pinnedVersion,
+    latest: '检查中…',
+    latestTagStale: false,
+    announce: true,
+    behind: false,
+    checking: true,
+    kind: 'npm',
+    packageName: plugin.packageName,
+    installScript: plugin.installScript,
+  }
+}
+
+/**
+ * Build the npm plugin rows: the local scan first, then one registry phase for
+ * every package. The scan never rejects (an absent `plugins/` tree simply has
+ * no rows); a registry failure is written to that row's `error`.
+ */
+async function checkPluginRows(root: string): Promise<ProjectUpdate[]> {
+  const plugins = await listPluginNpmRows(root)
+  if (plugins.length === 0) return []
+  const answers = await npmPackageLatest(plugins.map((plugin) => plugin.packageName))
+  return plugins.map((plugin, index) => pluginRow(plugin, answers[index]!))
+}
+
+/** Fold one registry answer into its npm plugin row. */
+function pluginRow(plugin: PluginNpmRow, answer: PackageLatestInfo): ProjectUpdate {
+  const row: ProjectUpdate = {
+    id: plugin.id,
+    name: plugin.packageName,
+    path: plugin.installScript,
+    // The pin is what the current deployment installs; the registry answer is
+    // what a fresh deployment would get.
+    current: plugin.pinnedVersion,
+    latest: answer.latest ?? '—',
+    latestTagStale: false,
+    announce: false,
+    behind: false,
+    checking: false,
+    kind: 'npm',
+    packageName: plugin.packageName,
+    installScript: plugin.installScript,
+  }
+  if (answer.error !== undefined) {
+    // The pin is still readable: the row says which version is installed and
+    // why the newest one could not be read. It is not an update, not announced.
+    row.error = `npm 版本查询失败：${answer.error}`
+    return row
+  }
+  if (answer.latest === undefined) {
+    row.error = 'npm registry 未返回版本号'
+    return row
+  }
+  row.behind = isNewerVersion(answer.latest, plugin.pinnedVersion)
+  row.announce = row.behind
+  const releaseUrl = githubReleasesUrl(answer.repositoryUrl)
   if (releaseUrl !== undefined) row.releaseUrl = releaseUrl
   return row
 }
@@ -421,7 +526,11 @@ function summarize(root: string, projects: ProjectUpdate[], checkedAt: number | 
     hasUpdates: updateCount > 0,
     updateCount,
     notifyCount: projects.filter((row) => row.behind && row.announce).length,
-    allChecked: projects.every((row) => row.error === undefined),
+    // `allChecked` reports whether the *git* side was checked completely: an npm
+    // plugin row's registry failure is already carried on that row and mirrors
+    // the pre-existing per-row `npm` note, which never fails the git check. A
+    // row-level registry error therefore does not flip this flag.
+    allChecked: projects.every((row) => row.error === undefined || row.kind === 'npm'),
     checkedAt,
     durationMs: Date.now() - started,
     root,

@@ -14,6 +14,13 @@
  * queries in one embedded node script; the host issues the same requests
  * directly here — one per package, concurrently, with the same 15 s per-request
  * budget and the same headers.
+ *
+ * A second question was added with the npm plugin rows (see `./plugin-specs.ts`):
+ * which version the registry currently publishes for one exact package name.
+ * {@link npmPackageLatest} asks the `<name>/latest` document for those rows,
+ * reusing the same bounded phase. That document also carries the package's
+ * `repository`, from which {@link githubReleasesUrl} builds the Releases link
+ * the dialog shows.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -37,6 +44,15 @@ const BUDGET_ERROR = 'npm 版本核对超时（10 秒预算）'
 
 /** Registry request headers, identical to the shell's embedded fetch script. */
 const ACCEPT_HEADER = 'application/vnd.npm.install-v1+json'
+/**
+ * Accept type for the `/<pkg>/latest` document.
+ *
+ * That endpoint answers one full manifest. The abbreviated install type above
+ * is rejected with HTTP 406 by the public npm registry on it, and the full
+ * document is also the only one that carries `repository` for the row's
+ * Releases link; the response stays small because it holds a single version.
+ */
+const LATEST_ACCEPT_HEADER = 'application/json'
 const USER_AGENT = 'dsh-gui-update-check'
 
 /** Directories skipped while collecting package names inside a checkout. */
@@ -355,4 +371,201 @@ function transportErrorText(error: unknown): string {
     ? (error.cause instanceof Error ? error.cause.message : String(error.cause))
     : undefined
   return cause !== undefined && cause !== '' && !base.includes(cause) ? `${base}（${cause}）` : base
+}
+
+/** One package's registry `latest` answer, as the npm plugin rows consume it. */
+export interface PackageLatestInfo {
+  /** The requested package name. */
+  name: string
+  /** `version` of the package's `latest` document (the current release). */
+  latest?: string
+  /** The manifest's repository URL, when it declares one. */
+  repositoryUrl?: string
+  /** A readable per-package failure; the other packages are unaffected. */
+  error?: string
+}
+
+/** One `latest` document's probe outcome, before it is mapped to a name. */
+type LatestProbe =
+  | { name: string; latest: string; repositoryUrl?: string }
+  | { name: string; error: string; transport: boolean }
+
+/**
+ * Query the registry's `latest` document for every package in one bounded
+ * phase.
+ *
+ * Each probe requests `<registry>/<encodeURIComponent(name)>/latest`, whose
+ * body is the current version's own manifest: `version` is the release the row
+ * compares against and `repository` gives the project URL the dialog links.
+ *
+ * The phase reuses the publish-check scheduling: at most
+ * {@link PROBE_CONCURRENCY} probes in flight, the first probe starts alone (a
+ * registry that is down costs exactly one attempt), the first transport failure
+ * trips the phase, and the whole phase stops at {@link PHASE_BUDGET_MS}. A
+ * non-2xx answer or an unparseable body is a registry answer, not a transport
+ * failure, and only fails that one package.
+ *
+ * @param names - npm package names, one probe per entry (duplicates included).
+ * @returns one answer per requested name, in the same order.
+ */
+export async function npmPackageLatest(names: readonly string[]): Promise<PackageLatestInfo[]> {
+  if (names.length === 0) return []
+  const outcomes: Array<LatestProbe | undefined> = new Array(names.length)
+  const controllers = new Set<AbortController>()
+  let budgetExpired = false
+  let failure: string | undefined
+  let cursor = 0
+  let signalFirstSettled: () => void = () => {}
+  const firstSettled = new Promise<void>((resolve) => { signalFirstSettled = resolve })
+  const budget = setTimeout(() => {
+    budgetExpired = true
+    for (const controller of controllers) controller.abort()
+  }, PHASE_BUDGET_MS)
+
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (failure !== undefined || budgetExpired) return
+      const index = cursor
+      cursor += 1
+      if (index >= names.length) return
+      const name = names[index]!
+      const controller = new AbortController()
+      controllers.add(controller)
+      let outcome: LatestProbe
+      try {
+        outcome = await probeLatest(name, controller)
+      } finally {
+        controllers.delete(controller)
+      }
+      if (budgetExpired) {
+        outcome = { name, error: BUDGET_ERROR, transport: false }
+      } else if (failure !== undefined && 'error' in outcome && outcome.transport) {
+        // Aborted by the breaker: reuse the text the breaker recorded.
+        outcome = { name, error: failure, transport: true }
+      } else if ('error' in outcome && outcome.transport) {
+        // The first transport failure stops the phase: no further probe starts,
+        // and the probes already in flight are not waited for.
+        failure = outcome.error
+        for (const other of controllers) other.abort()
+      }
+      outcomes[index] = outcome
+      if (index === 0) signalFirstSettled()
+    }
+  }
+
+  try {
+    // One probe starts alone: a registry that is down must cost exactly one
+    // attempt, not one per package. The rest of the pool joins once that first
+    // probe has settled without tripping the phase.
+    const workers = [worker()]
+    await firstSettled
+    for (let launched = 1; launched < Math.min(PROBE_CONCURRENCY, names.length); launched += 1) {
+      workers.push(worker())
+    }
+    await Promise.all(workers)
+  } finally {
+    clearTimeout(budget)
+  }
+
+  return names.map((name, index) => {
+    const outcome = outcomes[index]
+    if (outcome === undefined) {
+      // The phase stopped before this probe ran: report the phase failure so the
+      // row explains why it has no registry answer.
+      return { name, error: failure ?? BUDGET_ERROR }
+    }
+    if ('error' in outcome) return { name, error: outcome.error }
+    const info: PackageLatestInfo = { name, latest: outcome.latest }
+    if (outcome.repositoryUrl !== undefined && outcome.repositoryUrl !== '') {
+      info.repositoryUrl = outcome.repositoryUrl
+    }
+    return info
+  })
+}
+
+/** Probe one package's `latest` document. */
+async function probeLatest(name: string, controller: AbortController): Promise<LatestProbe> {
+  // The per-request budget; the phase's own budget aborts the same controller.
+  const timeout = setTimeout(() => { controller.abort() }, REGISTRY_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${registryBase()}/${encodeURIComponent(name)}/latest`, {
+      headers: { accept: LATEST_ACCEPT_HEADER, 'user-agent': USER_AGENT },
+      signal: controller.signal,
+    })
+    if (response.status < 200 || response.status >= 300) {
+      await response.body?.cancel()
+      return { name, error: `HTTP ${response.status}`, transport: false }
+    }
+    let document: unknown
+    try {
+      document = await response.json()
+    } catch {
+      // A 2xx body that is not JSON is a registry response problem, not a
+      // transport failure. The failed parse already consumed the body.
+      return { name, error: UNPARSEABLE_RESPONSE, transport: false }
+    }
+    if (document === null || typeof document !== 'object') {
+      return { name, error: UNPARSEABLE_RESPONSE, transport: false }
+    }
+    const record = document as { version?: unknown; repository?: unknown }
+    const latest = typeof record.version === 'string' ? record.version.trim() : ''
+    // Without a version there is nothing to compare, so the answer is unusable.
+    if (latest === '') return { name, error: UNPARSEABLE_RESPONSE, transport: false }
+    const repositoryUrl = repositoryUrlOf(record.repository)
+    return repositoryUrl === undefined ? { name, latest } : { name, latest, repositoryUrl }
+  } catch (error: unknown) {
+    return { name, error: transportErrorText(error), transport: true }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Read a manifest's `repository` field: npm allows a bare URL string or an
+ * object with a `url` member (plus optional `type`/`directory`).
+ * @returns the trimmed URL, or `undefined` when the field is absent/malformed.
+ */
+function repositoryUrlOf(field: unknown): string | undefined {
+  if (typeof field === 'string') {
+    const value = field.trim()
+    return value === '' ? undefined : value
+  }
+  if (field !== null && typeof field === 'object') {
+    const url = (field as { url?: unknown }).url
+    if (typeof url === 'string') {
+      const value = url.trim()
+      return value === '' ? undefined : value
+    }
+  }
+  return undefined
+}
+
+/**
+ * The GitHub Releases **list** page for an npm manifest's `repository` URL.
+ *
+ * npm records the field in several forms — `git+https://github.com/o/r.git`,
+ * `https://github.com/o/r`, `git@github.com:o/r` — and the dialog links the row
+ * name to the list the reader can pick a version from. A non-GitHub repository
+ * yields `undefined` so the row renders without an external link.
+ *
+ * @param repositoryUrl - the manifest's repository URL, when it declares one.
+ * @returns the Releases list URL, or `undefined` for a missing/non-GitHub URL.
+ */
+export function githubReleasesUrl(repositoryUrl: string | undefined): string | undefined {
+  const value = repositoryUrl?.trim()
+  if (value === undefined || value === '') return undefined
+  // npm prefixes a git-transport marker (`git+https://…`, `git+ssh://…`).
+  let rest = value.startsWith('git+') ? value.slice('git+'.length) : value
+  if (rest.startsWith('https://github.com/')) rest = rest.slice('https://github.com/'.length)
+  else if (rest.startsWith('http://github.com/')) rest = rest.slice('http://github.com/'.length)
+  else if (rest.startsWith('ssh://git@github.com/')) rest = rest.slice('ssh://git@github.com/'.length)
+  else if (rest.startsWith('git@github.com:')) rest = rest.slice('git@github.com:'.length)
+  else if (rest.startsWith('git://github.com/')) rest = rest.slice('git://github.com/'.length)
+  else return undefined
+  if (rest.endsWith('.git')) rest = rest.slice(0, -'.git'.length)
+  const parts = rest.split('/').filter((part) => part !== '')
+  const owner = parts[0]
+  const repo = parts[1]
+  if (owner === undefined || repo === undefined || owner === '' || repo === '') return undefined
+  return `https://github.com/${owner}/${repo}/releases`
 }

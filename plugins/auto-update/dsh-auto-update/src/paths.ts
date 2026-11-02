@@ -156,6 +156,12 @@ export function submoduleEntries(root: string): SubmoduleEntry[] {
 /**
  * The full project list the dialog renders: the root row first (deterministic
  * order for the update stream), then every `.gitmodules` submodule.
+ *
+ * Submodules under `plugins/` are skipped: they are source references for
+ * npm-installed wrappers, and the update panel tracks those wrappers' npm pins
+ * instead (`./plugin-specs.ts`). The filter stays correct after the plugin
+ * checkouts are removed, since the manifest simply stops listing them.
+ *
  * @param root - repository root.
  * @returns one {@link ProjectRef} per row.
  */
@@ -167,6 +173,9 @@ export function listProjects(root: string): ProjectRef[] {
     dir: root,
   }]
   for (const entry of submoduleEntries(root)) {
+    // A plugin submodule's updates never change what runs: the profile installs
+    // the wrapper's npm pin. It must not surface as a git row.
+    if (entry.path.startsWith('plugins/')) continue
     projects.push({
       id: entry.name,
       name: packageName(entry.dir) ?? entry.name,

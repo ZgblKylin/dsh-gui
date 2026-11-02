@@ -29,7 +29,8 @@
   },
   "scripts": {
     "build": "tsdown",
-    "watch": "tsdown --watch"
+    "watch": "tsdown --watch",
+    "test": "node --test tests/"
   },
   "license": "Unlicense",
   "peerDependencies": {

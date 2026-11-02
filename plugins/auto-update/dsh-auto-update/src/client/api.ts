@@ -34,32 +34,59 @@ export interface NpmUpdateInfo {
 
 /** One module row, as `GET /api/status` reports it. */
 export interface UpdateProject {
-  /** Stable id: `dsh-gui` for the top-level checkout, the `.gitmodules` name otherwise. */
+  /**
+   * Row origin: `git` for a checkout row (the repository root or one of its
+   * `.gitmodules` submodules), `npm` for a plugin row whose version comes from
+   * the exact npm pin in a repository install script. Absent means git: hosts
+   * that predate the npm plugin rows never send the field.
+   */
+  readonly kind?: 'git' | 'npm'
+  /** npm plugin row only: the package the install script pins. */
+  readonly packageName?: string
+  /**
+   * npm plugin row only: the install script that carries the pin, relative to
+   * the repository root (POSIX), e.g. `plugins/skill-mcp-center/install.mjs`.
+   */
+  readonly installScript?: string
+  /** Stable id: `dsh-gui` for the top-level checkout, the `.gitmodules` name otherwise, `npm:<packageName>` for an npm plugin row. */
   readonly id: string
-  /** Display name (the module's `package.json` name, falling back to the id). */
+  /** Display name (the module's `package.json` name, the package name, falling back to the id). */
   readonly name: string
-  /** Path relative to the repository root, POSIX; empty for the top-level checkout. */
+  /** Path relative to the repository root, POSIX; empty for the top-level checkout, the install script for an npm plugin row. */
   readonly path: string
-  /** Locally checked-out version: an exact tag when on one, else a short sha. */
+  /** Locally checked-out version: an exact tag when on one, else a short sha; the install script's pinned version for an npm plugin row. */
   readonly current: string
-  /** Version on the remote default branch; `检查中…` in `mode=local`. */
+  /** Version on the remote default branch; the registry's latest version for an npm plugin row; `检查中…` in `mode=local`. */
   readonly latest: string
-  /** Newest tag reachable from the remote default branch, when one exists. */
+  /** Newest tag reachable from the remote default branch, when one exists (git rows only). */
   readonly latestTag?: string
-  /** The newest tag is not strictly newer than the local HEAD: the tag target degrades. */
+  /** The newest tag is not strictly newer than the local HEAD: the tag target degrades (git rows only). */
   readonly latestTagStale?: boolean
-  /** Counts towards the badge; false for a tag checkout with no newer tag. */
+  /** Counts towards the badge; false for a tag checkout with no newer tag (always equal to `behind` for npm plugin rows). */
   readonly announce?: boolean
-  /** The remote default branch is strictly ahead of the local HEAD. */
+  /** The update is available: the remote default branch is ahead, or the registry has a newer version than the pinned one. */
   readonly behind: boolean
   /** True for every row in `mode=local` (skeleton placeholders). */
   readonly checking: boolean
-  /** Readable failure for this row (missing submodule directory, git failure…). */
+  /** Readable failure for this row (missing submodule directory, git failure, registry failure…). */
   readonly error?: string
-  /** GitHub Releases list page for the row's origin, when it has one. */
+  /** GitHub Releases list page for the row's origin, when it has one (the package repository for an npm plugin row). */
   readonly releaseUrl?: string
-  /** npm publish state of the row's npm-installed packages (contract §7.2). */
+  /** npm publish state of the row's npm-installed packages (git rows only; contract §7.2). */
   readonly npm?: NpmUpdateInfo
+}
+
+/**
+ * Whether the row is an npm plugin row.
+ *
+ * Only an explicit `kind: 'npm'` marks a plugin row. Rows reported by a host
+ * that predates the npm plugin rows carry no `kind` at all; those are git
+ * checkout rows, so the default reading of a missing `kind` is git.
+ * @param project - one status row.
+ * @returns true for an npm plugin row.
+ */
+export function isNpmProject(project: UpdateProject): boolean {
+  return project.kind === 'npm'
 }
 
 /** The whole `GET /api/status` document. */
@@ -87,7 +114,11 @@ export interface UpdateStatus {
 export interface UpdateTarget {
   /** Project id from the status document. */
   readonly id: string
-  /** `tag` = the remote default branch's newest tag, `commit` = that branch's HEAD. */
+  /**
+   * `tag` = the remote default branch's newest tag, `commit` = that branch's
+   * HEAD. Meaningful for git rows only: an npm plugin row rewrites its install
+   * script, so it is always sent with `commit`.
+   */
   readonly mode: 'tag' | 'commit'
 }
 

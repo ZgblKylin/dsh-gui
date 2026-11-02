@@ -164,6 +164,11 @@ tree with `duplicate loader entry id`.
 未标注源码安装的，均使用`dsh plugin --profile <profile> add <package>`安装npm包，package参数见列表。
 标注源码安装的，基于源码编译后，基于link模式引入源码安装。
 
+npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本里，形如 `<包名>@<版本>`（例如
+`const PACKAGE_SPEC = 'dsh-pet@0.3.8'`，或直接
+`packageSpec: '@max-null/dsh-skill-mcp-center@0.7.0'`）。desktop 更新面板按这些字面量生成
+插件行，并把新版本就地写回脚本；从其他文件读取版本、或用拼接构造 spec 的写法不会被检测与更新。
+
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin 子模块 tag `1.73.3`；1.66.4 起把 `@deepseek-ai/dsh-settings` peer 纳入 0.2 线，属硬下限：1.65.3 的 peer 范围被 0.2.2-alpha.2 的准入闸门拒绝，安装前置检查直接失败；1.70.0 起 peer 检查按 `includePrerelease` 接纳 prerelease 宿主线，1.73.x 沿用同一区间（`^0.2.1-alpha.3 || ^0.2.1-rc.1`），1.70.2 含 carrier 型 bundle 开关的缺陷修复，1.73.3 另含市场更新链路与目录源 tarball 看门狗的修复）
 - [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**0.28.2** 的 13 条 `@deepseek-ai/dsh-*` peerDeps 全指 `^0.2.1-rc.1`，与本工程 pinned 的 `dsh-v0.2.2-alpha.2` 匹配；0.26.0 的 host inject 仍含 rc.2 起已删除的 `webRuntime`，旧包在 rc.2 及以后整层 pending，因此本 pin 必须与 harness 同批更换），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.28.2` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；v0.16.1 起已含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)，原 TEMP fork-source 源码安装已还原为 npm；子模块 checkout 仅作源码参考），install.mjs 先装本插件再装下方的 dsh-sidebar-qa
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `1.2.2`；1.2.0 的 host 半改为 Config + volatile、按 profile 条目 id 寻址，设置项因此可持久化；1.2.1 把信任围栏从已删除的 `webRuntime` 迁到 `webStartup`，修掉 LAN/`--trusted-host` 访问 `/sidebarqa/api` 恒 403 的缺陷，client 半恢复流式并显示失败原因；manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖 0.2.2-alpha.2；自 v1.0.0 起收敛为原生单后端，并在 manifest 层移除了 `dsh-better-sidebar` peer；按 DSH 0.1.7 重命名后的图标集按名解析宿主图标）
