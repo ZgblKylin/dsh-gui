@@ -20,7 +20,7 @@ client 半只在 `window.dshDesktop?.protocolVersion === 1` 存在时挂载，`d
 
 ## 行来源
 
-- **git 行**：仓库根，以及 `.gitmodules` 中的子模块（当前为 `deepseek-harness` 与 `src-tauri/whale-icon`）。
+- **git 行**：仓库根，以及 `.gitmodules` 中的子模块（当前为 `deepseek-harness`、`src-tauri/whale-icon` 与 `global_template.agents/docs/awesome-design-md`）。
 - **npm 行**：扫描 `plugins/**/*.mjs`，只处理调用了 `installNpmPlugin(` 的安装脚本；先剥离注释，再提取 `<包名>@<三段版本>` 字符串字面量。每个包一行，id 为 `npm:<packageName>`，`current` 为脚本中的精确 pin，`latest` 为 registry 最新版本。`@deepseek-ai/dsh*` 官方包不产生行（随 deepseek-harness 行整体升级），构造不出字面量 spec 的 wrapper 不产生行（写法约定见 `plugins/README.md`）。
 - 行顺序：git 行在前（根行最前），npm 行按安装脚本路径、包名排序。
 

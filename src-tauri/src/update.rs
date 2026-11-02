@@ -2368,6 +2368,11 @@ mod tests {
                 && entry.url == "https://github.com/deepseek-ai/deepseek-harness"));
         assert!(entries.iter().any(|entry| entry.name == "src-tauri/whale-icon"
             && entry.path.ends_with("whale-icon")));
+        assert!(entries.iter().any(|entry| {
+            entry.name == "global_template.agents/docs/awesome-design-md"
+                && entry.path.ends_with("awesome-design-md")
+                && entry.url == "https://github.com/VoltAgent/awesome-design-md"
+        }));
     }
 
     #[test]

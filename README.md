@@ -262,7 +262,10 @@ executable inside that tree inherits it (see
                             #   among them); the build ships AGENTS.global_template.md
                             #   to .dsh/AGENTS.md and fills missing files of this tree
                             #   into <runtime-root>/.dsh/ (docs/, skills/), never
-                            #   overwriting an existing one
+                            #   overwriting an existing one — except the third-party
+                            #   docs/awesome-design-md submodule, whose design-md/
+                            #   content replaces .dsh/docs/awesome-design-md/ on
+                            #   every build (read-only reference, no repo metadata)
 ```
 
 ## npm scripts

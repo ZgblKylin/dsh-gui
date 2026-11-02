@@ -152,7 +152,7 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
 ## Git 提交规范
 
 - 采用 Conventional Commits：`feat:` / `fix:` / `chore:` / `docs:` / `build:` / `refactor:`，正文按需使用。
-- 外层仓库与 `deepseek-harness/`、`src-tauri/whale-icon` 子模块各自独立提交；改动跨越两者时分别编写 commit message。
+- 外层仓库与 `deepseek-harness/`、`src-tauri/whale-icon`、`global_template.agents/docs/awesome-design-md` 等子模块各自独立提交；改动跨越两者时分别编写 commit message。
 - **不主动执行 `git commit`**：dsh 沙箱限制下由 dsh 生成的提交无法引用用户 GPG 签名，直接提交会绕过用户的签名配置。
 - 例外：验证 worktree `.staging/dsh-gui` 的 `staging/verify` 工作分支上的提交不需要用户审批，可直接 `git add` 与 `git commit`（不改变主分支，也不影响正在运行的实例）；本仓库配置了 `commit.gpgsign=true`，沙箱内无法引用用户的签名密钥，提交时必须用 `git -c commit.gpgsign=false commit ...`（或 `git commit --no-gpg-sign`）只关闭本次提交的签名，不要改动全局或仓库配置。commit message 同样采用 Conventional Commits；把该工作分支合并回主分支仍需要用户明确审批，merge commit 仍由用户签名。
 - 完成代码改动后，无需提交或者暂存，只需编写 commit message，并在回复中提醒用户手动执行 `git commit`（以便 GPG 签名与提交钩子生效）。
@@ -206,4 +206,5 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
   - `package-manifest-types.ts` — `package.json.dsh` 的声明类型，含 `DshBundleManifest`（bundle 层契约）
   - `packages-bundle/` — 官方内置 bundle（base / web-app / headless / acp-app / sdk-app / sdk-minimal）的 patch 层实例
 - `docs/dsh-gui`: 本仓库（dsh-gui）文档
+- `global_template.agents/docs`: 用户级参考文档模板（构建时安装到 `<DSH_HOME>/docs/`，普通文件缺失才装）：`行文规范.md` 与第三方设计参考子模块 `awesome-design-md/`（[VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md)，Google Stitch DESIGN.md 资料集；构建时把其 `design-md/` 内容整体覆盖到 `<DSH_HOME>/docs/awesome-design-md/`，属只读参考，不含仓库工程文件，供 UI / 视觉一致性任务按需读取）
 - `plugins/<id>/<package>/docs`: in-tree 插件文档（npm 型插件见上游仓库的 `README.md` 与 `docs/`）

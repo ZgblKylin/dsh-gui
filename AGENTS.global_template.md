@@ -11,9 +11,10 @@
 
 编写脚本、使用 bash/pwsh 等 shell 命令时，不要使用 home/HOME 等会与系统环境变量产生歧义的变量名。
 
-## 行文规范
+## 文档参考
 
-编写/维护文档、大段代码注释、编写git提交的详细信息时，需要先参考`$env:DSH_HOME/docs/行文规范.md`。
+- `$env:DSH_HOME/docs/行文规范.md`：文档、大段代码注释与 git 提交信息的行文规范，编写这些内容前先参考。
+- `$env:DSH_HOME/docs/awesome-design-md/`：第三方只读 DESIGN.md 资料集（VoltAgent 的 awesome-design-md，Google Stitch 的纯文本设计系统文档；构建时整体覆盖，不要修改），做 UI / 视觉一致性相关任务时按需读取对应站点的设计语言。
 
 ## Subagent 编排规范
 

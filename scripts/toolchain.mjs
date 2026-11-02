@@ -149,18 +149,69 @@ export function bootstrapPnpm() {
  * file that already exists is left byte-for-byte intact, so edits a user made
  * to the installed copy survive every build, and only genuinely missing files
  * are written. Files with no template counterpart are likewise left alone.
+ *
+ * A template may hold a checkout that is deployed by its own rule
+ * (`copyTreeOverwrite`); `options.skip` lists such template-relative subtrees
+ * (POSIX paths) so the generic fill leaves them out. Git metadata (a
+ * checkout's `.git` file) is never copied.
  * @param {string} source - template directory to copy from.
  * @param {string} target - directory to fill.
+ * @param {{ skip?: readonly string[] }} [options] - template-relative paths
+ *   (POSIX separators) whose subtrees stay out of the generic fill.
  * @returns {number} how many files were written.
  */
-export function fillTreeFromTemplate(source, target) {
+export function fillTreeFromTemplate(source, target, options = {}) {
+  const skip = new Set((options.skip ?? []).map(normalizeTemplatePath))
+  return fillTree(source, target, '', skip)
+}
+
+/**
+ * Copy an external reference tree over its installed copy, replacing whatever
+ * the previous build left there. This is the rule for third-party read-only
+ * content (the `docs/awesome-design-md` reference submodule): upstream owns
+ * those files, so a build restores them instead of preserving local edits, and
+ * stale files from an older upstream revision disappear.
+ * @param {string} source - template directory whose content is authoritative.
+ * @param {string} target - installed directory to replace.
+ * @returns {number} how many files were written.
+ */
+export function copyTreeOverwrite(source, target) {
+  rmSync(target, { recursive: true, force: true })
+  return copyTree(source, target)
+}
+
+/** POSIX form of a template-relative path, whatever separator the caller used. */
+function normalizeTemplatePath(path) {
+  return path.split(/[\\/]/).filter(Boolean).join('/')
+}
+
+function fillTree(source, target, prefix, skip) {
   mkdirSync(target, { recursive: true })
   let written = 0
   for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (entry.name === '.git') continue
+    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+    if (skip.has(relative)) continue
     const from = join(source, entry.name)
     const to = join(target, entry.name)
-    if (entry.isDirectory()) written += fillTreeFromTemplate(from, to)
+    if (entry.isDirectory()) written += fillTree(from, to, relative, skip)
     else if (entry.isFile() && !existsSync(to)) {
+      copyFileSync(from, to)
+      written += 1
+    }
+  }
+  return written
+}
+
+function copyTree(source, target) {
+  mkdirSync(target, { recursive: true })
+  let written = 0
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (entry.name === '.git') continue
+    const from = join(source, entry.name)
+    const to = join(target, entry.name)
+    if (entry.isDirectory()) written += copyTree(from, to)
+    else if (entry.isFile()) {
       copyFileSync(from, to)
       written += 1
     }

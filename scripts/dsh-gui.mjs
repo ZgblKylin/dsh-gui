@@ -10,8 +10,9 @@
  *            entry exe (release unless --debug) -> plugins (each
  *            plugins/<id>/install.mjs) -> install agent presets -> install the
  *            global agent template (AGENTS.global_template.md -> .dsh/AGENTS.md,
- *            and global_template.agents/ -> .dsh/, missing files only, after
- *            merging up a retired .dsh/.agents/ install)
+ *            and global_template.agents/ -> .dsh/, missing files only — except
+ *            the third-party docs/awesome-design-md reference subtree, which is
+ *            replaced outright — after merging up a retired .dsh/.agents/ install)
  *   build    dsh runtime (unless --skip-harness) -> entry exe -> plugins (each
  *            plugins/<id>/install.mjs) -> install agent presets -> install the
  *            global agent template
@@ -87,6 +88,7 @@ import {
   WEB_HOME,
   bootstrapPnpm,
   cargoToolchainEnv,
+  copyTreeOverwrite,
   fillTreeFromTemplate,
   migrateLegacyAgentsHome,
   pnpm,
@@ -502,6 +504,12 @@ function installPresets() {
  *   (`@deepseek-ai/dsh-skill-filesystem`) scans at `<DSH_HOME>/docs` /
  *   `<DSH_HOME>/skills` in every workspace.
  *
+ * The one exception to the no-overwrite rule is the third-party
+ * `docs/awesome-design-md` reference submodule: it is read-only content owned
+ * by upstream, so each build replaces `<DSH_HOME>/docs/awesome-design-md/`
+ * with the submodule's `design-md/` directory (no repo metadata, no stale
+ * files from an older upstream revision).
+ *
  * An installation made before the template moved into the harness home keeps
  * its copy under `<DSH_HOME>/.agents/`, which no provider scans any more once
  * the shell sets no `DSH_AGENTS_HOME`. Merge that tree up into `<DSH_HOME>/`
@@ -544,12 +552,29 @@ function installGlobalTemplate() {
     if (!existsSync(GLOBAL_AGENTS_TEMPLATE)) {
       console.log('No global_template.agents/ — skipping the global agents tree.')
     } else {
-      written += fillTreeFromTemplate(GLOBAL_AGENTS_TEMPLATE, target)
+      // The docs reference set is a third-party read-only submodule deployed
+      // by its own rule: only the submodule's `design-md/` content lands in
+      // `<DSH_HOME>/docs/awesome-design-md/`, and every build replaces that
+      // directory so upstream revisions are picked up (the generic no-overwrite
+      // fill skips the checkout — its root README, LICENSE, .github/ and .git
+      // are repo metadata, not reference docs).
+      written += fillTreeFromTemplate(GLOBAL_AGENTS_TEMPLATE, target, {
+        skip: [join('docs', 'awesome-design-md')],
+      })
+      const designSource = join(
+        GLOBAL_AGENTS_TEMPLATE,
+        'docs',
+        'awesome-design-md',
+        'design-md',
+      )
+      if (existsSync(designSource)) {
+        written += copyTreeOverwrite(designSource, join(target, 'docs', 'awesome-design-md'))
+      }
     }
   })
   console.log(
     `Installed the global agent template into ${target} (${written} new file(s); existing files kept` +
-      `${repaired > 0 ? `; ${repaired} retired reference(s) repaired` : ''}).`,
+      `${repaired > 0 ? `; ${repaired} retired reference(s) repaired` : ''}; the awesome-design-md reference set replaced).`,
   )
 }
 
@@ -675,8 +700,9 @@ Commands:
               plugins/<id>/install.mjs) -> agent presets (each
               presets/<id>/install.mjs) -> global agent template
               (AGENTS.global_template.md -> .dsh/AGENTS.md, and
-              global_template.agents/ -> .dsh/, missing files only, after
-              merging up a retired .dsh/.agents/ install)
+              global_template.agents/ -> .dsh/, missing files only — except
+              the docs/awesome-design-md reference subtree, which is replaced —
+              after merging up a retired .dsh/.agents/ install)
   build       dsh runtime (unless --skip-harness) -> entry exe -> plugins
               (each plugins/<id>/install.mjs) -> agent presets ->
               global agent template

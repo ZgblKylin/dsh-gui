@@ -4,3 +4,6 @@
 [submodule "src-tauri/whale-icon"]
 	path = src-tauri/whale-icon
 	url = https://github.com/fornarwhal/deepseek-whale-girl-icon
+[submodule "global_template.agents/docs/awesome-design-md"]
+	path = global_template.agents/docs/awesome-design-md
+	url = https://github.com/VoltAgent/awesome-design-md

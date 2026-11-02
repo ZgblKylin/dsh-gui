@@ -4,7 +4,7 @@
 
 更新对话框把可更新对象分成两类行。
 
-**git 行**是 dsh-gui 仓库本体与 `.gitmodules` 中的子模块（当前为 `deepseek-harness` 与 `src-tauri/whale-icon`）：检测把本地 HEAD 与远端默认分支比较，行内显示「当前 → 最新」（有可用最新 tag 时显示 tag 名，否则显示提交）与 tag/commit 更新目标选择；顶层行的动作是「更新」「更新日志」，子模块行另有「AI 更新」。
+**git 行**是 dsh-gui 仓库本体与 `.gitmodules` 中的子模块（当前为 `deepseek-harness`、`src-tauri/whale-icon` 与 `global_template.agents/docs/awesome-design-md`）：检测把本地 HEAD 与远端默认分支比较，行内显示「当前 → 最新」（有可用最新 tag 时显示 tag 名，否则显示提交）与 tag/commit 更新目标选择；顶层行的动作是「更新」「更新日志」，子模块行另有「AI 更新」。
 
 **npm 插件行**是 `plugins/**/*.mjs` 安装脚本用 `installNpmPlugin` 精确 pin 的每个 npm 包：检测把脚本中的 pin 与 registry 的最新版本比较，行内显示「当前 → 最新」（当前为脚本 pin，最新为 registry 最新版本），动作是「更新」（就地改写安装脚本的 pin 并重新安装该插件）与「AI 更新」。
 
