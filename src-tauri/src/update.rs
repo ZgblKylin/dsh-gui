@@ -1,9 +1,9 @@
 //! Update checking for the dsh-gui shell.
 //!
 //! The shell is a git checkout: the dsh-gui repository itself plus every
-//! submodule listed in `.gitmodules` (the harness, plugin repositories, agent
-//! presets, and the icon). "Update available" means the remote default branch
-//! of a repository has commits that the local `HEAD` does not.
+//! submodule listed in `.gitmodules` (the harness and the app icon). "Update
+//! available" means the remote default branch of a repository has commits that
+//! the local `HEAD` does not.
 //!
 //! `check_and_sync` compares every repository against `origin`, writes a
 //! pending-update plan plus a detached update launcher (`update.mjs`) when at
@@ -1284,8 +1284,8 @@ mod tests {
             .any(|entry| entry.name == "deepseek-harness"
                 && entry.path.ends_with("deepseek-harness")
                 && entry.url == "https://github.com/deepseek-ai/deepseek-harness"));
-        assert!(entries.iter().any(|entry| entry.name == "plugins/dsh-web-ui/dsh-web-ui"
-            && entry.path.ends_with("dsh-web-ui")));
+        assert!(entries.iter().any(|entry| entry.name == "src-tauri/whale-icon"
+            && entry.path.ends_with("whale-icon")));
     }
 
     #[test]

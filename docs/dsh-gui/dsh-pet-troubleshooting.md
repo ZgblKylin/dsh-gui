@@ -14,7 +14,7 @@
 | 形态 | 浏览器 overlay，无桌面模式 | 浏览器 overlay + **可选** Electron 透明桌面小窗 |
 | Loader entry id | `pet` | `pet` |
 | webserver 路由 | `/api/pet` | `/dsh-pet-7340`（v0.1.8 起；旧版 `/pet`） |
-| 本仓库 wrapper | ~~`plugins/dsh-web-ui`~~（已移除安装） | `plugins/dsh-pet`（npm `dsh-pet@0.3.7`） |
+| 本仓库 wrapper | ~~`plugins/dsh-web-ui`~~（已移除安装） | `plugins/dsh-pet`（npm `dsh-pet@0.3.8`） |
 | 安装状态 | 未安装 | **默认安装**（wrapper 不再传 `skip`；安装后注入 `display:"web"` 桌面屏蔽） |
 | 用户配置 | `$DSH_HOME/pet.json` | `$DSH_HOME/dsh-pet/main-config.jsonc`（旧的 `main-config.json` 仍被读取并在启动时迁移） |
 
@@ -78,11 +78,11 @@ node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove @linxin666
 
 ```powershell
 $env:DSH_HOME = 'E:\Git\dsh-gui\.dsh'
-node plugins/dsh-pet/install.mjs        # npm 受管安装 dsh-pet@0.3.7 + 注入桌面屏蔽配置
+node plugins/dsh-pet/install.mjs        # npm 受管安装 dsh-pet@0.3.8 + 注入桌面屏蔽配置
 ```
 
 > wrapper 不向 `installNpmPlugin` 传 `skip`：`npm run install:plugins` /
-> `npm run build` 默认安装，无需 `DSH_PLUGIN_FORCE_INSTALL`。v0.3.7 的 9 条
+> `npm run build` 默认安装，无需 `DSH_PLUGIN_FORCE_INSTALL`。v0.3.8 的 9 条
 > `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖当前 pinned harness
 > （dsh 0.2.2-alpha.2）的准入闸门，因此不需要精确版本例外；升级后可在 profile 的
 > `compatibility.json` 里删掉 `dsh-pet@<旧版本>` 的例外条目。host 半 inject 为
@@ -147,7 +147,7 @@ $f = '.dsh\dsh-pet\main-config.jsonc'; if (-not (Test-Path $f)) { $f = '.dsh\dsh
 
 ## 6. 相关文件速查
 
-- wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；子模块 `plugins/dsh-pet/dsh-pet`（pin v0.3.7）
+- wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；安装目标是 npm 发布包 `dsh-pet@0.3.8`（wrapper 精确 pin，仓库内没有本地源码 checkout）
 - 安装实现（wrapper 内）：`plugins/dsh-pet/install.mjs` 的 `installNpmPlugin` 调用（精确版本，不传 `skip`）；登记与通用机制：`scripts/plugin-install.mjs`（`recordNpmInstall`、`skipInstall`）
 - 更新检查：`docs/dsh-gui/update-check.md`、`src-tauri/src/update.rs`
 - 上游：`https://github.com/PC2005-cloud/dsh-pet`（issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16) = 路由冲突，已修）

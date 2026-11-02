@@ -42,8 +42,8 @@ Windows 依据可执行镜像文件的完整性标签确定新建进程的完整
 | `.harness\node_modules\@vscode\ripgrep-win32-x64\bin` | `rg.exe` | grep 工具 | 只读工具，可正常工作 |
 | `.harness\node_modules\node-pty\**` | `OpenConsole.exe` | 终端类功能 | 依赖控制台与管道，未逐一验证 |
 | `.harness\node_modules\@deepseek-ai\libreoffice-kit-win32-x64\bin` | `libreoffice-kit.exe` | 文档转换类功能 | 需要写自身的用户配置与临时目录，位于工作区之外时不可用 |
-| `plugins\dsh-web-ui\...\@esbuild\win32-x64` | `esbuild.exe` | 插件构建脚本 | 产物写回工作区，可正常工作 |
-| `plugins\dsh-web-ui\...\cloudflared` | `cloudflared.exe` | 远程连接 | 需要写 `%USERPROFILE%\.cloudflared`，位于工作区之外时不可用 |
+| `plugins\<in-tree wrapper>\...\node_modules\@esbuild\win32-x64` | `esbuild.exe` | 插件构建脚本 | 产物写回工作区，可正常工作 |
+| `plugins\<in-tree wrapper>\...\node_modules\cloudflared` | `cloudflared.exe` | 远程连接 | 需要写 `%USERPROFILE%\.cloudflared`，位于工作区之外时不可用 |
 | `plugins\*\...\ssh2\util` | `pagent.exe` | ssh2 的 Pageant 分支 | 未验证 |
 
 此外，低标签把工作区内的**代码**对任何低完整性进程开放写入，其中包括 `node_modules` 与 profile 中的插件代码；这些代码随后由中等完整性的 harness 执行。
@@ -54,7 +54,7 @@ pnpm 默认以硬链接把仓库内 store 的文件链接进 `node_modules`。�
 
 ```
 rg.exe               .pnpm-store\v11\files\18\48d0…  +  deepseek-harness\node_modules\.pnpm\…\rg.exe  +  .harness\node_modules\@vscode\ripgrep-win32-x64\bin\rg.exe
-esbuild.exe          .pnpm-store\v11\files\14\66fa…  +  plugins\dsh-web-ui\dsh-web-ui\node_modules\.pnpm\…\esbuild.exe
+esbuild.exe          .pnpm-store\v11\files\14\66fa…  +  plugins\<in-tree wrapper>\...\node_modules\.pnpm\…\esbuild.exe
 libreoffice-kit.exe  .pnpm-store\v11\files\99\07e2…  +  .harness\node_modules\@deepseek-ai\libreoffice-kit-win32-x64\bin\libreoffice-kit.exe
 ```
 

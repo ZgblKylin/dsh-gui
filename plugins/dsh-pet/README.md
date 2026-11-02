@@ -9,15 +9,14 @@
 plugins/dsh-pet/
 ├─ install.mjs                   # npm 安装 dsh-pet@0.3.8 + 注入桌面屏蔽配置
 ├─ inject-config.mjs             # 用户配置注入（纯函数，可单测）
-├─ README.md                     # 本说明
-└─ dsh-pet/                      # PC2005-cloud/dsh-pet 仓库（git submodule，pin v0.3.8-test.2）
-   ├─ dsh-pet/                   # 真正的 npm 包源码（package.json / cordis.patch.yml / src/…）
-   └─ …                          # 仓库其余部分（scripts / tools / prompts 等，仅源码参考）
+└─ README.md                     # 本说明
 ```
 
-来源形态：git submodule（整仓库，源码参考；npm 发布包在仓库内 `dsh-pet/`
-子目录），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
-`dsh-pet@0.3.8`），不参与构建。`npm 发布滞后：tag v0.3.8-test.2 建在 v0.3.8 发布提交之后（含 33 个提交），但 registry 上 dsh-pet 只到 0.3.8（latest 与 test 两个 dist-tag 都指向它），没有 0.3.8-test.2，因此子模块 checkout 只作源码参考、运行时装的仍是 0.3.8 的内容。`
+来源形态：**npm 发布包** `dsh-pet`（上游 PC2005-cloud/dsh-pet 仓库内 `dsh-pet/`
+子目录发布），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
+`dsh-pet@0.3.8`）。npm 发布滞后：tag `v0.3.8-test.2` 建在 `v0.3.8` 发布提交之后
+（含 33 个提交），但 registry 上 `dsh-pet` 只到 0.3.8（`latest` 与 `test` 两个
+dist-tag 都指向它），没有 `0.3.8-test.2`，因此运行时装的仍是 0.3.8 的内容。
 
 ## 兼容性状态
 
@@ -87,11 +86,10 @@ node plugins/dsh-pet/install.mjs
 
 ## 更新
 
-- 移动子模块指针到新 tag：
-  `git submodule update --remote plugins/dsh-pet/dsh-pet`（先审阅上游变更）；
-- 同步升级 npm 版本：把 `install.mjs` 的 `PACKAGE_SPEC` 改为新精确版本后重跑本
-  脚本；新版本的 `@deepseek-ai/dsh*` peer 若不覆盖当前 harness，还需恢复
-  `installNpmPlugin` 的 `exempt` 并写明接受该风险的理由。
+- 审阅上游变更后，把 `install.mjs` 的 `PACKAGE_SPEC` 改为上游新发布的精确版本；
+- 重跑本脚本（`node plugins/dsh-pet/install.mjs`）；新版本的 `@deepseek-ai/dsh*`
+  peer 若不覆盖当前 harness，还需恢复 `installNpmPlugin` 的 `exempt` 并写明接受
+  该风险的理由。
 
 ## 验证
 

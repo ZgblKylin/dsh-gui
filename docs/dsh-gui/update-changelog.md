@@ -129,8 +129,8 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
 
 ## 多 Release 逻辑的实测
 
-用真实数据端到端跑过 `prepare`（当时 `plugins/dsh-web-ui/dsh-web-ui` 本地停在
-`v0.3.14`、远端最新 tag `v0.3.22`）：输出 8 节、标题为
+用真实数据端到端跑过 `prepare`（当时 dsh-web 仓库的本地检出停在 `v0.3.14`、
+远端最新 tag 为 `v0.3.22`）：输出 8 节、标题为
 `GitHub Release 官方说明 · 8 个版本（v0.3.15 → v0.3.22，最新在上）`，
 发布日期严格递减（2026-09-13 → 2026-09-05），正文长度 5850/11829/… 字符；把该
 文档再喂给 `ui/app.js` 的 `renderChangelogMarkdown`（从源码切片、原样加载）得到

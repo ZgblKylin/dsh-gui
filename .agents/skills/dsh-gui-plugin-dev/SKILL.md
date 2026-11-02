@@ -1,12 +1,12 @@
 ---
 name: dsh-gui-plugin-dev
-description: 'Use when adding, migrating, building, debugging, or reviewing a plugin under the dsh-gui `plugins/` tree, when writing or changing a `plugins/<id>/install.mjs` wrapper, when deciding how to wire a plugin git submodule, and when deciding whether a feature must depend on dsh-gui. Covers the current plugin directory/submodule layout and install-script pattern, then routes plugin-authoring questions to the deepseek-harness submodule docs and reference examples.'
-whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、审查插件，写或改 `plugins/<id>/install.mjs`，决定插件 git submodule 接线，或判断某功能是否必须依赖 dsh-gui 时使用。插件本体编写问题交给 deepseek-harness 子模块文档与示例工程。
+description: 'Use when adding, migrating, building, debugging, or reviewing a plugin under the dsh-gui `plugins/` tree, when writing or changing a `plugins/<id>/install.mjs` wrapper (an npm-pinned wrapper or an in-tree source plugin), and when deciding whether a feature must depend on dsh-gui. Covers the current plugin directory layout and install-script pattern, then routes plugin-authoring questions to the deepseek-harness submodule docs and reference examples.'
+whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、审查插件，写或改 `plugins/<id>/install.mjs`，决定插件以 npm 发布包还是内嵌源码形态接入，或判断某功能是否必须依赖 dsh-gui 时使用。插件本体编写问题交给 deepseek-harness 子模块文档与示例工程。
 ---
 
 # dsh-gui 插件开发
 
-本 skill 只负责 dsh-gui 这一层：插件如何放进 `plugins/`、如何以子模块引入、如何写
+本 skill 只负责 dsh-gui 这一层：插件如何放进 `plugins/`、如何以 npm 精确 pin 的发布包或内嵌源码接入、如何写
 `install.mjs`、如何挂载到 web profile。插件本体怎么写，以 `deepseek-harness/`
 子模块中的官方文档与示例工程为准（见下方「阅读地图」）。
 
@@ -29,7 +29,7 @@ whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、
 - 验收问题：**“这个插件能否在不装 dsh-gui、只 clone deepseek-harness 的环境里，通过
   `dsh plugin add` 或 `--patch` 加载运行？”** 答案应是能；只有明确豁免项才允许回答不能。
 
-## 1. dsh-gui 的插件目录结构与子模块引入
+## 1. dsh-gui 的插件目录结构与来源形态
 
 真源（先读，不要重复抄写）：
 
@@ -37,7 +37,7 @@ whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、
 - 根目录 [`README.md`](../../../README.md#adding-plugins-at-runtime) —— 安装流水线说明。
 - [`scripts/plugin-install.mjs`](../../../scripts/plugin-install.mjs) —— 共享安装流水线的唯一实现。
 - [`scripts/dsh-gui.mjs`](../../../scripts/dsh-gui.mjs) —— build/setup 如何发现并执行各 `install.mjs`。
-- [`.gitmodules`](../../../.gitmodules) —— 当前所有子模块的真实记录。
+- [`.gitmodules`](../../../.gitmodules) —— 当前子模块的真实记录（`deepseek-harness` 与 `src-tauri/whale-icon`，两者都不是插件）。
 
 ### 1.1 wrapper 布局
 
@@ -48,22 +48,23 @@ plugins/
 ├─ README.md
 ├─ <id>/
 │  ├─ install.mjs                 # 只描述“这个插件怎么落地”，不含插件业务代码
-│  └─ <package>/                  # 插件包（内嵌，或 git submodule）
-│     ├─ package.json
-│     └─ ...                      # 源码 / lib / cordis.patch.yml / docs
-└─ deep-whale/                    # 多包发行仓库要走深一层
-   ├─ install.mjs
-   └─ dsh-deep-whale/
-      └─ maid-atelier/
+│  └─ <package>/                  # 仅 in-tree 源码插件有：package.json、源码、docs
+└─ harness/                       # 官方插件组：install.mjs 按序加载平铺的 *.mjs
 ```
+
+npm 型 wrapper 只有 `install.mjs`：包从 registry 安装，仓库内不保留源码 checkout。
 
 当前实例对照：
 
-| wrapper | 包路径 | 来源形态 | 特殊处理 |
-|---|---|---|---|
-| `plugins/remote` | `remote/dsh-remote` | 内嵌源码 | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
-| `plugins/ai-update` | `ai-update/dsh-ai-update` | 内嵌源码 | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
-| `plugins/deep-whale` | `deep-whale/dsh-deep-whale/maid-atelier` | git submodule（多包仓库） | `build: false` 使用预构建产物；`dsh.bundle.patch` 自挂载 |
+| wrapper | 来源形态 | 特殊处理 |
+|---|---|---|
+| `remote`、`ai-update`、`opencode-session` | in-tree 源码（`<id>/<package>`） | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
+| `mcp-on-demand` | in-tree 源码 | 无 `build` 脚本，包按发布形态直接 `link:`；`dsh.bundle.patch` 自挂载 |
+| `auto-update`、`desktop-tabs` | in-tree 源码 | 只装 desktop profile：`DSH_PLUGIN_PROFILE` 不是 `desktop` 时跳过 |
+| `better-sidebar`、`deep-whale`、`dsh-web-ui` | npm 发布包（一个 wrapper 多个包） | 每包一个精确 pin；`dsh.bundle.patch` 自挂载 |
+| `plugin-market`、`dsh-pet`、`skill-mcp-center` | npm 发布包（单包） | `dsh.bundle.patch` 自挂载；`dsh-pet` 装后另注入用户配置 |
+| `commandcode-provider` | npm 发布包（单包） | pin 的 dsh 依赖区间不接纳当前 runtime，wrapper 用 `exempt` 授予精确版本例外 |
+| `harness` | 官方 `@deepseek-ai/dsh-*` npm 包组 | 平铺的 `browser-use.mjs` 与 `computer-use.mjs` 各装两个包；包不声明 bundle patch，由显式 `mount` 写 insert 行 |
 
 靠提示词与现有工具完成的用户级指令（例如 `/review`）做成 skill，不要建 wrapper：
 源文件放 `global_template.agents/skills/<name>/SKILL.md`，构建安装到
@@ -71,30 +72,36 @@ plugins/
 
 ### 1.2 两种来源
 
-**内嵌（in-tree）**：插件源码直接随 dsh-gui 仓库提交。适合 dsh-gui 自有插件。
+**npm 发布包（本仓库当前多数插件）**：插件在独立仓库维护并发布到 npm，wrapper 只写
+`install.mjs`，用 `installNpmPlugin` 安装精确 pin 的版本；仓库内不保留源码 checkout。
+升级时改 `packageSpec` 并重跑 wrapper（见 skill `dsh-gui-update`）。
 
-**git submodule**：第三方/独立维护的插件仓库以子模块引入并 pin 到具体 commit：
+**内嵌（in-tree）**：插件源码直接随 dsh-gui 仓库提交，适合 dsh-gui 自有插件；wrapper
+用 `installPlugin` 构建并以 `link:` 安装。
 
-```powershell
-git submodule add <url> plugins/<id>/<package>
-git submodule update --init plugins/<id>/<package>
-# 上游更新后先审阅，再移动指针
-git submodule update --remote plugins/<id>/<package>
-```
-
-- 新子模块会进入根目录 [`.gitmodules`](../../../.gitmodules)，`path` 指向
-  `plugins/<id>/<package>`；提交时提交 submodule 指针，不要提交其源码。
-- `install.mjs` 必须写 `sourceHint: 'git submodule update --init plugins/<id>/<package>'`，
-  让缺 checkout 时的报错直接给出恢复命令。
-- 多包发行仓库（如 `deep-whale`）中真正要装的包可能在子模块内再深一层：
-  此时 `packageDir` 指向 `plugins/<id>/<repo>/<package>`。
+可选能力：第三方源码也可以用 git submodule 引入，再以 `installPlugin` 指向该 checkout，
+多包仓库把 `packageDir` 指向更深一层的包目录。这条路径需要同时维护 [`.gitmodules`](../../../.gitmodules)
+与子模块指针，本仓库当前没有这种 wrapper。
 
 ## 2. install.mjs 模式
 
 共享流水线在 [`scripts/plugin-install.mjs`](../../../scripts/plugin-install.mjs)；
-每个 wrapper 只声明自己的 id、package 路径、submodule 提示和少量例外。
+每个 wrapper 只声明自己的 id、安装目标（npm spec 或本地包路径）和少量例外。
 
 ### 2.1 最小模板
+
+npm 型：
+
+```js
+import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
+
+installNpmPlugin({
+  id: 'my-plugin',                       // = plugins/<id> 目录名
+  packageSpec: 'dsh-my-plugin@1.2.3',    // 精确 pin；更新面板按该字面量检测与改写
+})
+```
+
+in-tree 型：
 
 ```js
 import { dirname, join } from 'node:path'
@@ -104,54 +111,77 @@ import { installPlugin } from '../../scripts/plugin-install.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 
 installPlugin({
-  id: 'my-plugin',                                    // = plugins/<id> 目录名
-  packageDir: join(here, 'dsh-my-plugin'),            // 内嵌或 submodule 包目录
-  sourceHint: 'git submodule update --init plugins/my-plugin/dsh-my-plugin', // 仅 submodule
+  id: 'my-plugin',                       // = plugins/<id> 目录名
+  packageDir: join(here, 'dsh-my-plugin'),
 })
 ```
+
+`installNpmPlugin` 的选项：
+
+| 选项 | 含义 |
+|---|---|
+| `id` | wrapper 目录名，也是安装日志与定位 id |
+| `packageSpec` | `<包名>@<精确版本>` 的 npm spec，必须以字符串字面量出现在脚本里 |
+| `mount` | 显式 mount 行；仅用于不声明 `dsh.bundle.patch` 的包（当前 `harness` 官方插件组用它写带 `config` 的 insert 行） |
+| `skip` | wrapper 声明的默认跳过：`true` 或原因字符串；`DSH_PLUGIN_FORCE_INSTALL=1` 强制安装，`DSH_PLUGIN_SKIP` 追加跳过 |
+| `exempt` | 精确版本兼容例外的原因；pin 声明的 dsh 依赖区间不接纳当前 runtime 时使用 |
 
 `installPlugin` 的选项：
 
 | 选项 | 含义 |
 |---|---|
 | `id` | wrapper 目录名，也是安装日志与定位 id |
-| `packageDir` | 插件包的绝对路径；不存在时按 `sourceHint` 报错 |
-| `sourceHint` | submodule 初始化提示；内嵌包可省略 |
-| `mount` | 显式 mount 行 `{ id, name }`；覆盖从 manifest 派生的值。当前无 wrapper 使用——新插件一律用 `dsh.bundle.patch` 自挂载，避免与 bundle 层双挂载 |
+| `packageDir` | 插件包的绝对路径；不存在时报错 |
+| `sourceHint` | `packageDir` 缺失时在报错中给出的恢复提示；只用于 wrapper 带本地 checkout 但缺文件的场景，本仓库当前没有这种 wrapper |
+| `mount` | 显式 mount 行 `{ id, name }`；覆盖从 manifest 派生的值 |
 | `build` | 默认 `true`。设为 `false` 表示“包声明了 build，但本仓库应使用其预构建产物” |
 
-> 新插件不要用显式 `mount` / wrapper 级 `cordis.patch.yml`：在包 manifest 里声明
-> `dsh.bundle.patch` 指向包内 `cordis.patch.yml`，让包作为 bundle 层自己挂载
-> （`dsh plugin add` 自动 reconcile 进 `dsh.profile.bundles`）。wrapper 级
+> 自带 `dsh.bundle.patch` 的包不要用显式 `mount` / wrapper 级 `cordis.patch.yml`：让包作为
+> bundle 层自己挂载（`dsh plugin add` 自动 reconcile 进 `dsh.profile.bundles`）。wrapper 级
 > `cordis.patch.yml` 手工 insert 会与 bundle 层撞出 `duplicate loader entry id`。
 
 ### 2.2 共享安装流水线做什么
 
 `npm run install:plugins`（别名 `npm run plugins`）按目录名字典序执行所有
 `plugins/*/install.mjs`；`npm run build` / `npm run setup` 也会在构建后执行同一批脚本。
+目标 profile 由 `DSH_PLUGIN_PROFILE` 选择（默认 `web`），desktop 构建传 `desktop`。
 每个脚本最终走共享流水线：
 
-1. **自托管构建**：先 bootstrap 仓库固定的 pnpm（`.toolchain/`，store 固定为
-   `.pnpm-store/`）。包有 `build` 脚本且未 `build: false` 时，在包目录内执行
-   `pnpm install --store-dir <runtime-root>/.pnpm-store` + `pnpm run build`；
-   没有 `build` 脚本的包按已发布形态直接使用（预构建 `lib/` 或纯配置包）。
-2. **固定 profile store**：写 `.dsh/profiles/web/pnpm-workspace.yaml` 的
-   `storeDir`，避免普通终端与桌面壳环境因 home 变量不同而 `ERR_PNPM_UNEXPECTED_STORE`。
-3. **链接依赖**：以 `DSH_HOME=<runtime-root>/.dsh` 执行
-   `node deepseek-harness/apps/cli/lib/bin.js plugin --profile web add link:<packageDir>`。
-   `link:` 使下一次启动直接看到包目录里的改动。
-4. **挂载 entry**：
-   - 若 `package.json` 的 `dsh.bundle.patch` 有值：`dsh plugin add` 会把它 reconcile 进
+1. **自托管工具链**：先 bootstrap 仓库固定的 pnpm（`.toolchain/`，store 固定为
+   `.pnpm-store/`）。
+2. **固定 profile store**：写 profile 的 `pnpm-workspace.yaml` 的 `storeDir`，避免普通终端
+   与桌面壳环境因 home 变量不同而 `ERR_PNPM_UNEXPECTED_STORE`。
+3. **in-tree 包**：包有 `build` 脚本且未 `build: false` 时，在包目录内执行
+   `pnpm install --store-dir <runtime-root>/.pnpm-store` + `pnpm run build`；没有 `build`
+   脚本的包按已发布形态直接使用（预构建 `lib/` 或纯配置包）。随后执行
+   `dsh plugin --profile <profile> add link:<packageDir>`；`link:` 使下一次启动直接看到
+   包目录里的改动。
+4. **npm 包**：执行 `dsh plugin --profile <profile> add <packageSpec>` 从 registry 安装，
+   并把包名记录到 `.dsh/gui/npm-installs.json`。精确 pin 已安装且挂载状态完好时跳过整次
+   安装；`npm run rebuild`（`DSH_PLUGIN_REBUILD=1`）强制重装。
+5. **挂载 entry**：
+   - 若包 `package.json` 的 `dsh.bundle.patch` 有值：`dsh plugin add` 会把它 reconcile 进
      `dsh.profile.bundles`，其 bundle 层自己插入 entry，安装脚本**不写**
      `cordis.patch.yml`，否则会双挂载。
-   - 否则向 `.dsh/profiles/web/cordis.patch.yml` 幂等追加一个 `- insert:` 行；
-     mount 值取显式 `mount`，否则 `id` 取 `package.json` 的
-     `dsh.gui.mountId ?? packageName.replace(/^dsh-/, '')`，`name` 取包名。
+   - 否则向 profile 的 `cordis.patch.yml` 幂等追加一个 `- insert:` 行；mount 值取显式
+     `mount`，否则 `id` 取 `package.json` 的 `dsh.gui.mountId ?? packageName.replace(/^dsh-/, '')`，
+     `name` 取包名。
+
+命令里的 `dsh` 是按 [`harness.json`](../../../harness.json) 解析出的 CLI：`npm` 运行时在
+运行时根的 `.harness/`，`source` 运行时用子模块的 `apps/cli/lib/bin.js`（见
+[`docs/dsh-gui/harness-runtime.md`](../../../docs/dsh-gui/harness-runtime.md)）。
 
 约束：
 
 - 安装脚本必须幂等，重复执行结果一致（共享流水线按 entry id 去重）。
 - 只写 `DSH_HOME`（缺省 `<runtime-root>/.dsh`），不写系统全局位置。
+- npm 型 wrapper 的 `packageSpec` 必须是 `<包名>@<精确版本>` 字符串字面量：desktop
+  更新面板按字面量生成插件行并就地改写版本，从文件读取或用拼接构造的 spec 不会被检测
+  与更新（见 `plugins/README.md` 的安装方式约定）。
+- 准入闸门读取包声明的 dsh 版本要求（`engines.dsh`，没有时比对 `@deepseek-ai/dsh*`
+  peer 区间）：区间不接纳当前 runtime 时 `dsh plugin add` 拒绝安装，只有
+  `installNpmPlugin` 的 `exempt` 能授予精确版本例外，例外按包版本与 runtime 版本精确
+  绑定。
 - 安装产物都在 gitignored 的 `.dsh/` 里；源码侧不要手改
   `.dsh/profiles/web/cordis.patch.yml` 后把运行时状态当源提交。
 - 插件集合变更通常要重启 dsh-gui（或 harness）后生效。
@@ -249,7 +279,7 @@ wrapper 约定误当成 harness 插件模型。
 
 **参考工程与示例（抄模式前先读）**
 
-- [`apps/cli/config/examples/github-review/cordis.yml`](../../../deepseek-harness/apps/cli/config/examples/github-review/cordis.yml) —— 可选 overlay 接入 GitHub webhook 评审，配套指南 [`docs/user/guide/github-review.md`](../../../deepseek-harness/docs/user/guide/github-review.md)。
+- [`packages/experimental/webhook-github/examples/github-review/cordis.yml`](../../../deepseek-harness/packages/experimental/webhook-github/examples/github-review/cordis.yml) —— 可选 overlay 接入 GitHub webhook 评审，配套指南 [`docs/user/guide/github-review.md`](../../../deepseek-harness/docs/user/guide/github-review.md)。
 - [`apps/cli/config/examples/mcp-memory/`](../../../deepseek-harness/apps/cli/config/examples/mcp-memory) —— 三份默认关闭的第三方记忆 MCP 参考配置，配套指南 [`docs/user/guide/mcp-memory.md`](../../../deepseek-harness/docs/user/guide/mcp-memory.md)。
 - [`docs/user/develop/practice/dynamic-cordis.md`](../../../deepseek-harness/docs/user/develop/practice/dynamic-cordis.md) —— 用提示词把持久化组合包写进当前 profile，运行时检查与挂载的自指示例。
 - [`docs/user/guide/schedule.md`](../../../deepseek-harness/docs/user/guide/schedule.md) —— Schedule 提醒的创建、修改与投递语义。
@@ -262,20 +292,22 @@ wrapper 约定误当成 harness 插件模型。
    `--patch` 在临时 profile 里加载；需要 GUI 时用 harness 自己的 `dsh web`。
 2. **再决定是否需要 dsh-gui 例外**：不需要就到此为止，后续只加 wrapper 分发；
    需要就在文档里写明理由并控制耦合面。
-3. **加 dsh-gui wrapper**：按第 1、2 节创建 `plugins/<id>/install.mjs`，
-   需要时加 submodule；不要为安装而改 harness 本体。
+3. **加 dsh-gui wrapper**：按第 1、2 节创建 `plugins/<id>/install.mjs`——npm 型只写精确
+   pin，in-tree 型再建包目录并交给 `installPlugin`；不要为安装而改 harness 本体。
 4. **构建验证**：先保证 harness 已构建（首次 `npm run setup`），再跑
    `npm run install:plugins`；之后查看每个 wrapper 输出的
-   `installed plugin '<id>'`，并核对 `.dsh/profiles/web/cordis.patch.yml`
+   `installed plugin '<id>'`，并核对 profile 的 `cordis.patch.yml`
    或 `dsh.profile.bundles` 中的挂载结果。也可用 harness 的
    `--dump-config` 检查最终组合。
 5. **重启生效**：重启 dsh-gui/harness，确认插件出现且无 FAILED fiber。
 
 ## 4. 文档与提交
 
-- 每个插件工程同步维护 `plugins/<id>/<package>/docs/`（多包仓库在对应包内）。
-- wrapper 的 `install.mjs` 顶部注释应说明：包来源（内嵌/submodule）、是否预构建、
-  mount 来源（bundle patch 自挂载 / manifest 派生；显式 `mount` 选项已无 wrapper
-  使用，新插件一律走 bundle）、`DSH_HOME` 约束。
-- 提交遵循 Conventional Commits；submodule 指针和 wrapper 变更一起提交，
-  不提交 `.dsh/`、`.toolchain/`、`.pnpm-store/` 等运行期/缓存目录。
+- in-tree 插件同步维护 `plugins/<id>/<package>/docs/`；npm 型 wrapper 在
+  `plugins/<id>/README.md` 说明来源包、pin 版本与升级方式，上游文档以发布包内的
+  `README.md` 与 `docs/` 为准。
+- wrapper 的 `install.mjs` 顶部注释应说明：包来源（npm 包名 / in-tree）、pin 版本与升级
+  方式、是否预构建、mount 来源（bundle patch 自挂载 / 显式 `mount` / manifest 派生）、
+  `DSH_HOME` 约束。
+- 提交遵循 Conventional Commits；安装脚本与 pin 变更一起提交，不提交 `.dsh/`、
+  `.toolchain/`、`.pnpm-store/` 等运行期/缓存目录。

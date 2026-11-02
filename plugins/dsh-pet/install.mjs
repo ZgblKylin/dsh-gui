@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 // plugins/dsh-pet/install.mjs — PC2005-cloud/dsh-pet（npm 包名 dsh-pet）wrapper。
 //
-// 来源：git submodule（plugins/dsh-pet/dsh-pet，pin 版本 tag v0.3.8-test.2，仅作源码参考，
-//   不参与构建）；安装走 npm（installNpmPlugin，精确版本 dsh-pet@0.3.8），与其它
-//   npm 型 wrapper 同一通道。
+// 来源：npm 发布包 `dsh-pet`，安装走 npm（installNpmPlugin，精确版本
+//   dsh-pet@0.3.8），与其它 npm 型 wrapper 同一通道。
 //
 // npm 发布滞后：tag `v0.3.8-test.2`（dfc0396）建在发布提交 `v0.3.8`（593b9b0）之后，
 //   含 33 个提交，但 registry 上 `dsh-pet` 只发布到 **0.3.8**（`latest` 与 `test` 两个
-//   dist-tag 都指向它），没有 `0.3.8-test.2`。因此子模块 checkout 只作源码参考，
-//   运行时装的仍是 0.3.8 的内容；上游发布新版本后把 PACKAGE_SPEC 抬到对应版本。
+//   dist-tag 都指向它），没有 `0.3.8-test.2`，因此运行时装的仍是 0.3.8 的内容；上游
+//   发布新版本后把 PACKAGE_SPEC 抬到对应版本。
 //
 // 兼容性：0.3.8 的 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`（相对 v0.3.1 新增
 //   `@deepseek-ai/dsh-client-ui-primitives`），经准入闸门的

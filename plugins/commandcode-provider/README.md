@@ -6,33 +6,25 @@
 （Loader entry `llm-commandcode`），带 Models 页卡片、实时模型目录、套餐感知的
 模型选择、推理强度、图片输入、联网搜索承载与多账户轮换。
 
-来源形态：**git submodule（整仓库，仅作源码参考）+ npm 安装**。子模块 pin 到
-tag `v0.15.5`，安装走 npm 受管安装器 `installNpmPlugin`，精确版本
-`@mars-sea/dsh-commandcode-provider@0.15.5`；本 wrapper **不构建、不 link** 本地
-checkout。
+来源形态：**npm 发布包**。安装走 npm 受管安装器 `installNpmPlugin`，精确版本
+`@mars-sea/dsh-commandcode-provider@0.15.5`；本 wrapper 不构建、不 link 本地源码。
 
 ## 目录
 
 ```text
 plugins/commandcode-provider/
 ├─ install.mjs                              # npm 安装 0.15.5（bundle 自挂载）
-├─ README.md                                # 本说明
-└─ dsh-commandcode-provider/                # Mars-Sea/dsh-commandcode-provider（git submodule，pin v0.15.5）
-   ├─ package.json                          # dsh.bundle.patch 指向 ./cordis.patch.yml
-   ├─ cordis.patch.yml                      # bundle 层：insert id llm-commandcode
-   ├─ src/ lib/ locale/ assets/ …            # 源码与预构建产物（仅源码参考）
-   └─ docs/                                 # 上游文档
+└─ README.md                                # 本说明
 ```
 
 ## 为什么是 npm 精确版本
 
-- 上游把 npm 发布包作为常规安装路径（README「安装」一节），子模块 checkout 只是
-  版本来源与源码参考，与本仓库 `dsh-pet`、`dsh-web-ui`、`plugin-market`、
-  `deep-whale` 的形态一致。
+- 上游把 npm 发布包作为常规安装路径（README「安装」一节），与本仓库 `dsh-pet`、
+  `dsh-web-ui`、`plugin-market`、`deep-whale` 等 npm 型 wrapper 的形态一致。
 - 固定 **精确版本**（而非 `@latest`）：pinned pnpm 11.7 的 supply-chain
   `minimumReleaseAge`（1440 分钟）会把发布不足 24h 的版本挡在 `@latest` 之外并
-  **静默回退到上一版**，命令照样成功；精确 pin 绕过这一回退，同时让版本与子模块
-  tag 对齐。`0.15.5` 发布于 2026-10-27（CHANGELOG 顶部），精确 pin 同样绕过年龄门禁。
+  **静默回退到上一版**，命令照样成功；精确 pin 绕过这一回退，并让安装内容与所选
+  上游发布一致。`0.15.5` 发布于 2026-10-27（CHANGELOG 顶部），精确 pin 同样绕过年龄门禁。
 - 包声明了 `dsh.bundle.patch`，于是 `dsh plugin add` 把它 reconcile 进
   `dsh.profile.bundles`，由包自己的 `cordis.patch.yml` 挂载 entry——本 wrapper
   **不写** `cordis.patch.yml` insert（手写会双挂载）。
@@ -50,8 +42,8 @@ plugins/commandcode-provider/
 
 > 0.12.0 是 **dsh 0.2.0-rc.1** 线的最后一版（peer 为 `^0.2.0-rc.1`）；更早的插件
 > 版本与本运行时**不配套**：0.11.17 是 dsh 0.1.7 线的最后一版，0.11.11 对应
-> 0.1.2–0.1.6，0.9.1 对应 0.5.0 线。要跟着运行时走，应移动子模块指针 + 改
-> `install.mjs` 的精确版本，而不是回退版本号。
+> 0.1.2–0.1.6，0.9.1 对应 0.5.0 线。要跟随运行时，应把 `install.mjs` 的精确版本
+> 升级到上游对应发布，而不是回退版本号。
 
 ## 默认配置
 
@@ -86,22 +78,14 @@ node plugins/commandcode-provider/install.mjs
 系统全局位置。整个插件组仍走 `npm run install:plugins` / `npm run build`（按目录名
 字典序，本 wrapper 排在 `commandcode-provider`）；安装产物都在 gitignored 的 `.dsh/`。
 
-子模块缺失时：
-
-```powershell
-git submodule update --init plugins/commandcode-provider/dsh-commandcode-provider
-```
-
 ## 更新
 
-1. 审阅上游变更后移动子模块指针，例如
-   `git submodule update --remote plugins/commandcode-provider/dsh-commandcode-provider`
-   （或 `git -C plugins/commandcode-provider/dsh-commandcode-provider checkout <tag>`）；
-2. 把 `install.mjs` 的 `packageSpec` 改为与之对应的精确 npm 版本（上游 CHANGELOG
-   与 npm `dist-tags.latest` 对齐）；
-3. 重跑本 wrapper；若目标版本仍落在 pnpm 的 24h 年龄窗口内，精确 pin 即可绕过。
+1. 审阅上游变更后，把 `install.mjs` 的 `packageSpec` 改为上游新发布的精确 npm 版本
+   （上游 CHANGELOG 与 npm `dist-tags.latest` 对齐）；
+2. 重跑本 wrapper（`node plugins/commandcode-provider/install.mjs`）；若目标版本仍
+   落在 pnpm 的 24h 年龄窗口内，精确 pin 即可绕过。
 
-上游的区间声明覆盖 0.2.1 线从 rc.2 起的每个 RC，因此只需移动子模块指针并同步 `install.mjs` 的精确版本，无需改动兼容字段；目标运行时落在区间外时，按 `plugins/README.md` 的例外流程传入理由。
+上游的区间声明覆盖 0.2.1 线从 rc.2 起的每个 RC，因此只需同步 `install.mjs` 的精确版本，无需改动兼容字段；目标运行时落在区间外时，按 `plugins/README.md` 的例外流程传入理由。
 
 ## 验证
 
@@ -135,5 +119,5 @@ $env:DSH_HOME = 'E:\Git\dsh-gui-home\.dsh'
 node ..\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js plugin --profile web remove '@mars-sea/dsh-commandcode-provider'
 ```
 
-凭据库与 `~/.commandcode/auth.json` 中的 key 不受影响。彻底移除（子模块、wrapper、
-`.dsh` 与 `.git/` 内残留）按 `dsh-plugin-uninstall` skill 的清单执行。
+凭据库与 `~/.commandcode/auth.json` 中的 key 不受影响。彻底移除（wrapper 目录、
+profile 依赖与 `.dsh` 运行期残留）按 `dsh-plugin-uninstall` skill 的清单执行。

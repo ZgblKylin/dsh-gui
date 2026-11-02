@@ -17,8 +17,8 @@
  * ui-skin-maid-atelier / ui-skin-orca-link) — no manual cordis.patch.yml insert
  * is added (that would double-mount them) and nothing is compiled locally.
  *
- * Each package carries its own version in the pinned `v0.1.9` tag: the two skins
- * moved to 0.1.9, while the manager stays one release behind at 0.1.8 (upstream's
+ * Each package carries its own version in upstream release 0.1.9: the two skins
+ * are 0.1.9, while the manager stays one release behind at 0.1.8 (upstream's
  * release commit prepares "0.1.9 skins and 0.1.8 skin manager"). One shared
  * version constant would therefore pin the manager to a version that does not
  * exist, so the pins are per package.
@@ -42,10 +42,6 @@
  * skins and two bundles inserting the same loader entry ids. This wrapper
  * performs that removal idempotently.
  *
- * The `dsh-deep-whale` submodule beside this script pins the version and stays
- * as a source reference only, like the dsh-web-ui and dsh-market wrappers: it is
- * neither built nor linked here.
- *
  * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh` by
  * the desktop shell; this script honors an explicit `DSH_HOME` override (the
  * build passes one) and otherwise pins the same runtime-root default.
@@ -61,8 +57,8 @@ import { pinnedPath, ROOT, run, WEB_HOME } from '../../scripts/toolchain.mjs'
 const ID = 'deep-whale'
 
 /**
- * Exact npm pins matching each package's own version in the pinned submodule tag
- * (`v0.1.9`), in upstream install order (manager first, then the two skins).
+ * Exact npm pins matching each package's own version in upstream release 0.1.9,
+ * in upstream install order (manager first, then the two skins).
  * Exact versions bypass pnpm 11's default supply-chain `minimumReleaseAge` gate,
  * which would otherwise silently fall back to an older release for `@latest` or
  * a range. Each pin is one `pkg@version` literal: the desktop update panel parses

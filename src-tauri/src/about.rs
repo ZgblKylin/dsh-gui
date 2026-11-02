@@ -177,10 +177,11 @@ fn harness_item(root: &Path) -> AboutItem {
 }
 
 /// Collect the About rows for the shell, the dsh runtime, the app-icon
-/// submodule, and every plugin package. The preset-style `plugins/` layout has
-/// one wrapper directory per plugin (`plugins/<id>/install.mjs`) holding the
-/// package/repo in a second-level directory; multi-package distribution repos
-/// (e.g. `deep-whale/dsh-deep-whale`) hold their package one level deeper.
+/// submodule, and every in-tree plugin package under `plugins/`. A wrapper
+/// directory (`plugins/<id>/`) that keeps a source package beside its
+/// `install.mjs` contributes a row; an npm-pinned wrapper installs a registry
+/// package and keeps no local source, so it has no row here. A multi-package
+/// in-tree repo holds its packages one directory deeper.
 fn collect_fresh(root: &Path) -> AboutInfo {
     let shell = item(root, "dsh-gui");
     let harness = harness_item(root);
@@ -205,8 +206,8 @@ fn collect_fresh(root: &Path) -> AboutInfo {
                         plugins.push(item(&child_path, &child.file_name().to_string_lossy()));
                         continue;
                     }
-                    // Distribution-repo submodule: the checkout root itself is
-                    // not a package, but each skin/plugin lives in a child dir.
+                    // Multi-package in-tree repo: the wrapper root itself is
+                    // not a package, but each package lives in a child dir.
                     if let Ok(grandchildren) = std::fs::read_dir(&child_path) {
                         for grandchild in grandchildren.flatten() {
                             let grandchild_path = grandchild.path();

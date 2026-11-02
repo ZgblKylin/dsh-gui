@@ -1,7 +1,7 @@
 ---
 name: dsh-plugin-uninstall
-description: 卸载 / 移除 DSH 插件的完整流程：从 profile 卸载、删除仓库侧来源（git submodule、wrapper 目录、install.mjs、包 node_modules）、清理 `.dsh` 各类残留（profile 依赖与 bundles、cordis.patch.yml 的 insert/禁用行、settings 配置段、插件状态目录与 storage、npm-installs 记录、preset 引用）以及 `.git/` 内部残留（index gitlink、config 的 submodule 段、modules 下的 module git dir 与空壳目录、悬空 gitfile），并附三方比对的孤儿检测脚本。强调「安装痕迹分散在多处，只删一半会留下悬空 submodule 段、孤儿 module git dir、悬空 patch 行或启动即 duplicate loader entry id 的残留」。
-whenToUse: 用户要求卸载、移除、删除、彻底清理某个 DSH 插件（如 dsh-terminal、dsh-file-explorer、dsh-pet），需要连子模块登记与 `.git/` 内部状态一起清掉，或询问「插件删干净了吗」「为什么删了还在」「.git 里还有没有残留」「有没有孤儿 submodule 段」时使用。也适用于清理插件卸载后的残留配置与组合层脏数据。
+description: 卸载 / 移除 DSH 插件的完整流程：从 profile 卸载、删除仓库侧来源（npm 型 wrapper 目录、in-tree 包目录、仍登记在 `.gitmodules` 的 submodule）、清理 `.dsh` 各类残留（profile 依赖与 bundles、cordis.patch.yml 的 insert/禁用行、settings 配置段、插件状态目录与 storage、npm-installs 记录、preset 声明行）以及 `.git/` 内部残留（index gitlink、config 的 submodule 段、modules 下的 module git dir 与空壳目录、悬空 gitfile），并附三方比对的孤儿检测脚本。强调「安装痕迹分散在多处，只删一半会留下悬空 submodule 段、孤儿 module git dir、悬空 patch 行或启动即 duplicate loader entry id 的残留」。
+whenToUse: 用户要求卸载、移除、删除、彻底清理某个 DSH 插件（如 dsh-pet、skill-mcp-center），需要把仓库侧 wrapper 与 `.git/` 内部状态一起清掉，或询问「插件删干净了吗」「为什么删了还在」「.git 里还有没有残留」「有没有孤儿 submodule 段」时使用。模块以 submodule 登记时（如仍留在 `.gitmodules` 的 `deepseek-harness` 与 `src-tauri/whale-icon`，或未来可选用 submodule 引入的源码插件），还需要清理四处 submodule 登记。也适用于清理插件卸载后的残留配置与组合层脏数据。
 ---
 
 # 卸载 DSH 插件
@@ -10,7 +10,7 @@ whenToUse: 用户要求卸载、移除、删除、彻底清理某个 DSH 插件�
 
 1. **profile 侧**（`<runtime-root>/.dsh/profiles/web/`）：依赖、bundles、node_modules、组合 patch 行；
 2. **harness home 侧**（`<runtime-root>/.dsh/`）：插件配置段、状态目录、storage、注册表记录；
-3. **仓库侧**（仓库根 `plugins/<id>/`）：wrapper 目录、`install.mjs`、git submodule 登记。
+3. **仓库侧**（仓库根 `plugins/<id>/`）：wrapper 目录与 `install.mjs`；模块以 submodule 登记时还有 git submodule 登记。
 
 推荐顺序：**先从 profile 卸载**（此时包目录还在，`link:` 依赖能正常解绑）→ **再清
 `.dsh` 残留** → **最后删仓库侧来源** → **引用自检与验证**。
@@ -24,12 +24,13 @@ whenToUse: 用户要求卸载、移除、删除、彻底清理某个 DSH 插件�
 
 | 形态 | 判定依据 | 仓库侧要删 |
 |---|---|---|
-| npm 包 | profile `package.json` 里是版本号 | 无（除非本仓库有 wrapper） |
+| npm 包（经 dsh-gui wrapper） | profile `package.json` 里是版本号，`plugins/<id>/install.mjs` 里有对应 `installNpmPlugin` | wrapper 目录（通常只有 `install.mjs`） |
+| npm 包（直接安装） | profile 里是版本号，仓库内没有对应 wrapper | 无 |
 | 本地 tgz / 源码 tgz | profile 里是 `file:E:/.../<x>.tgz` | `third_party/<plugin>`、`*.tgz`（征求用户意见） |
-| 本地目录 link | profile 里是 `link:E:/Git/dsh-gui/plugins/<id>/<pkg>` | `plugins/<id>/` 整个 wrapper |
-| dsh-gui wrapper + submodule | 上一条 + `.gitmodules` 里有对应段 | wrapper 目录 + submodule 四处登记 |
+| 本地目录 link（in-tree wrapper） | profile 里是 `link:E:/Git/dsh-gui/plugins/<id>/<pkg>` | `plugins/<id>/` 整个 wrapper |
+| submodule 模块 | `.gitmodules` 里有对应段（当前为 `deepseek-harness` 与 `src-tauri/whale-icon`） | 检出目录 + submodule 四处登记 |
 | 市场安装（dshmarket） | 市场页装过，可能无 wrapper | 一般无；清 profile 与市场状态即可 |
-| **遮蔽未安装** | wrapper 顶部有 `MASKED` 守卫，或 wrapper 用 `installNpmPlugin({ skip })`（如 `dsh-pet`） | 只有仓库侧 + 少数残留；**不要**强行 `dsh plugin remove` |
+| **遮蔽未安装** | wrapper 用 `installNpmPlugin({ skip })` 声明默认跳过，或本次以 `DSH_PLUGIN_SKIP=<id>` 跳过 | 只有仓库侧 + 少数残留；**不要**强行 `dsh plugin remove` |
 
 遮蔽插件的特征：`.dsh/profiles/web/package.json` 的依赖与 `dsh.profile.bundles`、
 `node_modules/<pkg>` 三处都查不到它——确认这三处为空即可，卸载动作本身可以跳过。
@@ -37,9 +38,13 @@ whenToUse: 用户要求卸载、移除、删除、彻底清理某个 DSH 插件�
 ## 1. 第 1 步：从 profile 卸载
 
 ```powershell
-$env:DSH_HOME = '<runtime-root>\.dsh'      # dsh-gui 一律自托管到仓库内 .dsh
-node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove <package>
+$env:DSH_HOME = '<runtime-root>\.dsh'      # dsh-gui 一律自托管到运行时根的 .dsh
+node <运行时根的 dsh CLI> plugin --profile web remove <package>
 ```
+
+CLI 入口按 [`harness.json`](../../../harness.json) 解析：`npm` 运行时是
+`<runtime-root>/.harness/node_modules/@deepseek-ai/dsh/lib/bin.js`，`source` 运行时是
+`deepseek-harness/apps/cli/lib/bin.js`（见 `docs/dsh-gui/harness-runtime.md`）。
 
 - `dsh plugin remove` 转发给 profile 目录里的 `pnpm remove`（`Usage: pnpm remove
   <pkg>[@<version>]`），移出 `package.json` 依赖与 `node_modules`；受管安装器同时把包
@@ -71,29 +76,33 @@ node deepseek-harness/apps/cli/lib/bin.js plugin --profile web remove <package>
 | `.dsh/gui/npm-installs.json` | `installNpmPlugin` 记录的 npm 包名数组（桌面壳 update checker 读它判定「npm 安装 vs 源码安装」） | 不删则永远为已删包查版本，清掉该包名 |
 | `.dsh/gui/pending-updates.json` | 更新检查缓存，含 `path`/`current`/`latest` 行 | 每次检查按 `.gitmodules` 重建，**会自动消失**，一般无需手工清 |
 | `.dsh/profiles/web/.dsh-market/state.json` | 市场状态（`disabled`、`groups`、`groupOrder`、`region`） | 插件在市场里被禁用/分组过时，清对应 id |
-| `.dsh/.agent-presets/<id>/agent.cordis.yml` | agent preset 里引用该插件包名的行 | **preset 会挂载失败**（见 4.3），必须同步改或删 preset |
+| `.dsh/.agent-presets/<id>/` | 旧版目录式 preset 的遗留目录（当前 harness 不再发现该目录） | 只删带 `generatedBy` 标记或确认无人使用的遗留目录；现行 preset 是 profile patch 里的声明行，见 4.3 |
 
 ## 3. 第 3 步：删除仓库侧来源
 
-### 3.1 内嵌插件
+### 3.1 wrapper 目录
 
-删掉 `plugins/<id>/` 整个 wrapper 目录即可——`install.mjs` 与插件包都在里面。
+删掉 `plugins/<id>/` 整个目录即可：npm 型 wrapper 在里面只有 `install.mjs`，没有源码
+checkout，也不产生索引 gitlink；in-tree 插件的 `install.mjs` 与 `<package>/` 源码包也都
+在里面。
 
-### 3.2 submodule 插件：四处登记都要清
+### 3.2 submodule 模块：四处登记都要清
 
+插件当前不以 submodule 引入；这条流程适用于仍在 `.gitmodules` 里的模块，例如
+`deepseek-harness` 与 `src-tauri/whale-icon`，以及未来可选用 submodule 引入的源码插件。
 `.gitmodules`、索引、`.git/config`、`.git/modules` 是**四个独立位置**，`git rm` 只动前两个：
 
 ```powershell
 # 1) 编辑 .gitmodules，删掉 [submodule "<name>"] 整段后暂存
-#    <name> 是段名，通常等于 plugins/<id>/<package>（也可能是简名，如 plugins/terminal/dsh-terminal）
+#    <name> 是段名，可能等于模块路径，也可能是简名
 git add .gitmodules
 
 # 2) 先删 .git/config 的段，再移除索引里的 gitlink
 git config --local --remove-section 'submodule.<name>'
-git update-index --force-remove plugins/<id>/<package>
+git update-index --force-remove <模块路径>
 
-# 3) 删除 wrapper 目录（install.mjs + checkout；独立 clone 的 checkout 自带 .git）
-Remove-Item -Recurse -Force plugins/<id>
+# 3) 删除检出目录（独立 clone 的 checkout 自带 .git）
+Remove-Item -Recurse -Force <模块路径>
 
 # 4) 删 checkout 的 module git dir（准确路径见该 checkout 内 .git 文件里的 gitdir:）
 Remove-Item -Recurse -Force .git/modules/<name>
@@ -101,15 +110,13 @@ Remove-Item -Recurse -Force .git/modules/<name>
 
 注意点：
 
-- **`.git/modules/<name>` 里的 `<name>` 是 `.gitmodules` 的「段名」，不一定等于 `path`**：
-  段名 `dsh-terminal` + path `plugins/terminal/dsh-terminal` 时，git dir 是
-  `.git/modules/dsh-terminal`。**最可靠的定位方式是读 checkout 内的 `.git` 文件**
-  （内容形如 `gitdir: ../../../.git/modules/<name>`），不要凭 path 猜。
-- 删完 module git dir 后检查 `.git/modules` 下是否留下**空壳父目录**（如
-  `.git/modules/plugins/<id>/`），一并删掉。
+- **`.git/modules/<name>` 里的 `<name>` 是 `.gitmodules` 的「段名」，不一定等于 `path`**。
+  **最可靠的定位方式是读 checkout 内的 `.git` 文件**（内容形如
+  `gitdir: ../../../.git/modules/<name>`），不要凭 path 猜。
+- 删完 module git dir 后检查 `.git/modules` 下是否留下**空壳父目录**（`path` 形如
+  `src-tauri/whale-icon` 时是 `.git/modules/src-tauri/`），一并删掉。
 - **`.git/config` 的 `submodule.<name>` 段不会随 `.gitmodules` 自动消失**，必须显式
-  `--remove-section`；本仓库出现过 `routing-suite`、`anchored-standard` 两个悬空项，
-  都是漏了这一步。
+  `--remove-section`；只删 `.gitmodules` 与索引会留下悬空段。
 - `update-index --force-remove` 只删索引条目、不动工作区；`.gitmodules` 有未暂存改动时
   它也比 `git rm --cached` 稳。
 - 有些 checkout 是**独立 clone**（目录内 `.git` 是真目录），此时没有 `.git/modules/<name>`，
@@ -121,8 +128,8 @@ Remove-Item -Recurse -Force .git/modules/<name>
 
 ### 3.3 node_modules（若有）
 
-- `plugins/<id>/<package>/node_modules/`：源码构建留下的 dev 依赖，不随 git 走；删 wrapper
-  目录时已一并删除，若 wrapper 保留则单独删。
+- `plugins/<id>/<package>/node_modules/`：in-tree 源码构建留下的 dev 依赖，不随 git 走；
+  删 wrapper 目录时已一并删除，若 wrapper 保留则单独删。
 - profile 与 module-fallback 的 `node_modules/<pkg>`：见第 2 步表格。
 - 删除前确认**没有别的插件 `link:` 到同一包目录**——`link:` 指向共享目录，误删会连带弄坏
   其他插件。
@@ -144,7 +151,7 @@ submodule 段、指向已删目录的 gitlink、孤儿 module git dir）。可�
 定位 module git dir 的**唯一可靠方式**是读 checkout 里的 `.git` 文件：
 
 ```powershell
-Get-Content plugins/<id>/<package>/.git -Raw      # gitdir: ../../../.git/modules/<name>
+Get-Content <模块路径>/.git -Raw      # gitdir: ../../../.git/modules/<name>
 ```
 
 三方比对检测脚本（在仓库根执行，每段都**应当无输出**）：
@@ -214,21 +221,28 @@ foreach ($m in $mods) {
 
 ### 4.3 preset 引用（容易连带弄坏别的功能）
 
-agent preset 的组合文件会直接引用插件包名：
+agent preset 是 profile patch 里的一条 `@deepseek-ai/dsh-agent-preset` insert 行，
+`config.plugins` 直接引用插件包名：
 
 ```yaml
-- id: my-tool
-  name: dsh-my-plugin        # 或 '@scope/dsh-my-plugin'
+- insert:
+    - id: preset-my-agent
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: my-agent
+        plugins:
+          - id: my-tool
+            name: dsh-my-plugin        # 或 '@scope/dsh-my-plugin'
 ```
 
 被引用的插件包解析不到时，**该 preset 挂载失败**，用它的会话起不来。删插件前先搜：
 
 ```powershell
-git grep -n 'dsh-<name>' -- presets/          # 仓库源
-Select-String -Path .dsh/.agent-presets/*/agent.cordis.yml -Pattern 'dsh-<name>'   # 已安装副本
+git grep -n 'dsh-<name>' -- presets/                                        # 仓库源（install.mjs 里的声明）
+Select-String -Path .dsh/profiles/*/cordis.patch.yml -Pattern 'dsh-<name>'  # 已安装的声明行
 ```
 
-两处都要处理：改行或连同 preset 一起移除（preset 的移除另见 `dsh-gui-preset-dev` 与
+两处都要处理：改行或连同 preset 一起移除（preset 的源与安装另见 `dsh-gui-preset-dev` 与
 `presets/README.md`）。
 
 ### 4.4 市场与桌面壳记录
@@ -243,19 +257,18 @@ Select-String -Path .dsh/.agent-presets/*/agent.cordis.yml -Pattern 'dsh-<name>'
 源码删完后全仓库搜一遍，别把已删插件的名字留在文档、断言和提示词里：
 
 ```powershell
-git grep -n '<package-name>'    # 包名，如 dsh-terminal
+git grep -n '<package-name>'    # 包名，如 dsh-pet
 git grep -n '<id>'              # wrapper id / entry id
 ```
 
 已知会被波及的固定引用点：
 
 - `src-tauri/src/update.rs` 的 `parses_this_repo_submodules` 断言 `.gitmodules` 里存在某个
-  子模块——删的正是它时，改断言为仍在的子模块；`windows_console_launcher_*` 用插件 id 做
-  示例字符串时也顺手换掉。
-- `src-tauri/ui/app.js`、`plugins/ai-update/dsh-ai-update/docs/README.md` 的提示词会点名具体
-  插件举例（如 `MASKED` 守卫的范例）；举例对象被删就换例子。
-- `README.md`、`plugins/README.md` 的插件清单，`docs/plugins/<name>.md` 专文，
-  `.agents/skills/` 中以该插件举例的段落。
+  子模块（当前断言 `deepseek-harness` 与 `src-tauri/whale-icon`）——删的正是它时，改断言为
+  仍在的子模块；`windows_console_launcher_*` 用插件 id 做示例字符串时也顺手换掉。
+- `src-tauri/ui/app.js`、`plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts` 与
+  `plugins/ai-update/dsh-ai-update/` 的说明文档若点名具体插件举例，举例对象被删就换例子。
+- `README.md`、`plugins/README.md` 的插件清单，`.agents/skills/` 中以该插件举例的段落。
 - `.dsh/**` 属运行期状态，不在 `git grep` 范围内，按第 2 步的表单独核对。
 
 ## 6. 验证清单
@@ -264,31 +277,27 @@ git grep -n '<id>'              # wrapper id / entry id
 - [ ] `.git/modules` 无孤儿 module git dir、无空壳父目录；checkout 的 `.git` gitfile 不悬空
       （3.4 脚本第 2、3 段）。
 - [ ] 索引里没有指向已删目录的 gitlink（`git ls-files --stage | Select-String 160000`）。
-- [ ] 被删插件若曾是 standalone clone，其检出目录里的 `.git` 真目录已随 wrapper 一并删除。
-- [ ] `git status` 符合预期：wrapper 目录与包内容为删除，`.gitmodules` 为修改；`.dsh/`
+- [ ] 被删模块若曾是独立 clone，其检出目录里的 `.git` 真目录已随检出目录一并删除。
+- [ ] `git status` 符合预期：删除 npm 型或 in-tree wrapper 时只显示 `plugins/<id>/` 的删除、
+      `.gitmodules` 不变；删除 submodule 模块时为检出目录删除与 `.gitmodules` 修改；`.dsh/`
       不出现（gitignored）。
 - [ ] profile 三处一致：`package.json` 依赖、`dsh.profile.bundles`、`node_modules/<pkg>`
       都无该包；`cordis.patch.yml` 无同 id 的 insert 或定向行。
-- [ ] 组合可加载：`node deepseek-harness/apps/cli/lib/bin.js --profile web --dump-config`
+- [ ] 组合可加载：`node <运行时根的 dsh CLI> --profile web --dump-config`（CLI 解析同第 1 步）
       无 `duplicate loader entry id`、无模块解析错误。
 - [ ] 重启 dsh-gui / harness 后：插件面板/设置页不再出现该插件项，会话列表与 preset roster
       中不再引用它，无 FAILED fiber。
 - [ ] 文档/测试/提示词自检无残留（第 5 步）。
 
-## 7. 实战记录（本仓库已发生的案例）
+## 7. 当前仓库的核对基线
 
-| 案例 | 形态 | 实际做法与踩到的点 |
-|---|---|---|
-| dsh-terminal / dsh-file-explorer | wrapper + submodule，且已用 `MASKED` 遮蔽 | profile 侧本来就干净（只有 `cordis.patch.yml` 一个注释块）；仓库侧按 3.2 四清；`update.rs` 断言、`app.js` 与 ai-update 提示词里以它们为 `MASKED` 范例的段落一并改掉 |
-| anchored-standard | preset + submodule（另一类是 preset 而非插件） | `.gitmodules` 与索引已先删，但 `.git/config` 段留着 → 悬空；`.dsh/.agent-presets/<id>/` 与 `presets/<id>/` 两侧目录都要删 |
-| dsh-routing-suite | 早已移除的插件 | 只在 `.git/config` 留下悬空 `submodule.*` 段，印证 3.2 的注意点 |
+- `.gitmodules` 只有 `deepseek-harness` 与 `src-tauri/whale-icon` 两段；`.git/config` 的
+  `submodule.*` 段集合与之一致，无悬空段。
+- `.git/modules` 下的两个 module git dir 与在册子模块一一对应，无孤儿、无空壳父目录。
+- `.git/info/exclude`、`.git/packed-refs` 与 `.git` 下的目录名中没有插件相关条目。
+- `plugins/` 下的插件是 npm 型 wrapper 或 in-tree 插件，没有 submodule 登记；卸载插件时
+  仓库侧只需删 wrapper 目录。
 
 推论：**卸载后固定回头看三样东西**——`.git/config` 的 submodule 段、`cordis.patch.yml`
-的 insert 行、插件在 `.dsh` 下的状态/配置目录；再加上 `.git/modules` 的 module git dir 与
-wrapper 目录里的独立 `.git`，就是完整的「五处」。
-
-`.git/` 内部全量核对（对上述四个案例复查过）：`.git/config` 段集合与 `.gitmodules` 段集合
-一致，`.git/modules` 下 8 个 module git dir 全部对应在册子模块、无孤儿、无空壳父目录；
-`plugins/dsh-web-ui/dsh-web-ui` 是独立 clone（本就没有 module 条目，`.git` 随检出目录
-删除即可，`.git/modules` 无对应条目）；四个已删模块在 `.git/config`、`.git/info/exclude`、
-`.git/packed-refs` 与 `.git` 下的目录名中均已无痕。
+的 insert 行、插件在 `.dsh` 下的状态/配置目录；模块曾以 submodule 登记时再加上
+`.git/modules` 的 module git dir 与索引里的 gitlink，就是完整的「五处」。

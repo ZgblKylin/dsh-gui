@@ -2,15 +2,13 @@
 
 ## 功能
 
-dsh-gui 的「检查更新」把 dsh-gui 仓库本体与每个 git submodule 同远端默认分支
-比较：行内显示「当前 → 最新」、最新 tag 与提交数，并提供「更新」/「AI 更新」。
-对 **npm 安装型** wrapper（`installNpmPlugin`，例如 `dsh-web-ui`、`better-sidebar`、
-`plugin-market`），仓库新 tag 可能只是源码发布，上游 npm 尚未发布对应版本——
-直接移动 submodule checkout 不会同步已安装的插件本体。
+dsh-gui 的「检查更新」把 dsh-gui 仓库本体与 `.gitmodules` 中的子模块（当前为
+`deepseek-harness` 与 `src-tauri/whale-icon`）同远端默认分支比较：行内显示
+「当前 → 最新」、最新 tag 与提交数，并提供「更新」/「AI 更新」。
 `harness.json` 选择 `npm` 运行时后，dsh 运行时本身也是 npm 安装型：该行同样
 先核对最新 tag 是否已有 `@deepseek-ai/dsh` 的 npm 发布，再决定是否安装。
 
-desktop 应用内的 `dsh-auto-update` 插件把同一套面板搬到应用内，但检测来源已改为两类行：git 行仍按本节比较仓库根与非插件子模块，`plugins/` 下的插件改为解析安装脚本中的精确 npm pin 并与 registry 最新版本比较；它自带检测缓存（`mode=cached`）、每行 npm 发布状态与 npm 插件行更新执行。本文件描述外壳侧行为，插件侧当前态与差异见 [desktop-auto-update.md](desktop-auto-update.md) 与 [2026-11-01-npm-plugin-update-check.md](2026-11-01-npm-plugin-update-check.md)。
+desktop 应用内的 `dsh-auto-update` 插件把同一套面板搬到应用内，检测来源是两类行：git 行仍按本节比较仓库根与 `.gitmodules` 中的子模块，`plugins/` 下的插件改为解析安装脚本中的精确 npm pin 并与 registry 最新版本比较；它自带检测缓存（`mode=cached`）、每行 npm 发布状态与 npm 插件行更新执行。本文件描述外壳侧行为，插件侧当前态与差异见 [desktop-auto-update.md](desktop-auto-update.md) 与 [2026-11-01-npm-plugin-update-check.md](2026-11-01-npm-plugin-update-check.md)。
 
 ## AI 更新的 tag 保留规则
 

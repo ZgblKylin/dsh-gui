@@ -393,12 +393,13 @@ function buildExe(debug) {
 
 /**
  * Run every install script under plugins/.
- * Each `plugins/<id>/` directory is self-contained (`install.mjs` + whatever
- * source it owns); plugin wrappers land in the web profile
- * (`.dsh/profiles/web/`), while hybrid wrappers such as `dsh-web-ui`
- * also write profile state beside their npm install. The CLI delegates the
- * work to the wrapper script, so adding one never touches this CLI. Scripts
- * run in directory-name order for a deterministic install sequence.
+ * Each `plugins/<id>/` directory is self-contained (`install.mjs`, plus the
+ * source package when the wrapper is in-tree); plugin wrappers land in the web
+ * profile (`.dsh/profiles/web/`), while wrappers such as `dsh-pet` and
+ * `deep-whale` also write user-layer state beside their npm install. The CLI
+ * delegates the work to the wrapper script, so adding one never touches this
+ * CLI. Scripts run in directory-name order for a deterministic install
+ * sequence.
  * @param {{ rebuild?: boolean }} [options] - `rebuild` re-installs every plugin
  *   even when the profile already has it at the pinned version (the wrappers
  *   read it as DSH_PLUGIN_REBUILD=1).

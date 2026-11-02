@@ -11,8 +11,6 @@
  * 默认的 supply-chain minimumReleaseAge 会把过新的版本挡在 @latest 之外、静默回退
  * 到更旧版本；精确 pin 由 pnpm 自动写入 profile 的 minimumReleaseAgeExclude，安装
  * 结果确定。
- * 子模块 remote：`origin` = 官方 `omdsh-dev/DSH-better-sidebar`（子模块
- * checkout 仅作源码参考）。
  *
  * 与 harness 的硬依赖：0.26.0 的 host inject 仍含 `webRuntime`，而 rc.2 已移除该
  * 服务，旧包在 rc.2 上会因依赖缺失整层 pending；0.28.x 改用 `connection` 服务与
@@ -25,7 +23,7 @@
  * 失效（选择本身仍经 `session.append('model/selection', …)` 生效）。等上游适配或
  * 改写为 `agent.model.select()/current()` 后移除本记录。
  *
- * dsh-sidebar-qa 同样从 npm 安装，pin 到与其 git submodule tag 一致的精确版本
+ * dsh-sidebar-qa 同样从 npm 安装，固定精确版本
  * dsh-sidebar-qa@1.2.2，不用 `@latest`：pinned pnpm 11.7 默认
  * supply-chain minimumReleaseAge 会对 `@latest`/范围静默回退到更旧版本，精确
  * pin 则直接安装并自动豁免，保证结果确定。安装顺序为 better-sidebar →
@@ -68,7 +66,6 @@ installNpmPlugin({
 // `assistantStream` 逐段渲染回答，失败或中断的轮次显示原因。manifest 的
 // `engines.dsh >=0.1.7-alpha.1` 覆盖 pinned harness 0.2.2-alpha.2，准入闸门按
 // engines.dsh 判定放行。
-// 版本 pin 到子模块 tag v1.2.1。
 installNpmPlugin({
   id: 'sidebar-qa',
   packageSpec: 'dsh-sidebar-qa@1.2.2',

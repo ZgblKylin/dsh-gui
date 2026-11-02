@@ -1,7 +1,7 @@
 # 开发约定
 
 本仓库是deepseek-harness的tauri wrapper，以及个人自用的 DSH 插件集合。所有插件使用现有 DSH/Cordis 接口编写，目标是能在官方原版 DSH中无额外依赖直接加载。
-若用于修改/编辑已有插件时，检查插件子工程内的AGENTS.md、CLAUDE.md、README.md、docs/等文档，同时需要遵循目标子工程的贡献约定（如有）。
+修改或编辑 in-tree 插件时，先检查插件包内的 AGENTS.md、CLAUDE.md、README.md、docs/ 等文档，并遵循目标插件的贡献约定（如有）；npm 型插件的源码在上游仓库，其改动经上游发布后，由本仓库 wrapper 把 `packageSpec` 更新到新版本。
 
 ## 目录结构
 
@@ -13,7 +13,7 @@
 - docs: 文档目录
 - global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把 `AGENTS.global_template.md` 部署为 `.dsh/AGENTS.md`，并把 `global_template.agents/` 下缺失的文件装到运行时根的 `.dsh/`（docs/、skills/），已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；harness 从 harness home 直接读取，无需设置 `DSH_AGENTS_HOME`；旧布局的 `.dsh/.agents/` 会先合并到 `.dsh/` 再删除，已安装 `AGENTS.md` 里的旧 `.agents/` 路径引用会被定点改写，其余内容保留）
 - harness.json: dsh 运行时清单（选择 npm 安装还是源码编译，并锁定版本）
-- plugins: 本地插件目录
+- plugins: 本地插件 wrapper 目录（每个 `plugins/<id>/` 带 `install.mjs`；npm 型从 registry 安装精确版本的发布包，仓库内不含插件源码；in-tree 型自带 `plugins/<id>/<package>` 源码包）
 - presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到 profile 的 `@deepseek-ai/dsh-agent-preset` 声明行；见 presets/README.md）
 - src-tauri: tauri源码目录
 - src-shim: desktop 快捷方式 shim 的 Rust crate（`npm run build:desktop` 编译）
@@ -34,9 +34,9 @@
 
 两条硬约束：**运行时根禁止作为 DSH 工作区**（会话工作区取仓库根，否则 `.dsh`、`.harness` 与入口 exe 会进入沙箱的低完整性打标范围）；**仓库内不放 `node_modules`**（pnpm 硬链接会让标签沿共享文件对象外溢到 store）。验证 worktree 的运行时根是 `<仓库根>/.staging`，位于会话工作区内，其中的 `.dsh`、`.harness` 与入口 exe 会进入打标范围；这不影响本工程的安装——该 worktree 只用于验证，可以随时删除重建。
 
-- `harness.json` 的 `runtime` 决定外壳与构建用哪个 dsh：`npm` 从 registry 安装 `@deepseek-ai/dsh@<version>` 到运行时根的 `.harness/`（不再编译子模块），`source` 编译 `deepseek-harness` 子模块；契约见 `scripts/harness-runtime.mjs` 与 `src-tauri/src/harness.rs`，说明见 `docs/dsh-gui/harness-runtime.md`。
+- `harness.json` 的 `runtime` 决定外壳与构建用哪个 dsh：`npm` 从 registry 安装 `@deepseek-ai/dsh@<version>` 到运行时根的 `.harness/`，`source` 编译 `deepseek-harness` 子模块；契约见 `scripts/harness-runtime.mjs` 与 `src-tauri/src/harness.rs`，说明见 `docs/dsh-gui/harness-runtime.md`。
 - `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范与提供版本；不要编辑其中的任何文件，不要从该目录向插件源码复制代码。
-- 新增插件在 `plugins/<id>/<package>` 下创建（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）：wrapper `install.mjs` + 包（内嵌或 git submodule），包内 `package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`。
+- 新增插件时，npm 型只建 `plugins/<id>/install.mjs`，用 `installNpmPlugin` 固定精确版本；in-tree 型才在 `plugins/<id>/<package>` 下建源码包（`package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`），wrapper 用 `installPlugin` 构建并挂载（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）。
 
 ## 环境检查
 
@@ -152,7 +152,7 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
 ## Git 提交规范
 
 - 采用 Conventional Commits：`feat:` / `fix:` / `chore:` / `docs:` / `build:` / `refactor:`，正文按需使用。
-- 外层仓库与 `plugins/<id>/` 子模块各自独立提交；改动跨越两者时分别编写 commit message。
+- 外层仓库与 `deepseek-harness/`、`src-tauri/whale-icon` 子模块各自独立提交；改动跨越两者时分别编写 commit message。
 - **不主动执行 `git commit`**：dsh 沙箱限制下由 dsh 生成的提交无法引用用户 GPG 签名，直接提交会绕过用户的签名配置。
 - 例外：验证 worktree `.staging/dsh-gui` 的 `staging/verify` 工作分支上的提交不需要用户审批，可直接 `git add` 与 `git commit`（不改变主分支，也不影响正在运行的实例）；本仓库配置了 `commit.gpgsign=true`，沙箱内无法引用用户的签名密钥，提交时必须用 `git -c commit.gpgsign=false commit ...`（或 `git commit --no-gpg-sign`）只关闭本次提交的签名，不要改动全局或仓库配置。commit message 同样采用 Conventional Commits；把该工作分支合并回主分支仍需要用户明确审批，merge commit 仍由用户签名。
 - 完成代码改动后，无需提交或者暂存，只需编写 commit message，并在回复中提醒用户手动执行 `git commit`（以便 GPG 签名与提交钩子生效）。
@@ -206,4 +206,4 @@ Market 是社区开发的开放插件市场，只消费 npm package，**不发�
   - `package-manifest-types.ts` — `package.json.dsh` 的声明类型，含 `DshBundleManifest`（bundle 层契约）
   - `packages-bundle/` — 官方内置 bundle（base / web-app / headless / acp-app / sdk-app / sdk-minimal）的 patch 层实例
 - `docs/dsh-gui`: 本仓库（dsh-gui）文档
-- `plugins/<plugin-name>/<plugin-submodule>/docs`: 插件文档
+- `plugins/<id>/<package>/docs`: in-tree 插件文档（npm 型插件见上游仓库的 `README.md` 与 `docs/`）

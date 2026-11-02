@@ -137,14 +137,14 @@ browser.
 - **`dsh-sidebar-qa`** — select conversation text → right-panel follow-up
   question in a dedicated same-workspace session (`❓追问·<主题>`), without
   interrupting the main conversation; thin consumer of `dsh-better-sidebar`
-  (see `plugins/better-sidebar/dsh-sidebar-qa/README.md`; installed by the
+  (see `plugins/better-sidebar/`; installed by the
   better-sidebar wrapper, after dsh-better-sidebar).
 - **`dsh-better-sidebar`** — service-first sidebar workbench (right sidebar
   + bottom panel): per-session explorer, CodeMirror editor + file viewers
   (image/PDF/Markdown/HTML/code), real terminal (xterm.js + node-pty with
   reconnect replay; optional `terminal_*` model tools, off by default), Git
   panel, embedded browser, and background-job page (see
-  `plugins/better-sidebar/DSH-better-sidebar/README.md`).
+  `plugins/better-sidebar/`).
 - **`dsh-ai-update`** — browser-half bridge behind the update dialog's AI
   update buttons: receives the shell's `dsh-gui:ai-update` message, returns
   to the new-session home, selects the dsh-gui workspace, and prefills the
@@ -215,15 +215,10 @@ executable inside that tree inherits it (see
    ├─ presets/              # agent preset sources: each presets/<id>/ directory owns
    │                        #   its install.mjs; the build installs every preset as an
    │                        #   @deepseek-ai/dsh-agent-preset row (see presets/README.md)
-   ├─ plugins/              # plugin wrappers, preset-style: each plugins/<id>/ owns an
-   │                        #   install.mjs plus the plugin package/repo checkout
-   │                        #   (remote/dsh-remote in-tree; better-sidebar/
-   │                        #   DSH-better-sidebar, deep-whale/dsh-deep-whale and
-   │                        #   dsh-web-ui/dsh-web-ui are git submodules;
-   │                        #   dsh-web-ui installs dsh-web-ui-settings +
-   │                        #   dsh-skill-explorer +
-   │                        #   dsh-usage from npm;
-   │                        #   see plugins/README.md)
+   ├─ plugins/              # plugin wrappers, preset-style: each plugins/<id>/ owns
+   │                        #   an install.mjs; npm wrappers pin exact registry
+   │                        #   versions in the script, in-tree wrappers also own
+   │                        #   their package dir (see plugins/README.md)
    └─ global_template.agents/  # versioned agent-config template: the always-loaded
                             #   docs and the user-level skills (the `review` skill
                             #   among them); the build ships AGENTS.global_template.md
@@ -279,14 +274,14 @@ This is idempotent and writes only under the runtime root:
   and copies it to the runtime root (`dsh-gui.exe` on Windows, `dsh-gui`
   elsewhere).
 - Runs every plugin install script under `plugins/` — each
-  `plugins/<id>/install.mjs` normally builds, installs, and mounts its plugin
-  package into the web profile; `dsh-web-ui/install.mjs` installs its four
-  npm bundles through the same profile pipeline (see
-  [Adding plugins](#adding-plugins-at-runtime)). A plugin the profile already
-  holds at its exact pinned version — installed, mounted, with its bundle row in
-  `dsh.profile.bundles` — is **skipped**: `dsh plugin add` would re-resolve the
-  whole profile graph for nothing. `link:` installs skip only that dependency
-  write; the package itself is still built.
+  `plugins/<id>/install.mjs` installs and mounts its plugin packages into the
+  web profile: npm wrappers add their exact-pinned registry packages through
+  `installNpmPlugin`, and in-tree wrappers build and link their own package
+  directory (see [Adding plugins](#adding-plugins-at-runtime)). A plugin the
+  profile already holds at its exact pinned version — installed, mounted, with
+  its bundle row in `dsh.profile.bundles` — is **skipped**: `dsh plugin add`
+  would re-resolve the whole profile graph for nothing. `link:` installs skip
+  only that dependency write; the package itself is still built.
 - Runs every agent-preset install script under `presets/` — since harness
   `dsh-v0.1.7-rc.2` each `presets/<id>/` directory lands as an
   `@deepseek-ai/dsh-agent-preset` declaration row in the profile patch and
@@ -431,17 +426,29 @@ documented in
 
 Plugins are installed into the `web` profile under the runtime root's `DSH_HOME`
 (`.dsh/`). The layout mirrors `presets/`: each `plugins/<id>/` wrapper owns an
-`install.mjs` plus the plugin package/repo checkout — normally in a
-second-level directory, one level deeper for a multi-package distribution repo
-such as `deep-whale`:
+`install.mjs`. A wrapper either adds published npm packages at exact pinned
+versions, with no package source in this repository, or owns its package in a
+second-level directory and builds it in place:
 
 ```
-plugins/<id>/install.mjs     # plugin: builds + installs + mounts; dsh-web-ui: preset + pet + settings bridge
-plugins/<id>/<package>/      # the plugin package (in-tree, or a git submodule)
+plugins/<id>/install.mjs     # npm wrapper: installs the exact-pinned npm package(s)
+                             # in-tree wrapper: builds, links and mounts its package
+plugins/<id>/<package>/      # the in-tree package (absent for npm wrappers)
 ```
 
-A minimal `install.mjs` delegates the shared pipeline and declares its own id,
-package directory, and submodule hint:
+A minimal npm wrapper delegates the shared pipeline and pins its package:
+
+```js
+import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
+
+installNpmPlugin({
+  id: 'my-plugin',
+  packageSpec: 'dsh-my-plugin@1.2.3',
+})
+```
+
+An in-tree wrapper delegates the same pipeline with the package directory it
+owns:
 
 ```js
 import { dirname, join } from 'node:path'
@@ -456,7 +463,9 @@ installPlugin({
 ```
 
 `npm run build` (or `npm run setup`, or `npm run install:plugins`) runs every
-`plugins/*/install.mjs` in directory-name order. Each plugin wrapper:
+`plugins/*/install.mjs` in directory-name order.
+
+An in-tree wrapper's script:
 
 1. builds the package in place (`pnpm install` + `pnpm run build` with the
    pinned toolchain pnpm) — a package without a `build` script is used as
@@ -471,6 +480,13 @@ installPlugin({
    the plugin's `dsh.gui.mountId` declaration in its `package.json`, defaulting
    to the package name without a leading `dsh-`.
 
+An npm wrapper's script skips the local build: `installNpmPlugin` runs
+`dsh plugin --profile web add <package>` against the npm registry at the pinned
+version, and the package's own `dsh.bundle.patch` (when declared) reconciles it
+into `dsh.profile.bundles`. To upgrade an npm plugin, raise the `packageSpec`
+pin in its wrapper and run the wrapper again
+(`node plugins/<id>/install.mjs`).
+
 A plugin that declares `dsh.bundle.patch` (its own `cordis.patch.yml` bundle
 layer, e.g. `dsh-ai-update`) mounts itself: `dsh plugin add` reconciles it
 into the profile's `dsh.profile.bundles` list and its patch inserts the entry
@@ -479,36 +495,25 @@ previous version was mounted manually before gaining a bundle declaration, the
 shared installer removes its matching legacy insert during reinstall to avoid a
 duplicate Loader entry.
 
-`plugins/deep-whale` installs its `maid-atelier` skin as a 免编译源码安装: the
-submodule checkout ships prebuilt `lib/`, so the wrapper links it as shipped
-(`build: false`, no copy, no patch).
-
-`plugins/dsh-web-ui` is the partial exception: its `install.mjs` installs
-three npm bundles pinned to the submodule tag (`0.4.12`) through
-`installNpmPlugin` — `@linxin666/dsh-client-ui-web-ui-settings` (ordered
-first), `@linxin666/dsh-client-ui-skill-explorer` and
-`@linxin666/dsh-usage`; all three declare
-`dsh.bundle.patch`, so `dsh plugin add` reconciles each into
-`dsh.profile.bundles` (no manual cordis insert). Model capabilities
-(`@linxin666/dsh-client-ui-model-capabilities`) is no longer installed either
-(see `dsh-web-ui/README.md`). The task board
-(`@linxin666/dsh-client-ui-task-board`) and the session-archive manager
-(`@linxin666/dsh-session-archive`) are no longer installed (see
-`dsh-web-ui/README.md`); the plugin-manager tab
-(`@linxin666/dsh-client-ui-plugin-manager`) is no longer installed either,
-because the official `dsh-web-app` bundle of the pinned harness
-(dsh-v0.2.2-alpha.2) ships its own `ui-plugin-manager` loader entry that
-collides with the upstream package's bundle patch id. The bridge is required because
-dsh-host-apiproxy's hard-coded settings allowlist does not expose third-party
-namespaces, so without it a `webUiSettings`-dependent plugin's configuration
-form is read-only. `dsh-web-ui/` stays as the source reference only (v0.3.x layout:
-`packages/dsh-web-settings`, `packages/dsh-web-all`); every other dsh-web
-package stays uninstalled and unmounted.
+`plugins/better-sidebar`, `plugins/deep-whale` and `plugins/dsh-web-ui` install
+several npm packages each: `better-sidebar` installs `dsh-better-sidebar@0.28.2`
+then `dsh-sidebar-qa@1.2.2`, `deep-whale` the persistent skin manager and the
+two mutually exclusive skins, and `dsh-web-ui` three bundles of its
+distribution repo — `@linxin666/dsh-client-ui-web-ui-settings` (ordered first),
+`@linxin666/dsh-client-ui-skill-explorer` and `@linxin666/dsh-usage`, pinned to
+`0.4.12`. Every one of those packages declares `dsh.bundle.patch`, so
+`dsh plugin add` reconciles each into `dsh.profile.bundles` (no manual cordis
+insert) and none of them is compiled locally. The settings bridge is installed
+first because dsh-host-apiproxy's hard-coded settings allowlist does not expose
+third-party namespaces, so without it a `webUiSettings`-dependent plugin's
+configuration form is read-only. Model capabilities, the plugin-manager tab,
+the task board and the session-archive manager of `dsh-web-ui` are not
+installed (see `dsh-web-ui/README.md`). The 安装方式 list in
+`plugins/README.md` holds every exact pin and its compatibility notes.
 
 `plugins/skill-mcp-center` is npm-only as well: its `install.mjs` installs
-`@max-null/dsh-skill-mcp-center@0.7.0` through `installNpmPlugin`, with no
-checkout in this repository, and the package's own `dsh.bundle.patch`
-reconciles it into `dsh.profile.bundles`.
+`@max-null/dsh-skill-mcp-center@0.7.0` through `installNpmPlugin`, and the
+package's own `dsh.bundle.patch` reconciles it into `dsh.profile.bundles`.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing
@@ -534,7 +539,7 @@ the dsh runtime and the plugins only.
   variables resolve a different default store than the one used before). Run
   `npm run install:plugins` once — every plugin install script writes
   `storeDir` into `.dsh\profiles\web\pnpm-workspace.yaml` before re-adding
-  its `link:` dependency.
+  its dependency.
 - **"failed to spawn harness (is `node` on PATH?)"** — install Node `^22.19` or
   `>=24.2` (see the requirements above; 24.0–24.1 cannot start the harness CLI).
 - **Blank window / connection refused** — a window that sits on the loading

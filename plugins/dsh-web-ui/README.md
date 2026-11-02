@@ -1,8 +1,8 @@
 # plugins/dsh-web-ui
 
-`dsh-web-ui` 的 git submodule wrapper。这个 wrapper 安装该仓库中的**插件本体**，
-全部以 npm 包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的
-「安装方式」一节），版本号与子模块 git tag 保持同步（当前 `0.4.12`）：
+`dsh-web-ui` 的 wrapper。这个 wrapper 安装该发行仓库中的**插件本体**，全部以 npm
+包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的「安装方式」
+一节），版本号与上游发布保持同步（当前 `0.4.12`）：
 
 1. **`dsh-web-ui-settings` 兼容设置桥**
    （`@linxin666/dsh-client-ui-web-ui-settings@0.4.12`，排在最前）；
@@ -13,7 +13,7 @@
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
-保证结果确定、与 git tag 一致。升级时需与子模块 tag 同步 bump 版本号。
+保证结果确定、与上游发布一致。升级时需同步 bump 版本号。
 
 三个包要求 `@deepseek-ai/dsh >= 0.2.1-rc.3`（v0.4.9 起从 `>= 0.2.1-rc.2` 抬高），本工程 pinned 的 `dsh-v0.2.2-alpha.2` 满足该声明。
 
@@ -22,7 +22,7 @@
 > `ui-plugin-manager` loader 行，而该包的 bundle patch 写入同 id，覆盖会连带抹掉官方
 > Plugins 页座位，而上游包正是把自己的 `plugins.detail.section` 块加进该页。v0.4.5 已在
 > 上游解决：其 patch 改用自有 id `ui-plugin-manager-update-check`，该包因此重新可安装；
-> 本 wrapper 仍不安装它，因为「加回一个插件」是独立的组合决策，不属于跟随发行 tag 的
+> 本 wrapper 仍不安装它，因为「加回一个插件」是独立的组合决策，不属于跟随上游发布的
 > 版本 bump。详见「已移除插件」一节。
 
 不安装 dsh-web-ui 的其他任何包、插件、皮肤，也不安装其 agent preset（agent
@@ -38,17 +38,7 @@ roster。
 plugins/dsh-web-ui/
 ├─ install.mjs                          # npm 安装 dsh-web-ui-settings /
 │                                       #   dsh-skill-explorer / dsh-usage
-├─ README.md                            # 本说明
-└─ dsh-web-ui/                          # dsh-web-ui 仓库（git submodule；上游 v0.3.x
-   │                                    #   起更名 dsh-web）
-   ├─ packages/dsh-liangshen/           # host 插件源（仅源码参考，wrapper 不安装）
-   ├─ packages/dsh-web-settings/        # 兼容设置桥源码（npm 包名不变；wrapper 从 npm 安装）
-   ├─ packages/dsh-skill-explorer/      # 技能中心源码（wrapper 从 npm 安装）
-   ├─ packages/dsh-usage/               # 使用统计源码（wrapper 从 npm 安装）
-   ├─ packages/dsh-session-archive/     # 会话归档管理源码（仅源码参考，wrapper 不再安装）
-   ├─ packages/dsh-task-board/          # 任务板源码（仅源码参考，wrapper 不再安装）
-   ├─ satellites/dsh-pet/               # 鲸鱼娘桌宠源（仅源码参考，wrapper 不再安装；
-   │                                    #   PC2005-cloud 的 dsh-pet 见 plugins/dsh-pet/）
+└─ README.md                            # 本说明
 ```
 
 ## 安装范围
@@ -113,7 +103,7 @@ dsh plugin --profile web add @linxin666/dsh-usage@0.4.12
   加回安装集，见「已移除插件」一节；
 - 对三个 bundle 的 `cordis.patch.yml` 手动挂载——它们都通过自身的
   bundle patch 挂载；
-- 对上游 submodule 的任何修改。
+- 对上游发布包内容的任何修改。
 
 ## 已移除插件（dsh-model-capabilities / dsh-task-board / dsh-session-archive / dsh-plugin-manager）
 
@@ -131,9 +121,7 @@ wrapper 安装，提供 Models 设置页的「模型能力」扩展区与提供�
    `.dsh/profiles/web/pnpm-workspace.yaml` 里该包触发过的 `minimumReleaseAgeExclude`
    条目。
 
-该包不是独立 git 子模块：`dsh-web-ui/` 子模块（v0.4.12）已不含其源码，`.gitmodules`、
-`.git/config`、索引 gitlink 与 `.git/modules` 都没有它的登记。推理档位声明仍可在
-profile 的 `cordis.patch.yml` 里手写 `reasoningEfforts`（既有配置已声明，行为不变）。
+推理档位声明仍可在 profile 的 `cordis.patch.yml` 里手写 `reasoningEfforts`（既有配置已声明，行为不变）。
 
 `dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper
 安装：官方 `@deepseek-ai/dsh-web-app` bundle 自带 `ui-plugin-manager` loader 行，而
@@ -160,9 +148,6 @@ skill `dsh-plugin-uninstall`）。
    （state.json）；
 3. 本 wrapper 的 `install.mjs` 与 `README.md` 去掉 session-archive 条目，避免
    下次 `npm run install:plugins` 把它装回来。
-
-dsh-web-ui 上游子模块中的 `packages/dsh-task-board/` 与
-`packages/dsh-session-archive/` 仅作源码参考保留，与安装无关。
 
 ## 运行方式
 
@@ -200,20 +185,12 @@ node plugins/dsh-web-ui/install.mjs
 
 ## 更新源
 
-`dsh-web-ui/` 已登记为 dsh-gui 的 git submodule（
-`zhu1090093659/dsh-web-ui`，路径 `plugins/dsh-web-ui/dsh-web-ui`），仅作源码
-参考。升级顺序：
+升级顺序：
 
-1. 先移动子模块到新 tag（`git -C plugins/dsh-web-ui/dsh-web-ui checkout <tag>`）；
-2. 同步把本文件 `install.mjs` 与 `README.md` 中的三个 npm 版本号 bump 到新 tag
-   对应的版本（精确 pin，`pnpm add` 对精确版本自动豁免发布年龄门禁）；
-3. 重跑安装：
+1. 审阅上游变更后，把 `install.mjs` 与 `README.md` 中的三个 npm 版本号 bump 到
+   上游新发布对应的版本（精确 pin，`pnpm add` 对精确版本自动豁免发布年龄门禁）；
+2. 重跑安装：
 
 ```powershell
 node plugins/dsh-web-ui/install.mjs
 ```
-
-> 更新对话框会核对上游新 tag 是否已有对应的 npm 发布（机制见
-> `docs/dsh-gui/update-check.md`）：npm 尚未发布时该行会额外标注，此时移动
-> submodule 源码 checkout 不会升级已安装的插件本体；待 npm 发布后重跑
-> 本安装脚本即可。

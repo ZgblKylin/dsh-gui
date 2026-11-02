@@ -2,13 +2,11 @@
 /**
  * install.mjs — install the `commandcode-provider` plugin into the web profile.
  *
- * ⚠️ Installed from npm pinned to an exact version matching the git submodule
- * tag (`v0.15.5`), not `@latest` — exact pins bypass pnpm 11's 24h
- * `minimumReleaseAge` gate, which would otherwise silently fall back to the
- * previous release for `@latest` (per plugins/README.md's 安装方式 section: the
- * package is not marked as a source install). The
- * `dsh-commandcode-provider` git submodule beside this script is kept as a
- * source reference only — it is not built or linked here.
+ * ⚠️ Installed from npm pinned to an exact version (`0.15.5`), not `@latest` —
+ * exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate, which would
+ * otherwise silently fall back to the previous release for `@latest` (per
+ * plugins/README.md's 安装方式 section: the package is not marked as a source
+ * install).
  *
  * The package declares `dsh.bundle.patch`, so `dsh plugin add` reconciles it
  * into `dsh.profile.bundles` and its own `cordis.patch.yml` mounts the entry
