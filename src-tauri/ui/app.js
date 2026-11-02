@@ -1423,6 +1423,32 @@ const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 let updateStatus = null;
 let updateSelection = new Set();
 
+/**
+ * Whether a status row is an npm plugin row.
+ *
+ * Only an explicit `kind: "npm"` marks a plugin row; rows reported by a shell
+ * that predates them carry no `kind` at all, and those are git checkout rows
+ * (the top-level repository and its non-`plugins/` submodules).
+ */
+function isNpmProject(project) {
+  return Boolean(project && project.kind === "npm");
+}
+
+/**
+ * The batch button's label. Only git rows restart the application, so a
+ * selection made purely of npm plugin rows is executed in place: the label
+ * says 「更新插件」 instead of promising a restart.
+ */
+function updateApplyText() {
+  if (updateSelection.size === 0) return "重启并更新";
+  const projects = Array.isArray(updateStatus && updateStatus.projects) ? updateStatus.projects : [];
+  const hasGitRow = [...updateSelection].some((id) => {
+    const project = projects.find((row) => row && row.id === id);
+    return project ? !isNpmProject(project) : true;
+  });
+  return (hasGitRow ? "重启并更新" : "更新插件") + `（${updateSelection.size}）`;
+}
+
 function applyUpdateIndicator(status) {
   // Only badge-worthy updates light the indicator (notifyCount): a checkout
   // sitting exactly on a tag whose update is only commits (no newer tag)
@@ -1450,17 +1476,20 @@ function reconcileUpdateSelection(status) {
     if (!stillBehind.has(id)) updateSelection.delete(id);
   }
   for (const id of updateSelection) {
+    const project = projects.find((row) => row && row.id === id);
+    // npm plugin rows are executed in place by this dialog (「待执行」); git
+    // rows wait for the restarting launcher (「待重启」).
+    const pendingLabel = isNpmProject(project) ? "待执行" : "待重启";
     for (const button of updateBody.querySelectorAll(".update-run")) {
       if (button.dataset.updateId === id) {
         button.disabled = true;
-        button.textContent = "待重启";
+        button.textContent = pendingLabel;
         button.classList.add("pending");
       }
     }
   }
   updateApply.disabled = updateSelection.size === 0;
-  updateApply.textContent =
-    updateSelection.size > 0 ? `重启并更新（${updateSelection.size}）` : "重启并更新";
+  updateApply.textContent = updateApplyText();
 }
 
 function formatUpdateStatusLine(status, checking) {
@@ -1471,7 +1500,11 @@ function formatUpdateStatusLine(status, checking) {
   const mm = String(when.getMinutes()).padStart(2, "0");
   const ss = String(when.getSeconds()).padStart(2, "0");
   const secs = ((status.durationMs ?? 0) / 1000).toFixed(1);
-  const failed = (status.projects ?? []).filter((p) => p && p.error).length;
+  // The Rust side counts only git rows into `allChecked` (a registry failure
+  // stays a per-row note), so mirror that here.
+  const failed = (status.projects ?? []).filter(
+    (p) => p && p.error && !isNpmProject(p)
+  ).length;
   return (
     `上次检查 ${hh}:${mm}:${ss} · 耗时 ${secs}s` +
     (failed > 0 ? ` · ${failed} 个工程检查失败` : "")
@@ -1486,6 +1519,9 @@ function formatUpdateStatusLine(status, checking) {
 const ROOT_PROJECT_ID = "dsh-gui";
 const UPDATE_ROOT_LOG_EVENT = "update-root-log";
 let rootUpdateBusy = false;
+// Serializes the batch executor (「重启并更新」/「更新插件」) while it runs its
+// npm plugin rows one by one; the row-level busy flag is released between rows.
+let updateBatchBusy = false;
 
 function appendUpdateProgress(text) {
   updateProgress.classList.remove("hidden");
@@ -1557,6 +1593,125 @@ async function runRootUpdate(project) {
   }
 }
 
+/**
+ * In-place update of one npm plugin row: the Rust command rewrites the exact
+ * version pin inside the repository install script and re-runs that wrapper,
+ * streaming its output through the same `update-root-log` event as the root
+ * update. The application keeps running — only a restart makes the
+ * reinstalled plugin take effect — so, unlike `startUpdates`, nothing exits
+ * here and no rebuild is needed.
+ *
+ * @param project - the npm plugin row to update.
+ * @param options - `keepProgress` keeps the batch log instead of clearing it,
+ *   `noRefresh` defers the post-update status refresh to the batch executor.
+ * @returns whether the update succeeded (a busy lock or a failure is false).
+ */
+async function runNpmUpdate(project, options) {
+  if (!project || rootUpdateBusy) return false;
+  const keepProgress = Boolean(options && options.keepProgress);
+  const noRefresh = Boolean(options && options.noRefresh);
+  rootUpdateBusy = true;
+  const label = project.packageName || project.name || project.id || "插件";
+  if (!keepProgress) clearUpdateProgress();
+  appendUpdateProgress(
+    "开始更新 npm 插件 " + label + "（改写安装脚本中的版本 pin 并重新安装到当前 profile）…"
+  );
+  setRootUpdateControls(true);
+  let unlisten = null;
+  if (tauri && tauri.event) {
+    try {
+      unlisten = await tauri.event.listen(UPDATE_ROOT_LOG_EVENT, (event) => {
+        if (typeof event.payload === "string" && event.payload) appendUpdateProgress(event.payload);
+      });
+    } catch (_) {
+      unlisten = null;
+    }
+  }
+  let ok = false;
+  try {
+    await invoke("update_npm_plugin", { id: project.id });
+    ok = true;
+    appendUpdateProgress("");
+    appendUpdateProgress("✅ 插件已更新并重装到当前 profile。重启 dsh-gui 后生效；不需要重新构建。");
+    if (!noRefresh) setTimeout(() => void checkForUpdates(false), 300);
+  } catch (error) {
+    appendUpdateProgress("❌ 更新失败：" + String((error && error.message) || error));
+    appendUpdateProgress("可关闭弹窗重试；命令会先备份安装脚本，失败时已尝试回滚。");
+  } finally {
+    if (unlisten) {
+      try {
+        unlisten();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    rootUpdateBusy = false;
+    // A batch keeps every control disabled until the whole batch finishes.
+    if (!updateBatchBusy) setRootUpdateControls(false);
+  }
+  return ok;
+}
+
+/**
+ * Execute the batch selected in the dialog (「重启并更新」/「更新插件」).
+ *
+ * npm plugin rows run first, in place and one by one (the application stays
+ * up); the remaining git rows then go through the detached launcher
+ * (`startUpdates`), which exits the application and updates in a console
+ * window before restarting. A failed npm row never blocks the rows after it:
+ * the failures are summarized before the git flow starts, so the notice is not
+ * lost with the dialog.
+ */
+async function applySelectedUpdates() {
+  if (updateBatchBusy) return;
+  const ids = [...updateSelection];
+  if (ids.length === 0) return;
+  const projects = Array.isArray(updateStatus && updateStatus.projects) ? updateStatus.projects : [];
+  const selected = ids
+    .map((id) => projects.find((project) => project && project.id === id))
+    .filter(Boolean);
+  if (selected.length === 0) return;
+  const npmRows = selected.filter((project) => isNpmProject(project));
+  const gitIds = selected.filter((project) => !isNpmProject(project)).map((project) => project.id);
+  updateBatchBusy = true;
+  const failures = [];
+  try {
+    setRootUpdateControls(true);
+    clearUpdateProgress();
+    if (npmRows.length > 0) {
+      appendUpdateProgress(
+        "开始更新 " + npmRows.length + " 个 npm 插件（就地改写安装脚本中的版本 pin 并重新安装到当前 profile；应用保持运行）…"
+      );
+      for (const project of npmRows) {
+        const ok = await runNpmUpdate(project, { keepProgress: true, noRefresh: true });
+        if (!ok) failures.push(project.packageName || project.name || project.id || "插件");
+      }
+      // One refresh for the whole npm batch; the checks are single-flight, so
+      // refreshing per row would only coalesce anyway.
+      setTimeout(() => void checkForUpdates(false), 300);
+    }
+    const failureText =
+      failures.length > 0 ? "以下 npm 插件行更新失败：" + failures.join("、") + "。" : "";
+    if (gitIds.length > 0) {
+      // The detached launcher exits the application: keep the npm outcome in
+      // the same notice so it is still visible before the restart.
+      await startUpdates(gitIds, failureText ? failureText + "其余更新继续执行。" : "");
+      return;
+    }
+    updateNote.textContent = failureText
+      ? failureText + "可重试或用「AI 更新」处理。"
+      : "npm 插件已更新并重装到当前 profile；重启 dsh-gui 后生效（不需要重新构建）。";
+    updateNote.classList.remove("hidden");
+  } finally {
+    updateBatchBusy = false;
+    setRootUpdateControls(false);
+    // Restore the batch button from the (possibly refreshed) selection
+    // instead of always re-enabling it.
+    updateApply.disabled = updateSelection.size === 0;
+    updateApply.textContent = updateApplyText();
+  }
+}
+
 function updateError(message) {
   updateBody.innerHTML = "";
   const error = document.createElement("div");
@@ -1569,6 +1724,11 @@ function updateError(message) {
 }
 
 function updateRow(project, checking) {
+  // npm plugin rows have a different model: their version is the exact npm pin
+  // in a repository install script, so there is no tag/commit target and no
+  // changelog (a GitHub release cannot be mapped reliably onto an npm version).
+  // See updateNpmRow.
+  if (isNpmProject(project)) return updateNpmRow(project, checking);
   const row = document.createElement("div");
   row.className = "update-item";
 
@@ -1712,18 +1872,116 @@ function updateRow(project, checking) {
   return row;
 }
 
+/**
+ * One npm plugin row.
+ *
+ * The row is a package whose version is the exact npm pin inside a repository
+ * install script. It is compared against the npm registry's latest version, so
+ * there is no tag/commit selector and no 「更新日志」 button (a GitHub release
+ * cannot be mapped reliably onto an npm version). Its actions are 「更新」 —
+ * which rewrites that pin and re-runs the wrapper in place, keeping the
+ * application running — and 「AI 更新」.
+ */
+function updateNpmRow(project, checking) {
+  const row = document.createElement("div");
+  row.className = "update-item";
+  row.dataset.updateKind = "npm";
+
+  const info = document.createElement("div");
+  info.className = "update-item-info";
+  const name = document.createElement("div");
+  name.className = "update-item-name";
+  const label = project.packageName || project.name || project.id || "插件";
+  // The package's repository Releases list, when the registry reported one.
+  const nameLink = releasePageAnchor(label, project.releaseUrl);
+  if (nameLink) name.appendChild(nameLink);
+  else name.textContent = label;
+  const versions = document.createElement("div");
+  versions.className = "update-item-versions";
+  versions.append(
+    "当前 ",
+    Object.assign(document.createElement("code"), { textContent: project.current || "unknown" }),
+    " → ",
+    "最新 ",
+    Object.assign(document.createElement("code"), { textContent: project.latest || "—" })
+  );
+  info.append(name, versions);
+
+  const action = document.createElement("div");
+  action.className = "update-item-action";
+
+  if (checking) {
+    // Skeleton placeholder: same footprint as a live row so the list does not
+    // jump when the real result lands.
+    versions.classList.add("skeleton");
+    const wait = document.createElement("span");
+    wait.className = "update-item-checking";
+    wait.textContent = "检测中…";
+    action.appendChild(wait);
+    row.append(info, action);
+    return row;
+  }
+
+  if (project.error) {
+    const error = document.createElement("div");
+    error.className = "update-item-error";
+    error.textContent = project.error;
+    info.appendChild(error);
+    const unavailable = document.createElement("span");
+    unavailable.className = "update-item-unavailable";
+    unavailable.textContent = "不可检查";
+    action.appendChild(unavailable);
+    row.append(info, action);
+    return row;
+  }
+
+  if (!project.behind) {
+    const ok = document.createElement("span");
+    ok.className = "update-item-ok";
+    ok.textContent = "已是最新";
+    action.appendChild(ok);
+    row.append(info, action);
+    return row;
+  }
+
+  const script = project.installScript || project.path || "";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary update-run";
+  button.dataset.updateId = project.id;
+  button.textContent = "更新";
+  button.title =
+    "把安装脚本 " + (script || "（未知路径）") + " 中的版本 pin 改到 " +
+    (project.latest || "最新版本") +
+    " 并重新执行该脚本，完成本行插件的重新安装（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。完成后重启 dsh-gui 生效；不需要重新构建。";
+  const ai = document.createElement("button");
+  ai.type = "button";
+  ai.className = "primary update-ai";
+  ai.dataset.updateId = project.id;
+  ai.textContent = "AI 更新";
+  ai.title =
+    "回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 /dsh-gui-update 提示词（发送前可再改）";
+  action.append(button, ai);
+  row.append(info, action);
+  return row;
+}
+
 function markProjectUpdate(id) {
   if (!id || updateSelection.has(id)) return;
   updateSelection.add(id);
+  const project = (updateStatus?.projects ?? []).find((row) => row && row.id === id);
+  // npm plugin rows are executed in place by this dialog (「待执行」); git rows
+  // wait for the restarting launcher (「待重启」).
+  const pendingLabel = isNpmProject(project) ? "待执行" : "待重启";
   for (const button of updateBody.querySelectorAll(".update-run")) {
     if (button.dataset.updateId === id) {
       button.disabled = true;
-      button.textContent = "待重启";
+      button.textContent = pendingLabel;
       button.classList.add("pending");
     }
   }
   updateApply.disabled = false;
-  updateApply.textContent = `重启并更新（${updateSelection.size}）`;
+  updateApply.textContent = updateApplyText();
 }
 
 function renderUpdateDialog(status, asChecking) {
@@ -1732,20 +1990,22 @@ function renderUpdateDialog(status, asChecking) {
   const behind = projects.filter((project) => project && project.behind && !project.error);
   // AI-eligible rows: tag-locked checkouts (on a tag with no newer tag) never
   // enter「AI 更新全部」, so their tag version is not moved to a non-tag commit
-  // (their per-row「AI 更新」button is grayed out in updateRow).
+  // (their per-row「AI 更新」button is grayed out in updateRow). An npm plugin
+  // row carries no tag at all (`announce` mirrors `behind`), so the rule never
+  // applies to it: it is eligible whenever it is behind and checkable.
   const aiEligible = behind.filter((project) => !isOnTagWithoutNewer(project));
   const summary = document.createElement("div");
   summary.className = "update-summary";
   if (asChecking) {
     // Checking rows are skeleton placeholders: no real update counts yet.
-    summary.textContent = `${projects.length} 个工程，正在检查更新…`;
+    summary.textContent = `${projects.length} 个模块与插件，正在检查更新…`;
     updateBody.appendChild(summary);
     for (const project of projects) updateBody.appendChild(updateRow(project, true));
   } else {
     summary.textContent =
       behind.length > 0
-        ? `${behind.length} 个工程有可用更新。每行默认以最新 tag 为更新目标（tag 早于当前提交时该项不可用，自动改以最新提交为目标）。顶层 dsh-gui 行：点「更新」直接在弹窗内执行 git 层更新（顶层快进 + 子模块递归同步），完成后需按提示重新执行 npm run build 做全量构建；子模块行：可点「AI 更新」（回项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 /dsh-gui-update 提示词，发送前可再改），或点「更新」确认后再点「重启并更新」——dsh-gui 会退出，更新在弹出窗口中完成并自动重启。「AI 更新全部」不包含当前正处在 tag 且远端没有更新 tag 的模块（不会把 tag 更新到非 tag 的最新提交），包含顶层工程时等价于点击顶层的「更新」并忽略其他更新；这类模块行内的「AI 更新」按钮呈灰色、不建议执行，如需跟进请用「更新」流程。AI 更新预填的提示词要求先在验证 worktree .staging/dsh-gui 中完成验证（本仓库内的 git worktree，检出工作分支 staging/verify，验证适配改动直接提交在该分支、无需审批）：worktree 的 WebUI 要能正确加载，本次更新含 harness 时还要用 computer use 验证 GUI 能正常启动和运行，验证结论报告给你、经你审批后把工作分支合并回主分支完成实装。每行都可点「更新日志」预览本次更新会带来的变更：tag 目标优先读取 GitHub Release 说明，否则由 dsh AI 汇总提交变更（可能需要几分钟）。`
-        : "所有工程均为最新版本。";
+        ? `${behind.length} 个模块/插件有可用更新。git 行选好更新目标后点「更新」，npm 插件行点「更新」会改写安装脚本并重装（重启后生效）；也可以点「AI 更新」交给 agent。`
+        : "所有模块与插件均为最新版本。";
     updateBody.appendChild(summary);
     for (const project of projects) updateBody.appendChild(updateRow(project, false));
     reconcileUpdateSelection(status);
@@ -1889,14 +2149,17 @@ async function checkForUpdates(showDialog) {
   return updateCheckPromise;
 }
 
-async function startUpdates(ids) {
+async function startUpdates(ids, extraNote) {
   const usable = (ids ?? []).filter((id) => id);
   if (usable.length === 0) return;
   const modes = {};
   for (const id of usable) modes[id] = updateModeOf(id);
   const label = usable.length === 1 ? "所选工程" : `${usable.length} 个工程`;
+  // `extraNote` carries the batch executor's npm-row outcome into the same
+  // notice: the detached launcher exits the application right after this.
   updateNote.textContent =
-    `已确认更新${label}。dsh-gui 即将退出，更新过程会显示在控制台窗口中（非 Windows 平台写入 .dsh/gui/update.log），完成后自动重启。`;
+    `已确认更新${label}。dsh-gui 即将退出，更新过程会显示在控制台窗口中（非 Windows 平台写入 .dsh/gui/update.log），完成后自动重启。` +
+    (extraNote ? " " + extraNote : "");
   updateNote.classList.remove("hidden");
   updateMarkAll.disabled = true;
   updateAiAll.disabled = true;
@@ -2315,19 +2578,30 @@ let aiUpdateSeq = 0;
 // that condition (see the Rust check_project badge rule: on_exact_tag &&
 // !has_newer_tag), so it is reused here as the "tag version locked" test.
 function isOnTagWithoutNewer(project) {
-  return Boolean(project && project.behind && project.announce === false);
+  // npm plugin rows carry no tag at all (`announce` mirrors `behind`), so the
+  // tag-lock rule never applies to them.
+  return Boolean(project && !isNpmProject(project) && project.behind && project.announce === false);
 }
 
 function updatableProjects(projects) {
   // AI-update eligibility: behind, checkable, and NOT tag-locked — an on-tag
   // checkout with no newer tag is excluded so the AI flows never move its tag
-  // version to a non-tag commit.
+  // version to a non-tag commit. An npm plugin row has no tag target, so it is
+  // eligible whenever it is behind and checkable.
   return (projects ?? []).filter(
-    (project) => project && project.behind && !project.error && !isOnTagWithoutNewer(project)
+    (project) =>
+      project &&
+      project.behind &&
+      !project.error &&
+      (isNpmProject(project) || !isOnTagWithoutNewer(project))
   );
 }
 
 function aiModuleLabel(project) {
+  if (isNpmProject(project)) {
+    const script = aiNpmInstallScript(project);
+    return aiNpmPackageName(project) + "（npm 插件" + (script ? "，安装脚本：" + script : "") + "）";
+  }
   const kind = project.id === "dsh-gui" ? "仓库本体" : "submodule " + project.id;
   const path = project.path ? "，路径：" + project.path : "";
   return project.name + "（" + kind + path + "）";
@@ -2335,6 +2609,9 @@ function aiModuleLabel(project) {
 
 function aiUpdateTargetText(project) {
   const current = project.current || "unknown";
+  if (isNpmProject(project)) {
+    return "更新目标：npm 最新版本 " + aiNpmLatestText(project) + "（当前 pin " + current + "）";
+  }
   if (updateModeOf(project.id) === "tag") {
     const tag = project.latestTag
       ? "最新 tag「" + project.latestTag + "」"
@@ -2387,9 +2664,43 @@ const AI_UPDATE_GATE_NOTE = [
   "4. 适配改动直接提交到 staging/verify 工作分支（worktree 内的提交不需要等待用户审批）；全部验证通过后向用户报告结论（worktree 路径、工作分支与提交、目标修订、验证命令与结果、适配改动清单、屏蔽项与未决风险），等用户明确审批后再执行阶段二，把工作分支合并回主分支完成实装。",
 ].join("\n");
 
+// Closing requirement of an npm plugin prompt. An npm plugin row's version
+// lives in the repository's install script, not in a checkout: updating only
+// the installed package (or only the current profile) would be reverted by the
+// next build and would leave a fresh deployment on the old pin, so the
+// script's exact packageSpec is the single source of truth.
+const NPM_UPDATE_REQUIREMENT = "更新安装脚本中的 packageSpec 精确版本，并保证当前 profile 与重新部署的新设备都会安装到新版本；改完重新构建验证。";
+
+// The pinned package name of an npm plugin row: `packageName` is the explicit
+// contract field and wins; `name` carries it as a fallback.
+function aiNpmPackageName(project) {
+  return project.packageName || project.name || project.id || "插件";
+}
+
+// The install script that carries an npm plugin row's pin, relative to the repo root.
+function aiNpmInstallScript(project) {
+  return project.installScript || project.path || "";
+}
+
+// The npm target version; the deferring copy is only for a shell without one.
+function aiNpmLatestText(project) {
+  return project.latest || "（请用 npm view 确认）";
+}
+
+// One npm plugin row of a batch prompt: install script, current pin, target.
+function aiNpmPluginRow(project) {
+  const script = aiNpmInstallScript(project);
+  return "- 插件 " + aiNpmPackageName(project) +
+    "（安装脚本 " + (script || "（未知路径）") +
+    "，当前 pin " + (project.current || "unknown") +
+    "，更新到 npm 最新版本 " + aiNpmLatestText(project) + "）";
+}
+
 // One module row of a batch prompt: name, path, current version, and the
-// update target its dialog row selected.
+// update target its dialog row selected. npm plugin rows use their own entry
+// format (install script + pin + registry target).
 function aiModuleRow(project) {
+  if (isNpmProject(project)) return aiNpmPluginRow(project);
   const path = project.path ? "路径 " + project.path + "，" : "";
   const target = updateModeOf(project.id) === "tag"
     ? "更新到最新 tag" + (project.latestTag ? "「" + project.latestTag + "」" : "")
@@ -2415,18 +2726,72 @@ function buildHarnessUpdatePrompt(project) {
   ].join("\n");
 }
 
-// Prompt for a batch that includes deepseek-harness plus plugin modules: the
-// base first, then every plugin row, all driven by the same skill. The skill
-// owns the staging-first flow for both, so the harness never enters the plain
-// plugin-install path.
+// Prompt for one npm plugin row: the package is pinned by a repository install
+// script, so the update edits that script and re-runs it — there is no
+// submodule checkout to move and no tag/commit target to choose.
+function buildNpmPluginPrompt(project) {
+  return [
+    AI_UPDATE_SKILL,
+    "",
+    "请更新当前 dsh-gui 仓库中的「" + aiNpmPackageName(project) + "」插件：",
+    "",
+    "- 插件：" + aiNpmPackageName(project),
+    "- 安装脚本：" + (aiNpmInstallScript(project) || "（未知路径）"),
+    "- 当前 pin：" + (project.current || "unknown") + "；更新目标：npm 最新版本 " + aiNpmLatestText(project),
+    "- 要求：" + NPM_UPDATE_REQUIREMENT,
+    "",
+    AI_UPDATE_WORKSPACE_NOTE,
+    "",
+    AI_UPDATE_GATE_NOTE,
+  ].join("\n");
+}
+
+// Append a batch's row lines, grouped by row type. Git checkout rows keep
+// their existing entry format; npm plugin rows use the install-script pin
+// entry, with the shared requirement under their group. Headings appear only
+// when both types are present, so a git-only batch keeps its original flat
+// list.
+function appendAiBatchRows(lines, gitRows, npmRows) {
+  if (gitRows.length > 0 && npmRows.length > 0) {
+    lines.push("仓库模块（git 子模块）：");
+    for (const project of gitRows) lines.push(aiModuleRow(project));
+    lines.push("", "npm 插件（更新安装脚本中的版本 pin 并重新安装）：");
+    for (const project of npmRows) lines.push(aiNpmPluginRow(project));
+    lines.push("- 要求：" + NPM_UPDATE_REQUIREMENT);
+    return;
+  }
+  for (const project of gitRows) lines.push(aiModuleRow(project));
+  for (const project of npmRows) lines.push(aiNpmPluginRow(project));
+  if (npmRows.length > 0) lines.push("- 要求：" + NPM_UPDATE_REQUIREMENT);
+}
+
+// Prompt for a batch that includes deepseek-harness plus other rows: the base
+// first, then every remaining row grouped by type, all driven by the same
+// skill. The skill owns the staging-first flow for both, so the harness never
+// enters the plain plugin-install path.
 function buildHarnessMergedPrompt(harness, others) {
+  const gitRows = others.filter((project) => !isNpmProject(project));
+  const npmRows = others.filter((project) => isNpmProject(project));
+  // A git-only batch keeps the original「插件模块」wording; mixing in npm rows
+  // widens it because those rows are not submodules.
+  const noun = npmRows.length === 0 ? "插件模块" : "模块与插件";
   const lines = [
     AI_UPDATE_SKILL,
     "",
-    "请更新当前 dsh-gui 仓库：先更新工程基座 deepseek-harness，再更新以下插件模块：",
+    "请更新当前 dsh-gui 仓库：先更新工程基座 deepseek-harness，再更新以下" + noun + "：",
     "",
   ];
-  for (const project of [harness, ...others]) lines.push(aiModuleRow(project));
+  // The base leads the module block. When npm plugin rows join in, the module
+  // block gets its group heading too (only when it holds more than the base
+  // row) so the two entry formats never mix.
+  if (npmRows.length > 0 && gitRows.length > 0) lines.push("仓库模块（git 子模块）：");
+  lines.push(aiModuleRow(harness));
+  for (const project of gitRows) lines.push(aiModuleRow(project));
+  if (npmRows.length > 0) {
+    lines.push("", "npm 插件（更新安装脚本中的版本 pin 并重新安装）：");
+    for (const project of npmRows) lines.push(aiNpmPluginRow(project));
+    lines.push("- 要求：" + NPM_UPDATE_REQUIREMENT);
+  }
   lines.push("", HARNESS_MODULE_NOTE, "", AI_UPDATE_WORKSPACE_NOTE, "", AI_UPDATE_GATE_NOTE);
   return lines.join("\n");
 }
@@ -2438,6 +2803,7 @@ function buildAiUpdatePrompt(projects) {
   const list = updatableProjects(projects);
   if (list.length === 1) {
     const project = list[0];
+    if (isNpmProject(project)) return buildNpmPluginPrompt(project);
     if (project.id === HARNESS_PROJECT_ID) return buildHarnessUpdatePrompt(project);
     return [
       AI_UPDATE_SKILL,
@@ -2452,8 +2818,12 @@ function buildAiUpdatePrompt(projects) {
       AI_UPDATE_GATE_NOTE,
     ].join("\n");
   }
-  const lines = [AI_UPDATE_SKILL, "", "请批量更新当前 dsh-gui 仓库中以下模块：", ""];
-  for (const project of list) lines.push(aiModuleRow(project));
+  const gitRows = list.filter((project) => !isNpmProject(project));
+  const npmRows = list.filter((project) => isNpmProject(project));
+  // Wording of the batch intro, by the row types it covers.
+  const noun = npmRows.length === 0 ? "模块" : gitRows.length > 0 ? "模块与插件" : "插件";
+  const lines = [AI_UPDATE_SKILL, "", "请批量更新当前 dsh-gui 仓库中以下" + noun + "：", ""];
+  appendAiBatchRows(lines, gitRows, npmRows);
   lines.push("", AI_UPDATE_WORKSPACE_NOTE, "", AI_UPDATE_GATE_NOTE);
   return lines.join("\n");
 }
@@ -2679,7 +3049,7 @@ updateMarkAll.addEventListener("click", () => {
   for (const id of ids) markProjectUpdate(id);
 });
 updateApply.addEventListener("click", () => {
-  void startUpdates([...updateSelection]);
+  void applySelectedUpdates();
 });
 updateAiAll.addEventListener("click", () => {
   void startAiUpdate(updateStatus?.projects);
@@ -2687,7 +3057,7 @@ updateAiAll.addEventListener("click", () => {
 updateBody.addEventListener("click", (e) => {
   const ai = e.target.closest(".update-ai");
   if (ai && ai.dataset.updateId && !ai.disabled) {
-    const project = (updateStatus?.projects ?? []).find((p) => p.id === ai.dataset.updateId);
+    const project = (updateStatus?.projects ?? []).find((p) => p && p.id === ai.dataset.updateId);
     void startAiUpdate(project ? [project] : []);
     return;
   }
@@ -2700,7 +3070,13 @@ updateBody.addEventListener("click", (e) => {
   }
   const button = e.target.closest(".update-run");
   if (!button || !button.dataset.updateId || button.disabled) return;
-  const project = (updateStatus?.projects ?? []).find((p) => p.id === button.dataset.updateId);
+  const project = (updateStatus?.projects ?? []).find((p) => p && p.id === button.dataset.updateId);
+  // npm plugin rows are updated in place, keeping the application running — no
+  // 「待重启」queue involved; the detached git flow is unchanged.
+  if (isNpmProject(project)) {
+    void runNpmUpdate(project);
+    return;
+  }
   if (project && project.id === ROOT_PROJECT_ID) {
     void runRootUpdate(project);
     return;

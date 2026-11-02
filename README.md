@@ -82,20 +82,40 @@ browser.
   GitHub link for dsh-gui, the harness, the icon submodule, and every plugin.
   A plain click copies the URL; **Ctrl+click** opens it in the system default
   browser.
-- **Update dialog** — checks every in-repo project for updates, lets you choose
-  which ones to update and their target (latest commit / latest tag), then
-  exits, updates in a console window, and restarts. Each row's module name
-  links to that repository's **Releases list** page
+- **Update dialog** — checks two kinds of rows and lets you pick which updates
+  to run. **git rows** are this checkout and its non-`plugins/` submodules;
+  each is compared against its remote default branch and offers a target
+  (latest commit / latest tag). The top-level row's **更新** performs the
+  git-layer update in the dialog (root reset plus recursive submodule sync)
+  and then asks for `npm run build` and a restart; selected submodule rows go
+  through a detached launcher that exits the app, runs the updates in a
+  console window, rebuilds, and restarts the shell. **npm plugin rows** are
+  the npm packages pinned by the `plugins/**/*.mjs` install scripts
+  (`installNpmPlugin` with an exact `name@version` literal); each row
+  compares that pin with the registry's latest version, and its **更新**
+  button rewrites the pin in the install script and re-runs that wrapper in
+  place — the app keeps running and the reinstalled plugin takes effect after
+  a restart, with no rebuild needed. npm plugin rows have no tag/commit
+  target and no **更新日志** button (a GitHub release cannot be mapped
+  reliably onto an npm version). A batch that mixes both kinds updates the
+  npm rows in place first, then restarts through the detached git flow, and a
+  failed npm row never blocks the git rows, while a batch made up only of npm
+  plugin rows finishes in place without exiting the app. Each row's module
+  name links to that repository's **Releases list** page
   (`https://github.com/<owner>/<repo>/releases`) whenever its origin is a
-  GitHub repository — resolved locally, so the link is there from the first
-  paint and stays plain text for a non-GitHub or missing remote; as with the
-  changelog title, the row name is not selectable, so a plain click opens the
-  system default browser. The dialog recommends
-  AI-sync updates: each updatable row and the bottom bar offer an **AI 更新**
-  button that returns to the project home screen, selects the dsh-gui
-  directory there, selects the 「创造模式」(cordis) preset, and prefills a
-  prompt that asks the agent to sync the submodule(s) to the chosen target and
-  verify the result in the `.staging/dsh-gui` validation worktree — a git
+  GitHub repository — resolved locally for git rows, so that link is there
+  from the first paint, and from the package's registry manifest
+  `repository` for npm plugin rows, so it appears once the registry check
+  lands; a non-GitHub or missing remote leaves the name as plain text. As
+  with the changelog title, the row name is not selectable, so a plain click
+  opens the system default browser. The dialog recommends AI-sync updates:
+  each updatable submodule or npm plugin row and the bottom bar offer an
+  **AI 更新** button that returns to the project home screen, selects the
+  dsh-gui directory there, selects the 「创造模式」(cordis) preset, and
+  prefills a prompt that asks the agent to sync the submodule(s) to the chosen
+  target — for an npm plugin row, to raise the exact `packageSpec` in its
+  install script and reinstall the package — and verify the result in the
+  `.staging/dsh-gui` validation worktree — a git
   worktree of this checkout on the `staging/verify` branch whose runtime root
   is `<repository root>/.staging`, so the whole copy lives inside the session
   workspace — the worktree's WebUI must actually load, adaptation commits go
@@ -103,8 +123,9 @@ browser.
   additionally needs a computer-use check that the GUI starts and runs, and
   phase two merges that branch back into this checkout only after you approve
   the verification report (the bottom button lists every updatable module with
-  its combo choice; the preset can still be changed before sending). Each
-  behind row also has an **更新日志** button:
+  its combo choice, and every npm plugin row with its install script and
+  target version; the preset can still be changed before sending). Each
+  behind git row also has an **更新日志** button:
   for a tag target it shows the official GitHub Release notes for **every**
   release the update brings in — all tags between the current checkout and the
   update target, newest first, so a checkout several releases behind sees the
@@ -147,9 +168,11 @@ browser.
   `plugins/better-sidebar/`).
 - **`dsh-ai-update`** — browser-half bridge behind the update dialog's AI
   update buttons: receives the shell's `dsh-gui:ai-update` message, returns
-  to the new-session home, selects the dsh-gui workspace, and prefills the
-  composer with the update prompt — never creating a session directly and
-  never picking a preset (see `plugins/ai-update/dsh-ai-update/docs/`).
+  to the new-session home, selects the dsh-gui workspace, auto-selects the
+  「创造模式」(cordis) preset for the blank session (a refusal fails the
+  request instead of silently using the default), and prefills the composer
+  with the update prompt — never creating a session directly (see
+  `plugins/ai-update/dsh-ai-update/docs/`).
 - **`dsh-deep-whale`** — whale-girl skin series; currently ships the
   hot-pluggable `maid-atelier` skin (light/dark palace backgrounds, navy lace
   UI overlay, Q-version sidebar, embedded assets).

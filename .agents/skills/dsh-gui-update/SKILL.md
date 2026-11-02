@@ -23,8 +23,8 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
 
 | 来源 | 内容 |
 | --- | --- |
-| [`src-tauri/ui/app.js`](../../../src-tauri/ui/app.js) | 外壳更新对话框预填的提示词：`AI_UPDATE_SKILL`（手势常量 `/dsh-gui-update`）、`buildHarnessUpdatePrompt`（仅 harness）、`buildHarnessMergedPrompt`（harness 与插件批量）、`buildAiUpdatePrompt`（单模块与插件批量）。提示词只给出模块名、路径、当前版本、更新目标，以及 skill 无法从对话框得知的验收门槛 `AI_UPDATE_GATE_NOTE`（worktree 的 WebUI 必须能正确加载；含 harness 时另用 computer use 验证 GUI；适配改动提交到工作分支；报告并经用户审批后才合并回主分支）；分步流程由本 skill 承载 |
-| [`plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts`](../../../plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts) | desktop 应用内更新对话框的提示词：git 行沿用外壳文案；npm 插件行给出包名、安装脚本、当前 pin 与 registry 目标版本，并要求改安装脚本里的 `packageSpec` 精确版本；构建入口统一写成 `npm run build:desktop` |
+| [`src-tauri/ui/app.js`](../../../src-tauri/ui/app.js) | 外壳更新对话框预填的提示词：`AI_UPDATE_SKILL`（手势常量 `/dsh-gui-update`）、`buildHarnessUpdatePrompt`（仅 harness）、`buildHarnessMergedPrompt`（harness 与插件批量）、`buildAiUpdatePrompt`（单模块与批量）、`buildNpmPluginPrompt`（npm 插件单行）。提示词只给出模块名、路径、当前版本、更新目标，以及 skill 无法从对话框得知的验收门槛 `AI_UPDATE_GATE_NOTE`（worktree 的 WebUI 必须能正确加载；含 harness 时另用 computer use 验证 GUI；适配改动提交到工作分支；报告并经用户审批后才合并回主分支）；分步流程由本 skill 承载 |
+| [`plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts`](../../../plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts) | desktop 应用内更新对话框的提示词：git 行沿用外壳文案；npm 插件行由 `buildNpmPluginPrompt` 给出包名、安装脚本、当前 pin 与 registry 目标版本，并要求改安装脚本里的 `packageSpec` 精确版本；构建入口统一写成 `npm run build:desktop` |
 | [`docs/dsh-gui/desktop-auto-update.md`](../../../docs/dsh-gui/desktop-auto-update.md) | desktop 更新插件与外壳更新对话框并存时的边界、git 行与 npm 插件行的检测与更新执行 |
 | [`docs/dsh-gui/upgrade-staging-workspace.md`](../../../docs/dsh-gui/upgrade-staging-workspace.md) | 验证 worktree 的路径与运行时根、维护命令、工作分支与合并政策、构建与验收命令 |
 | [`scripts/staging.mjs`](../../../scripts/staging.mjs) | `ensure`、`sync`、`status`、`clean` 的实现与帮助文本；`npm run staging -- help` 是选项的权威列表 |
@@ -51,7 +51,7 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
   - **提交目标**：远端默认分支的最新提交。子模块用 `git -C .staging\dsh-gui submodule update --remote <path>`，或在该模块目录内 `fetch origin` 后检出 `origin/<默认分支>`。
   - **跳过**：模块当前正好检出于某个 tag，而远端只有更新的提交、没有更新的 tag 时，保持其 tag 版本，不要把它更新到非 tag 提交，并在报告中说明原因。产品内该状态对应 `announce === false`（[`src-tauri/src/update.rs`](../../../src-tauri/src/update.rs) 的 `check_project`）。
 - **npm 插件行**（`plugins/<id>/install.mjs` 里 `installNpmPlugin` 的精确 pin）：更新目标是 registry 最新版本，对话框行给出 `latest`；行内没有该值（例如提示词只给了包名）时用 `npm view <包名> version` 确认。在 worktree 中把该脚本的 `packageSpec` 改成 `<包名>@<新版本>`（保留完整的三段 semver，带 prerelease 时写全），再重跑该 wrapper 完成安装。一个 wrapper 安装多个包时逐行处理，只改目标包。
-- **顶层仓库本体**不进入本流程：更新对话框对顶层行直接执行 git 层更新（顶层快进加子模块递归同步），随后由用户执行 `npm run build` 重建。worktree 与主仓库共享 object 库与 refs，顶层不需要 fetch，`sync` 会把工作分支对齐到本仓库当前 HEAD。
+- **顶层仓库本体**不进入本流程：更新对话框对顶层行直接执行 git 层更新（顶层 `git reset --hard` 到更新目标加子模块递归同步），随后由用户执行 `npm run build` 重建。worktree 与主仓库共享 object 库与 refs，顶层不需要 fetch，`sync` 会把工作分支对齐到本仓库当前 HEAD。
 
 ## 3. 阶段一：worktree 内验证（不碰主分支）
 
@@ -95,7 +95,7 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
      ```
 
    - 从 desktop 更新对话框进入时，提示词把构建入口统一写成 `npm run build:desktop`（构建 desktop 产物并安装 desktop profile），按提示词给出的构建入口执行；外壳对话框的验收用上面的 `npm run build`。
-   - `harness.json` 的 `runtime` 为 `npm`（仓库当前取值）时，build 按子模块 `apps/cli/package.json` 的版本从 registry 安装 dsh CLI，不编译子模块；子模块快进后必须重跑 build 才会换到新版本。
+   - `harness.json` 的 `runtime` 为 `npm`（仓库当前取值）时，build 按子模块 `apps/cli/package.json` 的版本从 registry 安装 dsh CLI，不编译子模块；子模块更新到新修订后必须重跑 build 才会换到新版本。
 5. 组合冒烟检查：用 worktree 的 dsh CLI 以 `--profile web --dump-config` 渲染配置树，确认没有 `duplicate loader entry id`、缺失插件或 patch 报错。在仓库根执行：
 
    ```powershell

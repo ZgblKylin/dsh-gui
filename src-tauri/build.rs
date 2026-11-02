@@ -21,6 +21,7 @@ fn main() {
         "check_updates",
         "start_update",
         "update_root",
+        "update_npm_plugin",
         "update_changelog",
         "shell_log",
         // Dialog windows + shell↔dialog bridge (see `src/dialogs.rs`).

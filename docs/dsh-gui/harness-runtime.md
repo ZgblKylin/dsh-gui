@@ -88,7 +88,7 @@ source 模式以 revision 为增量判据：`harness-build.json` 记录的 revis
 
 ## 升级流程
 
-harness 升级先由更新对话框把子模块 fast-forward 到新 tag，再运行 `node scripts/dsh-gui.mjs build`；build 按新检出的 `apps/cli/package.json` 版本从 registry 安装对应包。
+harness 升级先由更新对话框把子模块 `reset --hard` 到新 tag（或最新提交，取决于所选更新目标），再运行 `node scripts/dsh-gui.mjs build`；build 按新检出的 `apps/cli/package.json` 版本从 registry 安装对应包。
 
 `npm-installs.json` 记有 `@deepseek-ai/dsh`，更新检查因此把 deepseek-harness 行视为 npm 安装型条目，核对最新 tag 是否已有对应的 npm 发布；该核对只作为对话框附注，不影响行的更新徽标判定。流程见 skill `dsh-gui-update`，验证位置是仓库内的验证 worktree `.staging/dsh-gui`，验收命令与判据见 [upgrade-staging-workspace.md](upgrade-staging-workspace.md)。
 

@@ -31,6 +31,7 @@
     "allow-check-updates",
     "allow-start-update",
     "allow-update-root",
+    "allow-update-npm-plugin",
     "allow-update-changelog",
     "allow-shell-log",
     "allow-open-dialog",

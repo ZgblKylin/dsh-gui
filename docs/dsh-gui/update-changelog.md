@@ -2,7 +2,7 @@
 
 ## 功能
 
-更新对话框每行只要落后于远端就有「更新日志」按钮，用于预览本次更新会带来的
+更新对话框的 git 行只要落后于远端就有「更新日志」按钮，用于预览本次更新会带来的
 变更。tag 目标优先读取 **官方 GitHub Release 说明**，并且覆盖本次更新引入的
 **全部** Release，而不只是更新目标那一个：候选范围按 git 可达性判定——「可以从
 更新目标到达、但不能从本地 HEAD 到达」的 tag（`git tag --merged <目标>
@@ -98,20 +98,25 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
 - 旧脚本 + 连接被拒 / DNS 失败（`fetch` reject 分支）、纯 HTTP 本地 fixture：
   不触发——正因是竞态，这条 bug 才时而出现时而消失。
 
-## 约定（两个脚本均已按此实现）
+## 约定（三个脚本均已按此实现）
 
 - **不得调用 `process.exit()`**。结果用
   `writeSync(1, JSON.stringify(...) + '\n')` 写出：stdout 是文件句柄时写入是同步
   的，保证在进程结束前落盘，不需要靠 `process.exit` 冲刷；
 - 无论 200、404 还是其他状态码，响应体都要读完（`response.json()`）或取消
   （`response.body?.cancel()`），不留半读的连接；
-- 脚本不再显式退出，事件循环自然排空后进程结束。实测新脚本约 60 次调用覆盖
-  200 / 404 / 403 / 连接被拒 / DNS 失败：全部退出码 0、stderr 为空、stdout 为
-  完整单行 JSON，用时 0.2–1s，远低于 Rust 侧 45s（Release）与 60s（npm）超时；
+- 脚本不再显式退出，事件循环自然排空后进程结束。实测按此改写的 Release 与 npm
+  发布状态脚本约 60 次调用覆盖 200 / 404 / 403 / 连接被拒 / DNS 失败：全部
+  退出码 0、stderr 为空、stdout 为完整单行 JSON，用时 0.2–1s，远低于 Rust 侧
+  45s（Release）与 60s（npm）超时；
 - **Rust 侧解析以 stdout 的 JSON 行为准**：即使子进程退出码非零，只要 stdout
-  上有可解析的结果就采用（`parse_release_capture`、`emitted_npm_json`），
-  只有没有可用结果时才回落到退出码与 stderr 诊断。这样即使将来子进程再出现
-  别的退出竞态，也不会把一份完整答案丢掉。
+  上有可解析的结果就采用（`parse_release_capture`、`emitted_npm_json` 与
+  `parse_latest_results`），只有没有可用结果时才回落到退出码与 stderr 诊断。
+  这样即使将来子进程再出现别的退出竞态，也不会把一份完整答案丢掉；
+- `NPM_LATEST_FETCH_SCRIPT`（npm 插件行的 `/<pkg>/latest` 探测）遵循同一约定：
+  `accept: application/json`（该端点不接受 abbreviated 类型）、结果以
+  `writeSync(1, …)` 写出、不调用 `process.exit()`；`update.rs` 的
+  `embedded_latest_script_uses_the_full_manifest_accept_type` 钉住这些约定。
 
 ## 回归保护
 
@@ -125,7 +130,8 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
   `releases_page_url_points_at_the_release_list_not_a_tag_subpage`、
   `changelog_serializes_the_release_page_under_the_frontend_field_name`；
 - `update.rs`：`embedded_npm_script_never_calls_process_exit`、
-  `npm_answer_is_used_even_when_the_child_aborted`。
+  `npm_answer_is_used_even_when_the_child_aborted`、
+  `embedded_latest_script_uses_the_full_manifest_accept_type`。
 
 ## 多 Release 逻辑的实测
 

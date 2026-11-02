@@ -171,7 +171,8 @@ Host 进程运行在解包的 desktop 应用里，检出不等于 `process.cwd()
 - npm 行的解析依赖安装脚本以 `pkg@version` 字面量写精确 pin（见 `plugins/README.md`）；
   从其他文件读取版本或用拼接构造 spec 的写法不产生行。
 - npm 行的「更新」不经过 `.staging` 验证；需要完整验证时走「AI 更新」。
-- 外壳侧（Tauri 内置对话框）仍只做 git 行检测。
+- 外壳侧（Tauri 内置对话框）同样检测两类行并对齐就地更新的语义，见
+  [update-check.md](../../../docs/dsh-gui/update-check.md)。
 - 更新完成后需要重启 Desktop 应用才会加载新的插件版本；git 行另需重新构建。
 
 ## 本版不做

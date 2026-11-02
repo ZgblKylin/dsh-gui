@@ -4,7 +4,7 @@
 
 `dsh-auto-update` 把外壳（Tauri）原有的「检查更新 / 更新 / 更新日志 / AI 更新」搬到 desktop 应用内，检测两类行：dsh-gui 仓库本体与不在 `plugins/` 下的 submodule 相对远端默认分支的落后情况（git 行），以及 `plugins/` 安装脚本中每个 npm 插件的精确 pin 与 registry 最新版本（npm 行）。client 半在标题栏画入口按钮与对话框，并可就地执行更新：git 行检出目标 revision，npm 行改写安装脚本的 pin 并重新安装该插件。
 
-它只装在 desktop profile（`plugins/auto-update/install.mjs` 在 `DSH_PLUGIN_PROFILE !== 'desktop'` 时只打印 skip 并退出 0），web profile 的组合与外壳的更新对话框都不受影响；两套更新 UI 在此期间并存，外壳侧的行为见 [update-check.md](update-check.md) 与 [update-changelog.md](update-changelog.md)，外壳侧仍只做 git 行检测。
+它只装在 desktop profile（`plugins/auto-update/install.mjs` 在 `DSH_PLUGIN_PROFILE !== 'desktop'` 时只打印 skip 并退出 0），web profile 的组合与外壳的更新对话框都不受影响；两套更新 UI 在此期间并存，外壳侧同样按两类行检测与更新，行为见 [update-check.md](update-check.md) 与 [update-changelog.md](update-changelog.md)。
 
 当前范围是「检测 + 对话框 + 就地更新」：git 行更新只完成 git 层，npm 行更新改写仓库安装脚本并重装插件，都不做分离式更新器、自动重启与待更新计划文件。检测策略、每行 npm 发布状态与更新日志的 AI 摘要已对标外壳已有功能（v2，2026-10-07）；检测调度（并行、单飞、npm 熔断与启动后台检查）及其实测耗时归因见下文（v3）；npm 插件行见 [2026-11-01-npm-plugin-update-check.md](2026-11-01-npm-plugin-update-check.md)。
 
@@ -150,7 +150,7 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 
 ## 已知限制
 
-- 只装在 desktop profile；普通 `dsh web` 页面与 Tauri 外壳都不加载该插件，外壳侧更新入口仍是外壳自己的对话框，且外壳只做 git 行检测。
+- 只装在 desktop profile；普通 `dsh web` 页面与 Tauri 外壳都不加载该插件，外壳侧更新入口仍是外壳自己的对话框，它同样检测两类行并对齐就地更新的语义（见 [update-check.md](update-check.md)）。
 - git 行更新执行是 `reset --hard` 语义：所选工程未提交的改动会被丢弃（未跟踪文件保留），对话框不提供二次确认或暂存，仅以常驻警示与「更新」/「全部更新」的 tooltip 提示。
 - npm 行更新会改写仓库安装脚本，属于仓库文件写操作，不可用 git 回滚；执行前备份、脚本失败或超时写回原文，单飞执行避免并发。
 - npm 行只解析安装脚本中的 `<包名>@<版本>` 字面量：从其他文件读取版本或用拼接构造 spec 的 wrapper 不产生行（写法约定见 `plugins/README.md`）。

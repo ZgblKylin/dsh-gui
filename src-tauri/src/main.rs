@@ -1241,6 +1241,35 @@ async fn update_root(
     .map_err(|e| format!("更新任务失败：{e}"))?
 }
 
+/// In-dialog update of one npm-installed plugin: rewrite the version pin in the
+/// plugin's install script, re-run that wrapper against the current profile,
+/// and stream the wrapper's output as `update-root-log` events. Unlike
+/// [`start_update`] the shell keeps running (no exit, no rebuild); the dialog
+/// reminds the user to restart dsh-gui so the harness boots the reinstalled
+/// plugin.
+#[tauri::command]
+async fn update_npm_plugin(
+    app: tauri::AppHandle,
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+    id: String,
+) -> Result<(), String> {
+    views::ensure_shell_or_dialog(&webview)?;
+    let root = state.root.clone();
+    let lock = Arc::clone(&state.update_lock);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = lock
+            .lock()
+            .map_err(|_| "另一个更新操作正在进行".to_string())?;
+        let mut log = |line: &str| {
+            let _ = app.emit("update-root-log", line);
+        };
+        update::run_npm_plugin_update(&root, &id, &mut log)
+    })
+    .await
+    .map_err(|e| format!("更新任务失败：{e}"))?
+}
+
 /// Update-log content for one row of the update dialog: for a tag target the
 /// official GitHub Release notes when the remote is a GitHub repository and a
 /// release exists, otherwise a dsh-AI summary of the commit range from the
@@ -1978,6 +2007,7 @@ fn main() {
             check_updates,
             start_update,
             update_root,
+            update_npm_plugin,
             update_changelog,
             shell_log,
             // Native hamburger menu + dialog-card webviews.

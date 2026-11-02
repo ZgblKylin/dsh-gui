@@ -225,7 +225,10 @@ async function main() {
   const projects = Array.isArray(plan) ? plan : (plan.projects ?? []);
   const only = requestedIds(process.argv.slice(2));
   const modes = requestedModes(process.argv.slice(2));
-  let targets = projects.filter((project) => project && project.behind && !project.error);
+  // The shell writes git rows only (npm plugin rows update in place from the
+  // dialog), so this guard only matters for an older or hand-edited plan: an
+  // npm row must never be reset like a checkout.
+  let targets = projects.filter((project) => project && !project.kind && project.behind && !project.error);
   if (only.length > 0) {
     targets = targets.filter((project) => only.includes(project.id));
   }
