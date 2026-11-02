@@ -157,6 +157,12 @@ browser.
   settings section for browsing, enabling and deleting skills and for adding,
   editing, enabling and removing MCP servers (hot-applied without restart),
   plus an MCP live-status sidebar tab when `dsh-better-sidebar` is installed.
+- **`dsh-pause`** — a pause point right before the agent's next model request
+  in a tool round: while paused the composer stays usable, a bare Enter in the
+  main input (or the pause control) releases it, and text typed meanwhile is
+  carried along as a steering message. No in-flight call is interrupted and
+  the model does not notice the pause; the per-session switch is off by
+  default.
 
 ![dsh-gui with the plugin features expanded](docs/dsh-gui/images/dsh-gui-features.png)
 
@@ -514,6 +520,10 @@ installed (see `dsh-web-ui/README.md`). The 安装方式 list in
 `plugins/skill-mcp-center` is npm-only as well: its `install.mjs` installs
 `@max-null/dsh-skill-mcp-center@0.7.0` through `installNpmPlugin`, and the
 package's own `dsh.bundle.patch` reconciles it into `dsh.profile.bundles`.
+
+`plugins/dsh-pause` is npm-only too: its `install.mjs` installs
+`dsh-pause@0.1.6` through `installNpmPlugin`, and the package's own
+`dsh.bundle.patch` reconciles it into `dsh.profile.bundles`.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
 on boot. Any other `dsh plugin` / `--patch` workflow also works — nothing

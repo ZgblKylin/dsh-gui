@@ -186,6 +186,7 @@ desktop 更新面板按这些字面量生成插件行，并把新版本就地写
   - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.2-alpha.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-alpha.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（v0.3.8；9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 0.2.2-alpha.2 的准入闸门，无需精确版本例外），默认安装：host 半 inject 为 `webServer / agentDefaultModel / credentials / llm / commands`，`agentDefaultModel` 由 base bundle 提供；client 半的本地 inject（`src/client/app.ts`）为 `slots / locale / connection / remote / remote.commands / commandUi`，其中 `commandUi`（官方 dsh-client-ui-commands 的「/」命令服务，随 web-app bundle 挂载）就绪后 `/pet` 选择框才注册；声明层 `dsh.client.inject` 只列 `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载）；系统通知走 host 转发通道（host 半监听 `session/event` / `agent/error`，把帧落在 `/dsh-pet-7340/notify`，浏览器半每秒轮询该路由）。用户层配置为 `$DSH_HOME/dsh-pet/main-config.jsonc`，安装后自动注入 `display:"web"` 屏蔽桌面 Electron 模式（见 [dsh-pet/README.md](dsh-pet/README.md)）
 - [dsh-commandcode-provider](https://github.com/Mars-Sea/dsh-commandcode-provider) npm包（pin `0.15.5`，packageSpec `@mars-sea/dsh-commandcode-provider@0.15.5`；`engines.dsh` 是区间 `>=0.2.1-rc.2 <0.2.2-0`，上界把 0.2.2 整条 prerelease 线排除在外（`0.2.2-alpha.2` 高于 `0.2.2-0`），`0.15.5` 是最新发布、区间与之相同、registry 无放行版本，且包内 `dsh.compatibility.dshReleases` 只记录 rc.2 / rc.3 / rc.4，因此 wrapper 授予精确版本例外（精确绑定 `0.15.5` + `0.2.2-alpha.2`，上游发布放行 0.2.2 的版本后撤销；其 bundle 层插入 entry id `llm-commandcode`）
+- [dsh-pause](https://github.com/better-er/dsh-pause) npm包（pin `0.1.6`；「DSH·暂停」：host 半在 `agent/pre-step` waterfall 上卡出暂停点（每个 turn 的首次请求不停、不打断在途调用），browser 半经 `conversation.input.right` slot 在 composer 工具行渲染开关与放行控件，会话开关默认关闭（Config `defaultEnabled`）；RPC 走插件向 webServer 自注册的 `/dsh-pause` 前缀路由。manifest 无 `engines.dsh`，六条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.2`，覆盖 0.2.2-alpha.2 的准入闸门、无需例外；`engines.node` 声明 `>=26.3.1` 高于 harness 的 `>=24.9.0`，profile 未开 `engine-strict` 故只告警。包声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-pause`）
 - [dsh-skill-mcp-center](https://github.com/Max-Null/dsh-skill-mcp-center) npm包（pin `@max-null/dsh-skill-mcp-center@0.7.0`；仓库侧只有 wrapper 的 `install.mjs`，包以发布形态提供预构建 `dist/` 与 `client.js`，无构建步骤。host 半 inject 为 `loader` / `tools` 并从 `ctx.skills` 读取技能目录；client 半在设置页新增「Skill & MCP」分区，`dsh-better-sidebar` 存在时另在右侧栏提供 MCP 实时状态面板（可选 peer，本工程已安装）。manifest 无 `engines.dsh`，准入闸门按 `@deepseek-ai/dsh*` peer（`>=0.1.1-rc.1 <0.3.0`）放行 0.2.2-alpha.2；声明 `dsh.bundle.patch`，entry id `skill-mcp-center`）
 
 ## Current plugins
@@ -347,6 +348,28 @@ desktop 更新面板按这些字面量生成插件行，并把新版本就地写
   admission gate evaluates its `@deepseek-ai/dsh*` peers
   (`>=0.1.1-rc.1 <0.3.0`), which admit the pinned 0.2.2-alpha.2 runtime without
   an exemption. See the upstream `README.md`.
+- `dsh-pause` — npm-only wrapper installing `dsh-pause@0.1.6` (exact pin;
+  `install.mjs` is the wrapper's only script). The plugin gates the agent
+  right before the next model request of a tool round (the host half waits on
+  the `agent/pre-step` waterfall; a turn's first request, step 1, is never
+  paused and no in-flight call is interrupted) so the composer stays usable; a
+  bare Enter in the main input or the pause control releases it, and a
+  non-empty draft is carried along as a steering message. The browser half
+  renders the switch and control through the `conversation.input.right` slot,
+  and the host half registers its `/dsh-pause` route on `webServer` (reusing
+  the `connection` trust check) rather than the removed
+  `connection.rpc.handle` API. Per-session switches default off (Config
+  `defaultEnabled: false`). Its six `@deepseek-ai/dsh*` peers are
+  `^0.2.0-rc.2`, which admit 0.2.2-alpha.2 without an exact-version exemption.
+  `engines.node` is declared `>=26.3.1` (above the harness's `>=24.9.0`), but
+  the profile runs pnpm without `engine-strict` and the prebuilt `lib/` uses
+  no Node-26-only API. `dsh.client.inject` still names
+  `@deepseek-ai/dsh-client-runtime`, which 0.2.2-alpha.2 no longer ships —
+  those are informational package edges (preflight/HMR), skipped when absent,
+  so activation is unaffected. The package declares `dsh.bundle.patch`, so
+  `dsh plugin add` reconciles it into `dsh.profile.bundles` and it mounts
+  through its own bundle layer (entry id `dsh-pause`). See
+  `dsh-pause/README.md`.
 - `harness` — a single flat wrapper at `harness/` that owns the official
   dsh-family plugins it installs: `install.mjs` only loads the sibling installers
   `browser-use.mjs` and `computer-use.mjs`, so the group stays
