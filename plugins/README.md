@@ -189,6 +189,7 @@ npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本�
 - [dsh-commandcode-provider](https://github.com/Mars-Sea/dsh-commandcode-provider) npm包（pin `0.15.5`，packageSpec `@mars-sea/dsh-commandcode-provider@0.15.5`；`engines.dsh` 是区间 `>=0.2.1-rc.2 <0.2.2-0`，上界把 0.2.2 整条 prerelease 线排除在外（`0.2.2-alpha.2` 高于 `0.2.2-0`），`0.15.5` 是最新发布、区间与之相同、registry 无放行版本，且包内 `dsh.compatibility.dshReleases` 只记录 rc.2 / rc.3 / rc.4，因此 wrapper 授予精确版本例外（精确绑定 `0.15.5` + `0.2.2-alpha.2`，上游发布放行 0.2.2 的版本后撤销；其 bundle 层插入 entry id `llm-commandcode`）
 - [dsh-pause](https://github.com/better-er/dsh-pause) npm包（pin `0.1.6`；「DSH·暂停」：host 半在 `agent/pre-step` waterfall 上卡出暂停点（每个 turn 的首次请求不停、不打断在途调用），browser 半经 `conversation.input.right` slot 在 composer 工具行渲染开关与放行控件，会话开关默认关闭（Config `defaultEnabled`）；RPC 走插件向 webServer 自注册的 `/dsh-pause` 前缀路由。manifest 无 `engines.dsh`，六条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.2`，覆盖 0.2.2-alpha.2 的准入闸门、无需例外；`engines.node` 声明 `>=26.3.1` 高于 harness 的 `>=24.9.0`，profile 未开 `engine-strict` 故只告警。包声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-pause`）
 - [dsh-skill-mcp-center](https://github.com/Max-Null/dsh-skill-mcp-center) npm包（pin `@max-null/dsh-skill-mcp-center@0.7.0`；仓库侧只有 wrapper 的 `install.mjs`，包以发布形态提供预构建 `dist/` 与 `client.js`，无构建步骤。host 半 inject 为 `loader` / `tools` 并从 `ctx.skills` 读取技能目录；client 半在设置页新增「Skill & MCP」分区，`dsh-better-sidebar` 存在时另在右侧栏提供 MCP 实时状态面板（可选 peer，本工程已安装）。manifest 无 `engines.dsh`，准入闸门按 `@deepseek-ai/dsh*` peer（`>=0.1.1-rc.1 <0.3.0`）放行 0.2.2-alpha.2；声明 `dsh.bundle.patch`，entry id `skill-mcp-center`）
+- [ds-harness-remote](https://github.com/liguobao/ds-harness-remote) npm包（pin `0.6.0`；DSH Remote：低延迟 P2P 端到端加密的远程访问插件，PC / 移动端 / Remote Web 可远程继续本机 Harness 会话与工作区，不开放公网监听端口、无需路由端口转发；host 半向官方 `tools` service 注册 `remote_*` 工具组（列出在线机器与工作区、读写 / 创建会话、收发消息、上下传文件），client 半在设置页提供 Remote 面板。manifest 无 `engines.dsh`，`@deepseek-ai/dsh*` peer 均为 `>=0.2.2-0 <0.2.3-0` 等多段区间，按 `includePrerelease` 覆盖 pinned 的 0.2.2-alpha.2、无需精确版本例外；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `ds-harness-remote`（普通 profile）与 `ds-harness-remote-tui`（仅 dsh-tui 入口时启用），不写手工 insert；`@roamhq/wrtc` 是可选原生 WebRTC 依赖（安装失败按 optional 跳过）。与内建 `dsh-remote` 的多后端 / SSH 隧道方案相互独立，可同时安装）
 
 ## Current plugins
 
@@ -371,6 +372,23 @@ npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本�
   `dsh plugin add` reconciles it into `dsh.profile.bundles` and it mounts
   through its own bundle layer (entry id `dsh-pause`). See
   `dsh-pause/README.md`.
+- `ds-harness-remote` — npm-only wrapper installing `ds-harness-remote@0.6.0`
+  (exact pin; `install.mjs` is the wrapper's only file). DSH Remote continues
+  the running Harness from another device over a low-latency, end-to-end
+  encrypted P2P connection: the settings page hosts the Remote panel, and the
+  host half registers the `remote_*` tool group (list online hosts and their
+  workspaces, read/create/message sessions, upload/download files) when the
+  official `tools` service is present. No public listener is opened and no
+  router port forwarding is needed. The package declares `dsh.bundle.patch`,
+  so `dsh plugin add` reconciles it into `dsh.profile.bundles` and it mounts
+  through its own bundle layer: entry `ds-harness-remote` for ordinary
+  profiles and `ds-harness-remote-tui` only while a dsh-tui entry is active.
+  No `engines.dsh` is declared; its `@deepseek-ai/dsh*` peers
+  (`>=0.2.2-0 <0.2.3-0`) admit the pinned 0.2.2-alpha.2 runtime under
+  `includePrerelease` without an exemption. `@roamhq/wrtc` is an optional
+  native WebRTC dependency (pnpm skips it when unavailable). Independent of
+  the in-repo `dsh-remote` multi-backend/SSH-tunnel mode; both can be
+  installed. See the upstream repository and https://dsh.r2049.cn/app.
 - `harness` — a single flat wrapper at `harness/` that owns the official
   dsh-family plugins it installs: `install.mjs` only loads the sibling installers
   `browser-use.mjs` and `computer-use.mjs`, so the group stays

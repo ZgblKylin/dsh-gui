@@ -187,6 +187,15 @@ browser.
   the model does not notice the pause; the per-session switch is off by
   default.
 
+- **`ds-harness-remote`** — community P2P remote access: continue the running
+  Harness and its workspaces from another PC, a phone, or the web over a
+  low-latency, end-to-end encrypted connection (no public listener or router
+  port forwarding), plus a host-side `remote_*` tool group for listing hosts
+  and workspaces and driving Harness sessions from an Agent. Installs from
+  npm and mounts through its own bundle patch (`ds-harness-remote` entry;
+  `ds-harness-remote-tui` only for dsh-tui profiles); independent of the
+  in-repo `dsh-remote` multi-backend mode.
+
 ![dsh-gui with the plugin features expanded](docs/dsh-gui/images/dsh-gui-features.png)
 
 ## Requirements
