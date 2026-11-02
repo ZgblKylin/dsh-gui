@@ -36,7 +36,7 @@
 
 - `harness.json` 的 `runtime` 决定外壳与构建用哪个 dsh：`npm` 从 registry 安装 `@deepseek-ai/dsh@<version>` 到运行时根的 `.harness/`，`source` 编译 `deepseek-harness` 子模块；契约见 `scripts/harness-runtime.mjs` 与 `src-tauri/src/harness.rs`，说明见 `docs/dsh-gui/harness-runtime.md`。
 - `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范与提供版本；不要编辑其中的任何文件，不要从该目录向插件源码复制代码。
-- 新增插件时，npm 型只建 `plugins/<id>/install.mjs`，用 `installNpmPlugin` 固定精确版本；in-tree 型才在 `plugins/<id>/<package>` 下建源码包（`package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`），wrapper 用 `installPlugin` 构建并挂载（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）。
+- 新增插件时，npm 型只建 `plugins/<id>/install.mjs`，用 `installNpmPlugin` 固定精确版本（`packageSpec` 必须是 `<包名>@<精确版本>` 字面量——外壳与 desktop 插件的更新面板按它检测并就地改写，见 `plugins/README.md` 的安装方式段）；in-tree 型才在 `plugins/<id>/<package>` 下建源码包（`package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`），wrapper 用 `installPlugin` 构建并挂载（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）。
 
 ## 环境检查
 

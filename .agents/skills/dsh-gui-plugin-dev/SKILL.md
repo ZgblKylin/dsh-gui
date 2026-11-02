@@ -175,9 +175,12 @@ installPlugin({
 
 - 安装脚本必须幂等，重复执行结果一致（共享流水线按 entry id 去重）。
 - 只写 `DSH_HOME`（缺省 `<runtime-root>/.dsh`），不写系统全局位置。
-- npm 型 wrapper 的 `packageSpec` 必须是 `<包名>@<精确版本>` 字符串字面量：desktop
-  更新面板按字面量生成插件行并就地改写版本，从文件读取或用拼接构造的 spec 不会被检测
-  与更新（见 `plugins/README.md` 的安装方式约定）。
+- npm 型 wrapper 的 `packageSpec` 必须是 `<包名>@<精确版本>` 字符串字面量：本仓库的
+  更新面板（外壳与 desktop 插件两个入口）按字面量生成插件行并就地改写版本，从文件
+  读取或用拼接构造的 spec 不会被检测与更新；脚本还必须能按改写后的 pin 原样重跑
+  （更新面板改完字面量后直接重跑 wrapper），见 `plugins/README.md` 的安装方式约定。
+- 版本 pin 只有一个事实源：不要在注释或 README 里维护第二份版本号——更新只改写脚本
+  中的字面量，脚本注释里的同文会被一并替换，但文档里的旧版本不会自动更新。
 - 准入闸门读取包声明的 dsh 版本要求（`engines.dsh`，没有时比对 `@deepseek-ai/dsh*`
   peer 区间）：区间不接纳当前 runtime 时 `dsh plugin add` 拒绝安装，只有
   `installNpmPlugin` 的 `exempt` 能授予精确版本例外，例外按包版本与 runtime 版本精确

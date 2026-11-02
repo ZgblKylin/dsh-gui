@@ -91,6 +91,19 @@ node deepseek-harness/apps/cli/lib/bin.js --profile web --dump-config
 - `dsh.bundle.patch` 声明的包在下次启动时以 bundle 层进入 Loader 组合（重启
   dsh-gui / harness 生效）。
 
+## 仓库 wrapper 的安装脚本约定
+
+本仓库 `plugins/<id>/install.mjs` 既是安装入口，也是更新面板（外壳与 desktop 插件）检测与改写版本的唯一来源，写法有硬性要求：
+
+1. npm 型 wrapper 必须调用 `installNpmPlugin`：更新面板只扫描 `plugins/**/*.mjs` 中包含 `installNpmPlugin(` 的文件。
+2. `packageSpec` 必须是 `<包名>@<精确版本>` 字符串字面量，直接写在调用里或先赋给常量/数组字面量均可；不得从其他文件读取版本、用拼接或模板构造 spec，也不得使用 `@latest`、版本范围或 git URL——这些写法无法被检测与就地更新。
+3. 脚本必须可重入：更新面板改写字面量后直接重跑该 wrapper，脚本不得缓存「已安装版本」或对旧版本做分支判断；同一脚本的多个包一起更新时只会重跑一次。
+4. 版本 pin 只有一个事实源：不要在其他文件或注释里维护第二份版本号——脚本注释里的同文会被一并替换，但文档里的旧版本不会自动更新。
+5. 官方 `@deepseek-ai/dsh*` 包不产生 npm 插件行，它们随 `deepseek-harness` 一起升级，不要为它们单独 pin。
+6. 更新执行以 `DSH_PLUGIN_PROFILE`（外壳默认 web、desktop 插件默认 desktop）重跑脚本并设置 `DSH_PLUGIN_MIN_AGE=0`；wrapper 必须沿用共享流水线的 profile 选择与安装通道，不要自行写死 profile 或绕过 `dsh plugin add`。
+
+完整写法与示例见 `plugins/README.md` 的「安装方式」段；插件开发侧的同类要求见 `dsh-gui-plugin-dev` skill。
+
 ## 重复构建：跳过与全量重建
 
 `npm run build` 会复用已经就绪的安装，避免每次都为同一批包重跑 `dsh plugin add`
