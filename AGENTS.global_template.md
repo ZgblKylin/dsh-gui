@@ -11,11 +11,6 @@
 
 编写脚本、使用 bash/pwsh 等 shell 命令时，不要使用 home/HOME 等会与系统环境变量产生歧义的变量名。
 
-## 文档参考
-
-- `$env:DSH_HOME/docs/行文规范.md`：文档、大段代码注释与 git 提交信息的行文规范，编写这些内容前先参考。
-- `$env:DSH_HOME/docs/awesome-design-md/`：第三方只读 DESIGN.md 资料集（VoltAgent 的 awesome-design-md，Google Stitch 的纯文本设计系统文档；构建时整体覆盖，不要修改），做 UI / 视觉一致性相关任务时按需读取对应站点的设计语言。
-
 ## Subagent 编排规范
 
 - 简单任务：由主 Agent 直接完成，不额外编排子 Agent。
@@ -29,6 +24,21 @@
 ## 工作目录
 
 需要代码变更时，在仓库的 `.gitignore` 忽略目录下（如bin/）使用 worktree 建立工作目录，并在工作目录中进行代码变更。
+
+## 上下文压缩与历史召回
+
+上下文被压缩后，若摘要缺少继续任务所需的精确细节（错误串、文件路径、用户原话、早期决策依据）：
+
+- 优先用 `session_event_search` 在当前会话历史中按关键词检索（被压缩遮蔽的原文同样可检索，
+  结果会标注 surface），必要时用 `session_event_read` 读取完整事件；
+- 需要确认外部世界当前状态（文件改动、依赖版本、线上行为）时，重新读取/执行，不要只信旧记录；
+- 有不可重放副作用或需精确审计的内容（已发送消息、一次性命令输出）只能查历史；
+- 检索要精确、少量；避免为小细节反复搜索或重跑工具，导致上下文再次膨胀。
+
+## 文档参考
+
+- `$env:DSH_HOME/docs/行文规范.md`：文档、大段代码注释与 git 提交信息的行文规范，编写这些内容前先参考。
+- `$env:DSH_HOME/docs/awesome-design-md/`：第三方只读 DESIGN.md 资料集（VoltAgent 的 awesome-design-md，Google Stitch 的纯文本设计系统文档；构建时整体覆盖，不要修改），做 UI / 视觉一致性相关任务时按需读取对应站点的设计语言。
 
 ## Git 提交规范
 
