@@ -19,10 +19,11 @@
  * There are two row kinds. A git checkout row (the repository root and its
  * non-`plugins/` submodules) is the shell's original row. An npm plugin row is
  * a package whose version is the exact npm pin in a repository install script:
- * it drops the tag/commit selector and 「更新日志」 (a GitHub release cannot be
- * mapped reliably onto an npm version), shows the pin against the registry's
- * latest, and its 「更新」 rewrites that pin and re-runs the wrapper. Batch
- * actions keep filtering by `behind`, so npm plugin rows take part naturally.
+ * it drops the tag/commit selector (there is no revision to pick), shows the pin
+ * against the registry's latest, and its 「更新」 rewrites that pin and re-runs
+ * the wrapper. Its 「更新日志」 lists the GitHub Releases published between the
+ * pin and that latest version instead of a commit range. Batch actions keep
+ * filtering by `behind`, so npm plugin rows take part naturally.
  *
  * The footer's post-update hint is built from the host's `buildCommand` — this
  * module never spells a command of its own — and its sentence depends on the
@@ -402,8 +403,8 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
   /** One module row: a git checkout row, or an npm plugin row (see `renderNpmRow`). */
   const renderRow = (project: UpdateProject, asChecking: boolean): HTMLElement => {
     // npm plugin rows have a different model: their version is the install
-    // script's pin, so there is no tag/commit target and no changelog (a GitHub
-    // release cannot be mapped reliably onto an npm version).
+    // script's pin, so there is no tag/commit target to pick and the changelog
+    // reads the GitHub Releases in the pin..latest range instead of commits.
     if (isNpmProject(project)) return renderNpmRow(project, asChecking)
     const row = document.createElement('div')
     row.setAttribute(ROW_ATTR, '')
@@ -568,9 +569,9 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
    *
    * The row is a package pinned by a repository install script: its version is
    * compared against the registry's latest, so there is no tag/commit target to
-   * pick and no 「更新日志」 button (a GitHub release cannot be mapped reliably
-   * onto an npm version). Its actions are 「更新」 — rewrite the pin and re-run
-   * the wrapper — and 「AI 更新」.
+   * pick. Its actions are 「更新日志」 — the GitHub Releases published between the
+   * pin and the latest version — 「更新」 (rewrite the pin and re-run the
+   * wrapper), and 「AI 更新」.
    */
   const renderNpmRow = (project: UpdateProject, asChecking: boolean): HTMLElement => {
     const row = document.createElement('div')
@@ -641,6 +642,8 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
       ? project.installScript
       : project.path
     const target = project.latest !== '' ? project.latest : '最新版本'
+    const changelogButton = button('更新日志', LOG_ATTR)
+    changelogButton.title = '查看本次更新会带来的变更：读取安装脚本当前 pin 到 npm 最新版本之间的 GitHub Release 说明'
     const runButton = button('更新', RUN_ATTR)
     runButton.setAttribute(PRIMARY_ATTR, '')
     runButton.title = `把安装脚本 ${script !== '' ? script : '（未知路径）'} 中的版本 pin 改到 ${target} 并重新执行该脚本，完成本行插件的重新安装（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。完成后按底部提示重新构建。`
@@ -648,9 +651,10 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     const aiButton = button('AI 更新', AI_ATTR)
     aiButton.title = `回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 ${AI_UPDATE_SKILL} 提示词（发送前可再改）`
 
+    changelogButton.addEventListener('click', () => { options.changelog.open(project, 'commit') })
     runButton.addEventListener('click', () => { void runUpdate([project]) })
     aiButton.addEventListener('click', () => { void runAiUpdate([project]) })
-    action.append(runButton, aiButton)
+    action.append(changelogButton, runButton, aiButton)
     row.append(info, action)
     return row
   }

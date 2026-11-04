@@ -32,6 +32,12 @@ Agent/Session），不可用时回退到一次性 headless 运行（会话存储
 用完删除）。单个版本的更新保留原有的
 `GitHub Release「<名称>（<tag>）」官方说明（发布于 …）` 标题格式。
 
+## npm 插件行
+
+npm 插件行的「更新日志」不用 git 提交区间，也不调用 AI：`prepare` 按 `npm:` 前缀分流到 `prepare_npm`，从安装脚本读出当前 pin，再向 registry 的 `/<pkg>/latest` 查询最新版本与 `repository`，抓取该包 GitHub 仓库的 Release 列表（`/releases?per_page=100`，最多 3 页），筛出满足 `pin < version <= latest` 的版本（含最新版本、不含当前 pin），按 `published_at` 时间逆序渲染，节格式与 git 行的多 Release 相同。版本号从 Release tag 提取：去掉 `v` / `V` 前缀后整段可解析为 semver 时直接使用，否则取 tag 里最后一个 semver 子串，提取不出的 tag 跳过；`latest` 没有对应 Release 时也不报错。`releaseUrl` 取该包仓库的 Releases 列表页，正文与标题链接都不依赖 git origin。npm 行的更新日志不经过 harness，`update_changelog` 对 `npm:` 前缀的行不检查 harness 就绪状态。
+
+以下情况只渲染提示而不报错：版本区间内没有任何 Release（文案附 Releases 列表页）、包未声明 GitHub 仓库或仓库不在 GitHub（提示无法获取 Release 说明）、当前 pin 已经是最新版本。弹窗加载文案对应地不提示 AI 汇总：「正在获取插件更新日志…（读取 npm registry 版本与 GitHub Release 说明）」，15 秒后改为「正在读取 GitHub Release 说明，可能需要稍等…」。
+
 ## 标题里的 Release 页链接
 
 `prepare` 的 Release 查询一旦**真的取到** Release（`ReleaseLookup::Found`，
@@ -49,6 +55,9 @@ Agent/Session），不可用时回退到一次性 headless 运行（会话存储
   目标一致」这几种情况都不附带链接，标题保持纯文本。
 - AI 汇总路径同样继承该链接（`SummaryRequest.release_url`）：Release 存在但没正文
   时，正文由 AI 生成、标题仍可点进 Releases 页。
+- npm 插件行的链接不走 git origin：`releaseUrl` 来自 registry `/<pkg>/latest` 响应里的
+  `repository` 字段（`update.rs` 的 `github_releases_url` 解析），解析不出 GitHub 仓库
+  时标题保持纯文本。
 - 点击行为：标题行不可选中（外壳全局 `user-select: none`），因此**普通单击**就经
   `open_external` 交给系统浏览器；Ctrl/Cmd+点击由 document 级捕获监听器处理，
   本地处理器在带修饰键时直接放行，避免同一次点击开两个标签页。正文里的链接仍保
@@ -117,6 +126,10 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
   `accept: application/json`（该端点不接受 abbreviated 类型）、结果以
   `writeSync(1, …)` 写出、不调用 `process.exit()`；`update.rs` 的
   `embedded_latest_script_uses_the_full_manifest_accept_type` 钉住这些约定。
+- `RELEASE_FETCH_SCRIPT` 同时服务 git 行与 npm 插件行：候选 tag 为空数组时进入
+  collect-all 模式，不再按 tag 过滤，按发布时间最多收集 3 页 Release，供 npm 行筛选
+  版本区间；超过 3 页时同样以 `partial` 标记不完整，不把未取到的部分报成「没有
+  Release」。
 
 ## 回归保护
 
@@ -128,7 +141,12 @@ Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, li
   `release_range_tags_covers_every_tag_the_update_brings_in`、
   `release_subtitle_and_body_cover_a_multi_release_update`、
   `releases_page_url_points_at_the_release_list_not_a_tag_subpage`、
-  `changelog_serializes_the_release_page_under_the_frontend_field_name`；
+  `changelog_serializes_the_release_page_under_the_frontend_field_name`、
+  `version_from_tag_reads_prefixed_and_scoped_tags`、
+  `select_releases_for_range_keeps_the_update_span`、
+  `npm_release_subtitle_names_the_version_span_for_several_releases`、
+  `releases_url_repository_round_trips_the_list_page`、
+  `prepare_routes_npm_rows_and_rejects_an_empty_package_name`；
 - `update.rs`：`embedded_npm_script_never_calls_process_exit`、
   `npm_answer_is_used_even_when_the_child_aborted`、
   `embedded_latest_script_uses_the_full_manifest_accept_type`。
@@ -161,9 +179,13 @@ Release 正文里的原生 HTML（例如 dsh-web-ui 用的 `<details>` 英文镜
 
 ## 相关文件
 
-- `src-tauri/src/changelog.rs` —— Release 查询、`releases_page_url`、AI 汇总、
-  `run_node_captured`
-- `src-tauri/src/update.rs` —— npm 版本核对脚本与 `emitted_npm_json`
+- `src-tauri/src/changelog.rs` —— Release 查询（git 行按 tag 区间、npm 插件行走
+  `prepare_npm`）、版本区间筛选、`releases_page_url`、AI 汇总、`run_node_captured`
+- `src-tauri/src/update.rs` —— npm 版本核对脚本、`emitted_npm_json` 与 npm 行 pin 扫描
+- `plugins/auto-update/dsh-auto-update/src/changelog.ts` —— desktop 面板的
+  `buildNpmChangelog`（npm 插件行 Release 列表与版本区间筛选）
+- `plugins/auto-update/dsh-auto-update/src/client/changelog-view.ts` —— desktop 面板的
+  多 Release 渲染与 npm 行提示
 - `src-tauri/ui/app.js` —— `openChangelog`：加载态、副标题与错误文本渲染；
   `renderChangelogTitle`：标题里的 Release 页链接；`releasePageAnchor`：标题与更新
   对话框行内模块名共用的链接构造函数

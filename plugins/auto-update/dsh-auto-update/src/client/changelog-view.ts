@@ -1,11 +1,15 @@
 /**
  * The 更新日志 dialog: what one row's pending update brings.
  *
- * The host half answers `GET /api/changelog` with the module's current and
- * target versions, the reachable commits, and — for a tag target on a GitHub
- * origin — the release notes it managed to fetch. This view renders the
- * release body through a safe Markdown subset, falls back to the commit list,
- * and shows a readable line when neither exists.
+ * Two row kinds share the dialog. A git checkout row (the default) answers
+ * `GET /api/changelog` with the module's current and target revisions, the
+ * reachable commits, and — for a tag target on a GitHub origin — the release
+ * notes it managed to fetch; this view renders that body through a safe
+ * Markdown subset, falls back to the commit list, and shows a readable line
+ * when neither exists. An npm plugin row instead answers with the GitHub
+ * Releases published between the install script's pinned version and the
+ * registry's latest version (newest first); each release is rendered as its own
+ * Markdown section, and no AI summary is requested for those rows.
  *
  * The Markdown renderer is ported from the shell's
  * `src-tauri/ui/app.js` (`renderChangelogMarkdown` and friends): every fragment
@@ -16,7 +20,15 @@
  * the shell links to), never a `/releases/tag/…` subpage.
  */
 
-import { fetchAiSummary, fetchChangelog, type Changelog, type ChangelogCommit, type UpdateProject } from './api.ts'
+import {
+  fetchAiSummary,
+  fetchChangelog,
+  isNpmProject,
+  type Changelog,
+  type ChangelogCommit,
+  type ChangelogRelease,
+  type UpdateProject,
+} from './api.ts'
 import type { UpdateMode } from './ai-prompt.ts'
 import { messageOf } from './bridge.ts'
 import { showToast } from './button.ts'
@@ -46,6 +58,9 @@ const CHANGELOG_LOADING_TEXT = '正在获取更新日志…（tag 目标优先�
 
 /** After {@link STALL_MS} the line explains the slow part (verbatim from app.js:2247). */
 const CHANGELOG_AI_LOADING_TEXT = '正在调用 dsh AI 汇总提交变更，可能需要几分钟…'
+
+/** Initial loading line for an npm plugin row (no AI step; the host reads npm + GitHub). */
+const NPM_CHANGELOG_LOADING_TEXT = '正在获取插件更新日志…（读取 npm registry 版本与 GitHub Release 说明）'
 
 /**
  * Prompt cap the dsh-ai-update route enforces (it answers 400 above this), kept
@@ -196,19 +211,109 @@ export function createChangelogView(): ChangelogView {
     sub.replaceChildren(...subParts)
   }
 
-  /** Render Markdown into the body, degrading to plain text on a renderer edge. */
-  const renderMarkdownInto = (text: string): void => {
+  /** npm plugin row subtitle: the pin, the registry latest, and the note source. */
+  const renderNpmVersionSub = (result: Changelog): void => {
+    sub.replaceChildren(
+      document.createTextNode('当前 '),
+      code(result.from !== '' ? result.from : 'unknown'),
+      document.createTextNode(' → 最新 '),
+      code(result.to !== '' ? result.to : 'unknown'),
+      document.createTextNode('（npm 插件；GitHub Release 说明，最新在上）'),
+    )
+  }
+
+  /** Append one release section: version heading, publish date, and its notes. */
+  const appendReleaseSection = (release: ChangelogRelease): void => {
+    const section = document.createElement('section')
+    section.setAttribute('data-dsh-auto-update-changelog-release', '')
+    const heading = document.createElement('h3')
+    heading.textContent = release.name !== '' && release.name !== release.tag
+      ? `${release.tag} · ${release.name}`
+      : release.tag
+    section.append(heading)
+    const published = releaseDateText(release.publishedAt)
+    if (published !== '') {
+      const meta = document.createElement('div')
+      meta.textContent = `发布于 ${published}`
+      section.append(meta)
+    }
+    const notes = document.createElement('div')
+    renderMarkdownInto(notes, release.body)
+    section.append(notes)
+    body.append(section)
+  }
+
+  /**
+   * Render an npm plugin row's changelog: the GitHub Releases in the range from
+   * the install script's pin to the registry's latest version, newest first.
+   * No AI summary is requested for these rows.
+   */
+  const renderNpmChangelog = (project: UpdateProject, result: Changelog): void => {
+    const releaseUrl = result.releaseUrl ?? project.releaseUrl
+    const label = project.name !== '' ? project.name : project.id
+    renderTitle(label, releaseUrl)
+    clearStall()
+    loading.hidden = true
+    loading.removeAttribute('data-error')
+    body.replaceChildren()
+    body.hidden = true
+    renderNpmVersionSub(result)
+
+    if (typeof result.error === 'string' && result.error !== '') {
+      loading.hidden = false
+      loading.setAttribute('data-error', '')
+      loading.textContent = `更新日志获取失败：${result.error}`
+      return
+    }
+
+    const releases = Array.isArray(result.releases)
+      ? result.releases.filter(release => typeof release.body === 'string' && release.body.trim() !== '')
+      : []
+    if (releases.length === 0) {
+      const from = result.from !== '' ? result.from : '未知版本'
+      const to = result.to !== '' ? result.to : '未知版本'
+      const note = document.createElement('div')
+      note.textContent = `未找到 ${from} 到 ${to} 之间的 GitHub Release 说明。`
+      body.append(note)
+      const href = safeUrl(releaseUrl)
+      if (href !== '') {
+        const line = document.createElement('div')
+        line.append(document.createTextNode('可在浏览器查看 Releases 列表：'))
+        const anchor = document.createElement('a')
+        anchor.href = href
+        anchor.textContent = href
+        anchor.title = `点击在浏览器打开 GitHub Releases：${href}`
+        anchor.addEventListener('click', (event) => {
+          event.preventDefault()
+          openExternal(href)
+        })
+        line.append(anchor)
+        body.append(line)
+      }
+      body.hidden = false
+      return
+    }
+
+    releases.forEach((release, index) => {
+      if (index > 0) body.append(document.createElement('hr'))
+      appendReleaseSection(release)
+    })
+    body.hidden = false
+  }
+
+  /** Render Markdown into a container, degrading to plain text on a renderer edge. */
+  const renderMarkdownInto = (container: HTMLElement, text: string): void => {
     try {
-      body.innerHTML = renderMarkdown(text)
+      container.innerHTML = renderMarkdown(text)
     } catch {
       // Never lose the content to a renderer edge: fall back to plain text.
-      body.innerHTML = `<pre class="dsh-auto-update-plain">${escapeHtml(text)}</pre>`
+      container.innerHTML = `<pre class="dsh-auto-update-plain">${escapeHtml(text)}</pre>`
     }
   }
 
   /** Render a release body plus the commits it brings in. */
   const renderReleaseBody = (result: Changelog, releaseBody: string): void => {
-    renderMarkdownInto(releaseBody)
+    renderMarkdownInto(body, releaseBody)
     if (result.commits.length > 0) {
       const caption = document.createElement('h4')
       caption.textContent = '本次包含的提交'
@@ -227,30 +332,38 @@ export function createChangelogView(): ChangelogView {
   }
 
   /**
-   * Load one module's changelog: the GitHub release notes when the host found
-   * them, otherwise a dsh AI summary of the commit range, otherwise (on any AI
+   * Load one row's changelog.
+   *
+   * An npm plugin row renders the GitHub Releases in its pin..latest range (the
+   * host returns no commit list and no AI summary is requested). A git checkout
+   * row loads as before: the GitHub release notes when the host found them,
+   * otherwise a dsh AI summary of the commit range, otherwise (on any AI
    * failure) the plain commit list so the content is never lost.
    */
   const load = async (project: UpdateProject, mode: UpdateMode): Promise<void> => {
     const request = ++generation
+    const npmRow = isNpmProject(project)
     const label = project.name !== '' ? project.name : project.id
-    renderTitle(label, undefined)
+    renderTitle(label, npmRow ? project.releaseUrl : undefined)
     sub.replaceChildren()
     body.hidden = true
     body.replaceChildren()
     loading.hidden = false
     loading.removeAttribute('data-error')
-    loading.textContent = CHANGELOG_LOADING_TEXT
+    loading.textContent = npmRow ? NPM_CHANGELOG_LOADING_TEXT : CHANGELOG_LOADING_TEXT
     element.hidden = false
 
     clearStall()
-    stallTimer = setTimeout(() => {
-      loading.textContent = CHANGELOG_AI_LOADING_TEXT
-    }, STALL_MS)
+    // The AI long-run note only applies to a git row awaiting its summary.
+    if (!npmRow) {
+      stallTimer = setTimeout(() => {
+        loading.textContent = CHANGELOG_AI_LOADING_TEXT
+      }, STALL_MS)
+    }
 
     let result: Changelog
     try {
-      result = await fetchChangelog(project.id, mode)
+      result = await fetchChangelog(project.id, npmRow ? 'commit' : mode)
     } catch (error) {
       if (disposed || request !== generation) return
       clearStall()
@@ -260,6 +373,12 @@ export function createChangelogView(): ChangelogView {
       return
     }
     if (disposed || request !== generation) return
+    // An older host may not report the row kind; the npm-shaped result decides
+    // as well, so the branch works either way.
+    if (npmRow || result.kind === 'npm') {
+      renderNpmChangelog(project, result)
+      return
+    }
     renderTitle(label, project.releaseUrl)
 
     const releaseBody = typeof result.release?.body === 'string' ? result.release.body.trim() : ''
@@ -291,7 +410,7 @@ export function createChangelogView(): ChangelogView {
       // the host's `rev-list --count` (merges included, not the capped list);
       // an older host without the field falls back to the list length.
       sub.textContent = `由 dsh AI 汇总 · ${changelogCount(result)} 条提交 · ${result.from} → ${result.to}`
-      renderMarkdownInto(summary)
+      renderMarkdownInto(body, summary)
       body.hidden = false
     } catch (error) {
       if (disposed || request !== generation) return
@@ -344,6 +463,19 @@ function changelogCount(result: Changelog): number {
   return typeof result.count === 'number' && Number.isFinite(result.count)
     ? result.count
     : result.commits.length
+}
+
+/**
+ * Format a GitHub `published_at` as a readable date (`YYYY-MM-DD`).
+ *
+ * @param publishedAt - the release's publish timestamp, when the host reported one.
+ * @returns the date text, or an empty string when none was reported.
+ */
+function releaseDateText(publishedAt: string | undefined): string {
+  const value = (publishedAt ?? '').trim()
+  if (value === '') return ''
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value)
+  return match?.[1] ?? value
 }
 
 /**

@@ -742,19 +742,22 @@ fn npm_update_check(path: &Path, packages: Vec<String>, tag: &str) -> Option<Npm
 // ---------------------------------------------------------------------------
 
 /// One npm plugin row: one package pinned by one wrapper script.
+///
+/// `pub(crate)`: the changelog backend resolves an npm row id back to its
+/// pinned version through this type (see `crate::changelog::prepare_npm`).
 #[derive(Clone, Debug)]
-struct PluginNpmRow {
+pub(crate) struct PluginNpmRow {
     /// Stable row id: `npm:<packageName>`.
     id: String,
     /// npm package name, e.g. `@max-null/dsh-skill-mcp-center`.
-    package_name: String,
+    pub(crate) package_name: String,
     /// Wrapper script, relative to the repository root and POSIX
     /// (`plugins/<wrapper>/install.mjs`).
     install_script: String,
     /// First directory segment under `plugins/` (the wrapper id).
     wrapper_id: String,
     /// Exact version the script pins.
-    pinned_version: String,
+    pub(crate) pinned_version: String,
     /// The literal as written in the script: `<packageName>@<pinnedVersion>`.
     spec: String,
 }
@@ -769,14 +772,17 @@ struct PinnedSpec {
 }
 
 /// One package's registry `latest` answer, before it is folded into a row.
+///
+/// `pub(crate)`: the changelog backend reads the latest version and repository
+/// URL straight from it (see `crate::changelog::prepare_npm`).
 #[derive(Clone, Debug)]
-struct PackageLatest {
+pub(crate) struct PackageLatest {
     /// `version` of the `/<pkg>/latest` document, when the registry answered.
-    latest: Option<String>,
+    pub(crate) latest: Option<String>,
     /// The manifest's `repository` URL, when it declares one.
-    repository_url: Option<String>,
+    pub(crate) repository_url: Option<String>,
     /// A readable per-package failure; the other packages are unaffected.
-    error: Option<String>,
+    pub(crate) error: Option<String>,
 }
 
 /// Remove `//` line comments and `/* *\/` block comments from JavaScript
@@ -1008,7 +1014,10 @@ fn collect_install_scripts(dir: &Path, scripts: &mut Vec<PathBuf>) {
 /// by install script, then package name, so the dialog's row order is stable
 /// across checks. An unreadable script contributes no rows; an absent
 /// `plugins/` tree is simply an empty list.
-fn plugin_npm_rows(root: &Path) -> Vec<PluginNpmRow> {
+///
+/// `pub(crate)`: the changelog backend resolves an npm row's pinned version
+/// through this scan (see `crate::changelog::prepare_npm`).
+pub(crate) fn plugin_npm_rows(root: &Path) -> Vec<PluginNpmRow> {
     let mut scripts: Vec<PathBuf> = Vec::new();
     collect_install_scripts(&root.join("plugins"), &mut scripts);
     let mut rows: Vec<PluginNpmRow> = Vec::new();
@@ -1123,7 +1132,10 @@ fn compare_numeric_identifiers(left: &str, right: &str) -> std::cmp::Ordering {
 /// identifiers compare left to right (numeric below alphanumeric, shorter list
 /// below a longer one with the same prefix); `None` means "not comparable", so
 /// a malformed version can never be made to claim an update.
-fn compare_versions(a: &str, b: &str) -> Option<std::cmp::Ordering> {
+///
+/// `pub(crate)`: the changelog backend uses the same precedence to place
+/// GitHub releases inside an npm plugin's pinned → latest range.
+pub(crate) fn compare_versions(a: &str, b: &str) -> Option<std::cmp::Ordering> {
     use std::cmp::Ordering as CmpOrdering;
     let left = parse_version(a)?;
     let right = parse_version(b)?;
@@ -1178,7 +1190,10 @@ fn is_newer(latest: &str, current: &str) -> bool {
 /// `https://github.com/o/r`, `git@github.com:o/r` — and the dialog links the
 /// row name to the list the reader can pick a version from. A non-GitHub
 /// repository yields `None` so the row renders without an external link.
-fn github_releases_url(repository: Option<&str>) -> Option<String> {
+///
+/// `pub(crate)`: the changelog backend needs the same page for the npm row's
+/// release notes and title link.
+pub(crate) fn github_releases_url(repository: Option<&str>) -> Option<String> {
     let value = repository?.trim();
     if value.is_empty() {
         return None;
@@ -1310,10 +1325,13 @@ fn parse_latest_results(text: &str, packages: &[String]) -> Vec<PackageLatest> {
 }
 
 /// Query the registry's `/<pkg>/latest` document for `packages`; one embedded
-/// node invocation covers every package. A non-zero child that still flushed a
-/// complete JSON array is accepted (`emitted_npm_json`), mirroring the publish
-/// check.
-fn npm_latest_answers(root: &Path, packages: &[String]) -> Result<Vec<PackageLatest>, String> {
+/// node invocation covers every package (see [`NPM_LATEST_FETCH_SCRIPT`]). A
+/// non-zero child that still flushed a complete JSON array is accepted
+/// (`emitted_npm_json`), mirroring the publish check.
+///
+/// `pub(crate)`: the changelog backend asks for an npm row's latest version and
+/// repository URL through this.
+pub(crate) fn npm_latest_answers(root: &Path, packages: &[String]) -> Result<Vec<PackageLatest>, String> {
     if packages.is_empty() {
         return Ok(Vec::new());
     }

@@ -10,6 +10,14 @@
  * neither runs a model nor starts a headless harness session, because the client
  * asks the already-installed `dsh-ai-update` route for the AI summary instead.
  *
+ * npm plugin rows (`id` starting with `npm:`) use a different changelog: the
+ * row's version range is the install script's pin to the registry's latest
+ * version, so there is no commit range to read. Instead the package
+ * repository's GitHub Releases between the two versions are collected, and the
+ * dialog renders those notes; {@link selectNpmReleases} does the range filter
+ * locally. A GitHub failure here *is* reported in `error`, because unlike a git
+ * row there is no commit list to fall back to.
+ *
  * Failure policy (contract §4.3): a GitHub lookup that fails, 404s, or returns
  * a release without a body is *not* an error — it silently falls back to the
  * commit list. `error` is reserved for local git failures, and an
@@ -18,7 +26,10 @@
  */
 
 import { gitFailure, gitOutput, gitVersion, isGitRepo, localDefaultBranch, remoteDefaultBranch, runGit } from './git.ts'
+import { githubReleasesUrl, npmPackageLatest } from './npm.ts'
 import { isDirectory, listProjects } from './paths.ts'
+import { listPluginNpmRows } from './plugin-specs.ts'
+import { compareVersions } from './version.ts'
 
 /** Raised for an invalid changelog request (unknown project); the route answers 400. */
 export class ChangelogRequestError extends Error {
@@ -49,6 +60,15 @@ const GITHUB_TIMEOUT_MS = 45_000
  */
 const GITHUB_API_BASE = process.env.DSH_AUTO_UPDATE_GITHUB_API_BASE?.trim() || 'https://api.github.com'
 
+/** Row-id prefix of the npm plugin rows; the rest is the package name. */
+const NPM_ROW_PREFIX = 'npm:'
+
+/** Releases requested per GitHub page (the API's maximum). */
+const GITHUB_RELEASES_PER_PAGE = 100
+
+/** Pages fetched at most while collecting a package's releases. */
+const GITHUB_RELEASES_MAX_PAGES = 3
+
 /** One commit row of the changelog. */
 export interface CommitRow {
   /** Abbreviated commit hash. */
@@ -71,18 +91,41 @@ export interface ReleaseNotes {
   body: string
 }
 
+/**
+ * One GitHub Release of an npm package repository, as the dialog renders it.
+ * Releases are ordered newest first by {@link selectNpmReleases}.
+ */
+export interface NpmRelease {
+  /** Release tag, e.g. `v0.7.1`. */
+  tag: string
+  /** Release title; falls back to the tag when GitHub has none. */
+  name: string
+  /** The per-release page. */
+  url: string
+  /** Publish timestamp (ISO 8601); empty when GitHub did not record one. */
+  publishedAt: string
+  /** Release body markdown; may be empty. */
+  body: string
+}
+
 /** The changelog response body. */
 export interface ChangelogResult {
   id: string
   name: string
-  /** Human-readable local version. */
+  /** Row source; a git row omits it (the client reads a missing value as git). */
+  kind?: 'git' | 'npm'
+  /** Human-readable local version; the install script's pin for an npm row. */
   from?: string
-  /** Human-readable target version. */
+  /** Human-readable target version; the registry's latest for an npm row. */
   to?: string
   /** The ref the update would move to: a tag name, or `origin/<branch>`. */
   target?: string
-  targetKind: 'tag' | 'commit'
+  targetKind: 'tag' | 'commit' | 'npm'
   release?: ReleaseNotes
+  /** npm rows only: the GitHub Releases inside `(from, to]`, newest first. */
+  releases?: NpmRelease[]
+  /** npm rows only: the package repository's Releases list page. */
+  releaseUrl?: string
   commits: CommitRow[]
   /**
    * `git rev-list --count <from>..<to>`: every commit in the range, merge
@@ -102,14 +145,16 @@ export interface ChangelogResult {
 }
 
 /**
- * Build the changelog for one project's pending update.
+ * Build the changelog for one row's pending update.
  * @param root - repository root.
- * @param id - project id (`dsh-gui`, or a `.gitmodules` name).
- * @param mode - the update target kind the user selected.
- * @returns the response body; local git failures travel in `error`.
- * @throws {ChangelogRequestError} when no project has this id.
+ * @param id - row id: `dsh-gui`, a `.gitmodules` name, or `npm:<packageName>`.
+ * @param mode - the update target kind the user selected (git rows only; an npm
+ *   row ignores it because its range is the pin-to-registry one).
+ * @returns the response body; failures travel in `error`.
+ * @throws {ChangelogRequestError} when no row has this id.
  */
 export async function buildChangelog(root: string, id: string, mode: 'tag' | 'commit'): Promise<ChangelogResult> {
+  if (id.startsWith(NPM_ROW_PREFIX)) return await buildNpmChangelog(root, id)
   const project = listProjects(root).find((row) => row.id === id)
   if (project === undefined) throw new ChangelogRequestError(`未知工程：${id}`)
   const result: ChangelogResult = { id, name: project.name, targetKind: mode, commits: [], count: 0, diffstat: '', truncated: false }
@@ -228,8 +273,8 @@ function capSubject(subject: string): string {
 }
 
 /**
- * Extract `owner/repo` from a GitHub `origin` URL (https, git@, or ssh forms);
- * another host yields `undefined`.
+ * Extract `owner/repo` from a GitHub URL (https, git@, ssh, or git protocol
+ * forms); another host yields `undefined`.
  */
 export function githubRepo(url: string | undefined): { owner: string; repo: string } | undefined {
   const value = url?.trim()
@@ -239,6 +284,7 @@ export function githubRepo(url: string | undefined): { owner: string; repo: stri
   else if (value.startsWith('https://github.com/')) rest = value.slice('https://github.com/'.length)
   else if (value.startsWith('http://github.com/')) rest = value.slice('http://github.com/'.length)
   else if (value.startsWith('ssh://git@github.com/')) rest = value.slice('ssh://git@github.com/'.length)
+  else if (value.startsWith('git://github.com/')) rest = value.slice('git://github.com/'.length)
   else return undefined
   if (rest.endsWith('.git')) rest = rest.slice(0, -'.git'.length)
   const parts = rest.split('/').filter((part) => part !== '')
@@ -287,4 +333,200 @@ async function fetchRelease(owner: string, repo: string, tag: string): Promise<R
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * A GitHub release entry as fetched, before the version-range filter. The
+ * `prerelease` flag is kept only while fetching: the dialog highlights the
+ * range's releases, not GitHub's prerelease marking.
+ */
+interface FetchedRelease extends NpmRelease {
+  prerelease: boolean
+}
+
+/** A releases-page fetch: the entries, or a message for the row's `error`. */
+type ReleaseListResult = { releases: FetchedRelease[] } | { error: string }
+
+/** A whole tag that already *is* a version once a leading `v` is dropped. */
+const SEMVER_TEXT = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+
+/** A version-shaped substring of a tag like `release-1.2.3`. */
+const SEMVER_SUBSTRING = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g
+
+/**
+ * The version a release tag denotes: drop a leading `v`/`V`, use the whole
+ * string when that is semver, and otherwise take the last version-shaped
+ * substring (`release-1.2.3` → `1.2.3`). `undefined` when the tag names no
+ * version.
+ */
+export function versionFromTag(tag: string): string | undefined {
+  const value = tag.trim()
+  if (value === '') return undefined
+  const withoutPrefix = value.startsWith('v') || value.startsWith('V') ? value.slice(1) : value
+  if (SEMVER_TEXT.test(withoutPrefix)) return withoutPrefix
+  const matches = withoutPrefix.match(SEMVER_SUBSTRING)
+  return matches === null || matches.length === 0 ? undefined : matches[matches.length - 1]
+}
+
+/**
+ * The releases inside the update range `(from, to]`, newest published first.
+ * `from` is the installed version and `to` the registry's latest, so the
+ * range's endpoints follow semver order rather than the release list's order;
+ * a release whose tag names no version is skipped.
+ */
+export function selectNpmReleases(releases: readonly NpmRelease[], from: string, to: string): NpmRelease[] {
+  const matched: NpmRelease[] = []
+  for (const release of releases) {
+    const version = versionFromTag(release.tag)
+    if (version === undefined) continue
+    if (!(compareVersions(from, version) < 0)) continue
+    if (!(compareVersions(version, to) <= 0)) continue
+    matched.push({
+      tag: release.tag,
+      name: release.name,
+      url: release.url,
+      publishedAt: release.publishedAt,
+      body: release.body,
+    })
+  }
+  matched.sort((left, right) => {
+    if (left.publishedAt === right.publishedAt) return 0
+    return left.publishedAt < right.publishedAt ? 1 : -1
+  })
+  return matched
+}
+
+/** The owner/repo of an npm `repository` URL, `git+` transport prefix accepted. */
+function packageRepository(repositoryUrl: string | undefined): { owner: string; repo: string } | undefined {
+  const value = repositoryUrl?.trim()
+  if (value === undefined || value === '') return undefined
+  return githubRepo(value.startsWith('git+') ? value.slice('git+'.length) : value)
+}
+
+/** Describe a caught value for a user-facing message. */
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** Normalize one GitHub release JSON entry; entries without a tag are dropped. */
+function parseReleaseItem(entry: unknown): FetchedRelease | undefined {
+  if (entry === null || typeof entry !== 'object') return undefined
+  const record = entry as Record<string, unknown>
+  const tag = typeof record.tag_name === 'string' ? record.tag_name.trim() : ''
+  if (tag === '') return undefined
+  const name = typeof record.name === 'string' && record.name.trim() !== '' ? record.name.trim() : tag
+  const url = typeof record.html_url === 'string' ? record.html_url.trim() : ''
+  const publishedAt = typeof record.published_at === 'string' ? record.published_at.trim() : ''
+  const body = typeof record.body === 'string' ? record.body : ''
+  return { tag, name, url, publishedAt, body, prerelease: record.prerelease === true }
+}
+
+/**
+ * Fetch up to {@link GITHUB_RELEASES_MAX_PAGES} pages of a repository's
+ * releases, newest first. Every failure is reported as a message, because an
+ * npm row has no commit list to fall back to.
+ */
+async function fetchReleaseList(owner: string, repo: string): Promise<ReleaseListResult> {
+  const collected: FetchedRelease[] = []
+  for (let page = 1; page <= GITHUB_RELEASES_MAX_PAGES; page += 1) {
+    let payload: unknown
+    try {
+      const response = await fetch(
+        `${GITHUB_API_BASE}/repos/${owner}/${repo}/releases?per_page=${GITHUB_RELEASES_PER_PAGE}&page=${page}`,
+        {
+          headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-auto-update' },
+          signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+        },
+      )
+      if (!response.ok) return { error: `GitHub Releases 请求失败（HTTP ${response.status}）` }
+      payload = await response.json()
+    } catch (error) {
+      return { error: `GitHub Releases 请求失败：${errorText(error)}` }
+    }
+    if (!Array.isArray(payload)) return { error: 'GitHub Releases 返回格式无法解析' }
+    for (const entry of payload) {
+      const release = parseReleaseItem(entry)
+      if (release !== undefined) collected.push(release)
+    }
+    // A short page is the last page.
+    if (payload.length < GITHUB_RELEASES_PER_PAGE) break
+  }
+  return { releases: collected }
+}
+
+/** The npm row's result scaffold: the pin is `from`, the latest is `to`. */
+function npmChangelogResult(id: string, packageName: string, pinnedVersion: string): ChangelogResult {
+  return {
+    id,
+    name: packageName,
+    kind: 'npm',
+    from: pinnedVersion,
+    // The latest version is filled in once the registry answered; the empty
+    // string keeps the field present for the client while it is unknown.
+    to: '',
+    targetKind: 'npm',
+    releases: [],
+    commits: [],
+    count: 0,
+    diffstat: '',
+    truncated: false,
+  }
+}
+
+/**
+ * Build an npm plugin row's changelog: the package repository's GitHub Releases
+ * inside `(pinned, registry latest]`.
+ *
+ * The range's two ends come from the install script and the registry rather than
+ * from local git, so a lookup failure is reported in `error` — there is no
+ * commit list to fall back to.
+ * @param root - repository root.
+ * @param id - the row id, `npm:<packageName>`.
+ * @throws {ChangelogRequestError} when the id or its install-script pin cannot be resolved.
+ */
+async function buildNpmChangelog(root: string, id: string): Promise<ChangelogResult> {
+  const packageName = id.slice(NPM_ROW_PREFIX.length).trim()
+  if (packageName === '') throw new ChangelogRequestError('npm 行的 id 缺少包名')
+  const plugin = (await listPluginNpmRows(root)).find((row) => row.packageName === packageName)
+  if (plugin === undefined) throw new ChangelogRequestError('安装脚本中找不到该 npm 插件的 pin')
+  const result = npmChangelogResult(id, packageName, plugin.pinnedVersion)
+
+  const answers = await npmPackageLatest([packageName])
+  const answer = answers[0]
+  if (answer === undefined) {
+    result.error = 'npm 版本查询失败：未返回结果'
+    return result
+  }
+  if (answer.error !== undefined) {
+    result.error = `npm 版本查询失败：${answer.error}`
+    return result
+  }
+  const latest = answer.latest?.trim()
+  if (latest === undefined || latest === '') {
+    result.error = 'npm 版本查询失败：未返回最新版本'
+    return result
+  }
+  result.to = latest
+
+  const releaseUrl = githubReleasesUrl(answer.repositoryUrl)
+  if (releaseUrl === undefined) {
+    result.error = '该 npm 包未声明 GitHub repository'
+    return result
+  }
+  result.releaseUrl = releaseUrl
+  const repo = packageRepository(answer.repositoryUrl)
+  if (repo === undefined) {
+    result.error = '该 npm 包未声明 GitHub repository'
+    return result
+  }
+
+  const fetched = await fetchReleaseList(repo.owner, repo.repo)
+  if ('error' in fetched) {
+    result.error = fetched.error
+    return result
+  }
+  const matched = selectNpmReleases(fetched.releases, plugin.pinnedVersion, latest)
+  result.releases = matched
+  result.count = matched.length
+  return result
 }

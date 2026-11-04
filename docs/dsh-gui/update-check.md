@@ -76,6 +76,7 @@ npm 插件行的提示词去掉「更新子模块」相关内容，说明包名�
 - **标注**：`behind = is_newer(latest, pin)`，`announce = behind`；`releaseUrl` 由 manifest 的 `repository` 解析为 `https://github.com/<owner>/<repo>/releases`（覆盖 `git+https://`、`https://`、`ssh://git@github.com/`、`git@github.com:` 等形式），非 GitHub 仓库或未声明时省略。
 - **失败隔离**：探测失败的行只带 `error`（`latest` 为「—」、`behind=false`、不计入角标），不改变任何 git 行的状态；`allChecked` 只反映 git 行完整性，npm 行的失败不翻转它，状态行的「N 个工程检查失败」也只统计 git 行。整次调用失败（超时、node 启动失败）时所有 npm 行记录同一错误。
 - **本地预览**：`local_update_projects` 在 git 行之后追加 npm 插件行占位：`current` 为脚本 pin、`latest` 为「检查中…」、`checking=true`、不联网。
+- **更新日志**：npm 插件行落后时同样有「更新日志」按钮：命令 `update_changelog` 对 `npm:` 前缀的 id 走 `prepare_npm`，读取安装脚本 pin 与 registry 最新版本，抓取该包 GitHub 仓库的 Release 列表并筛选 `(pin, latest]` 版本区间，按发布时间倒序渲染，不调用 AI，也不检查 harness 是否就绪；无匹配 Release、包未声明 GitHub 仓库或仓库不在 GitHub 时只渲染提示，不报错。详见 [update-changelog.md](update-changelog.md) 的「npm 插件行」。
 
 ## 行内模块名的 Releases 页链接
 
@@ -88,7 +89,7 @@ npm 插件行的提示词去掉「更新子模块」相关内容，说明包名�
 - 远端不是 GitHub（自建 GitLab、镜像、本地路径）时值为 `None`，模块名保持纯文本；
 - 链接目标是 **Releases 列表页**，不是 `/releases/tag/<tag>` 子页面：一行并不绑定某一个版本。
 
-线协议字段为 `releaseUrl`（`ProjectUpdate.release_url` 经 camelCase 序列化），`None` 时整个字段省略。前端（`src-tauri/ui/app.js` 的 `updateRow` 与 `updateNpmRow`）在 URL 通过 `externalSafeUrl` 的 http(s)/mailto 校验后才渲染成 `<a>`；普通单击经 `open_external` 交给系统默认浏览器，Ctrl/Cmd+点击由 document 级捕获监听器处理，本地处理器在带修饰键时放行，避免同一次点击打开两个标签页。更新日志弹窗标题的链接复用同一个 `releasePageAnchor` 构造函数，但触发条件不同（见 [update-changelog.md](update-changelog.md)）。
+线协议字段为 `releaseUrl`（`ProjectUpdate.release_url` 经 camelCase 序列化），`None` 时整个字段省略。前端（`src-tauri/ui/app.js` 的 `updateRow` 与 `updateNpmRow`）在 URL 通过 `externalSafeUrl` 的 http(s)/mailto 校验后才渲染成 `<a>`；普通单击经 `open_external` 交给系统默认浏览器，Ctrl/Cmd+点击由 document 级捕获监听器处理，本地处理器在带修饰键时放行，避免同一次点击打开两个标签页。更新日志弹窗标题的链接复用同一个 `releasePageAnchor` 构造函数，但触发条件不同（见 [update-changelog.md](update-changelog.md)）：npm 插件行的标题链接同样用该行 `releaseUrl`，即 registry `repository` 解析出的 Releases 列表页。
 
 ## 更新执行
 
@@ -131,7 +132,7 @@ npm 插件行的提示词去掉「更新子模块」相关内容，说明包名�
 - 同一包被两个安装脚本 pin 时行 id 重复（`npm:<packageName>`），更新只落扫描顺序第一个脚本；当前仓库没有这种情况。
 - 同一 wrapper 安装多个包时，逐行执行「更新」会各执行一次该安装脚本；外壳的批量执行不按脚本合并（desktop 插件在批量更新时按脚本合并）。
 - 安装脚本超时（10 分钟）只终止直接 node 子进程；wrapper 内部再 spawn 的 pnpm/dsh 孙进程可能残留。
-- npm 行不提供更新日志：GitHub Release 与 npm 版本无法可靠对应。
+- npm 行的更新日志依赖 GitHub Release 与可解析 semver：包未声明 GitHub 仓库、仓库不在 GitHub、tag 解析不出版本或区间内没有 Release 时只给提示；正文取自 Release 说明，不由 npm 元数据推导。
 - npm 行的「更新」不经过 `.staging` 验证，与 git 行就地更新的定位一致；需要完整验证时走「AI 更新」。
 - 更新会改写仓库安装脚本，属于仓库文件写操作，不可用 git 回滚；执行前备份原文，脚本失败或超时时写回；与检测、顶层更新共用更新锁，串行执行。
 - npm 行的 `releaseUrl` 来自 registry 响应的 `repository` 字段，包未声明仓库或仓库不在 GitHub 时行名没有外链。
@@ -140,7 +141,7 @@ npm 插件行的提示词去掉「更新子模块」相关内容，说明包名�
 
 ## 一次性 node 脚本的退出约定
 
-更新检查的 npm 版本核对（git 行的发布状态与 npm 插件行的 `/<pkg>/latest` 探测）与「更新日志」都靠 Rust 侧写出临时 `.mjs`、再以文件重定向 stdio 启动 `node` 执行。这类脚本**不得调用 `process.exit()`**：在 Windows 上 `fetch`（undici）的连接池仍持有待处理的 async 句柄，此时退出会让 libuv 断言
+更新检查的 npm 版本核对（git 行的发布状态与 npm 插件行的 `/<pkg>/latest` 探测）与「更新日志」（git 行的 tag 区间与 npm 插件行的版本区间共用同一个 Release 列表脚本，npm 行以空候选 tag 进入 collect-all 模式，最多 3 页）都靠 Rust 侧写出临时 `.mjs`、再以文件重定向 stdio 启动 `node` 执行。这类脚本**不得调用 `process.exit()`**：在 Windows 上 `fetch`（undici）的连接池仍持有待处理的 async 句柄，此时退出会让 libuv 断言
 
 ```
 Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94

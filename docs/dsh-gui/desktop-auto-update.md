@@ -34,7 +34,7 @@ client 半只在 `window.dshDesktop?.protocolVersion === 1` 存在时挂载，`d
 
 git 行展示模块名（有 `releaseUrl` 时为外链，指向 GitHub Releases 列表页）、`当前 → 最新`、tag/commit 目标选择（`latestTagStale` 时 tag 项禁用并回退最新提交）、状态与错误，以及行内「更新」「更新日志」「AI 更新」。行内的 npm 提示与外壳逐字一致：该行 `npm.error` 存在时显示 `npm 版本核对失败：{error}（不影响 git 更新检测）`；否则当 `npm.complete !== true` 时显示 `⚠ 上游 npm 尚未发布 {latestTag 或「新 tag」} 对应版本：{missing 以「、」连接，空则「部分包」}（{npm 最新 <latest 去重后以 " / " 连接>}，无 latest 值时为「npm 状态未知」）。本行更新只移动源码 checkout，已安装插件需等 npm 发布后重新执行插件安装。`
 
-npm 行展示包名（有 `releaseUrl` 时为外链，指向该包 GitHub Releases 列表页）、`当前 pin → 最新`、状态与错误；不渲染 tag/commit 目标选择（没有 revision 可移动），也不渲染「更新日志」（GitHub Release 与 npm 版本无法可靠对应）。动作是「更新」（改写安装脚本的 pin 并重新执行该脚本）与「AI 更新」；已是最新时显示「已是最新」与禁用的更新按钮，检查失败的行显示行内错误与「不可检查」。
+npm 行展示包名（有 `releaseUrl` 时为外链，指向该包 GitHub Releases 列表页）、`当前 pin → 最新`、状态与错误；不渲染 tag/commit 目标选择（没有 revision 可移动）。落后时动作是「更新日志」「更新」（改写安装脚本的 pin 并重新执行该脚本）与「AI 更新」；更新日志按安装脚本 pin 与 registry 最新版本筛选 GitHub Release 说明（见下文「更新日志」），不走 AI。已是最新时显示「已是最新」与禁用的更新按钮，检查失败的行显示行内错误与「不可检查」。
 
 「更新」逐行追加 host 的 NDJSON 日志到卡片内的日志区，结束时刷新状态，全过程禁用重复提交；所有网络失败（路由 404/500、断网）在对话框内以可读文案呈现，不抛未捕获异常。
 
@@ -84,9 +84,11 @@ npm 行忽略 `mode`（client 固定传 `commit`）。组内流程：重新扫�
 
 ### `GET /auto-update/api/changelog`
 
-仅 git 行使用。查询参数 `id=<projectId>` 与 `mode=<tag|commit>`（`mode` 缺省为 `commit`）；200 响应含 `id`、`name`、`from`（本地当前版本）、`to`（更新目标版本）、`target`（tag 名或 `origin/<branch>`）、`targetKind`、可选的 `release`（`tag`/`name`/`url`/`body`）、`commits`（`sha`/`subject`/`author`/`date`）、`count`、`diffstat`、`truncated` 与 `error`（仅用于本地 git 失败；此时 `from`/`to`/`target` 与 `release` 一并省略）。
+git 行与 npm 插件行都使用。查询参数 `id=<projectId>` 与 `mode=<tag|commit>`（`mode` 对 npm 行无意义，client 固定传 `commit`）；git 行的 200 响应含 `id`、`name`、`from`（本地当前版本）、`to`（更新目标版本）、`target`（tag 名或 `origin/<branch>`）、`targetKind`、可选的 `release`（`tag`/`name`/`url`/`body`）、`commits`（`sha`/`subject`/`author`/`date`）、`count`、`diffstat`、`truncated` 与 `error`（仅用于本地 git 失败；此时 `from`/`to`/`target` 与 `release` 一并省略）。
 
-提交列表来自 `git log --no-merges --date=short --pretty=%h%x09%s%x09%an%x09%ad from..to`，上限 400 条、单条 subject 200 字符；`count` 来自 `git rev-list --count from..to`（含 merge 提交、不受 400 条上限约束，无可用更新时为 0），`diffstat` 是 `git diff --stat --no-color from..to` 的原文（上限 3000 字符**含**截断标记 `…（已截断）`，无可用更新时为空串）；两者供 client 的 AI 摘要使用。无可用更新（远端与本地相同、或该行有 error）时返回 200 且 `commits: []`、`count: 0`、`diffstat: ""`，由 client 显示「无可展示的更新日志」。npm 行不提供更新日志（GitHub Release 与 npm 版本无法可靠对应）。
+提交列表来自 `git log --no-merges --date=short --pretty=%h%x09%s%x09%an%x09%ad from..to`，上限 400 条、单条 subject 200 字符；`count` 来自 `git rev-list --count from..to`（含 merge 提交、不受 400 条上限约束，无可用更新时为 0），`diffstat` 是 `git diff --stat --no-color from..to` 的原文（上限 3000 字符**含**截断标记 `…（已截断）`，无可用更新时为空串）；两者供 client 的 AI 摘要使用。无可用更新（远端与本地相同、或该行有 error）时返回 200 且 `commits: []`、`count: 0`、`diffstat: ""`，由 client 显示「无可展示的更新日志」。
+
+npm 插件行（`id` 为 `npm:<packageName>`）不读 git：host 重新扫描安装脚本得到 pin，向 registry 查询最新版本与仓库，抓取该包 GitHub 仓库的 Release 列表（`/repos/<owner>/<repo>/releases?per_page=100&page=<n>`，最多 3 页，单请求 45s 超时），筛出 `(pin, latest]` 版本、按发布时间倒序。200 响应的 `kind` 为 `npm`、`from` 为 pin、`to` 为 registry 最新版、`targetKind` 为 `npm`，附 `releases`（`tag` / `name` / `url` / `publishedAt` / `body`）与 `releaseUrl`（Releases 列表页），`commits` 为空、`count` 为 0、`diffstat` 为空串。区间内没有 Release、包未声明 GitHub 仓库、仓库不在 GitHub 或抓取失败时仍返回 200，并在 `error` 里给可读提示；client 不调用 AI 汇总。
 
 ## 检测耗时（实测背景）
 
@@ -124,9 +126,11 @@ git 行清单来自仓库根 `.gitmodules`（路径以 `plugins/` 开头的条�
 
 ## 更新日志
 
-git 行只要落后于远端就有「更新日志」按钮；npm 行没有该按钮。`targetKind=tag`、origin 解析为 GitHub `owner/repo` 且取到说明时，优先渲染该 Release 的标题与正文（`https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>`，匿名、45s 超时、`Accept: application/vnd.github+json`），标题旁的链接指向该 tag 的 `/releases/tag/<tag>` 子页面，且**不**调用 AI；Release 取不到不算错误，改走下一段的 AI 汇总；无可用更新或该行有 error 时显示「无可展示的更新日志」，行内模块名链接仍是仓库的 Releases 列表页。
+git 行只要落后于远端、npm 插件行落后于 registry 最新版本时，都有「更新日志」按钮。git 行的 `targetKind=tag`、origin 解析为 GitHub `owner/repo` 且取到说明时，优先渲染该 Release 的标题与正文（`https://api.github.com/repos/<owner>/<repo>/releases/tags/<tag>`，匿名、45s 超时、`Accept: application/vnd.github+json`），标题旁的链接指向该 tag 的 `/releases/tag/<tag>` 子页面，且**不**调用 AI；Release 取不到不算错误，改走下一段的 AI 汇总；无可用更新或该行有 error 时显示「无可展示的更新日志」，行内模块名链接仍是仓库的 Releases 列表页。
 
 没有 Release 说明时（tag 取不到 release，或目标是提交）改由 dsh AI 汇总：client 按 `src-tauri/src/changelog.rs` 的 `build_prompt` 语义构造提示词（角色行、`仓库「{name}」（{id}）即将从 {from} 更新到 {to}（{label}）`、输出要求、`提交列表（hash|作者|日期|主题）` 与 `变更统计（diff --stat）` 两段），`POST /dsh-gui-api/changelog`（body `{ prompt }`，即已装在 desktop profile 的 `dsh-ai-update` 的 raw-LLM 路由，不建 Agent/Session）并把响应的 `text` 作为 Markdown 正文渲染。
+
+npm 插件行走独立分支，不调用 AI：host 按安装脚本 pin 与 registry 最新版本抓取该包 GitHub 仓库的 Release 列表，筛出 `(pin, latest]` 版本并按发布时间倒序，client 逐节渲染 `tag · 名称`、发布时间与正文；副标题为 `当前 <pin> → 最新 <latest>（npm 插件；GitHub Release 说明，最新在上）`。区间内没有任何 Release 时显示「未找到 <pin> 到 <latest> 之间的 GitHub Release 说明。」并给出 Releases 列表页；包未声明 GitHub 仓库、仓库不在 GitHub 或请求失败时显示「更新日志获取失败：<原因>」。标题链接用该包仓库的 Releases 列表页，不用 `/releases/tag/<tag>` 子页面。
 
 AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {to}`，`N` 取 host 的 `count`（旧宿主没有该字段时才回退 `commits.length`）；加载文案与外壳一致，先 `正在获取更新日志…（tag 目标优先读取 GitHub Release 说明；否则由 dsh AI 汇总提交变更）`，15s 后改为 `正在调用 dsh AI 汇总提交变更，可能需要几分钟…`。路由不可用、超时（`dsh-ai-update` 路由自身 300s 后回 504，client 在 310s 处兜底）或返回错误时显示 `AI 汇总失败：{原因}` 并回退渲染 `commits` 列表，内容不丢；提示词超过路由 20000 字符上限时按提交条数从尾部截断（保持与 host 的 400 条/200 字符上限一致，正常不会触发）。
 
@@ -145,7 +149,7 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 - 分离式更新器与自动重启：不生成独立更新器脚本、不等应用退出后自动执行；更新由用户在对话框内就地触发。
 - `npm run build:desktop` 的自动执行：git 更新后由用户手动关闭应用并构建。
 - 待更新计划文件：不写 `pending-updates.json`。
-- npm 行的更新日志与 AI 摘要：GitHub Release 与 npm 版本无法可靠对应。
+- npm 行的 AI 摘要：更新日志只渲染 GitHub Release 说明，不调用 AI 汇总。
 - 修改官方代码：插件只用官方 slot/service 组合，不改 `deepseek-harness` 子模块。
 
 ## 已知限制
@@ -157,6 +161,7 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 - 同一包被两个安装脚本 pin 时行 id 重复，更新只落扫描顺序第一个脚本（当前仓库无此情况）。
 - 安装脚本超时（10 分钟）只终止直接 node 子进程；wrapper 内部再 spawn 的 pnpm/dsh 孙进程可能残留。
 - npm 行的「更新」不经过 `.staging` 验证，与 git 行就地更新的定位一致；需要完整验证时走「AI 更新」。
+- npm 行的更新日志依赖 Release tag 可解析为 semver，且要求版本区间内存在对应 Release；解析不出或没有 Release 时只给提示。
 - 更新完成后需要重启 Desktop 应用才会加载新的插件版本；git 行另需重新构建，npm 行不需要重建应用产物。
 - 需要仓库根的路由（status 的 local/check、changelog、update）在解析失败时返回 500，对话框只能给出「设置 `DSH_GUI_ROOT`」的可读错误；`mode=cached` 不解析仓库根，因此不受影响。
 - 子模块远端自愈只改写本地路径形式的覆盖项，远端形式的覆盖（镜像、fork）保持原样，这类配置下检测可能失败。
@@ -181,9 +186,9 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 - `plugins/auto-update/dsh-auto-update/src/check.ts` —— `mode=local|check` 检测、单飞、有界并行、递归 fetch 降级与模块级缓存
 - `plugins/auto-update/dsh-auto-update/src/npm.ts` —— git 行 npm 发布状态、npm 行的 `<name>/latest` 探测、传输层熔断与 10s 阶段预算
 - `plugins/auto-update/dsh-auto-update/src/update.ts` —— 就地更新（git 行与按脚本合并的 npm 行）与 NDJSON 流
-- `plugins/auto-update/dsh-auto-update/src/changelog.ts` —— 提交列表、`count`/`diffstat` 与 Release 说明
-- `plugins/auto-update/dsh-auto-update/src/client/**` —— 入口按钮、两类行的对话框、更新日志弹窗（含 AI 摘要）、AI 更新派发
-- `plugins/auto-update/dsh-auto-update/tests/**` —— 安装脚本扫描、版本比较、脚本改写与 npm 提示词的单元测试
+- `plugins/auto-update/dsh-auto-update/src/changelog.ts` —— 提交列表、`count`/`diffstat`、git 行 Release 说明与 npm 行的 `buildNpmChangelog`（Release 列表与版本区间筛选）
+- `plugins/auto-update/dsh-auto-update/src/client/**` —— 入口按钮、两类行的对话框、更新日志弹窗（git 行 AI 摘要与 npm 行 Release 渲染）、AI 更新派发
+- `plugins/auto-update/dsh-auto-update/tests/**` —— 安装脚本扫描、版本比较、脚本改写、npm 提示词与 npm 行更新日志的单元测试
 - `scripts/desktop.mjs` —— `runDesktop()` 注入 `DSH_GUI_ROOT`
 - `docs/dsh-gui/desktop-app.md` —— desktop 构建与插件安装
 - `docs/dsh-gui/nested-clone-layout.md` —— 仓库根与运行时根两个契约

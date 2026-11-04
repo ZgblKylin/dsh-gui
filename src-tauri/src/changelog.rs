@@ -8,6 +8,12 @@
 //! by the dsh AI over the commit range from the local HEAD to the resolved
 //! update target.
 //!
+//! npm plugin rows are not git checkouts, so they take a separate path: the
+//! install script's pinned version and the registry's latest version bound a
+//! range of releases, and the official GitHub Release notes for the versions in
+//! between are shown as-is (no AI summary — the releases are the authoritative
+//! changelog for exactly that range).
+//!
 //! The summary is asked from the RUNNING harness's raw-LLM route (the
 //! dsh-ai-update plugin's `/dsh-gui-api/changelog`): it streams `ctx.llm` with
 //! the web profile's default model and creates no Agent and no Session, so the
@@ -41,7 +47,10 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::update::{git_output, remote_default_branch, submodule_entries};
+use crate::update::{
+    compare_versions, git_output, github_releases_url, npm_latest_answers, plugin_npm_rows,
+    remote_default_branch, submodule_entries,
+};
 
 /// Distinguishes concurrent temp capture files within one process.
 static CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -56,6 +65,9 @@ static CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 /// of tags the update brings in. The endpoint is queried newest-first and pages
 /// are followed (bounded) only until every wanted tag is accounted for, so an
 /// update that spans several releases costs one request in the common case.
+/// An **empty** wanted array asks for the whole (bounded) list instead — the
+/// npm plugin rows compute their version range in Rust and cannot name the
+/// repository's tags up front.
 ///
 /// The script must never call `process.exit()`. On Windows that aborts node
 /// while undici is still draining the fetch's async handles, and libuv then
@@ -71,6 +83,10 @@ import { writeSync } from 'node:fs';
 
 const base = process.argv[2];
 const wanted = new Set(JSON.parse(process.argv[3] || '[]'));
+// An empty wanted set means "collect every release": the npm plugin rows
+// decide their version range in Rust and cannot name the repository's tags up
+// front, so they ask for the whole (bounded) list instead.
+const collectAll = wanted.size === 0;
 const releases = [];
 const PER_PAGE = 100;
 const MAX_PAGES = 3;
@@ -81,7 +97,7 @@ let failure = null;
 // reported as release-less.
 let exhausted = false;
 try {
-  for (let page = 1; page <= MAX_PAGES && wanted.size > 0; page += 1) {
+  for (let page = 1; page <= MAX_PAGES && (collectAll || wanted.size > 0); page += 1) {
     const response = await fetch(base + '&page=' + page, {
       headers: { accept: 'application/vnd.github+json', 'user-agent': 'dsh-gui-changelog' },
       signal: AbortSignal.timeout(15000),
@@ -95,8 +111,11 @@ try {
     const list = Array.isArray(items) ? items : [];
     for (const item of list) {
       const tag = item && typeof item.tag_name === 'string' ? item.tag_name : '';
-      if (!tag || !wanted.has(tag)) continue;
-      wanted.delete(tag);
+      if (!tag) continue;
+      if (!collectAll) {
+        if (!wanted.has(tag)) continue;
+        wanted.delete(tag);
+      }
       releases.push({
         tag,
         name: typeof item.name === 'string' ? item.name : '',
@@ -114,7 +133,9 @@ try {
   failure = { network: String((error && error.message) || error) };
 }
 const unresolved = [...wanted];
-const capped = !exhausted && unresolved.length > 0;
+// Tag mode is capped when a wanted tag was never reached; collect-all mode is
+// capped whenever the pager stopped before the list ran out.
+const capped = !exhausted && (collectAll || unresolved.length > 0);
 const incomplete = failure
   ? (failure.status === undefined ? failure.network : 'GitHub API 返回 ' + failure.status)
   : (capped ? '只读取了 Release 列表的前 ' + MAX_PAGES * PER_PAGE + ' 个' : '');
@@ -198,7 +219,18 @@ pub enum Prepared {
 
 /// Resolve the repository, the update target, and (for a tag target) the
 /// GitHub release notes. Call while holding the update lock.
+///
+/// A row id with the `npm:` prefix is an npm plugin row rather than a git
+/// checkout and takes [`prepare_npm`] (the UI passes `mode = "commit"` for it;
+/// the version range, not a tag choice, decides what is shown).
 pub fn prepare(root: &Path, id: &str, mode: &str) -> Result<Prepared, String> {
+    if let Some(package) = id.strip_prefix("npm:") {
+        if package.trim().is_empty() {
+            return Err("npm 插件行缺少包名，无法生成更新日志".to_string());
+        }
+        return prepare_npm(root, package.trim());
+    }
+
     let dir = project_dir(root, id)?;
     validate_repo(&dir)?;
 
@@ -305,6 +337,96 @@ pub fn prepare(root: &Path, id: &str, mode: &str) -> Result<Prepared, String> {
         diffstat: bound_chars(&diffstat, MAX_DIFFSTAT_CHARS, "变更统计过长，已截断"),
         note,
         release_url: release_page,
+    }))
+}
+
+/// Build the changelog for an npm plugin row: the official GitHub Release notes
+/// for the versions between the install script's pin and the registry's latest
+/// version. No AI summary is involved — those releases are exactly what the
+/// update brings in.
+///
+/// Already-latest, no-GitHub-repository, and no-release-in-range all degrade to
+/// a [`Prepared::Done`] explanation (the row's button answers something in
+/// those cases, never an error); a registry lookup or release-list fetch
+/// failure is a real error.
+fn prepare_npm(root: &Path, package: &str) -> Result<Prepared, String> {
+    let rows = plugin_npm_rows(root);
+    let Some(row) = rows.into_iter().find(|row| row.package_name == package) else {
+        // The install script may have been edited or removed since the list
+        // was checked; the dialog asks for a fresh check in that case.
+        return Err(format!("安装脚本中找不到该 npm 插件的 pin：{package}"));
+    };
+    let answers = npm_latest_answers(root, &[package.to_string()])?;
+    let Some(answer) = answers.into_iter().next() else {
+        return Err("npm registry 未返回版本信息".to_string());
+    };
+    if let Some(error) = answer.error {
+        return Err(format!("npm 版本查询失败：{error}"));
+    }
+    let Some(latest) = answer.latest else {
+        return Err("npm registry 未返回版本号".to_string());
+    };
+    let current = row.pinned_version.clone();
+    let releases_url = github_releases_url(answer.repository_url.as_deref());
+
+    if current == latest {
+        return Ok(Prepared::Done(UpdateChangelog {
+            subtitle: "当前已是最新版本，没有需要展示的变更".to_string(),
+            text: format!(
+                "安装脚本已 pin 到 npm 最新版本（{latest}），没有需要展示的 GitHub Release。"
+            ),
+            release_url: releases_url,
+        }));
+    }
+    let Some(releases_url) = releases_url else {
+        return Ok(Prepared::Done(UpdateChangelog {
+            subtitle: "无法获取 GitHub Release 说明".to_string(),
+            text: format!(
+                "插件「{package}」未声明 GitHub repository，无法获取 {current} → {latest} 的 GitHub Release 说明。"
+            ),
+            release_url: None,
+        }));
+    };
+    let Some((owner, repo)) = releases_url_repository(&releases_url) else {
+        return Err(format!("无法解析 GitHub repository 地址：{releases_url}"));
+    };
+    // The version range is decided in Rust, so ask the script for the whole
+    // release list (empty tag filter) and match versions here.
+    let set = match release_list(&github_release_list_base(&owner, &repo), root, &[]) {
+        ReleaseLookup::Found(set) => set,
+        // The repository has no releases at all: fall through to the
+        // "no release in range" answer below.
+        ReleaseLookup::Absent | ReleaseLookup::NotGithub => ReleaseSet {
+            releases: Vec::new(),
+            missing: Vec::new(),
+            partial: None,
+        },
+        ReleaseLookup::Failed(error) => {
+            return Err(format!("GitHub Release 获取失败：{error}"));
+        }
+    };
+    let ReleaseSet {
+        releases, partial, ..
+    } = set;
+    let selected = select_releases_for_range(releases, &current, &latest);
+    if selected.is_empty() {
+        return Ok(Prepared::Done(UpdateChangelog {
+            subtitle: "没有找到该版本区间的 GitHub Release".to_string(),
+            text: format!(
+                "未找到 {current} 到 {latest} 之间的 GitHub Release。\n\n可以到 Releases 页面查看完整列表：{releases_url}"
+            ),
+            release_url: Some(releases_url),
+        }));
+    }
+    let filtered = ReleaseSet {
+        releases: selected,
+        missing: Vec::new(),
+        partial,
+    };
+    Ok(Prepared::Done(UpdateChangelog {
+        subtitle: npm_release_subtitle(&filtered, &current, &latest),
+        text: render_releases(&filtered),
+        release_url: Some(releases_url),
     }))
 }
 
@@ -660,6 +782,107 @@ fn release_range_tags(dir: &Path, from_sha: &str, to_sha: &str, target_tag: &str
     tags
 }
 
+/// The version a release tag names, used to place the release inside the npm
+/// plugin row's pinned → latest range.
+///
+/// Tags come in many shapes: `v1.2.3`, monorepo `@scope/pkg@1.2.3` /
+/// `dsh-pet@0.4.0`, and prefixed `release-1.2.3`. The whole tag wins once a
+/// leading `v` is removed; otherwise the **last** three-segment semver
+/// substring is used, so a package prefix never hides the version. A tag with
+/// no version (`latest`, `nightly-2026-11-01`) yields `None` and the range
+/// filter skips it.
+fn version_from_tag(tag: &str) -> Option<String> {
+    let tag = tag.trim();
+    if tag.is_empty() {
+        return None;
+    }
+    let stripped = tag.strip_prefix('v').unwrap_or(tag);
+    if is_version(stripped) {
+        return Some(stripped.to_string());
+    }
+    last_version_in_tag(tag)
+}
+
+/// Whether `text` is a version [`compare_versions`] accepts.
+fn is_version(text: &str) -> bool {
+    compare_versions(text, text).is_some()
+}
+
+/// The last `major.minor.patch[-prerelease]` substring in `tag`.
+///
+/// Each ASCII digit begins a maximal run of version characters
+/// (`[0-9A-Za-z.-]`); the longest prefix of that run that parses as a version
+/// is the match (`1.2.3.4` matches `1.2.3`). Scanning continues after each
+/// match and the last one wins, so `@scope/pkg@1.2.3` resolves to `1.2.3`
+/// despite the scope name. Build metadata is not part of the match
+/// (`1.2.3+build` yields `1.2.3`).
+fn last_version_in_tag(tag: &str) -> Option<String> {
+    let bytes = tag.as_bytes();
+    let mut last: Option<String> = None;
+    let mut index = 0;
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_digit() {
+            index += 1;
+            continue;
+        }
+        let mut end = index;
+        while end < bytes.len() && is_version_char(bytes[end]) {
+            end += 1;
+        }
+        let run = &tag[index..end];
+        // Longest prefix of the run first, so `1.2.3-alpha.1` stays whole.
+        let mut matched = None;
+        for length in (1..=run.len()).rev() {
+            let candidate = &run[..length];
+            if is_version(candidate) {
+                matched = Some((length, candidate.to_string()));
+                break;
+            }
+        }
+        match matched {
+            Some((length, version)) => {
+                last = Some(version);
+                index += length;
+            }
+            // No version starts here (e.g. a bare year); move on.
+            None => index += 1,
+        }
+    }
+    last
+}
+
+fn is_version_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-'
+}
+
+/// Keep the GitHub releases whose version lies in `(current, latest]`, in the
+/// order the API returned them (newest first). Releases whose tag carries no
+/// semver version, or whose version is not comparable to the bounds, are
+/// skipped rather than making the lookup fail.
+fn select_releases_for_range(
+    releases: Vec<ReleaseInfo>,
+    current: &str,
+    latest: &str,
+) -> Vec<ReleaseInfo> {
+    releases
+        .into_iter()
+        .filter(|release| {
+            let Some(version) = version_from_tag(&release.tag) else {
+                return false;
+            };
+            let newer_than_current = matches!(
+                compare_versions(&version, current),
+                Some(std::cmp::Ordering::Greater)
+            );
+            let not_newer_than_latest = matches!(
+                compare_versions(&version, latest),
+                Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+            );
+            newer_than_current && not_newer_than_latest
+        })
+        .collect()
+}
+
 /// Look up the GitHub releases for `tags` (one paginated list request, see
 /// [`RELEASE_FETCH_SCRIPT`]). `origin` is the repository's `origin` URL, read
 /// once by the caller because the title link needs it too.
@@ -667,7 +890,20 @@ fn release_notes(origin: Option<&str>, dir: &Path, tags: &[String]) -> ReleaseLo
     let Some((owner, repo)) = github_repo(origin) else {
         return ReleaseLookup::NotGithub;
     };
-    let base = format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=100");
+    release_list(&github_release_list_base(&owner, &repo), dir, tags)
+}
+
+/// GitHub's paginated release-list endpoint (`?per_page=100`; the script
+/// appends `&page=N`).
+fn github_release_list_base(owner: &str, repo: &str) -> String {
+    format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=100")
+}
+
+/// Fetch a repository's release list and keep the wanted tags. An empty `tags`
+/// slice switches [`RELEASE_FETCH_SCRIPT`] to collect-all mode: the npm plugin
+/// rows compute their version range in Rust, so they cannot name the tags up
+/// front and need the whole (bounded) list instead.
+fn release_list(base: &str, dir: &Path, tags: &[String]) -> ReleaseLookup {
     let wanted = match serde_json::to_string(tags) {
         Ok(json) => json,
         Err(error) => return ReleaseLookup::Failed(format!("无法序列化 tag 列表：{error}")),
@@ -810,6 +1046,23 @@ fn release_subtitle(set: &ReleaseSet) -> String {
     subtitle
 }
 
+/// Provenance line for an npm plugin row's range. A single release keeps the
+/// familiar wording; several report the pin → latest span, because the release
+/// tags can carry package prefixes that would read poorly in the subtitle.
+fn npm_release_subtitle(set: &ReleaseSet, current: &str, latest: &str) -> String {
+    if set.releases.len() == 1 {
+        return release_subtitle(set);
+    }
+    let mut subtitle = format!(
+        "GitHub Release 官方说明 · {} 个版本（{current} → {latest}，最新在上）",
+        set.releases.len()
+    );
+    if let Some(partial) = &set.partial {
+        subtitle.push_str(&format!(" · Release 列表可能不完整（{partial}）"));
+    }
+    subtitle
+}
+
 /// Render the release set as one markdown document: one `## <tag> · <name>`
 /// section per release, newest first, separated by rules, with the release body
 /// underneath. Releases without a body stay listed (their version still tells
@@ -893,6 +1146,22 @@ fn github_repo(url: Option<&str>) -> Option<(String, String)> {
 pub(crate) fn releases_page_url(origin: Option<&str>) -> Option<String> {
     let (owner, repo) = github_repo(origin)?;
     Some(format!("https://github.com/{owner}/{repo}/releases"))
+}
+
+/// Recover `owner/repo` from a Releases list page produced by
+/// [`releases_page_url`]. npm plugin rows only carry the page URL in
+/// [`crate::update::ProjectUpdate`], so the release fetcher needs this reverse
+/// lookup to build the API endpoint. Any other shape yields `None`.
+fn releases_url_repository(releases_url: &str) -> Option<(String, String)> {
+    let rest = releases_url
+        .trim()
+        .strip_prefix("https://github.com/")?
+        .strip_suffix("/releases")?;
+    let parts: Vec<&str> = rest.split('/').filter(|part| !part.is_empty()).collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    Some((parts[0].to_string(), parts[1].to_string()))
 }
 
 pub(crate) fn write_temp_script(contents: &str) -> Result<PathBuf, String> {
@@ -1495,5 +1764,155 @@ mod tests {
             .is_some_and(|note| note.contains("不是 GitHub 仓库")));
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    fn release(tag: &str, published_at: &str) -> ReleaseInfo {
+        ReleaseInfo {
+            tag: tag.to_string(),
+            name: format!("Release {tag}"),
+            body: format!("notes-{tag}"),
+            published_at: published_at.to_string(),
+            prerelease: false,
+        }
+    }
+
+    #[test]
+    fn version_from_tag_reads_prefixed_and_scoped_tags() {
+        // Whole tags (after an optional `v`) win outright.
+        assert_eq!(version_from_tag("v1.2.3").as_deref(), Some("1.2.3"));
+        assert_eq!(version_from_tag("1.2.3").as_deref(), Some("1.2.3"));
+        assert_eq!(
+            version_from_tag("v0.2.2-alpha.2").as_deref(),
+            Some("0.2.2-alpha.2")
+        );
+        assert_eq!(version_from_tag("  v2.0.0  ").as_deref(), Some("2.0.0"));
+        // Monorepo tags carry a package prefix; the version is the last semver
+        // substring in the tag.
+        assert_eq!(
+            version_from_tag("@scope/pkg@1.2.3").as_deref(),
+            Some("1.2.3")
+        );
+        assert_eq!(version_from_tag("dsh-pet@0.4.0").as_deref(), Some("0.4.0"));
+        assert_eq!(version_from_tag("release-1.2.3").as_deref(), Some("1.2.3"));
+        // Tags without a version never claim a release belongs in a range.
+        assert_eq!(version_from_tag("latest"), None);
+        assert_eq!(version_from_tag("nightly-2026-11-01"), None);
+        assert_eq!(version_from_tag("v1.2"), None);
+        assert_eq!(version_from_tag(""), None);
+    }
+
+    #[test]
+    fn select_releases_for_range_keeps_the_update_span() {
+        let releases = vec![
+            release("v1.2.0", "2026-03-03T00:00:00Z"),
+            release("v1.1.0", "2026-02-02T00:00:00Z"),
+            release("v1.0.0", "2026-01-01T00:00:00Z"),
+            release("v0.9.0", "2025-12-01T00:00:00Z"),
+        ];
+        let tags: Vec<String> = select_releases_for_range(releases, "1.0.0", "1.2.0")
+            .into_iter()
+            .map(|release| release.tag)
+            .collect();
+        // The pin is already installed, so it is excluded; everything up to and
+        // including the registry's latest version stays in API order.
+        assert_eq!(tags, vec!["v1.2.0", "v1.1.0"]);
+
+        // Prereleases inside the span are included; the exact pin is not.
+        let releases = vec![
+            release("v1.0.0", "2026-03-03T00:00:00Z"),
+            release("v1.0.0-beta", "2026-03-02T00:00:00Z"),
+            release("v1.0.0-alpha.1", "2026-03-01T00:00:00Z"),
+            release("v0.9.0", "2026-02-01T00:00:00Z"),
+        ];
+        let tags: Vec<String> =
+            select_releases_for_range(releases, "1.0.0-alpha.1", "1.0.0")
+                .into_iter()
+                .map(|release| release.tag)
+                .collect();
+        assert_eq!(tags, vec!["v1.0.0", "v1.0.0-beta"]);
+
+        // Non-semver tags are skipped rather than making the range fail.
+        let releases = vec![
+            release("v1.2.0", "2026-03-03T00:00:00Z"),
+            release("latest", "2026-03-02T00:00:00Z"),
+            release("nightly-2026-03-01", "2026-03-01T00:00:00Z"),
+        ];
+        let tags: Vec<String> = select_releases_for_range(releases, "1.1.0", "9.9.9")
+            .into_iter()
+            .map(|release| release.tag)
+            .collect();
+        assert_eq!(tags, vec!["v1.2.0"]);
+
+        // An unusable pin matches nothing instead of erroring.
+        let empty = select_releases_for_range(vec![release("v1.2.0", "")], "abc", "9.9.9");
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn npm_release_subtitle_names_the_version_span_for_several_releases() {
+        let set = ReleaseSet {
+            releases: vec![
+                release("dsh-pet@1.2.0", "2026-03-03T00:00:00Z"),
+                release("dsh-pet@1.1.0", "2026-02-02T00:00:00Z"),
+            ],
+            missing: Vec::new(),
+            partial: None,
+        };
+        assert_eq!(
+            npm_release_subtitle(&set, "1.0.0", "1.2.0"),
+            "GitHub Release 官方说明 · 2 个版本（1.0.0 → 1.2.0，最新在上）"
+        );
+        // A partial list is flagged rather than silently under-reporting.
+        let partial = ReleaseSet {
+            releases: vec![
+                release("dsh-pet@1.2.0", "2026-03-03T00:00:00Z"),
+                release("dsh-pet@1.1.0", "2026-02-02T00:00:00Z"),
+            ],
+            missing: Vec::new(),
+            partial: Some("请求失败（超时）".to_string()),
+        };
+        assert!(npm_release_subtitle(&partial, "1.0.0", "1.2.0")
+            .ends_with(" · Release 列表可能不完整（请求失败（超时））"));
+
+        // One release falls back to the familiar single-release wording.
+        let single = ReleaseSet {
+            releases: vec![release("dsh-pet@1.2.0", "2026-03-03T12:34:56Z")],
+            missing: Vec::new(),
+            partial: None,
+        };
+        assert_eq!(
+            npm_release_subtitle(&single, "1.1.0", "1.2.0"),
+            release_subtitle(&single)
+        );
+    }
+
+    #[test]
+    fn releases_url_repository_round_trips_the_list_page() {
+        assert_eq!(
+            releases_url_repository("https://github.com/owner/repo/releases"),
+            Some(("owner".to_string(), "repo".to_string()))
+        );
+        assert_eq!(releases_url_repository("https://github.com/owner/repo"), None);
+        assert_eq!(
+            releases_url_repository("https://github.com/owner/repo/releases/tag/v1.0.0"),
+            None
+        );
+        assert_eq!(
+            releases_url_repository("https://example.com/owner/repo/releases"),
+            None
+        );
+        assert_eq!(releases_url_repository(""), None);
+    }
+
+    #[test]
+    fn prepare_routes_npm_rows_and_rejects_an_empty_package_name() {
+        let Err(error) = prepare(Path::new("."), "npm:", "commit") else {
+            panic!("an empty npm package name must be rejected");
+        };
+        assert!(error.contains("缺少包名"), "unexpected error: {error}");
+        let Err(error) = prepare(Path::new("."), "npm:   ", "commit") else {
+            panic!("a blank npm package name must be rejected");
+        };
+        assert!(error.contains("缺少包名"), "unexpected error: {error}");
     }
 }

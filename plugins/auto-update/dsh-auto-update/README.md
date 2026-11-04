@@ -3,7 +3,7 @@
 desktop 外壳的「自动更新」插件：在标题栏最右侧提供一个「更新」入口与对话框，检测两类行——
 dsh-gui 检出与其非插件 submodule 的上游变动（tag / 提交），以及 `plugins/` 安装脚本中每个
 npm 插件的精确 pin 与 registry 最新版本。对话框内就地执行更新（git 行检出目标 revision；
-npm 行改写安装脚本的 pin 并重新安装该插件）并流式回显日志，git 行另可查看更新日志。
+npm 行改写安装脚本的 pin 并重新安装该插件）并流式回显日志，两类行都可查看更新日志。
 
 本插件**只安装到 desktop profile**：`plugins/auto-update/install.mjs` 在
 `DSH_PLUGIN_PROFILE !== 'desktop'` 时只打印 skip 并退出 0，普通 `web` profile 的组合
@@ -114,8 +114,7 @@ registry 的 `dist-tags.latest`，`missing` 为 `versions` 中缺少目标版本
 
 ### `GET /auto-update/api/changelog?id=<projectId>&mode=tag|commit`
 
-仅 git 行使用。返回本地当前版本、更新目标、目标类型、提交列表（`git log --no-merges`，
-上限 400 条、单条 subject 上限 200 字符、`truncated` 标记）、`count`
+git 行与 npm 插件行都使用（npm 行忽略 `mode`）。git 行返回本地当前版本、更新目标、目标类型、提交列表（`git log --no-merges`，上限 400 条、单条 subject 上限 200 字符、`truncated` 标记）、`count`
 （`git rev-list --count <from>..<to>`，含 merge 提交且不受 400 条上限约束，无可用更新时为
 0）、`diffstat`（`git diff --stat`，上限 3000 字符，超出截断并附 `…（已截断）`，无可用
 更新时为空串），以及——仅当 `mode=tag` 且 `origin` 为 GitHub 时可取到说明时的 `release`
@@ -123,7 +122,15 @@ registry 的 `dist-tags.latest`，`missing` 为 `versions` 中缺少目标版本
 
 `mode=tag` 但 GitHub 取不到 Release 时**只回退提交列表，不算错误**；`error` 只用于本地
 git 失败。远端与本地相同（无可展示更新）时返回 200 且 `commits: []`、`count: 0`、
-`diffstat: ""`。npm 行不提供更新日志（GitHub Release 与 npm 版本无法可靠对应）。
+`diffstat: ""`。
+
+npm 插件行（`id` 为 `npm:<packageName>`）不读 git：重新扫描安装脚本得到 pin，向 registry
+查询最新版本与仓库，抓取该包 GitHub 仓库的 Release 列表（`/repos/<owner>/<repo>/releases`，
+最多 3 页、单请求 45s 超时），筛出 `(pin, latest]` 版本并按发布时间倒序。200 响应的 `kind`
+为 `npm`、`from` 为 pin、`to` 为 registry 最新版、`targetKind` 为 `npm`，附 `releases`
+（`tag` / `name` / `url` / `publishedAt` / `body`）与 `releaseUrl`（Releases 列表页），
+`commits` 为空、`count` 为 0、`diffstat` 为空串。区间内没有 Release、包未声明 GitHub 仓库、
+仓库不在 GitHub 或抓取失败时仍返回 200，并在 `error` 里给可读提示；client 不调用 AI 汇总。
 
 ## 仓库根解析
 
@@ -144,9 +151,9 @@ Host 进程运行在解包的 desktop 应用里，检出不等于 `process.cwd()
   角标。
 - 对话框：客户端缓存存在时立即渲染、不等网络；否则先问 `?mode=cached`，有结果即渲染；
   都没有才 `?mode=local` 画骨架、再 `?mode=check` 拉完整结果。
-- git 行：`当前 → 最新` 与 tag/commit 目标选择，动作为「更新 / 更新日志 / AI 更新」。
+- git 行：`当前 → 最新` 与 tag/commit 目标选择，动作为「更新日志 / 更新 / AI 更新」。
 - npm 行：`当前 pin → 最新`，名称在有 `releaseUrl` 时链接到包的 GitHub Releases 列表；
-  不提供 tag/commit 选择与「更新日志」；动作为「更新 / AI 更新」，已是最新时显示
+  不提供 tag/commit 选择；落后时动作为「更新日志 / 更新 / AI 更新」，已是最新时显示
   「已是最新」与禁用的更新按钮。更新失败的行显示行内错误与「不可检查」。
 - 顶部「全部更新 / AI 更新全部」按 `behind` 过滤，两类行都参与；角标与 `notifyCount`
   同样覆盖两类行。
@@ -155,7 +162,10 @@ Host 进程运行在解包的 desktop 应用里，检出不等于 `process.cwd()
   重建 desktop 应用产物为可选项。`buildCommand` 只来自 host 的单一来源。
 - 更新日志：git 行 `mode=tag` 取到 GitHub Release 时直接渲染 `release.body`；否则把
   `commits` 与 `diffstat` 交给 `dsh-ai-update` 的 `/dsh-gui-api/changelog` 汇总，副标题用
-  `count` 计提交数；AI 路由不可用时回退提交列表。
+  `count` 计提交数；AI 路由不可用时回退提交列表。npm 插件行按安装脚本 pin 与 registry
+  最新版本抓取该包的 GitHub Release 列表，筛出 `(pin, latest]` 区间并按发布时间倒序逐节
+  渲染，不走 AI；无匹配 Release 时给出 Releases 列表页，取不到仓库或请求失败时显示
+  「更新日志获取失败：<原因>」。
 - 「AI 更新」复用已装在 desktop profile 的 `dsh-ai-update`：在顶层 `window` 派发
   `{ type: 'dsh-gui:ai-update', version: 1, requestId, prompt }` 并等待
   `dsh-gui:ai-update-result` 回执（60s 超时）。git 行保持原提示词；npm 行的提示词说明
@@ -177,9 +187,9 @@ Host 进程运行在解包的 desktop 应用里，检出不等于 `process.cwd()
 
 ## 本版不做
 
-分离式更新器与自动重启、`pending-updates.json` 计划文件。npm 行的 GitHub Release 说明与
-发布时间/弃用标记（GitHub Release 与 npm 版本无法可靠对应）。更新完成后由用户在关闭
-Desktop 实例后手动执行 `npm run build:desktop`（仅重建 desktop 应用产物时需要）。
+分离式更新器与自动重启、`pending-updates.json` 计划文件。npm 行的 AI 摘要、发布时间与
+弃用标记。更新完成后由用户在关闭 Desktop 实例后手动执行 `npm run build:desktop`
+（仅重建 desktop 应用产物时需要）。
 
 ## 配置与测试钩子
 

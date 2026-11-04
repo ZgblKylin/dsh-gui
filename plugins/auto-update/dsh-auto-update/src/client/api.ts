@@ -156,26 +156,61 @@ export interface ChangelogCommit {
   readonly date: string
 }
 
-/** The GitHub release a tag target resolved to, when one was found. */
+/** One GitHub release of a changelog. */
 export interface ChangelogRelease {
+  /** Release tag, e.g. `v1.2.3`. */
   readonly tag: string
+  /** Release title; falls back to the tag when GitHub reported none. */
   readonly name: string
+  /** The release page. */
   readonly url: string
+  /**
+   * GitHub's `published_at`, ISO-8601; absent for the single release of a git
+   * tag target and for older hosts.
+   */
+  readonly publishedAt?: string
+  /** Release body markdown. */
   readonly body: string
 }
 
-/** `GET /api/changelog` document. */
+/**
+ * `GET /api/changelog` document.
+ *
+ * Two shapes share it while the row kind decides which fields matter:
+ *
+ * - a git checkout row (`kind` absent or `'git'`): `from`/`to` are revisions,
+ *   `release` is the notes of one tag target, and `commits`/`count`/`diffstat`
+ *   describe the revision range;
+ * - an npm plugin row (`kind: 'npm'`): `from` is the install script's pin and
+ *   `to` the registry's latest version, `releases` lists every GitHub Release in
+ *   between (newest first), `releaseUrl` is the repository's Releases list page,
+ *   and no commit/AI data applies.
+ */
 export interface Changelog {
+  /** Row kind; absent means `'git'` (hosts that predate npm plugin rows). */
+  readonly kind?: 'git' | 'npm'
   readonly id: string
   readonly name: string
-  /** Local version the update starts from. */
+  /** Local version the update starts from; the pinned version for an npm plugin row. */
   readonly from: string
-  /** Version the update lands on. */
+  /** Version the update lands on; the registry's latest for an npm plugin row. */
   readonly to: string
-  /** Tag name or `origin/<branch>`. */
+  /** Tag name or `origin/<branch>`; empty for an npm plugin row. */
   readonly target: string
-  readonly targetKind: 'tag' | 'commit'
+  /**
+   * What `target` names. Git rows report `'tag'` or `'commit'`; an npm plugin
+   * row reports `'npm'` and has no revision to check out.
+   */
+  readonly targetKind: 'tag' | 'commit' | 'npm'
+  /** The GitHub release a git tag target resolved to, when one was found. */
   readonly release?: ChangelogRelease
+  /**
+   * npm plugin row only: the GitHub Releases published between `from` and `to`,
+   * newest first (empty when none were found).
+   */
+  readonly releases?: readonly ChangelogRelease[]
+  /** npm plugin row only: the repository's GitHub Releases list page. */
+  readonly releaseUrl?: string
   readonly commits: readonly ChangelogCommit[]
   /**
    * `git rev-list --count <from>..<to>` (contract §7.3): every commit in the
@@ -191,7 +226,7 @@ export interface Changelog {
    * so the client also works against a host that has not shipped v2 yet.
    */
   readonly diffstat?: string
-  /** Local git failure only; a missing release is not an error. */
+  /** Local git or registry failure; a missing release is not an error. */
   readonly error?: string
 }
 

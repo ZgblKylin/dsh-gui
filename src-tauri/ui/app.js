@@ -1725,9 +1725,9 @@ function updateError(message) {
 
 function updateRow(project, checking) {
   // npm plugin rows have a different model: their version is the exact npm pin
-  // in a repository install script, so there is no tag/commit target and no
-  // changelog (a GitHub release cannot be mapped reliably onto an npm version).
-  // See updateNpmRow.
+  // in a repository install script, so there is no tag/commit target (the
+  // changelog comes from the pin-to-latest GitHub release range instead of a
+  // checkout target). See updateNpmRow.
   if (isNpmProject(project)) return updateNpmRow(project, checking);
   const row = document.createElement("div");
   row.className = "update-item";
@@ -1877,10 +1877,11 @@ function updateRow(project, checking) {
  *
  * The row is a package whose version is the exact npm pin inside a repository
  * install script. It is compared against the npm registry's latest version, so
- * there is no tag/commit selector and no 「更新日志」 button (a GitHub release
- * cannot be mapped reliably onto an npm version). Its actions are 「更新」 —
- * which rewrites that pin and re-runs the wrapper in place, keeping the
- * application running — and 「AI 更新」.
+ * there is no tag/commit selector; its changelog is the GitHub release text
+ * covering the pinned version through the registry's latest, which the shell's
+ * Rust half resolves directly (no commit range, no AI summary). Its actions are
+ * 「更新日志」, 「更新」 — which rewrites that pin and re-runs the wrapper in
+ * place, keeping the application running — and 「AI 更新」.
  */
 function updateNpmRow(project, checking) {
   const row = document.createElement("div");
@@ -1945,6 +1946,15 @@ function updateNpmRow(project, checking) {
   }
 
   const script = project.installScript || project.path || "";
+  // The changelog is a GitHub release range, not a checkout target: the Rust
+  // half reads the release notes between this pin and the registry's latest.
+  const changelog = document.createElement("button");
+  changelog.type = "button";
+  changelog.className = "secondary update-log";
+  changelog.dataset.updateId = project.id;
+  changelog.textContent = "更新日志";
+  changelog.title =
+    "查看本次更新会带来的变更：读取安装脚本当前 pin 到 npm 最新版本之间的 GitHub Release 说明";
   const button = document.createElement("button");
   button.type = "button";
   button.className = "secondary update-run";
@@ -1961,7 +1971,7 @@ function updateNpmRow(project, checking) {
   ai.textContent = "AI 更新";
   ai.title =
     "回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 /dsh-gui-update 提示词（发送前可再改）";
-  action.append(button, ai);
+  action.append(changelog, button, ai);
   row.append(info, action);
   return row;
 }
@@ -2470,11 +2480,13 @@ function renderChangelogMarkdown(src) {
 
 /* ── Update-log dialog (更新日志：Release 说明或 dsh AI 汇总) ── */
 // A row's 「更新日志」 button fetches what the pending update will bring: for a
-// tag target the Rust side first tries the official GitHub Release notes and
-// falls back to a dsh-AI summary of the commit range. The AI run can take a
-// few minutes, so the loading line switches to an explicit note after a while;
-// the markdown renders into a scrollable, selectable body, and the copy button
-// copies the raw source text.
+// git row's tag target the Rust side first tries the official GitHub Release
+// notes and falls back to a dsh-AI summary of the commit range. An npm plugin
+// row has no checkout target: its changelog is the GitHub release range from
+// the install script's pin to the registry's latest, returned directly (no AI
+// run). The AI run can take a few minutes, so the loading line switches to an
+// explicit note after a while; the markdown renders into a scrollable,
+// selectable body, and the copy button copies the raw source text.
 let changelogBusy = false;
 let changelogStallTimer = null;
 let changelogRawText = "";
@@ -2511,7 +2523,14 @@ async function openChangelog(projectId) {
     toast("找不到该工程的信息，请重新检查更新");
     return;
   }
-  const moduleName = project.name || project.id || "工程";
+  // npm plugin rows resolve their changelog from the GitHub release range
+  // between the install script's pin and the registry's latest version; the
+  // Rust half returns that release text directly, so the loading copy must not
+  // promise an AI summary of commits.
+  const npmRow = isNpmProject(project);
+  const moduleName = npmRow
+    ? project.packageName || project.name || project.id || "插件"
+    : project.name || project.id || "工程";
   changelogBusy = true;
   renderChangelogTitle(moduleName, "");
   changelogSub.textContent = "";
@@ -2519,14 +2538,17 @@ async function openChangelog(projectId) {
   changelogBody.innerHTML = "";
   changelogRawText = "";
   changelogCopy.classList.add("hidden");
-  changelogLoading.textContent =
-    "正在获取更新日志…（tag 目标优先读取 GitHub Release 说明；否则由 dsh AI 汇总提交变更）";
+  changelogLoading.textContent = npmRow
+    ? "正在获取插件更新日志…（读取 npm registry 版本与 GitHub Release 说明）"
+    : "正在获取更新日志…（tag 目标优先读取 GitHub Release 说明；否则由 dsh AI 汇总提交变更）";
   changelogLoading.classList.remove("hidden", "error");
   markModal(true);
   changelogOverlay.classList.remove("hidden");
   clearTimeout(changelogStallTimer);
   changelogStallTimer = setTimeout(() => {
-    changelogLoading.textContent = "正在调用 dsh AI 汇总提交变更，可能需要几分钟…";
+    changelogLoading.textContent = npmRow
+      ? "正在读取 GitHub Release 说明，可能需要稍等…"
+      : "正在调用 dsh AI 汇总提交变更，可能需要几分钟…";
   }, 15000);
   try {
     const result = await invoke("update_changelog", {
@@ -2535,8 +2557,9 @@ async function openChangelog(projectId) {
     });
     clearTimeout(changelogStallTimer);
     changelogLoading.classList.add("hidden");
-    // A release-backed changelog also carries the repository's releases page;
-    // an AI summary of a commit target leaves the title as plain text.
+    // A release-backed changelog also carries the repository's releases page
+    // (npm plugin rows always take this path); an AI summary of a commit
+    // target leaves the title as plain text.
     renderChangelogTitle(moduleName, result.releaseUrl);
     changelogSub.textContent = result.subtitle || "";
     changelogRawText = result.text || "";

@@ -1312,7 +1312,14 @@ async fn update_changelog(
         }
     };
     let port = state.port;
-    let cookie = ready_cookie(&state)?;
+    // npm plugin rows answer from the registry and the GitHub release list;
+    // they never run an AI summary, so the harness readiness gate must not
+    // block them (the git-row path still needs the cookie for that summary).
+    let cookie = if id.starts_with("npm:") {
+        None
+    } else {
+        ready_cookie(&state)?
+    };
     let lock = Arc::clone(&state.update_lock);
     tauri::async_runtime::spawn_blocking(move || {
         let prepared = {
