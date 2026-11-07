@@ -23,7 +23,7 @@
  * 准入：manifest 无 `engines.dsh`，app-boot 闸门逐条比对 `@deepseek-ai/dsh*` peer
  * （`@deepseek-ai/dsh-settings`、`dsh-api-gateway`、`dsh-client-*` 等为
  * `>=0.2.2-0 <0.2.3-0`），按 `includePrerelease` 判定时 pinned harness
- * `dsh-v0.2.2-alpha.2` 落在区间内，无需精确版本例外。
+ * `dsh-v0.2.2-alpha.3` 落在区间内，无需精确版本例外。
  *
  * 依赖：`ws`、`zod`、`qrcode`、`@xterm/headless`、`@xterm/addon-serialize`、
  * `@deepseek-ai/schemastery`；`optionalDependencies` 含原生 WebRTC 模块

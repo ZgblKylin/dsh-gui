@@ -22,7 +22,7 @@
  * 准入：manifest 没有 `engines.dsh`，app-boot 闸门逐条比对 `@deepseek-ai/dsh*`
  * peer（`dsh-skill`、`dsh-tools`、`dsh-host-apiproxy`、`dsh-client-connection` 均为
  * `>=0.1.1-rc.1 <0.3.0`，按 `includePrerelease` 判定）；pinned harness
- * `dsh-v0.2.2-alpha.2` 落在区间内，无需精确版本例外。
+ * `dsh-v0.2.2-alpha.3` 落在区间内，无需精确版本例外。
  *
  * npm 包名会由共享流水线登记到 `<DSH_HOME>/gui/npm-installs.json`，桌面壳的更新
  * 检查据此区分 npm 安装与源码安装（见 `scripts/plugin-install.mjs` 的

@@ -18,7 +18,7 @@
  * carried by its `dsh.compatibility.dsh` and its `@deepseek-ai/dsh-*` peers, and
  * it records 0.2.1-rc.2 / 0.2.1-rc.3 / 0.2.1-rc.4 as verified in
  * `dsh.compatibility.dshReleases`. The upper bound `<0.2.2-0` excludes the whole
- * 0.2.2 prerelease line, and the pinned harness `dsh-v0.2.2-alpha.2` sorts
+ * 0.2.2 prerelease line, and the pinned harness `dsh-v0.2.2-alpha.3` sorts
  * above it, so the admission gate refuses the package on its own. 0.15.5 is the
  * newest release and carries the identical range, so this wrapper grants the
  * exact-version exemption the admission gate offers instead of dropping the
@@ -41,5 +41,5 @@ installNpmPlugin({
   exempt:
     'upstream 0.15.5 declares engines.dsh ">=0.2.1-rc.2 <0.2.2-0", which '
     + 'excludes the 0.2.2 prerelease line; the plugin is kept mounted on '
-    + 'dsh-v0.2.2-alpha.2 pending an upstream release that admits it',
+    + 'dsh-v0.2.2-alpha.3 pending an upstream release that admits it',
 })

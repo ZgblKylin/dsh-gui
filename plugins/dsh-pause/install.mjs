@@ -27,13 +27,13 @@
  * `@deepseek-ai/dsh`、`dsh-llm`、`dsh-client-connection`、`dsh-client-ui-conversation`、
  * `dsh-client-ui-renderer`、`dsh-client-ui-slots` 六条都是 `^0.2.0-rc.2`（等价
  * `>=0.2.0-rc.2 <0.3.0-0`，按 includePrerelease 判定），本仓库 pin 的 harness
- * `dsh-v0.2.2-alpha.2` 落在区间内，安装期预检与启动期 bundle 层挂载都通过，因此
+ * `dsh-v0.2.2-alpha.3` 落在区间内，安装期预检与启动期 bundle 层挂载都通过，因此
  * 不需要 `installNpmPlugin` 的 `exempt` 例外。
  *
- * 两处声明与 0.2.2-alpha.2 的差异，均不影响加载：
+ * 两处声明与 0.2.2-alpha.3 的差异，均不影响加载：
  * - `engines.node` 声明 `>=26.3.1`，高于 harness 自己的 `>=24.9.0`。profile 的 pnpm
  *   未开 `engine-strict`，安装只告警不拒绝；发布产物不依赖 Node 26 专有 API。
- * - `dsh.client.inject` 列出 `@deepseek-ai/dsh-client-runtime`，该包在 0.2.2-alpha.2
+ * - `dsh.client.inject` 列出 `@deepseek-ai/dsh-client-runtime`，该包在 0.2.2-alpha.3
  *   中已不存在。`dsh.client.inject` 是 informational 的包名边缘（preflight 展示与
  *   HMR 对比），不参与 entry 激活排序，组合与客户端加载都会跳过缺席的行；插件真正
  *   的依赖是 Cordis 服务 inject——host 半 `connection` / `agents`，浏览器半

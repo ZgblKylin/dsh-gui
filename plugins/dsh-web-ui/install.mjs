@@ -78,7 +78,7 @@ installNpmPlugin({
 // 浏览已加载技能、启停、创建与删除。v0.4.4 起技能中心改为原生布局座位面板，
 // dsh.client.inject 新增 @deepseek-ai/dsh-client-ui-layout（由官方 web-app bundle
 // 的 ui-layout 行提供，声明 main 与 sidebar.panellist 座位）；engines.dsh
-// >=0.2.1-rc.3 覆盖 pinned harness 0.2.2-alpha.2；版本对齐上游发布 0.4.12。
+// >=0.2.1-rc.3 覆盖 pinned harness 0.2.2-alpha.3；版本对齐上游发布 0.4.12。
 installNpmPlugin({
   id: 'dsh-skill-explorer',
   packageSpec: '@linxin666/dsh-client-ui-skill-explorer@0.4.12',

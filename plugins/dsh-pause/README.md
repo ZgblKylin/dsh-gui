@@ -54,13 +54,13 @@ insert（手写会双挂载，报 `duplicate loader entry id`）。
   `@deepseek-ai/dsh`、`dsh-llm`、`dsh-client-connection`、
   `dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-client-ui-slots`
   六条均为 `^0.2.0-rc.2`（等价 `>=0.2.0-rc.2 <0.3.0-0`），本仓库 pin 的
-  `dsh-v0.2.2-alpha.2` 落在区间内，安装期预检与启动期挂载都通过，**无需**精确版本
+  `dsh-v0.2.2-alpha.3` 落在区间内，安装期预检与启动期挂载都通过，**无需**精确版本
   例外（对照 `commandcode-provider`）。
 - **`engines.node`**：包声明 `>=26.3.1`，高于 harness 的 `>=24.9.0`。profile 的
   pnpm 未开 `engine-strict`，安装只告警不拒绝；发布产物是纯 ESM + React，不依赖
   Node 26 专有 API（本仓库在 pinned harness 上做了安装与启动冒烟验证）。
 - **`dsh.client.inject`**：声明里列出的 `@deepseek-ai/dsh-client-runtime` 在
-  0.2.2-alpha.2 中已不存在。该字段是 informational 的包名边缘（preflight 展示与
+  0.2.2-alpha.3 中已不存在。该字段是 informational 的包名边缘（preflight 展示与
   HMR 对比），不参与 entry 激活排序，组合与客户端加载都会跳过缺席的行；插件真正的
   依赖是 Cordis 服务 inject——host 半 `connection` / `agents`，浏览器半
   `slots` / `connection` / `conversation`，均随 base 与 web-app bundle 就绪。因此
