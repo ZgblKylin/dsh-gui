@@ -25,6 +25,7 @@
 
 import type { DesktopBrowserBridge, DesktopBrowserReservation } from './bridge.ts'
 import { installClipboardShim } from './clipboard-relay.ts'
+import { copyImageToClipboard, createImageContextMenu, readGuestImage } from './image-menu.ts'
 import {
   drainRemoteNotifications,
   installNotifyShim,
@@ -52,6 +53,23 @@ interface LoadFailureEvent extends Event {
 /** A guest main-frame title update (`page-title-updated`); `title` may be empty. */
 interface PageTitleEvent extends Event {
   readonly title: string
+}
+
+/** The subset of Electron's `<webview>` context-menu params this layer reads. */
+interface ContextMenuParams {
+  /** x of the click, relative to the guest viewport. */
+  readonly x: number
+  /** y of the click, relative to the guest viewport. */
+  readonly y: number
+  /** `'image'` for an image, `'none'`, `'text'`, `'canvas'`, … otherwise. */
+  readonly mediaType?: string
+  /** The image source when `mediaType` is `'image'`. */
+  readonly srcURL?: string
+}
+
+/** A guest `context-menu` event (Electron delivers its params on `params`). */
+interface ContextMenuEvent extends Event {
+  readonly params: ContextMenuParams
 }
 
 /** One remote destination to present. */
@@ -137,6 +155,17 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
   let activeId: string | undefined
   /** The window-title layer: takes the document title over for the active remote page. */
   const windowTitle: WindowTitle = createWindowTitle()
+  /**
+   * The application-document menu for a guest image. The guest session denies the
+   * clipboard permission, so the write happens in this document (see
+   * image-menu.ts); on close, focus returns to the guest the menu covered.
+   */
+  const imageMenu = createImageContextMenu({
+    write: copyImageToClipboard,
+    onClosed: (): void => {
+      if (activeId !== undefined) surfaces.get(activeId)?.guest?.focus()
+    },
+  })
 
   const setCover = (covered: boolean): void => {
     if (covered) document.documentElement.setAttribute(COVER_ATTR, '')
@@ -169,7 +198,11 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
    * with it; what the root does not own is covered by the opaque layer itself.
    */
   const showActive = (id: string | undefined): void => {
+    // Any switch, hide, or retransition dismisses an open image menu; setting
+    // the active tab first lets its close callback return focus to the guest the
+    // layer is about to show (or to nothing for the local tab).
     activeId = id
+    imageMenu.close()
     for (const [key, surface] of surfaces) surface.root.hidden = key !== id
     // The window title follows the active remote page. A tab that has not
     // reported a title yet (connecting, failed, or the local tab) shows the
@@ -235,6 +268,7 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
 
   /** Remove a surface's guest, release its lease, and stop relaying its notifications. */
   const destroyGuest = (surface: Surface): void => {
+    imageMenu.close()
     stopNotifyPoll(surface)
     const guest = surface.guest
     const lease = surface.lease
@@ -326,6 +360,28 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
       surface.title = title
       if (surface.id === activeId) windowTitle.showRemote(title)
     })
+    // Electron shows no default menu for a guest, so a preview image (or an
+    // editable field) gets none. Images are handled here: the capture runs in the
+    // guest and the menu — which also performs the clipboard write — is drawn in
+    // this document, because the guest session denies the clipboard permission
+    // (see image-menu.ts). A superseded guest must not open a menu.
+    webview.addEventListener('context-menu', (event) => {
+      if (generation !== surface.generation) return
+      const params = (event as ContextMenuEvent).params
+      if (params === undefined || params.mediaType !== 'image') return
+      const rect = webview.getBoundingClientRect()
+      const x = typeof params.x === 'number' ? params.x : 0
+      const y = typeof params.y === 'number' ? params.y : 0
+      imageMenu.open({
+        x: rect.left + x,
+        y: rect.top + y,
+        image: readGuestImage(webview, {
+          x,
+          y,
+          srcURL: typeof params.srcURL === 'string' ? params.srcURL : '',
+        }),
+      })
+    })
     surface.guest = webview
     surface.root.append(webview)
     // Hand keyboard focus to the shown guest (the same cause class the parity
@@ -368,6 +424,7 @@ export function createRemoteView(bridge: DesktopBrowserBridge): RemoteView {
       showActive(undefined)
     },
     dispose(): void {
+      imageMenu.dispose()
       for (const surface of surfaces.values()) {
         surface.generation += 1
         destroyGuest(surface)

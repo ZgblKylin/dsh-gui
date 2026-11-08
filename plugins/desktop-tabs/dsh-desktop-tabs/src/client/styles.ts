@@ -425,6 +425,49 @@ html[data-dsh-desktop-tabs-cover] body { background: var(--dsw-alias-bg-base, #1
   word-break: break-word;
 }
 [data-dsh-desktop-tabs-log][hidden] { display: none; }
+/* Application-document context menu for a remote guest image (image-menu.ts).
+   It is the topmost plugin surface — one step above the view layer, still under
+   the shell's forced-hint overlay — and the menu code positions it in viewport
+   coordinates. */
+[data-dsh-desktop-tabs-image-menu] {
+  position: fixed;
+  min-width: 132px;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-overlay);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+  font-family: var(--dsw-font-family);
+  -webkit-app-region: no-drag;
+  z-index: 2147483002;
+}
+[data-dsh-desktop-tabs-image-menu] button {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+[data-dsh-desktop-tabs-image-menu] button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+[data-dsh-desktop-tabs-image-menu] button:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -2px;
+}
+[data-dsh-desktop-tabs-image-menu] button:disabled {
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+}
 `
 
 /** Install the owned stylesheet; idempotent under re-evaluation. */

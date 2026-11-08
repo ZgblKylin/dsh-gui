@@ -31,6 +31,7 @@ desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条
 | client 半 | `src/client/webview-host.ts` | 远端 guest 的求值面（`executeJavaScript`），视图层与通知转接共用 |
 | client 半 | `src/client/notify-relay.ts` | 远端通知转接：向 guest 注入 Notification shim、取回队列并在应用文档重放 |
 | client 半 | `src/client/clipboard-relay.ts` | 远端剪贴板回退：向 guest 注入 writeText 回退，异步写被拒时走 `execCommand('copy')` |
+| client 半 | `src/client/image-menu.ts` | 远端图片右键菜单：guest 取图脚本、data URL 写剪贴板、应用文档自绘菜单与生命周期 |
 | client 半 | `src/client/styles.ts` | 自有的 `<style>`（`--dsw-*` token、`no-drag`、`z-index: 1100`/`900`） |
 
 ## 配置：`<DSH_HOME>/gui/desktop-tabs.json`
@@ -154,6 +155,37 @@ desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条
 devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应出现系统通知；点击代码块
 复制按钮后，在应用文档或任意编辑器粘贴应得到代码块内容。
 
+## 远端图片右键菜单（复制图片）
+
+Electron 不为 `<webview>` guest 提供默认右键菜单（desktop 主进程只处理主窗口的可编辑控件与
+选区文本），所以远端会话里打开会话大图预览后右键没有任何菜单。应用文档的渲染进程能拿到 guest
+的 `context-menu` 事件，菜单与剪贴板写入都在这里完成：
+
+- **菜单**：`view.ts` 给每个 guest 监听 `context-menu`；`params.mediaType === 'image'` 时用
+  guest 的 `getBoundingClientRect().left/top + params.x/y` 作为视口坐标，在应用文档里显示一个
+  `role="menu"` 的自绘菜单（唯一菜单项「复制图片」；打开时聚焦菜单项并夹取进窗口内）。再次
+  右键重开；`Esc`、菜单外 `pointerdown`、窗口 `blur`/`resize`/`scroll`、切换/隐藏/刷新/关闭
+  标签、图层 dispose 都会关闭菜单。关闭后焦点交还当前 guest；被替换（generation 失效）的
+  guest 不再弹菜单。
+- **取图**：打开菜单时向 guest 求值取图脚本（`webview.executeJavaScript`，与通知/剪贴板转接
+  同一通道）：`document.elementFromPoint(x, y)` 向上找 `IMG`，找不到再按 `currentSrc/src`
+  匹配 `document.images`；canvas 按 `naturalWidth`/`naturalHeight` 绘制后
+  `toDataURL('image/png')`。canvas 被污染（`toDataURL` 抛错）或找不到元素时，用
+  `fetch(srcURL, { credentials: 'include' })` 取回 blob，经 `Image` + canvas 重编码为 PNG。
+  只有 `data:image/png;base64,` 前缀的结果会被接受。
+- **为什么在应用文档写剪贴板**：guest 会话拒绝一切权限（`navigator.clipboard.write` 被拒，也
+  没有可用 preload），不能直接写图；应用文档是 `dsh-app://app`（secure context），其 session
+  放行非媒体权限，且点击菜单项本身给应用文档焦点与用户激活。写入把 guest 返回的 data URL 用
+  `fetch(dataUrl)` 转成 Blob，再 `new ClipboardItem({ 'image/png': blob })` 交给
+  `navigator.clipboard.write`。放在应用文档也让写入不必与 guest 的权限检查对抗。
+- **失败文案**：guest 没取到图（元素找不到、取图被拒、返回非 PNG）时菜单项显示
+  「无法读取图片」并禁用；应用文档写入失败（无 `ClipboardItem`、解码失败、权限拒绝）时显示
+  「复制失败，请重试」，1.5 s 后恢复为可重试的「复制图片」。
+
+验证：连上远端标签、打开会话里的大图预览后右键图片，菜单应只有「复制图片」；点击后可在任意
+编辑器粘贴出该图。`tests/image-menu.spec.ts` 用 Node 直跑的 fake DOM 覆盖定位、取图、复制、
+失败与关闭路径。
+
 ## 凭据
 
 本插件不读取任何凭据：不调用 `/remote-api/creds.read`，不读 `<DSH_HOME>\gui\credentials\`，
@@ -198,6 +230,13 @@ devtools 里执行 `window.__dshNotifyRelay.test()`），应用未聚焦时应�
   主窗口标题跟随主文档 `document.title`。若外壳改为自行管理窗口标题（例如 `preventDefault`），
   本插件便无法再影响窗口标题（标签页内行为不受影响）。远程标题**原样使用**，不截断、不拼接
   标签名；空/纯空白标题按本机标题处理。后台标签的标题更新只会被记录，等它再次激活才应用。
+- 远端右键菜单只处理 `mediaType === 'image'`：图片以外的右键（文本、链接、可编辑控件）仍没有
+  应用菜单（Electron 不给 guest 默认菜单），维持桌面外壳的现状。
+- 「复制图片」是 canvas 重编码得到的 PNG 位图：动图只取当前帧，EXIF/色彩配置等原始格式信息
+  丢失（透明通道保留），超大图还受 Chromium 的 canvas 尺寸上限约束。
+- 取图依赖 guest 页面的 image 元素：命中 `elementFromPoint` 或 `document.images` 的
+  `src/currentSrc`；两者都失败时回退 `fetch(srcURL)`，跨源且无 CORS 的图片会落到
+  「无法读取图片」。正常 harness 大图预览（blob:/同源）可用。
 
 ## 远程连接生命周期（tmux 长期存活）
 
@@ -249,4 +288,6 @@ npm run build:desktop -- --plugins-only   # 装进 <runtime-root>/.dsh/profiles/
 行为测试直接以 Node 运行 `tests/` 下的脚本（`pnpm run test` 依次执行）：`remote.test.mjs`
 （host 半的会话脚本与路由）、`view-retention.spec.ts`（切换保留、刷新卸载、租约与轮询释放、
 窗口标题跟随活跃标签与恢复）、`window-title.spec.ts`（窗口标题状态机：采样、接管期间写回、
-远程切换不重采样、恢复与 dispose）、`clipboard-relay.spec.ts` 与 `notify-relay.spec.ts`。
+远程切换不重采样、恢复与 dispose）、`clipboard-relay.spec.ts`、`notify-relay.spec.ts` 与
+`image-menu.spec.ts`（远端图片右键菜单：取图脚本、菜单定位与关闭、复制、失败文案、视图层
+`context-menu` 接线）。
