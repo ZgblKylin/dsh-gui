@@ -66,9 +66,9 @@ const ID = 'deep-whale'
  * script is the authoritative install target for a fresh deployment.
  */
 const SKIN_SPECS = [
-  '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@0.1.8',
+  '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@0.1.9',
   '@smalltailqwq/dsh-client-ui-skin-maid-atelier@0.1.9',
-  '@smalltailqwq/dsh-client-ui-skin-orca-link@0.1.9',
+  '@smalltailqwq/dsh-client-ui-skin-orca-link@0.1.10',
 ]
 
 /** Keys the retired `@dsh-external/*` placeholder scope left behind. */

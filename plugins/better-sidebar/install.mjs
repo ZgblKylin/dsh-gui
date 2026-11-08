@@ -2,10 +2,10 @@
 /**
  * install.mjs — install the `better-sidebar` plugin group into the web profile.
  *
- * DSH-better-sidebar 从 npm 安装：v0.28.2 的 13 条 @deepseek-ai/dsh-* peerDeps
- * 全部指向 ^0.2.1-rc.1，与本工程 pinned 的 dsh-v0.2.2-rc.1 harness 匹配——准入
+ * DSH-better-sidebar 从 npm 安装：v0.30.1 的 14 条 @deepseek-ai/dsh-* peerDeps
+ * 全部指向 ^0.2.2-rc.1，与本工程 pinned 的 dsh-v0.2.2-rc.1 harness 匹配——准入
  * 闸门对没有 engines.dsh 的包逐条比对 dsh peer 区间，0.2.2-rc.1 落在
- * ^0.2.1-rc.1（>=0.2.1-rc.1 <0.3.0-0）内。上游自 v0.21.1 起把右列交由 DSH 原生
+ * ^0.2.2-rc.1（>=0.2.2-rc.1 <0.3.0-0）内。上游自 v0.21.1 起把右列交由 DSH 原生
  * 右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与
  * `ctx.betterSidebar` 服务。固定精确版本而非 @latest，是因为 pinned pnpm 11.7
  * 默认的 supply-chain minimumReleaseAge 会把过新的版本挡在 @latest 之外、静默回退
@@ -53,8 +53,8 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'better-sidebar',
-  // 固定 0.2.1 线适配版 0.28.2（见头部注释；@latest 会被 minimumReleaseAge 挡回更旧版本）。
-  packageSpec: 'dsh-better-sidebar@0.28.2',
+  // 固定 0.2.2 线适配版 0.30.1（见头部注释；@latest 会被 minimumReleaseAge 挡回更旧版本）。
+  packageSpec: 'dsh-better-sidebar@0.30.1',
 })
 
 // 然后 dsh-sidebar-qa：独占的「追问」原生面板（选中文本 → 右栏追问 → 独立同

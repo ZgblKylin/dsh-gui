@@ -2,7 +2,7 @@
 // plugins/dsh-pet/install.mjs — PC2005-cloud/dsh-pet（npm 包名 dsh-pet）wrapper。
 //
 // 来源：npm 发布包 `dsh-pet`，安装走 npm（installNpmPlugin，精确版本
-//   dsh-pet@0.3.8），与其它 npm 型 wrapper 同一通道。
+//   dsh-pet@0.4.6），与其它 npm 型 wrapper 同一通道。
 //
 // npm 发布滞后：tag `v0.3.8-test.2`（dfc0396）建在发布提交 `v0.3.8`（593b9b0）之后，
 //   含 33 个提交，但 registry 上 `dsh-pet` 只发布到 **0.3.8**（`latest` 与 `test` 两个
@@ -40,7 +40,7 @@ import { injectPetConfig, petConfigPath } from './inject-config.mjs'
 
 const ID = 'dsh-pet'
 // 精确稳定 SemVer（Market 约束：不用 latest / 版本范围 / prerelease 作安装目标）。
-const PACKAGE_SPEC = 'dsh-pet@0.3.8'
+const PACKAGE_SPEC = 'dsh-pet@0.4.6'
 
 installNpmPlugin({ id: ID, packageSpec: PACKAGE_SPEC })
 

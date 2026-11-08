@@ -2,7 +2,7 @@
 /**
  * install.mjs — install the `dshmarket` plugin into the web profile.
  *
- * ⚠️ Installed from npm pinned to an exact version (`1.73.3`), not `@latest` —
+ * ⚠️ Installed from npm pinned to an exact version (`1.73.15`), not `@latest` —
  * exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (which silently
  * falls back to an older version for `@latest`/ranges) and keep the installed
  * body identical to the selected published release (per plugins/README.md's
@@ -21,7 +21,7 @@
  * fails. 1.70.x extends that peer with `^0.2.1-alpha.3 || ^0.2.1-rc.1` and runs
  * its own peer check with `includePrerelease`, admitting prerelease host lines
  * instead of reporting them unmet; 1.73.x keeps the same disjunction and this
- * wrapper pins 1.73.3.
+ * wrapper pins 1.73.15.
  *
  * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`
  * by the desktop shell; this script honors an explicit `DSH_HOME` override
@@ -32,5 +32,5 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'plugin-market',
-  packageSpec: 'dshmarket@1.73.3',
+  packageSpec: 'dshmarket@1.73.15',
 })

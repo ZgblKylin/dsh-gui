@@ -3,10 +3,10 @@
  * install.mjs — install the `dsh-pause` plugin into the selected profile.
  *
  * 来源：npm 发布包 `dsh-pause`（上游 `better-er/dsh-pause`），经
- * `installNpmPlugin` 安装**精确版本 0.1.6** 而非 `@latest`：pinned pnpm 11.7 默认的
+ * `installNpmPlugin` 安装**精确版本 0.1.8** 而非 `@latest`：pinned pnpm 11.7 默认的
  * supply-chain `minimumReleaseAge`（1440 分钟）会把发布不足 24h 的版本挡在 `@latest`
- * 之外并静默回退到上一版，精确 pin 让安装内容与所选上游发布一致（0.1.6 发布于
- * 2026-10-29）。本 wrapper 不引入 git submodule、不构建：发布包已含预构建的
+ * 之外并静默回退到上一版，精确 pin 让安装内容与所选上游发布一致（0.1.8 发布于
+ * 2026-11-07）。本 wrapper 不引入 git submodule、不构建：发布包已含预构建的
  * `lib/index.js`（host 半）与 `lib/client.js`（browser 半），仓库侧的 `install.mjs`
  * 就是当前 profile 与全新部署共同的权威安装目标。
  *
@@ -51,5 +51,5 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
 installNpmPlugin({
   id: 'dsh-pause',
-  packageSpec: 'dsh-pause@0.1.6',
+  packageSpec: 'dsh-pause@0.1.8',
 })
