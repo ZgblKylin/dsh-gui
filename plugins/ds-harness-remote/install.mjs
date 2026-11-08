@@ -16,8 +16,8 @@
  * 文件，需要官方 `tools` service）。不打开公网监听端口、无需路由端口转发。
  *
  * 包声明 `dsh.bundle.patch`（`cordis.patch.yml`）：`dsh plugin add` 会把它 reconcile 进
- * `dsh.profile.bundles`，bundle 层自行插入 `ds-harness-remote`（普通 profile 启用）与
- * `ds-harness-remote-tui`（仅有 dsh-tui 入口时启用）两个 entry，因此本脚本不写手工
+ * `dsh.profile.bundles`，bundle 层自行插入 `ds-harness-remote` entry（0.6.3 起上游
+ * 移除了 `ds-harness-remote-tui`，dsh-TUI 集成推迟到后续版本），因此本脚本不写手工
  * insert（那会 double-mount）。
  *
  * 准入：manifest 无 `engines.dsh`，app-boot 闸门逐条比对 `@deepseek-ai/dsh*` peer

@@ -17,11 +17,11 @@
  * `ctx.connection.requestRejection`，由官方 web-app bundle 的 `ui-connection` 行提供。
  * 因此本 pin 必须与 harness 同批更换。
  *
- * 已知限制（上游 0.28.2 仍未适配 harness 0.2.2 的模型选择契约）：`src/sidechat-routes.ts`
- * 依旧以两参调用 `installModelSelection(agent.ctx, ref)`，而 0.2.2 起该函数只接收
- * `agentCtx`、选择改由 `agent.model.select()` 记录，因此侧聊的模型选择 ref 路径
- * 失效（选择本身仍经 `session.append('model/selection', …)` 生效）。等上游适配或
- * 改写为 `agent.model.select()/current()` 后移除本记录。
+ * 模型选择适配：0.28.2 在 `src/sidechat-routes.ts` 以两参调用
+ * `installModelSelection(agent.ctx, ref)`，而 harness 0.2.2 起该函数只接收 `agentCtx`，
+ * 侧聊的模型选择 ref 路径因此失效；0.30.1 已改写为 `agent.model.select(...)`
+ * （`sidechat-routes.ts` 的 `model.select(brandedSelection(selection))`，对应 DSH
+ * 0.2.2 的 `agent.model` seam），旧限制随之解除。
  *
  * dsh-sidebar-qa 同样从 npm 安装，固定精确版本
  * dsh-sidebar-qa@1.2.2，不用 `@latest`：pinned pnpm 11.7 默认

@@ -4,17 +4,16 @@
 // 来源：npm 发布包 `dsh-pet`，安装走 npm（installNpmPlugin，精确版本
 //   dsh-pet@0.4.6），与其它 npm 型 wrapper 同一通道。
 //
-// npm 发布滞后：tag `v0.3.8-test.2`（dfc0396）建在发布提交 `v0.3.8`（593b9b0）之后，
-//   含 33 个提交，但 registry 上 `dsh-pet` 只发布到 **0.3.8**（`latest` 与 `test` 两个
-//   dist-tag 都指向它），没有 `0.3.8-test.2`，因此运行时装的仍是 0.3.8 的内容；上游
-//   发布新版本后把 PACKAGE_SPEC 抬到对应版本。
+// 发布状态：registry 上 `dsh-pet` 的 `latest` 已是 0.4.6（2026-11-08 发布，`test` 停在
+//   0.4.1）；旧注释记录的 `v0.3.8-test.2` 未发布状态已随 0.4.x 发布终结。上游发布新
+//   版本后把 PACKAGE_SPEC 抬到对应版本。
 //
-// 兼容性：0.3.8 的 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`（相对 v0.3.1 新增
+// 兼容性：0.4.6 的 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`（相对 v0.3.1 新增
 //   `@deepseek-ai/dsh-client-ui-primitives`），经准入闸门的
 //   `semver.satisfies(..., { includePrerelease: true })` 判定覆盖本仓库 pin 的 harness
 //   `0.2.2-rc.1`，安装期准入预检与启动期 bundle 层挂载都通过，因此不需要
 //   installNpmPlugin 的 `exempt` 例外。host 半 inject 为
-//   `webServer / agentDefaultModel / credentials / llm / commands`：其中
+//   `webServer / agentDefaultModel / credentials / llm / commands / connection`：其中
 //   `agentDefaultModel` 由本仓库 pin 的 base bundle
 //   （@deepseek-ai/dsh-agent-default-model）提供，其余服务随 base 与 web-app bundle
 //   挂载，host 半可正常激活。浏览器半在 `src/client/app.ts` 声明本地 inject

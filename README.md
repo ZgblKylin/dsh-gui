@@ -537,12 +537,12 @@ shared installer removes its matching legacy insert during reinstall to avoid a
 duplicate Loader entry.
 
 `plugins/better-sidebar`, `plugins/deep-whale` and `plugins/dsh-web-ui` install
-several npm packages each: `better-sidebar` installs `dsh-better-sidebar@0.28.2`
+several npm packages each: `better-sidebar` installs `dsh-better-sidebar@0.30.1`
 then `dsh-sidebar-qa@1.2.2`, `deep-whale` the persistent skin manager and the
 two mutually exclusive skins, and `dsh-web-ui` three bundles of its
 distribution repo — `@linxin666/dsh-client-ui-web-ui-settings` (ordered first),
 `@linxin666/dsh-client-ui-skill-explorer` and `@linxin666/dsh-usage`, pinned to
-`0.4.12`. Every one of those packages declares `dsh.bundle.patch`, so
+`0.4.16`. Every one of those packages declares `dsh.bundle.patch`, so
 `dsh plugin add` reconciles each into `dsh.profile.bundles` (no manual cordis
 insert) and none of them is compiled locally. The settings bridge is installed
 first because dsh-host-apiproxy's hard-coded settings allowlist does not expose
@@ -557,7 +557,7 @@ installed (see `dsh-web-ui/README.md`). The 安装方式 list in
 package's own `dsh.bundle.patch` reconciles it into `dsh.profile.bundles`.
 
 `plugins/dsh-pause` is npm-only too: its `install.mjs` installs
-`dsh-pause@0.1.6` through `installNpmPlugin`, and the package's own
+`dsh-pause@0.1.8` through `installNpmPlugin`, and the package's own
 `dsh.bundle.patch` reconciles it into `dsh.profile.bundles`.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect
