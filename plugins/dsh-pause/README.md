@@ -6,14 +6,14 @@
 非空时作为 steer 插话随本次请求一并发出，模型侧全程无感知。
 
 来源形态：**npm 发布包**。安装走共享流水线的 `installNpmPlugin`，精确版本
-`dsh-pause@0.1.6`；本 wrapper 不构建、不 link 本地源码（发布包已含预构建的
+`dsh-pause@0.1.8`；本 wrapper 不构建、不 link 本地源码（发布包已含预构建的
 `lib/index.js` 与 `lib/client.js`）。
 
 ## 目录
 
 ```text
 plugins/dsh-pause/
-├─ install.mjs                               # npm 安装 0.1.6（bundle 自挂载）
+├─ install.mjs                               # npm 安装 0.1.8（bundle 自挂载）
 └─ README.md                                 # 本说明
 ```
 
@@ -23,10 +23,13 @@ plugins/dsh-pause/
   挂起（每个 turn 的第一次请求 step 为 1，永不暂停）；暂停发生在请求真正发出之前，
   不打断任何在途 API 调用。
 - **开关默认关闭**：Config `defaultEnabled` 默认 `false`，可在 composer 工具行逐会话
-  开启；开关状态与暂停点都在插件内存里按 session 维护。
+  开启，也可按键盘 Pause 键切换；开关状态与暂停点都在插件内存里按 session 维护。
 - **放行语义**：主输入框按裸 Enter 或点「已暂停·回车或点此继续」都能放行。草稿为空
   无感继续；有文字（含图片）则作为插话随本次请求一并发出。暂停点未到时按 Enter 同样
   有效——消息立即以 `agent.steer` 送出，空闲时由 steer 自己开新的一轮。
+- **强制继续（0.1.8）**：模型空闲、输入框为空时连按两次回车，经 `agent.followup` 送
+  一条内容为空、来源为 `runtime-context` 的唤醒消息，对现有上下文再发一次请求，会话里
+  不会出现用户消息；第一次空回车只在控件旁提示再按一次。只在开关开启时生效。
 - **browser 半**：经 `conversation.input.right` slot 在 composer 工具行渲染控件；插件
   开启期间用 DOM capture 拦截裸 Enter（composer 的 Enter 由 InputBar 私有 keymap
   处理，第三方无 hook 点），改走主机裁决，不改 DSH 源码。
@@ -55,7 +58,8 @@ insert（手写会双挂载，报 `duplicate loader entry id`）。
   `dsh-client-ui-conversation`、`dsh-client-ui-renderer`、`dsh-client-ui-slots`
   六条均为 `^0.2.0-rc.2`（等价 `>=0.2.0-rc.2 <0.3.0-0`），本仓库 pin 的
   `dsh-v0.2.2-rc.1` 落在区间内，安装期预检与启动期挂载都通过，**无需**精确版本
-  例外（对照 `commandcode-provider`）。
+  例外（对照 `commandcode-provider`）。0.1.8 另加一条非 dsh 的
+  `@deepseek-ai/schemastery >=3.18.0` peer（Config schema 依赖），闸门不评估它。
 - **`engines.node`**：包声明 `>=26.3.1`，高于 harness 的 `>=24.9.0`。profile 的
   pnpm 未开 `engine-strict`，安装只告警不拒绝；发布产物是纯 ESM + React，不依赖
   Node 26 专有 API（本仓库在 pinned harness 上做了安装与启动冒烟验证）。

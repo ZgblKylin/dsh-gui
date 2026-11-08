@@ -2,20 +2,20 @@
 
 `dsh-web-ui` 的 wrapper。这个 wrapper 安装该发行仓库中的**插件本体**，全部以 npm
 包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的「安装方式」
-一节），版本号与上游发布保持同步（当前 `0.4.12`）：
+一节），版本号与上游发布保持同步（当前 `0.4.16`）：
 
 1. **`dsh-web-ui-settings` 兼容设置桥**
-   （`@linxin666/dsh-client-ui-web-ui-settings@0.4.12`，排在最前）；
+   （`@linxin666/dsh-client-ui-web-ui-settings@0.4.16`，排在最前）；
 2. **`dsh-skill-explorer` 技能中心面板**
-   （`@linxin666/dsh-client-ui-skill-explorer@0.4.12`）；
+   （`@linxin666/dsh-client-ui-skill-explorer@0.4.16`）；
 3. **`dsh-usage` 使用统计**
-   （`@linxin666/dsh-usage@0.4.12`）。
+   （`@linxin666/dsh-usage@0.4.16`）。
 
 用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
 `@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
 保证结果确定、与上游发布一致。升级时需同步 bump 版本号。
 
-三个包要求 `@deepseek-ai/dsh >= 0.2.1-rc.3`（v0.4.9 起从 `>= 0.2.1-rc.2` 抬高），本工程 pinned 的 `dsh-v0.2.2-rc.1` 满足该声明。
+三个包要求 `@deepseek-ai/dsh >= 0.2.2-rc.1`（0.4.16 起从 `>= 0.2.1-rc.3` 抬高），本工程 pinned 的 `dsh-v0.2.2-rc.1` 正落在该下界上，满足该声明。0.4.16 另随包提供 `locale/en.json` 与 `locale/zh.json`，面板文案跟随界面语言；`dsh-usage` 的 `engines.node` 同步收到 `>=24.9.0`（与 harness 一致）。
 
 > **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper 安装。**
 > 直到 v0.4.4，排除原因是硬冲突：官方 `@deepseek-ai/dsh-web-app` bundle 自带
@@ -66,9 +66,9 @@ renderer 服务，作为独立 bundle 层自挂载。面板提供搜索框（按
 安装步骤：共享管线的 `installNpmPlugin()` 依次执行
 
 ```powershell
-dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.12
-dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.12
-dsh plugin --profile web add @linxin666/dsh-usage@0.4.12
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.16
+dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.16
+dsh plugin --profile web add @linxin666/dsh-usage@0.4.16
 ```
 
 三个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
@@ -159,15 +159,15 @@ skill `dsh-plugin-uninstall`）。
 ```text
 --- E:\Git\dsh-gui\plugins\dsh-web-ui\install.mjs
 
-==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.4.12 from npm)
+==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.4.16 from npm)
   ...
 installed plugin 'dsh-web-ui-settings' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.4.12 from npm)
+==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.4.16 from npm)
   ...
 installed plugin 'dsh-skill-explorer' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.12 from npm)
+==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.16 from npm)
   ...
 installed plugin 'dsh-usage' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
@@ -180,7 +180,7 @@ node plugins/dsh-web-ui/install.mjs
 
 ## 幂等性
 
-`dsh plugin add <pkg>@0.4.12`（npm，精确版本）可重复执行；bundle 层挂载由受管
+`dsh plugin add <pkg>@0.4.16`（npm，精确版本）可重复执行；bundle 层挂载由受管
 安装器 reconcile 保证幂等。
 
 ## 更新源

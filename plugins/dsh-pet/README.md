@@ -7,23 +7,21 @@
 
 ```text
 plugins/dsh-pet/
-├─ install.mjs                   # npm 安装 dsh-pet@0.3.8 + 注入桌面屏蔽配置
+├─ install.mjs                   # npm 安装 dsh-pet@0.4.6 + 注入桌面屏蔽配置
 ├─ inject-config.mjs             # 用户配置注入（纯函数，可单测）
 └─ README.md                     # 本说明
 ```
 
 来源形态：**npm 发布包** `dsh-pet`（上游 PC2005-cloud/dsh-pet 仓库内 `dsh-pet/`
 子目录发布），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
-`dsh-pet@0.3.8`）。npm 发布滞后：tag `v0.3.8-test.2` 建在 `v0.3.8` 发布提交之后
-（含 33 个提交），但 registry 上 `dsh-pet` 只到 0.3.8（`latest` 与 `test` 两个
-dist-tag 都指向它），没有 `0.3.8-test.2`，因此运行时装的仍是 0.3.8 的内容。
+`dsh-pet@0.4.6`；0.4.6 于 2026-11-08 发布，本次 pin 取 registry 的 `latest`）。
 
 ## 兼容性状态
 
-`dsh-pet` 0.3.8 在本仓库 pin 的 harness（dsh `0.2.2-rc.1`）下**可正常安装运行**：
+`dsh-pet` 0.4.6 在本仓库 pin 的 harness（dsh `0.2.2-rc.1`）下**可正常安装运行**：
 
-- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.2-rc.1`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；
-- host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm', 'commands']`：`agentDefaultModel` 服务由 base bundle 的 `@deepseek-ai/dsh-agent-default-model` 提供，其余服务随 base 与 web-app bundle 挂载，host 半可正常激活；
+- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.2-rc.1`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；包内 `dsh.compatibility.dshReleases` 已把 `0.2.2-rc.1` 记为 compatible；
+- host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm', 'commands', 'connection']`：`agentDefaultModel` 服务由 base bundle 的 `@deepseek-ai/dsh-agent-default-model` 提供，`connection` 供桌面模式的「打开 AI 设置」取已鉴权站点 URL，其余服务随 base 与 web-app bundle 挂载，host 半可正常激活；
 - 浏览器半在 `src/client/app.ts` 声明本地 inject
   `['slots', 'locale', 'connection', 'remote', 'remote.commands', 'commandUi']`：
   其中 `commandUi` 是官方 `dsh-client-ui-commands` 提供的「/」命令服务，随
@@ -40,6 +38,12 @@ dist-tag 都指向它），没有 `0.3.8-test.2`，因此运行时装的仍是 0
 - 用户层配置自 0.3 起为 `main-config.jsonc`（JSONC，允许注释）；迁移前遗留的
   `main-config.json` 仍被读取，并在启动时重命名为 `.jsonc`。0.3 新增根字段
   `confineToScreen`、宠物字段 `workStatusEnabled` 与 `physics` 段，均由上游内置默认值提供。
+- 0.4.x 的默认配置又新增 `chatAnimationEnabled`、语音播报的
+  `voiceEnabled` / `voiceName` / `voiceVolume` / `voiceWhisperEnabled` / `voiceTodoEnabled`、
+  `clickSoundEnabled`、`trayEnabled` 与睡觉/醒来/拒绝台词段，`chatMemoryRounds`
+  默认 5→10、`chatImageLimit` 10→20、`petCollision` 默认 false→true；这些都是
+  包内 `assets/config.jsonc` 的默认值，用户已有配置无需迁移，wrapper 注入的
+  `display:"web"` 语义不变（默认宠物仍是 `display:"both"`，所以注入仍然必需）。
 
 因此 `plugins/dsh-pet/install.mjs` 不向 `installNpmPlugin` 传 `skip`，
 `npm run install:plugins` / `npm run build` 默认安装（不会破坏 profile 启动）。
@@ -54,9 +58,10 @@ dist-tag 都指向它），没有 `0.3.8-test.2`，因此运行时装的仍是 0
 
 ## 桌面屏蔽（安装后注入）
 
-逻辑见 `inject-config.mjs`，上游依据 `src/host/index.ts` 的
-`isDesktopVisible` / `hasDesktopPet` / `startHelper()`：只有存在
-`display ∈ {desktop, both}` 的宠物时才去探测/下载/拉起 Electron Helper。
+逻辑见 `inject-config.mjs`，上游依据 `src/shared/config.ts` 的 `isDesktopVisible`
+（`display ∈ {desktop, both}`）与 `src/host/plugin/desktop/`（`pets.ts` 负责桌面宠物
+筛选、`spawn.ts` 的 `startHelper()` 拉起 helper）：只有存在桌面显示的宠物时才去探测/
+下载/拉起 Electron Helper。
 内置默认配置 `assets/config.jsonc` 的宠物 display 是 `both`，所以**装上不屏蔽
 就会默认开桌面**。本 wrapper 在插件真正装入 profile 后向用户层配置注入
 `display:"web"`（规则，幂等）：
@@ -74,9 +79,9 @@ dist-tag 都指向它），没有 `0.3.8-test.2`，因此运行时装的仍是 0
 在任何端把 display 改回 `desktop`/`both` 即为重新启用桌面模式（设置页保存本地
 配置即可）。
 
-> 时序：`hasDesktopPet` 只在插件激活与设置页保存（PUT/DELETE /config 触发
-> `syncDesktop`）时重算。本脚本在插件首次激活前写完配置，激活即生效；若宿主
-> 已在跑且桌面窗口已拉起，改配置后需重启或保存一次设置页才停掉旧窗口。
+> 时序：桌面侧判定只在插件激活与设置页保存（PUT/DELETE /config 触发桌面侧同步）时
+> 重算。本脚本在插件首次激活前写完配置，激活即生效；若宿主已在跑且桌面窗口已拉起，
+> 改配置后需重启或保存一次设置页才停掉旧窗口。
 
 ## 安装
 
