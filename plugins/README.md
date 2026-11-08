@@ -170,7 +170,7 @@ npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本�
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包（pin `1.73.15`；1.66.4 起把 `@deepseek-ai/dsh-settings` peer 纳入 0.2 线，属硬下限：1.65.3 的 peer 范围被 0.2.2-rc.1 的准入闸门拒绝，安装前置检查直接失败；1.70.0 起 peer 检查按 `includePrerelease` 接纳 prerelease 宿主线，1.73.x 沿用同一区间（`^0.2.1-alpha.3 || ^0.2.1-rc.1`），1.70.2 含 carrier 型 bundle 开关的缺陷修复，1.73.15 另含市场更新链路、Agent 空闲期延迟插件变更（#411）与 Windows 控制台输出解码（#1122）的修复）
 - [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（**0.30.1** 的 14 条 `@deepseek-ai/dsh-*` peerDeps 全指 `^0.2.2-rc.1`，与本工程 pinned 的 `dsh-v0.2.2-rc.1` 匹配（较 0.28.2 新增的 `dsh-client-ui-input-trigger` 随 0.2.2-rc.1 的 web-app bundle 的 `ui-input-trigger` 行提供）；host inject 仍为 `webServer / sessions / connection / tools`，未再引用 rc.2 起已删除的 `webRuntime`，因此本 pin 必须与 harness 同批更换），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务。wrapper 固定 `0.30.1` 而非 `@latest`，因为 pinned pnpm 11.7 默认 supply-chain minimumReleaseAge 会把过新的版本挡在 `@latest` 之外、静默回退到更旧版本；0.30.0 起侧聊模型切换改走 `agent.model.select()`，旧「`installModelSelection` 两参调用未适配 0.2.2」的限制已解除；v0.16.1 起还含 z-index 图层修复 [#330](https://github.com/omdsh-dev/DSH-better-sidebar/pull/330) 与市场受管安装兼容 [#338](https://github.com/omdsh-dev/DSH-better-sidebar/pull/338)），install.mjs 先装本插件再装下方的 dsh-sidebar-qa
   - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（pin `1.2.2`；1.2.0 的 host 半改为 Config + volatile、按 profile 条目 id 寻址，设置项因此可持久化；1.2.1 把信任围栏从已删除的 `webRuntime` 迁到 `webStartup`，修掉 LAN/`--trusted-host` 访问 `/sidebarqa/api` 恒 403 的缺陷，client 半恢复流式并显示失败原因；manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖 0.2.2-rc.1；自 v1.0.0 起收敛为原生单后端，并在 manifest 层移除了 `dsh-better-sidebar` peer；按 DSH 0.1.7 重命名后的图标集按名解析宿主图标）
-- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) npm包（按各包最新发布 pin：orca-link `0.1.10`、skin-manager `0.1.9`、maid-atelier 保持 `0.1.9`（本次不升）；`@smalltailqwq/dsh-client-ui-skin-*` 三包按上游 INSTALL.md 顺序安装。orca-link 0.1.10 的 peer 收窄为 `@deepseek-ai/dsh >=0.2.2-0 <0.2.3-0`（`0.2.2-rc.1` 落在该区间内、满足准入闸门），其 `skin.json` 记 `dshCompatibility: 0.2.2rc1`（仅「验证于」展示，不参与准入判定）；maid-atelier 0.1.9 仍是 `>=0.2.0-rc.2 <0.3.0-0`，manager 的 `>=0.1.7-rc.1` 同样满足，0.2.2-rc.1 的准入闸门全部放行、无需例外；并清理旧 `@dsh-external/*` 占位 scope 的残留键）
+- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) npm包（按各包最新发布 pin：两套皮肤 maid-atelier 与 orca-link 均为 `0.1.10`、skin-manager `0.1.9`；`@smalltailqwq/dsh-client-ui-skin-*` 三包按上游 INSTALL.md 顺序安装。两套皮肤 0.1.10 的 peer 为 `@deepseek-ai/dsh >=0.2.2-0 <0.2.3-0`（`0.2.2-rc.1` 落在该区间内、满足准入闸门），其 `skin.json` 记 `dshCompatibility: 0.2.2rc1`（仅「验证于」展示，不参与准入判定）；manager 的 `>=0.1.7-rc.1` 同样满足，0.2.2-rc.1 的准入闸门全部放行、无需例外；并清理旧 `@dsh-external/*` 占位 scope 的残留键）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表
   - [@linxin666/dsh-client-ui-web-ui-settings@0.4.16](https://www.npmjs.com/package/@linxin666/dsh-client-ui-web-ui-settings) npm包
   - [@linxin666/dsh-client-ui-skill-explorer@0.4.16](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skill-explorer) npm包
@@ -290,16 +290,15 @@ npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本�
   (`@smalltailqwq/dsh-client-ui-skin-maid-atelier` /
   `@smalltailqwq/dsh-client-ui-skin-orca-link`, each MIT for its code and
   CC BY-NC-SA 4.0 for its artwork), pinned per package to each package's latest
-  release: `orca-link` at `0.1.10`, the manager at `0.1.9`, and `maid-atelier`
-  kept at `0.1.9` (not bumped this round). `orca-link` 0.1.10 narrows its peer to
-  `@deepseek-ai/dsh >=0.2.2-0 <0.2.3-0` (the pinned `0.2.2-rc.1` satisfies that
-  range) and records `dshCompatibility: 0.2.2rc1` in `skin.json` (a display-only
-  "validated against" label the manager UI shows; the admission gate reads the
-  package peers); `maid-atelier` 0.1.9 keeps `>=0.2.0-rc.2 <0.3.0-0`, and the
-  manager's `>=0.1.7-rc.1` peer is satisfied, so no package needs an
-  exact-version exemption. Every tarball ships its prebuilt `lib/` and its own
-  `cordis.patch.yml`, so nothing is compiled or linked locally and each mounts
-  through its own bundle layer (entry ids `ui-skin-deep-whale-manager`,
+  release: both skins at `0.1.10` and the manager at `0.1.9`. The skins 0.1.10
+  carry the peer `@deepseek-ai/dsh >=0.2.2-0 <0.2.3-0` (the pinned `0.2.2-rc.1`
+  satisfies that range) and record `dshCompatibility: 0.2.2rc1` in `skin.json`
+  (a display-only "validated against" label the manager UI shows; the admission
+  gate reads the package peers); the manager's `>=0.1.7-rc.1` peer is satisfied,
+  so no package needs an exact-version exemption. Every tarball ships its
+  prebuilt `lib/` and its own `cordis.patch.yml`, so nothing is compiled or
+  linked locally and each mounts through its own bundle layer (entry ids
+  `ui-skin-deep-whale-manager`,
   `ui-skin-maid-atelier`, `ui-skin-orca-link`).
   Skin mutual exclusion is the manager's own job: on the first restart it detects
   "two skins enabled at once" and falls back to the official default, after which
