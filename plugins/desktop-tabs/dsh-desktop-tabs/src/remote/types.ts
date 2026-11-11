@@ -1,27 +1,31 @@
 /**
  * Public types of the remote-connection module.
  *
- * The module owns everything between a tab's `ssh` descriptor and a loadable
- * `http://127.0.0.1:<localPort>/?token=...` URL; `./session.ts` implements it and
- * `./index.ts` is the entry both the host half and the browser half's requests go
- * through. `SshSpec` lives in `./config.ts` because it is read from the same
- * `gui/desktop-tabs.json` the tab list comes from.
+ * The module owns everything between a tab's `ssh` or `wsl` descriptor and a
+ * loadable `http://127.0.0.1:<port>/?token=...` URL; `./session.ts` implements
+ * it and `./index.ts` is the entry both the host half and the browser half's
+ * requests go through. `SshSpec` / `WslSpec` live in `./config.ts` because they
+ * are read from the same `gui/desktop-tabs.json` the tab list comes from.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
-import type { SshSpec } from './config.ts'
+import type { SshSpec, WslSpec } from './config.ts'
 
 /**
  * One tab the connection manager accepts: a configured tab or a saved
- * connection, plus its SSH descriptor. Structurally a superset of `DesktopTab`,
- * so a caller may keep passing the normalized list from `../targets.ts`.
+ * connection, plus its remote descriptor. Structurally a superset of
+ * `DesktopTab`, so a caller may keep passing the normalized list from
+ * `../targets.ts`. A row carrying both descriptors is resolved as SSH.
  */
 export interface RemoteTab {
   readonly id: string
   readonly title?: string
   readonly url?: string
   readonly ssh?: SshSpec
+  readonly wsl?: WslSpec
+  /** Explicit remote login name (`ssh -l` / `wsl.exe -u`). */
+  readonly account?: string
   /** Remote working directory of the launch; empty means the remote `$HOME`. */
   readonly workdir?: string
   /** Remote command that starts the backend; empty means the built-in default. */
@@ -62,7 +66,7 @@ export interface RemoteLogger {
 
 /** Construction options of one connection manager. */
 export interface RemoteConnectionsOptions {
-  /** Harness home whose `gui/desktop-tabs.json` holds the SSH descriptors. */
+  /** Harness home whose `gui/desktop-tabs.json` holds the remote descriptors. */
   readonly dshHome: string
   /** Rows to resolve by id: a plain tab array, or the `{ tabs, connections }` response. */
   readonly tabs: () => Promise<RemoteTargetSource>
@@ -74,17 +78,18 @@ export interface RemoteConnectionsOptions {
 export interface RemoteConnections {
   /**
    * Establish or reuse the tab's connection.
-   * @param tabId - id of a tab whose descriptor carries `ssh`.
-   * @returns the loadable tunnel URL.
+   * @param tabId - id of a tab whose descriptor carries `ssh` or `wsl`.
+   * @returns the loadable URL.
    */
   up(tabId: string): Promise<{ url: string }>
   /**
-   * Tear the connection down: the local tunnel and its ssh clients. The remote
-   * backend keeps running in its tmux session and is reused by the next `up`.
+   * Tear the connection down: the local tunnel and its ssh/wsl clients. The
+   * remote backend keeps running in its tmux session and is reused by the next
+   * `up`; no remote or WSL-internal stop command is ever sent.
    * @param tabId - tab to disconnect; an unknown or idle tab is a no-op.
    */
   down(tabId: string): Promise<void>
-  /** One row per configured SSH tab, plus every tab with recorded state. */
+  /** One row per configured remote tab, plus every tab with recorded state. */
   status(): RemoteConnectionStatus[]
   /** Tear every local connection down; remote backends keep running in tmux. */
   dispose(): void

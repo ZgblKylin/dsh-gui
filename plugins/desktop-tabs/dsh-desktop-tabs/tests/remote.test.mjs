@@ -4,12 +4,14 @@
  * MISSING/ALIVE states and the restart command), the launch-token file helpers,
  * remote port discovery (the pane command and the launch log), the liveness
  * verdict, and — at the script level — that `down` no longer carries any remote
- * stop/kill machinery.
+ * stop/kill machinery. The tail of the file covers the WSL host route's
+ * registration and posture, using a fake web server so no `wsl.exe` is started.
  *
  * Usage (from the package directory): node tests/remote.test.mjs
  */
 
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { fileURLToPath } from 'node:url'
@@ -147,5 +149,66 @@ assert.ok(!built.includes('TABS_PID'), 'no pid-marker launch output in the built
 assert.ok(!built.includes('TABS_PGID'), 'no pgid-marker launch output in the built bundle')
 assert.ok(!built.includes('TABS_REMOTE_STILL_ALIVE'), 'no survival-marker cleanup in the built bundle')
 assert.ok(!built.includes('desktop-tabs-remote.json'), 'no orphan-process record file in the built bundle')
+
+// ---------------------------------------------------------------- WSL route
+// A fake RemoteWebServer records what registration installs. The handlers are
+// invoked directly for the two posture checks that answer before any WSL call,
+// so the suite never starts `wsl.exe`.
+const registered = []
+const webServer = {
+  host: '127.0.0.1',
+  register(route) {
+    registered.push(route)
+    return () => {
+      const at = registered.indexOf(route)
+      if (at !== -1) registered.splice(at, 1)
+    }
+  },
+}
+const routeHome = mkdtempSync(join(tmpdir(), 'dsh-desktop-tabs-routes-'))
+const disposeRoutes = mod.registerRemoteConnections({}, webServer, { dshHome: routeHome })
+assert.ok(registered.some(route => route.path === mod.WSL_HOSTS_PATH), 'the WSL host list route is registered')
+assert.ok(registered.some(route => route.path === mod.SSH_HOSTS_PATH), 'the SSH host list route is still registered')
+assert.ok(registered.some(route => route.path === mod.CONNECTIONS_ROUTE_PREFIX && route.kind === 'exact'), 'the status route is registered')
+assert.ok(registered.some(route => route.path === mod.CONNECTIONS_ROUTE_PREFIX && route.kind === 'prefix'), 'the action route is registered')
+assert.equal(mod.WSL_HOSTS_PATH, '/desktop-tabs/api/wsl-hosts', 'the WSL host route path is the documented one')
+
+/** A minimal ServerResponse double for the posture checks. */
+function fakeResponse() {
+  return {
+    status: 0,
+    headers: {},
+    body: '',
+    writeHead(status, headers) { this.status = status; this.headers = headers ?? {} },
+    end(body) { if (body !== undefined) this.body = body },
+  }
+}
+const wslRoute = registered.find(route => route.path === mod.WSL_HOSTS_PATH)
+const wrongMethod = fakeResponse()
+await wslRoute.handler({ method: 'POST', url: mod.WSL_HOSTS_PATH, headers: {} }, wrongMethod)
+assert.equal(wrongMethod.status, 405, 'POST /wsl-hosts answers 405')
+assert.equal(wrongMethod.headers.allow, 'GET, HEAD', 'the WSL host route advertises GET/HEAD')
+const crossSite = fakeResponse()
+await wslRoute.handler({ method: 'GET', url: mod.WSL_HOSTS_PATH, headers: { 'sec-fetch-site': 'cross-site' } }, crossSite)
+assert.equal(crossSite.status, 403, 'cross-site /wsl-hosts answers 403')
+
+disposeRoutes()
+assert.equal(registered.length, 0, 'the disposer removes every route')
+rmSync(routeHome, { recursive: true, force: true })
+
+// ---------------------------------------------------------------- local-only teardown
+// `down`/`dispose` must stay local-only: disconnecting a tab with no established
+// connection completes without running any remote/WSL command. The manager has
+// no transport injection, so a stray command would spawn a real ssh/wsl client
+// and fail or hang here; the WSL-internal termination flags would likewise show
+// up in the built artifact.
+const localOnly = mod.createRemoteConnections({ dshHome: routeHome, tabs: async () => [] })
+await localOnly.down('wsl-unknown')
+localOnly.dispose()
+localOnly.dispose()
+assert.ok(
+  !/["']--terminate["']/u.test(built) && !/["']--shutdown["']/u.test(built),
+  'no WSL-internal termination flag is ever passed to wsl.exe',
+)
 
 console.log(`remote tests passed (${built.length} built bytes)`)

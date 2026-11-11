@@ -12,6 +12,11 @@
  * appearing, being replaced, and `lang` changes. The `+` panel and the
  * connection settings panel hang from the same edge.
  *
+ * The `+` panel lists saved connections plus the SSH hosts `~/.ssh/config`
+ * declares and the WSL distributions `wsl.exe` reports. Both host lists are
+ * conveniences fetched side by side: each may fail on its own without emptying
+ * the other or the saved connections.
+ *
  * Switching retains: every open remote tab owns a guest that stays attached
  * while another tab is shown, so selecting a tab only reveals its surface — the
  * guest left behind keeps running (document state, scroll position, connections,
@@ -44,12 +49,23 @@
  * hidden until the Windows caption menu actually exists.
  */
 
-import { downConnection, fetchConnections, fetchSshHosts, fetchTabs, putTabs, upConnection } from './api.ts'
+import { downConnection, fetchConnections, fetchSshHosts, fetchTabs, fetchWslHosts, putTabs, upConnection } from './api.ts'
 import type { DesktopBrowserBridge } from './bridge.ts'
 import { CONFIG_PANEL_ATTR, createConfigPanel, type ConfigPanel, type ConnectionDraft } from './config-panel.ts'
 import { createPanel, PANEL_ATTR, type Panel } from './panel.ts'
 import { installStyles, removeStyles } from './styles.ts'
-import { isLocalTab, sshOfAlias, type ConnectionStatus, type DesktopTab, type SavedConnection, type SshHost } from './types.ts'
+import {
+  hostOfSsh,
+  hostOfWsl,
+  isLocalTab,
+  sshOfAlias,
+  wslOfDistro,
+  type ConnectionStatus,
+  type DesktopTab,
+  type SavedConnection,
+  type SshHost,
+  type WslHost,
+} from './types.ts'
 import { createRemoteView, VIEW_ATTR, type RemoteTarget, type RemoteView } from './view.ts'
 
 /** Marks the strip element. */
@@ -100,12 +116,14 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     onEditConnection: editConnection,
     onDeleteConnection: deleteConnection,
     onPickHost: pickHost,
+    onPickWslHost: pickWslHost,
   })
   const config: ConfigPanel = createConfigPanel({
     onConfirm: confirmConnection,
     onCancel: () => {},
   })
   panel.setSshHosts([])
+  panel.setWslHosts([])
   document.body.append(strip, view.element, panel.element, config.element)
 
   /** The open tabs, local tab first. */
@@ -113,6 +131,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   /** The saved connections; a tab may exist without one (a `url` tab, or a legacy inline `ssh` tab). */
   let connections: SavedConnection[] = []
   let hosts: readonly SshHost[] = []
+  let wslHosts: readonly WslHost[] = []
   let activeId: string | undefined
   /** Bumped per connection attempt; a tab's entry invalidates its older attempt. */
   let attemptSeq = 0
@@ -177,6 +196,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     strip.replaceChildren(...tabs.map(createTabEntry), createAddButton())
     panel.setConnections(connections)
     panel.setSshHosts(hosts)
+    panel.setWslHosts(wslHosts)
     refreshVisibility()
     markActive()
     placeConfig()
@@ -368,8 +388,8 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   }
 
   /**
-   * Connect one ssh tab and load it into a fresh guest.
-   * @param refresh - tear the local tunnel down first, then reconnect.
+   * Connect one remote tab (SSH or WSL) and load it into a fresh guest.
+   * @param refresh - tear the local channel down first, then reconnect.
    */
   async function connectTab(tab: DesktopTab, refresh = false): Promise<void> {
     const id = tab.id
@@ -441,7 +461,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
       activeId = undefined
       guard(activate(tabs[0]?.id), 'switch')
     }
-    if (tab.ssh !== undefined) {
+    if (tab.ssh !== undefined || tab.wsl !== undefined) {
       void downConnection(tab.id).catch((error: unknown) => {
         console.warn(`[dsh-desktop-tabs] could not bring connection '${tab.id}' down:`, error)
       })
@@ -473,8 +493,11 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   function editConnection(connection: SavedConnection): void {
     config.open({
       id: connection.id,
+      kind: connection.type,
       title: connection.title,
-      ssh: connection.ssh,
+      ...(connection.ssh === undefined ? {} : { ssh: connection.ssh }),
+      ...(connection.wsl === undefined ? {} : { wsl: connection.wsl }),
+      account: connection.account ?? '',
       workdir: connection.workdir ?? '',
       startCommand: connection.startCommand ?? '',
     })
@@ -483,18 +506,40 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
 
   /** Configure a new connection for one SSH host alias. */
   function pickHost(host: SshHost): void {
-    config.open({ title: host.alias, ssh: sshOfAlias(host.alias), workdir: '', startCommand: '' })
+    config.open({
+      kind: 'ssh',
+      title: host.alias,
+      ssh: sshOfAlias(host.alias),
+      account: '',
+      workdir: '',
+      startCommand: '',
+    })
+    placeConfig()
+  }
+
+  /** Configure a new connection for one WSL distribution. */
+  function pickWslHost(host: WslHost): void {
+    config.open({
+      kind: 'wsl',
+      title: host.name,
+      wsl: wslOfDistro(host.name),
+      account: '',
+      workdir: '',
+      startCommand: '',
+    })
     placeConfig()
   }
 
   /** Save a connection draft and open — or reopen — its tab. */
   async function confirmConnection(draft: ConnectionDraft): Promise<void> {
-    const id = draft.id ?? uniqueConnectionId(draft.title)
+    const id = draft.id ?? uniqueConnectionId(draft.kind, connectionStem(draft))
     const entry: SavedConnection = {
       id,
       title: draft.title,
-      type: 'ssh',
+      type: draft.kind,
       ...(draft.ssh === undefined ? {} : { ssh: draft.ssh }),
+      ...(draft.wsl === undefined ? {} : { wsl: draft.wsl }),
+      ...(draft.account.trim() === '' ? {} : { account: draft.account.trim() }),
       ...(draft.workdir.trim() === '' ? {} : { workdir: draft.workdir.trim() }),
       ...(draft.startCommand.trim() === '' ? {} : { startCommand: draft.startCommand.trim() }),
     }
@@ -502,7 +547,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     connections = known ? connections.map((connection) => (connection.id === id ? entry : connection)) : [...connections, entry]
     const openTab = tabs.find((tab) => tab.id === id)
     if (openTab !== undefined) {
-      tabs = tabs.map((tab) => (tab.id === id ? { ...tab, title: entry.title, ...(entry.ssh === undefined ? {} : { ssh: entry.ssh }) } : tab))
+      tabs = tabs.map((tab) => (tab.id === id ? tabWithConnection(tab, entry) : tab))
       render()
       // The new settings live in the connection, which the host half reads when
       // the next `up` arrives: drop the old session, persist, then reconnect.
@@ -544,7 +589,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     await persist()
   }
 
-  /** Read the stored tabs and connections plus the SSH host aliases. */
+  /** Read the stored tabs and connections, then the SSH and WSL host lists side by side. */
   async function load(): Promise<void> {
     try {
       const snapshot = await fetchTabs()
@@ -557,14 +602,16 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     }
     render()
     guard(activate(tabs[0]?.id), 'switch')
-    try {
-      hosts = await fetchSshHosts()
-    } catch {
-      // The SSH host list is a convenience: an unavailable host half leaves the
-      // group empty instead of reporting an error the user cannot act on.
-      hosts = []
-    }
+    // Both host lists are conveniences: either may be unavailable on its own
+    // (no `~/.ssh/config`, no `wsl.exe`) and must not take the other down.
+    const [ssh, wsl] = await Promise.all([
+      fetchSshHosts().catch(() => [] as SshHost[]),
+      fetchWslHosts().catch(() => [] as WslHost[]),
+    ])
+    hosts = ssh
+    wslHosts = wsl
     panel.setSshHosts(hosts)
+    panel.setWslHosts(wslHosts)
   }
 
   /** Store both persisted lists. */
@@ -572,11 +619,15 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     await putTabs({ tabs, connections })
   }
 
-  /** @returns a free connection id for an alias, preferring the readable `ssh-<alias>` form. */
-  function uniqueConnectionId(alias: string): string {
+  /**
+   * @returns a free connection id for one host name, preferring the readable
+   * `ssh-<alias>` / `wsl-<distribution>` form.
+   */
+  function uniqueConnectionId(kind: string, name: string): string {
     const taken = (candidate: string): boolean =>
       connections.some((connection) => connection.id === candidate) || tabs.some((tab) => tab.id === candidate)
-    const stem = `ssh-${alias}`
+    const prefix = connectionTypeIdPrefix(kind)
+    const stem = name === '' ? prefix : `${prefix}-${name}`
     if (!taken(stem)) return stem
     let suffix = 1
     while (taken(`${stem}-${suffix}`)) suffix += 1
@@ -643,13 +694,46 @@ function tabOfConnection(connection: SavedConnection): DesktopTab {
     id: connection.id,
     title: connection.title,
     ...(connection.ssh === undefined ? {} : { ssh: connection.ssh }),
+    ...(connection.wsl === undefined ? {} : { wsl: connection.wsl }),
   }
 }
 
 /**
+ * Re-point an open tab at a saved connection's current settings: the connection
+ * owns the title and the channel descriptor, while an address already loaded
+ * into the tab (`url`) is kept.
+ * @param tab - the open tab.
+ * @param connection - the saved connection it was opened from.
+ * @returns the tab with the connection's settings.
+ */
+function tabWithConnection(tab: DesktopTab, connection: SavedConnection): DesktopTab {
+  return {
+    id: tab.id,
+    title: connection.title,
+    ...(tab.url === undefined ? {} : { url: tab.url }),
+    ...(connection.ssh === undefined ? {} : { ssh: connection.ssh }),
+    ...(connection.wsl === undefined ? {} : { wsl: connection.wsl }),
+  }
+}
+
+/** @returns the id prefix for a connection kind: `ssh`, `wsl`, or the kind itself. */
+function connectionTypeIdPrefix(kind: string): string {
+  const normalized = kind.trim().toLowerCase()
+  return normalized === '' ? 'connection' : normalized
+}
+
+/**
+ * @returns the host name a draft connects to — the SSH alias, the WSL
+ * distribution, or the title when a descriptor names neither.
+ */
+function connectionStem(draft: ConnectionDraft): string {
+  return hostOfWsl(draft.wsl) ?? hostOfSsh(draft.ssh) ?? draft.title.trim()
+}
+
+/**
  * Guarantee exactly one local tab, always first: the first entry that is neither
- * an addressed tab nor an ssh tab keeps its id and title, and a list with no
- * such entry gets the default local view prepended.
+ * an addressed tab nor a remote (SSH/WSL) tab keeps its id and title, and a list
+ * with no such entry gets the default local view prepended.
  * @param list - validated tabs, in host order.
  * @returns local tab followed by the remote tabs, in host order.
  */

@@ -13,10 +13,12 @@ import {
   connectionStatusOf,
   sshHostOf,
   tabOf,
+  wslHostOf,
   type ConnectionStatus,
   type SavedConnection,
   type SshHost,
   type TabsSnapshot,
+  type WslHost,
 } from './types.ts'
 
 /** The tab and connection list endpoint. */
@@ -27,6 +29,9 @@ const CONNECTIONS_PATH = '/desktop-tabs/api/connections'
 
 /** The SSH host list parsed from `~/.ssh/config`. */
 const SSH_HOSTS_PATH = '/desktop-tabs/api/ssh-hosts'
+
+/** The WSL distribution list parsed from `wsl.exe -l -v`. */
+const WSL_HOSTS_PATH = '/desktop-tabs/api/wsl-hosts'
 
 /** Read the persisted tabs and saved connections. */
 export async function fetchTabs(): Promise<TabsSnapshot> {
@@ -114,6 +119,22 @@ export async function fetchSshHosts(): Promise<SshHost[]> {
   for (const row of rows) {
     if (!isRecord(row)) continue
     const host = sshHostOf(row)
+    if (host !== undefined) hosts.push(host)
+  }
+  return hosts
+}
+
+/** Read the WSL distributions `wsl.exe -l -v` reports. */
+export async function fetchWslHosts(): Promise<WslHost[]> {
+  const response = await fetch(WSL_HOSTS_PATH, { headers: { accept: 'application/json' }, cache: 'no-store' })
+  if (!response.ok) throw new Error(await failure(response))
+  const payload: unknown = await response.json()
+  const rows = isRecord(payload) && Array.isArray(payload.hosts) ? payload.hosts : undefined
+  if (rows === undefined) throw new Error(`${WSL_HOSTS_PATH} did not return a hosts array`)
+  const hosts: WslHost[] = []
+  for (const row of rows) {
+    if (!isRecord(row)) continue
+    const host = wslHostOf(row)
     if (host !== undefined) hosts.push(host)
   }
   return hosts

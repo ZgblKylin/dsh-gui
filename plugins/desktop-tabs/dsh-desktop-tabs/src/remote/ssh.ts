@@ -3,9 +3,11 @@
  *
  * Every remote action is one `ssh` invocation with a command passed as a single
  * argv element: no local shell is involved, so nothing here quotes for Windows.
- * The remote side is a POSIX shell, so the command strings are built with
- * `quotePosix` and `remotePath` and use no double quotes — Windows argument
- * escaping of embedded `"` is the one thing this module refuses to depend on.
+ * An explicit login name is passed as `-l <user>` ahead of the destination; when
+ * absent, `ssh_config`'s `User` decides. The remote side is a POSIX shell, so the
+ * command strings are built with `quotePosix` and `remotePath` and use no double
+ * quotes — Windows argument escaping of embedded `"` is the one thing this module
+ * refuses to depend on.
  *
  * Captured stderr needs two Windows-specific steps, both confined to the text a
  * user reads: `ssh.exe` prints its localized diagnostics in the system ANSI code
@@ -31,6 +33,19 @@ const MAX_DIAGNOSTIC = 1500
 
 /** How long a tunnel must survive startup before it counts as bound. */
 const TUNNEL_SETTLE_MS = 1_200
+
+/**
+ * The `-l <user>` argument for an explicit login name.
+ *
+ * A connection's `account` field is only written when non-empty, and an empty
+ * account must leave the destination's own `User` (an `ssh_config` directive)
+ * in charge, so the flag is omitted rather than passed empty.
+ * @param user - configured login name, if any.
+ * @returns the flag pair, or nothing.
+ */
+function userOption(user: string | undefined): string[] {
+  return user === undefined || user === '' ? [] : ['-l', user]
+}
 
 /** Decoder for stdout, which is the remote command's own UTF-8 output. */
 const STDOUT_DECODER = decoderFor('utf-8')
@@ -89,11 +104,11 @@ export interface TunnelHandle {
  * Run one command on a remote host.
  * @param host - SSH destination.
  * @param command - remote shell command, one argv element on the local side.
- * @param options - optional wall-clock budget for the command.
+ * @param options - optional wall-clock budget and login name for the command.
  * @returns the running client and its captured output.
  */
-export function runSsh(host: string, command: string, options: { timeoutMs?: number } = {}): SshRun {
-  const child = spawn(SSH_BINARY, [...BASE_OPTIONS, host, command], {
+export function runSsh(host: string, command: string, options: { timeoutMs?: number; user?: string } = {}): SshRun {
+  const child = spawn(SSH_BINARY, [...BASE_OPTIONS, ...userOption(options.user), host, command], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })
@@ -128,14 +143,15 @@ export function runSsh(host: string, command: string, options: { timeoutMs?: num
  * the settle window is the evidence that the local port was actually bound; a
  * request through a tunnel that silently failed would otherwise reach whichever
  * local service holds the port.
- * @param options - SSH destination and the two ports to join.
+ * @param options - SSH destination, the two ports to join, and an optional login name.
  * @returns the running tunnel.
  */
-export async function openTunnel(options: { host: string; localPort: number; remotePort: number }): Promise<TunnelHandle> {
+export async function openTunnel(options: { host: string; localPort: number; remotePort: number; user?: string }): Promise<TunnelHandle> {
   const { host, localPort, remotePort } = options
   const child = spawn(SSH_BINARY, [
     '-N',
     ...BASE_OPTIONS,
+    ...userOption(options.user),
     '-o', 'ExitOnForwardFailure=yes',
     '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=3',

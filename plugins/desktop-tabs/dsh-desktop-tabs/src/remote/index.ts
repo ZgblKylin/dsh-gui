@@ -1,32 +1,35 @@
 /**
  * dsh-desktop-tabs host half, remote-connection module.
  *
- * One tab carrying an `ssh` descriptor becomes a loadable URL by starting a
- * long-lived `dsh web` inside a `dsh-gui` tmux session on the remote host,
- * forwarding the remote loopback port through an SSH tunnel, and probing the
- * tunnel before reporting `up`; the chain is the one verified by hand in
- * `docs/dsh-gui/2026-10-03-desktop-tabs-prototype.md` ("远程连接链路") and the
- * session/token files are shared with `plugins/remote/dsh-remote`.
- * `./session.ts` implements it.
+ * One tab carrying an `ssh` or `wsl` descriptor becomes a loadable URL by
+ * starting a long-lived `dsh web` inside a `dsh-gui` tmux session on the remote
+ * side, then either forwarding the remote loopback port through an SSH tunnel
+ * (SSH) or using WSL2's localhost forwarding directly (WSL), and probing the
+ * resulting URL before reporting `up`. The session/token files are shared with
+ * `plugins/remote/dsh-remote`; `./session.ts` implements the lifecycle and
+ * `./wsl.ts` the `wsl.exe` transport.
  *
  * `registerRemoteConnections` exposes the manager over these loopback-only routes:
  *
- * - `GET  /desktop-tabs/api/connections` — state and connection log of every SSH tab
+ * - `GET  /desktop-tabs/api/connections` — state and connection log of every remote tab
  * - `POST /desktop-tabs/api/connections/<id>/up` — connect, answer `{ url }`
- * - `POST /desktop-tabs/api/connections/<id>/down` — disconnect the local tunnel
+ * - `POST /desktop-tabs/api/connections/<id>/down` — disconnect the local side only
  * - `GET  /desktop-tabs/api/ssh-hosts` — importable `~/.ssh/config` destinations
+ * - `GET  /desktop-tabs/api/wsl-hosts` — installed WSL distributions
  *
  * The route posture (loopback bind, same-origin fence, `no-store`, 405) mirrors
  * `../index.ts`: the connection responses carry a remote launch token, so they
  * are served only while the web server is bound to the loopback address. No
- * route reads credentials, and no ssh command carries a password or key argument.
+ * route reads credentials, and no ssh/wsl command carries a password or key
+ * argument.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
-import { readConfiguredSshTabs } from './config.ts'
+import { readConfiguredRemoteTabs } from './config.ts'
 import { readSshHosts } from './ssh-config.ts'
 import { RemoteConnectionManager } from './session.ts'
+import { readWslHosts, wslAvailable } from './wsl.ts'
 import type {
   RemoteConnections,
   RemoteConnectionsOptions,
@@ -46,15 +49,23 @@ export type {
   RemoteTargetSource,
   RemoteWebServer,
 } from './types.ts'
-export type { SshSpec } from './config.ts'
+export type { ConfiguredRemoteTab, ConfiguredSshTab, SshSpec, WslSpec } from './config.ts'
 export type { SshHostEntry } from './ssh-config.ts'
+export type { RemoteChannel, RemoteLaunch, RemoteTarget, TmuxSessionState } from './commands.ts'
+export type { WslAvailability, WslHostEntry, WslPortState, WslRun } from './wsl.ts'
+export { readConfiguredRemoteTabs, readConfiguredSshTabs } from './config.ts'
 export {
   CD_FAILED_MARKER,
+  DEFAULT_WSL_PORT,
   PROBE_MARKER,
   REMOTE_LOG,
   REMOTE_TOKEN_FILE,
+  SESSION_DEAD_MARKER,
+  SESSION_GONE_MARKER,
   TMUX_SESSION,
+  URL_TIMEOUT_MARKER,
   appendServeFlags,
+  channelLabel,
   defaultStartCommand,
   describeLaunch,
   healthVerdict,
@@ -65,23 +76,44 @@ export {
   parseLaunchToken,
   parseLaunchUrl,
   parsePanePort,
+  parsePinnedPort,
   parseSessionState,
   persistTokenScript,
   probeScript,
+  resolveTarget,
   sessionStateScript,
+  startCommandPinsPort,
   startSessionScript,
   storedTokenScript,
   waitForLaunchUrlScript,
-  type RemoteLaunch,
-  type RemoteTarget,
-  type TmuxSessionState,
 } from './commands.ts'
+export {
+  WSL_PORT_BUSY,
+  WSL_PORT_FREE,
+  WSL_PORT_UNKNOWN,
+  WslCommandError,
+  classifyWslStartFailure,
+  decodeWslOutput,
+  parseWslDistroList,
+  parseWslPortFree,
+  readWslHosts,
+  runWsl,
+  wslAvailable,
+  wslChannelDiagnosis,
+  wslPortFreeScript,
+} from './wsl.ts'
+export { isLoopbackPortFree } from './ports.ts'
+export { errorExcerpt, redactToken, stripAnsi } from './text.ts'
+export { MAX_PORT_ATTEMPTS, MAX_PORT_SCAN } from './session.ts'
 
 /** Route prefix owned by the connection routes. */
 export const CONNECTIONS_ROUTE_PREFIX = '/desktop-tabs/api/connections'
 
 /** Route serving the importable SSH destinations. */
 export const SSH_HOSTS_PATH = '/desktop-tabs/api/ssh-hosts'
+
+/** Route serving the installed WSL distributions. */
+export const WSL_HOSTS_PATH = '/desktop-tabs/api/wsl-hosts'
 
 /** `/<tabId>/<action>` below the connection prefix. */
 const ACTION_PATTERN = /^\/([^/]+)\/(up|down)$/
@@ -119,7 +151,7 @@ export function registerRemoteConnections(
   }
   const connections = createRemoteConnections({
     dshHome: options.dshHome,
-    tabs: options.tabs ?? (async () => readConfiguredSshTabs(options.dshHome)),
+    tabs: options.tabs ?? (async () => readConfiguredRemoteTabs(options.dshHome)),
     ...(logger === undefined ? {} : { logger }),
   })
   const routes = [
@@ -137,6 +169,11 @@ export function registerRemoteConnections(
       kind: 'exact',
       path: SSH_HOSTS_PATH,
       handler: (req, res) => { respondSshHosts(req, res) },
+    }),
+    webServer.register({
+      kind: 'exact',
+      path: WSL_HOSTS_PATH,
+      handler: async (req, res) => { await respondWslHosts(req, res, logger) },
     }),
   ]
   return () => {
@@ -219,6 +256,39 @@ function respondSshHosts(req: IncomingMessage, res: ServerResponse): void {
     return
   }
   writeJson(res, 200, { hosts: readSshHosts() }, head)
+}
+
+/**
+ * Answer `GET /desktop-tabs/api/wsl-hosts`.
+ *
+ * An unavailable or failing WSL answers an empty list plus the reason rather
+ * than an error status: the connection panel's third group simply has nothing to
+ * offer, and a missing WSL install is not a failure of the tab list.
+ */
+async function respondWslHosts(req: IncomingMessage, res: ServerResponse, logger: RemoteLogger | undefined): Promise<void> {
+  const head = req.method === 'HEAD'
+  if (req.method !== 'GET' && !head) {
+    res.writeHead(405, { allow: 'GET, HEAD' })
+    res.end()
+    return
+  }
+  if (!sameOrigin(req)) {
+    writeJson(res, 403, { error: 'untrusted origin' }, head)
+    return
+  }
+  const availability = wslAvailable()
+  if (!availability.available) {
+    logger?.warn(`[dsh-desktop-tabs] WSL 主机列表不可用：${availability.error ?? 'unknown reason'}`)
+    writeJson(res, 200, { hosts: [], error: availability.error ?? 'WSL 不可用' }, head)
+    return
+  }
+  try {
+    writeJson(res, 200, { hosts: await readWslHosts() }, head)
+  } catch (error) {
+    const reason = message(error)
+    logger?.warn(`[dsh-desktop-tabs] 读取 WSL 发行版列表失败：${reason}`)
+    writeJson(res, 200, { hosts: [], error: reason }, head)
+  }
 }
 
 /** Write one JSON response; `no-store` because the payload can carry a token. */

@@ -3,10 +3,12 @@
  *
  * The callback may answer with a plain tab array or with the host half's
  * `{ tabs, connections }` pair; both become one row per id here, so the manager
- * reads a single list regardless of which shape the host half injects.
+ * reads a single list regardless of which shape the host half injects. The
+ * saved connection is the row that carries the launch settings and login name,
+ * so its fields win the per-id merge.
  */
 
-import type { SshSpec } from './config.ts'
+import type { SshSpec, WslSpec } from './config.ts'
 import type { RemoteTab, RemoteTargetPair, RemoteTargetSource } from './types.ts'
 
 /**
@@ -46,12 +48,16 @@ function definedFields(row: RemoteTab): Partial<RemoteTab> {
     title?: string
     url?: string
     ssh?: SshSpec
+    wsl?: WslSpec
+    account?: string
     workdir?: string
     startCommand?: string
   } = {}
   if (row.title !== undefined) out.title = row.title
   if (row.url !== undefined) out.url = row.url
   if (row.ssh !== undefined) out.ssh = row.ssh
+  if (row.wsl !== undefined) out.wsl = row.wsl
+  if (row.account !== undefined) out.account = row.account
   if (row.workdir !== undefined) out.workdir = row.workdir
   if (row.startCommand !== undefined) out.startCommand = row.startCommand
   return out

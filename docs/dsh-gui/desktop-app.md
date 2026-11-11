@@ -98,14 +98,22 @@ Electron 的安装脚本、`@electron/get` 与打包链的 primary runtime 下�
 
 `NO_PROXY` / `no_proxy` 始终并入 `localhost` / `127.0.0.1` / `::1`：打包链的 runtime smoke 会启动 Host 并访问 `127.0.0.1`，不能把回环流量交给代理。Windows 路径还并入系统的 `ProxyOverride`，并把其中的 `<local>` 展开成这三个回环主机。以下情形不做任何替换，下载保持直连：环境变量或 `ProxyServer` 只给出 `socks` 等非 HTTP 代理，`ProxyEnable` 不为 1，`ProxyOverride` 含 `*`，或注册表无法读取。
 
-Electron 与 electron-builder 的下载镜像不硬编码，而是从 npm registry 推导：`scripts/desktop.mjs` 读取 `npm_config_registry`（`npm run` 会把解析后的 npm 配置导出给脚本），缺省时再读仓库根与用户目录的 `.npmrc`；当该 registry 的宿主是 npmmirror（含旧域名 `npm.taobao.org`）时，按 `${registry origin}/-/binary/<project>/` 取镜像 —— Electron 与 electron-builder 归档的 GitHub release 资产在同一镜像树下，构建日志会打印实际来源（`electron source:` / `electron-builder toolset source:`）。优先级为：`ELECTRON_MIRROR` / `ELECTRON_BUILDER_BINARIES_MIRROR` 环境变量 → 同名 npm 配置（`electron_mirror` / `electron_builder_binaries_mirror`）→ registry 推导；设成空值即回到官方 GitHub release 宿主，registry 不是可识别镜像时不做任何替换。Electron 归档仍按 release 的 `SHASUMS256.txt` 校验。该推导只覆盖这两项：primary runtime 的 node/python/wheel 与 LibreOffice kit 不使用它。
+Electron 与 electron-builder 的下载镜像不硬编码，而是从 npm registry 推导：`scripts/desktop.mjs` 读取 `npm_config_registry`（`npm run` 会把解析后的 npm 配置导出给脚本），缺省时再读仓库根与用户目录的 `.npmrc`；当该 registry 的宿主是 npmmirror（含旧域名 `npm.taobao.org`）时，按 `${registry origin}/-/binary/<project>/` 取镜像 —— Electron 与 electron-builder 归档的 GitHub release 资产在同一镜像树下，构建日志会打印实际来源（`electron source:` / `electron-builder toolset source:`）。优先级为：`ELECTRON_MIRROR` / `ELECTRON_BUILDER_BINARIES_MIRROR` 环境变量 → 同名 npm 配置（`electron_mirror` / `electron_builder_binaries_mirror`）→ registry 推导；设成空值即回到官方 GitHub release 宿主，registry 不是可识别镜像时不做任何替换。Electron 归档仍按 release 的 `SHASUMS256.txt` 校验。同一套 registry 推导也用于 primary runtime 预取的 node 与 python 资产（见下）；LibreOffice kit 走 pnpm 与 registry 本身，不使用它。
+
+### primary runtime 资产的预取
+
+`prepare:primary-runtime` 按 `scripts/primary-runtime/lock.json` 逐个 SHA-256 取 node、python 与 wheel：命中 `<缓存>/<sha256>` 才复用，未命中就对官方 URL 单次 `fetch` —— 不重试、没有镜像开关、没有回退。本机到 `github.com`（`python-build-standalone` 的 release 资产）与 nodejs.org 的通道会整段不可达，而该缓存目录（`.desktop\source\apps\desktop\.desktop-build\downloads`，或 `DSH_DESKTOP_PACKAGE_CACHE_DIR` 指定的目录）在首次构建时是空的。
+
+因此 `npm run build:desktop` 在 `ensureElectron()` 之后增加一步「Prefetch the primary-runtime locked assets」：`scripts/primary-runtime-downloads.mjs` 读同一份 `lock.json`，取 `win-x64` 的 15 个锁定资产（node 1、python 1、wheel 13），按 `lock.json` 的 SHA-256 校验后写入产品脚本读取的同一缓存键。候选顺序为镜像 URL → 官方 URL，每个候选各带 3 次退避重试；校验和对不上时该候选立即跳过，避免把别的修订写进缓存。node 与 python 的镜像取自 registry 推导的 `/-/binary/node/`、`/-/binary/python-build-standalone/`，wheel 在未配置 PyPI 镜像时只走官方 `files.pythonhosted.org`。缓存命中即不再联网，重复执行该步骤只是一次本地校验。
+
+开关：`DSH_PRIMARY_RUNTIME_MIRROR`（release 资产镜像树）与 `DSH_PRIMARY_RUNTIME_PYPI_MIRROR`（PyPI 文件镜像），或同名 npm 配置 `dsh_primary_runtime_mirror` / `dsh_primary_runtime_pypi_mirror`；设成空值回到官方宿主。构建日志打印 `primary runtime source:` 与 `pypi file source:`，资产逐条打印 `cached` / `downloaded` 与实际来源 URL。
 
 ## 已知上游缺陷与规避
 
 | 现象 | 根因 | 规避 |
 |---|---|---|
 | 打包在 `prepare:packages` 阶段失败，报 `tar (child): Cannot connect to D: resolve failed` | 上游把带盘符的绝对路径交给 `tar`，PATH 上的 Git GNU tar 按 POSIX 把盘符解析为远端主机 | 打包步骤把 `%SystemRoot%\System32` 前置到 `PATH`，让 Windows 内置 bsdtar 先于 Git 的 GNU tar 命中 |
-| primary runtime 资产的下载速率极低 | 上游脚本串行单流拉取 GitHub release 资产，该通道慢；这些下载走 Node 全局 `fetch`，不设置 `NODE_USE_ENV_PROXY` 时任何代理都不生效 | 构建链解析代理并启用 `NODE_USE_ENV_PROXY`，让下载走系统代理（见「联网下载」）；通道仍慢时可用镜像预置锁定资产供产品脚本按 SHA-256 自验后复用 |
+| primary runtime 资产下载速率极低，或 `prepare:primary-runtime` 直接报 `fetch failed` / `Connect Timeout Error` | 上游对锁定资产只做一次 `fetch`：不重试、没有镜像开关、没有回退；而 nodejs.org 与 `python-build-standalone` 的 GitHub release 通道在本机时好时坏 | 构建链在打包前预取同一批锁定资产，走 registry 镜像的 `/-/binary/` 树、按 `lock.json` 的 SHA-256 校验后写入产品脚本复用的缓存，打包阶段因此只读本地缓存；镜像覆盖不到的通道用 `DSH_PRIMARY_RUNTIME_MIRROR` / `DSH_PRIMARY_RUNTIME_PYPI_MIRROR` 指定（见「联网下载」） |
 | 发布 DevTools 时 `rename` 报 `EPERM`，Host bundle 失败 | 上游 `packages/experimental/inspector/scripts/build-devtools.ts` 用目录 `rename` 发布 `lib/devtools`；Windows 在刚写完的目录尚未完全释放时拒绝该重命名，脚本不重试 | 构建链对该上游脚本应用构建期补丁，发布改为带退避重试的 `rename`，重试耗尽后回退到递归复制（见「构建期源码补丁」） |
 
 ## 构建期源码补丁

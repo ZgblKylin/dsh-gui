@@ -18,7 +18,7 @@
     "build:desktop-plugins": "node scripts/dsh-gui.mjs build-desktop --plugins-only",
     "install:plugins": "node scripts/dsh-gui.mjs install",
     "plugins": "node scripts/dsh-gui.mjs install",
-    "test:scripts": "node --test scripts/plugin-install.test.mjs scripts/proxy-environment.test.mjs",
+    "test:scripts": "node --test scripts/plugin-install.test.mjs scripts/proxy-environment.test.mjs scripts/primary-runtime-downloads.test.mjs",
     "staging": "node scripts/staging.mjs",
     "harness": "node scripts/harness.mjs",
     "start": "node scripts/dsh-gui.mjs run",

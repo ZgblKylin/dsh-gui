@@ -488,6 +488,22 @@ function npmRegistry() {
 }
 
 /**
+ * Recognise a registry that also republishes release assets.
+ * @param {string | undefined} registry - Configured npm registry.
+ * @returns {string | undefined} Registry origin serving `/-/binary/`, or undefined for an unrecognized registry.
+ */
+function registryMirrorOrigin(registry) {
+  if (registry === undefined) return undefined
+  let url
+  try {
+    url = new URL(registry)
+  } catch {
+    return undefined
+  }
+  return /(?:^|\.)(?:npmmirror\.com|npm\.taobao\.org)$/u.test(url.hostname) ? url.origin : undefined
+}
+
+/**
  * Derive a project's binary mirror from a registry that also mirrors release assets.
  *
  * npmmirror and its legacy taobao host publish the GitHub release assets these
@@ -499,15 +515,37 @@ function npmRegistry() {
  * @returns {string | undefined} Mirror base URL, or undefined for an unrecognized registry.
  */
 function registryBinaryMirror(registry, project) {
-  if (registry === undefined) return undefined
-  let url
-  try {
-    url = new URL(registry)
-  } catch {
-    return undefined
-  }
-  if (!/(?:^|\.)(?:npmmirror\.com|npm\.taobao\.org)$/u.test(url.hostname)) return undefined
-  return new URL(`-/binary/${project}/`, `${url.origin}/`).toString()
+  const origin = registryMirrorOrigin(registry)
+  return origin === undefined ? undefined : new URL(`-/binary/${project}/`, `${origin}/`).toString()
+}
+
+/**
+ * Resolve the release-asset mirror serving the primary-runtime lock's node and
+ * python URLs.
+ *
+ * Precedence: `DSH_PRIMARY_RUNTIME_MIRROR`, the same key through npm config
+ * (`dsh_primary_runtime_mirror`), then the `/-/binary/` tree of a registry that
+ * republishes release assets. An empty value restores the official hosts.
+ * @returns {string | undefined} Mirror tree base, or undefined for the official hosts.
+ */
+function primaryRuntimeMirror() {
+  const configured = process.env.DSH_PRIMARY_RUNTIME_MIRROR ?? process.env.npm_config_dsh_primary_runtime_mirror
+  if (configured !== undefined) return configured.trim()
+  const origin = registryMirrorOrigin(npmRegistry())
+  return origin === undefined ? undefined : new URL('/-/binary/', `${origin}/`).toString()
+}
+
+/**
+ * Resolve the PyPI file mirror for the lock's `files.pythonhosted.org` wheels.
+ *
+ * A registry mirror does not serve PyPI files, so this one has no derivation:
+ * only `DSH_PRIMARY_RUNTIME_PYPI_MIRROR` (or the `dsh_primary_runtime_pypi_mirror`
+ * npm config key) enables it, and the wheels keep their official URL otherwise.
+ * @returns {string | undefined} PyPI file mirror base, or undefined for official PyPI.
+ */
+function primaryRuntimePypiMirror() {
+  const configured = process.env.DSH_PRIMARY_RUNTIME_PYPI_MIRROR ?? process.env.npm_config_dsh_primary_runtime_pypi_mirror
+  return configured === undefined ? undefined : configured.trim()
 }
 
 /**
@@ -568,6 +606,31 @@ function ensureElectron() {
       cwd: electronDir,
       env: { electron_config_cache: ELECTRON_CACHE, ...downloadMirrorEnv(DOWNLOAD_SOURCES.electron) },
     })
+  })
+}
+
+/**
+ * Prefetch the packaging chain's locked primary-runtime assets.
+ *
+ * `prepare:primary-runtime` fetches the packaged Node, Python and wheel set once
+ * per SHA-256 and reuses whatever already sits in `.desktop-build/downloads`, but
+ * it retries nothing, has no mirror switch and falls back nowhere: one lost
+ * connection to nodejs.org or to the `python-build-standalone` GitHub release
+ * aborts the packaging run. `scripts/primary-runtime-downloads.mjs` reads the same
+ * lock and writes the verified bytes under the same keys, so the packaging stage
+ * becomes a cache read. Assets a registry mirror republishes come from there
+ * first; an empty `DSH_PRIMARY_RUNTIME_MIRROR` restores the official hosts.
+ */
+function prefetchPrimaryRuntime() {
+  step('Prefetch the primary-runtime locked assets', () => {
+    const mirror = primaryRuntimeMirror()
+    const pypiMirror = primaryRuntimePypiMirror()
+    console.log(`primary runtime source: ${mirror || 'official nodejs.org and python-build-standalone hosts'}`)
+    if (pypiMirror) console.log(`pypi file source: ${pypiMirror}`)
+    const args = [join(ROOT, 'scripts', 'primary-runtime-downloads.mjs'), '--source', SOURCE, '--target', 'win-x64']
+    if (mirror) args.push('--mirror', mirror)
+    if (pypiMirror) args.push('--pypi-mirror', pypiMirror)
+    run('node', args)
   })
 }
 
@@ -978,6 +1041,7 @@ export function buildDesktop(options = {}) {
   installSourceDependencies(options, revision)
   writePackageEnvironment()
   ensureElectron()
+  prefetchPrimaryRuntime()
   cleanSource()
   // The packaging chain runs `build:official` again before it packages, so the
   // patch has to cover both steps; reverting in `finally` keeps the checkout

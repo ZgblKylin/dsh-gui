@@ -9,7 +9,11 @@
  *     { "id": "local", "title": "本机" },
  *     { "id": "dev", "title": "测试机", "url": "http://127.0.0.1:19999/?token=<t>" },
  *     { "id": "dev2", "title": "测试机 2", "port": 19999, "tokenFile": "C:/Users/me/.dsh-gui-remote.token" },
- *     { "id": "wsl", "title": "WSL", "ssh": { "host": "WSL" } }
+ *     { "id": "wsl", "title": "WSL", "ssh": { "host": "WSL" } },
+ *     { "id": "wsl-arch", "title": "archlinux", "wsl": { "distro": "archlinux" } }
+ *   ],
+ *   "connections": [
+ *     { "id": "wsl-arch", "title": "archlinux", "type": "wsl", "wsl": { "distro": "archlinux" }, "account": "chongfei" }
  *   ]
  * }
  * ```
@@ -17,10 +21,15 @@
  * A tab carrying `url` is remote, verbatim. A tab carrying `port` is remote too:
  * the bare token is read from `tokenFile` (`~/.dsh-gui-remote.token` by default,
  * the file dsh-remote persists its launch token to) and composed into
- * `http://127.0.0.1:<port>/?token=<token>`. A tab carrying `ssh` is a remote
- * whose address the remote half resolves on activation, so it needs no `url`
- * here; its contents are opaque to this module. A tab with none of the three is
- * the local view. Exactly one local tab is always present and always first.
+ * `http://127.0.0.1:<port>/?token=<token>`. A tab carrying `ssh` or `wsl` is a
+ * remote whose address the remote half resolves on activation, so it needs no
+ * `url` here; those objects are opaque to this module and round-trip verbatim. A
+ * tab with none of the four is the local view. Exactly one local tab is always
+ * present and always first.
+ *
+ * A saved connection additionally carries `type` (`ssh` or `wsl`) and an
+ * optional flat `account` login name; `wsl` and `account` are validated
+ * (object / non-empty string) and round-tripped unread.
  *
  * A `port` tab whose token file is missing, empty, or malformed is dropped — a
  * remote that has not published its token yet must not turn into a broken tab.
@@ -35,13 +44,15 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 
-/** One tab the client half can render; `url` is absent for the local view and on an unresolved ssh tab. */
+/** One tab the client half can render; `url` is absent for the local view and on an unresolved remote tab. */
 export interface DesktopTab {
   readonly id: string
   readonly title: string
   readonly url?: string
   /** SSH connection description owned by `./remote/index.ts`; this module round-trips it unread. */
   readonly ssh?: unknown
+  /** WSL connection description owned by `./remote/index.ts`; round-tripped unread. */
+  readonly wsl?: unknown
 }
 
 /**
@@ -52,10 +63,14 @@ export interface DesktopTab {
 export interface DesktopConnection {
   readonly id: string
   readonly title: string
-  /** Connection kind; `ssh` is the only kind implemented today. */
+  /** Connection kind; `ssh` and `wsl` are the kinds implemented today. */
   readonly type: string
   /** SSH destination description owned by `./remote/index.ts`; round-tripped unread. */
   readonly ssh?: unknown
+  /** WSL destination description owned by `./remote/index.ts`; round-tripped unread. */
+  readonly wsl?: unknown
+  /** Explicit remote login name (`ssh -l` / `wsl.exe -u`); absent means the default. */
+  readonly account?: string
   /** Remote working directory; absent means the remote `$HOME`. */
   readonly workdir?: string
   /** Remote start command; absent means the remote half's default. */
@@ -78,6 +93,7 @@ interface TabRow {
   title: string
   url?: string
   ssh?: unknown
+  wsl?: unknown
   port?: number
   tokenFile?: string
 }
@@ -88,6 +104,8 @@ interface ConnectionRow {
   title: string
   type: string
   ssh?: unknown
+  wsl?: unknown
+  account?: string
   workdir?: string
   startCommand?: string
 }
@@ -262,6 +280,13 @@ function readRow(raw: unknown, index: number, problem: (message: string) => void
     }
     row.ssh = raw.ssh
   }
+  if (raw.wsl !== undefined) {
+    if (!isRecord(raw.wsl)) {
+      problem(`tab '${id}' has a non-object "wsl"`)
+      return undefined
+    }
+    row.wsl = raw.wsl
+  }
   if (raw.port !== undefined && raw.port !== null) {
     if (typeof raw.port !== 'number' || !Number.isInteger(raw.port) || raw.port <= 0 || raw.port > 65535) {
       problem(`tab '${id}' has an invalid "port"`)
@@ -319,6 +344,21 @@ function readConnection(raw: unknown, index: number, problem: (message: string) 
     }
     row.ssh = raw.ssh
   }
+  if (raw.wsl !== undefined) {
+    if (!isRecord(raw.wsl)) {
+      problem(`connection '${id}' has a non-object "wsl"`)
+      return undefined
+    }
+    row.wsl = raw.wsl
+  }
+  if (raw.account !== undefined) {
+    if (typeof raw.account !== 'string') {
+      problem(`connection '${id}' has a non-string "account"`)
+      return undefined
+    }
+    const account = raw.account.trim()
+    if (account !== '') row.account = account
+  }
   // An empty string means "not set": the optional fields are omitted rather than stored empty.
   for (const key of ['workdir', 'startCommand'] as const) {
     const value = raw[key]
@@ -355,12 +395,13 @@ function orderRows(rows: readonly TabRow[], previous: readonly TabRow[]): TabRow
 
 /** A row with no address source at all is the local view. */
 function isLocalRow(row: TabRow): boolean {
-  return row.url === undefined && row.port === undefined && row.ssh === undefined
+  return row.url === undefined && row.port === undefined && row.ssh === undefined && row.wsl === undefined
 }
 
 /** Restore a `port` tab's stored form when the submitted row carries its resolved URL. */
 function restoreDeferred(row: TabRow, previous: TabRow | undefined): TabRow {
-  if (previous === undefined || previous.port === undefined || row.url === undefined || row.ssh !== undefined) return row
+  if (previous === undefined || previous.port === undefined || row.url === undefined) return row
+  if (row.ssh !== undefined || row.wsl !== undefined) return row
   const restored: TabRow = { id: row.id, title: row.title, port: previous.port }
   if (previous.tokenFile !== undefined) restored.tokenFile = previous.tokenFile
   return restored
@@ -384,7 +425,7 @@ function resolveRows(rows: readonly TabRow[], home: string): { tabs: DesktopTab[
       }
       url = `http://127.0.0.1:${row.port}/?token=${encodeURIComponent(token)}`
     }
-    if (url === undefined && row.ssh === undefined) {
+    if (url === undefined && row.ssh === undefined && row.wsl === undefined) {
       if (local === undefined) local = tabOf(row, undefined)
       else warnings.push('more than one tab has no resolvable url — only the first is kept as the local view')
       continue
@@ -401,6 +442,7 @@ function tabOf(row: TabRow, url: string | undefined): DesktopTab {
     title: row.title,
     ...(url === undefined ? {} : { url }),
     ...(row.ssh === undefined ? {} : { ssh: row.ssh }),
+    ...(row.wsl === undefined ? {} : { wsl: row.wsl }),
   }
 }
 

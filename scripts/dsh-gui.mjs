@@ -733,8 +733,15 @@ Desktop:
   console window, and by running every plugins/*/install.mjs again against the
   desktop profile (<runtime-root>/.dsh/profiles/desktop), which the desktop app's
   own CLI manages. desktop launches with DSH_HOME at the runtime-root .dsh, so the
-  desktop profile sits beside the web one. Run these in a session that permits
-  git's local transport, cargo, and electron-builder (not a strict sandbox).
+  desktop profile sits beside the web one. The locked primary-runtime assets
+  (packaged Node, Python and wheels) are prefetched the same way, under the
+  mirror's /-/binary/ tree, into the packaging chain's SHA-256 cache, so that
+  stage reads the cache instead of the official nodejs.org and GitHub hosts;
+  DSH_PRIMARY_RUNTIME_MIRROR and DSH_PRIMARY_RUNTIME_PYPI_MIRROR (or the
+  dsh_primary_runtime_mirror / dsh_primary_runtime_pypi_mirror npm config keys)
+  override each source and an empty value restores the official hosts. Run these
+  in a session that permits git's local transport, cargo, and electron-builder
+  (not a strict sandbox).
 
 Runtime:
   harness.json selects the dsh runtime. "npm" installs @deepseek-ai/dsh@<version>

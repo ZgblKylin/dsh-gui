@@ -1,13 +1,15 @@
 /**
- * The connection settings panel: working directory, start command, and the two
- * built-in command presets.
+ * The connection settings panel: account, working directory, start command, and
+ * the two built-in command presets.
  *
  * It is opened to the right of the `+` panel, either for a new connection (from
- * an SSH host row) or for an existing one (the row's 编辑 action). The panel owns
- * only its DOM: confirming hands the draft back to the strip, which persists it
- * and opens or reconnects the tab. A rejection keeps the panel open with the
- * reason shown, so a failed save is never silent.
+ * an SSH host or WSL distribution row) or for an existing one (the row's 编辑
+ * action). The panel owns only its DOM: confirming hands the draft back to the
+ * strip, which persists it and opens or reconnects the tab. A rejection keeps
+ * the panel open with the reason shown, so a failed save is never silent.
  */
+
+import { connectionTypeLabel } from './types.ts'
 
 /** Marks the config panel element. */
 export const CONFIG_PANEL_ATTR = 'data-dsh-desktop-tabs-config'
@@ -16,8 +18,13 @@ export const CONFIG_PANEL_ATTR = 'data-dsh-desktop-tabs-config'
 export interface ConnectionDraft {
   /** Absent while creating a connection. */
   readonly id?: string
+  /** Connection kind: `ssh` or `wsl`; the title prefix and the account hint follow it. */
+  readonly kind: string
   readonly title: string
-  readonly ssh: unknown
+  readonly ssh?: unknown
+  readonly wsl?: unknown
+  /** Login account, already trimmed; empty means the channel's own default. */
+  readonly account: string
   readonly workdir: string
   readonly startCommand: string
 }
@@ -52,11 +59,16 @@ const WORKDIR_PLACEHOLDER = '/srv/dsh 或 $HOME/dsh'
 /** Start command placeholder; empty means the connection default. */
 const COMMAND_PLACEHOLDER = '留空使用默认命令'
 
+/** Account placeholder, by channel: empty means the channel's own default login. */
+const ACCOUNT_SSH_PLACEHOLDER = 'SSH 用户名（留空用 ssh config）'
+const ACCOUNT_WSL_PLACEHOLDER = 'WSL 用户名（留空用默认用户）'
+
 /** The two built-in start commands. */
 const PRESETS = [`npm '@deepseek-ai/dsh' web`, 'npm run harness'] as const
 
-const NEW_TITLE = '新建连接'
-const EDIT_TITLE = '编辑连接'
+const NEW_TITLE = '新建'
+const EDIT_TITLE = '编辑'
+const CONNECTION_SUFFIX = '连接'
 const CONFIRM_LABEL = '确认'
 const CANCEL_LABEL = '取消'
 const PRESETS_LABEL = '预设启动命令'
@@ -75,6 +87,7 @@ export function createConfigPanel(handlers: ConfigPanelHandlers): ConfigPanel {
   const heading = document.createElement('p')
   heading.setAttribute('data-dsh-desktop-tabs-config-title', '')
 
+  const account = textInput('data-dsh-desktop-tabs-account', ACCOUNT_SSH_PLACEHOLDER)
   const workdir = textInput('data-dsh-desktop-tabs-workdir', WORKDIR_PLACEHOLDER)
   const command = textInput('data-dsh-desktop-tabs-start-command', COMMAND_PLACEHOLDER)
   const presetsToggle = document.createElement('button')
@@ -108,6 +121,7 @@ export function createConfigPanel(handlers: ConfigPanelHandlers): ConfigPanel {
 
   element.append(
     heading,
+    field('账号', account),
     field('工作路径', workdir),
     field('启动命令', commandRow),
     presets,
@@ -174,8 +188,11 @@ export function createConfigPanel(handlers: ConfigPanelHandlers): ConfigPanel {
     if (draft === undefined) return
     const next: ConnectionDraft = {
       ...(draft.id === undefined ? {} : { id: draft.id }),
+      kind: draft.kind,
       title: draft.title,
-      ssh: draft.ssh,
+      ...(draft.ssh === undefined ? {} : { ssh: draft.ssh }),
+      ...(draft.wsl === undefined ? {} : { wsl: draft.wsl }),
+      account: account.value.trim(),
       workdir: workdir.value.trim(),
       startCommand: command.value.trim(),
     }
@@ -198,7 +215,12 @@ export function createConfigPanel(handlers: ConfigPanelHandlers): ConfigPanel {
     isOpen: () => open,
     open: (next) => {
       draft = next
-      heading.textContent = next.id === undefined ? NEW_TITLE : EDIT_TITLE
+      const kindLabel = connectionTypeLabel(next.kind)
+      heading.textContent = `${next.id === undefined ? NEW_TITLE : EDIT_TITLE} ${kindLabel} ${CONNECTION_SUFFIX}`
+      const hint = accountHint(next.kind)
+      account.placeholder = hint
+      account.setAttribute('aria-label', hint)
+      account.value = next.account
       workdir.value = next.workdir
       command.value = next.startCommand
       renderPresets()
@@ -207,7 +229,7 @@ export function createConfigPanel(handlers: ConfigPanelHandlers): ConfigPanel {
       open = true
       element.hidden = false
       document.addEventListener('keydown', onKeydown, true)
-      workdir.focus()
+      account.focus()
     },
     close: closePanel,
     fail: (text) => { showStatus(text) },
@@ -238,6 +260,11 @@ function textInput(attr: string, placeholder: string): HTMLInputElement {
   input.setAttribute(attr, '')
   input.setAttribute('aria-label', placeholder)
   return input
+}
+
+/** @returns the account placeholder for a connection kind; an unknown kind reads as a channel-neutral default. */
+function accountHint(kind: string): string {
+  return kind.toLowerCase() === 'wsl' ? ACCOUNT_WSL_PLACEHOLDER : ACCOUNT_SSH_PLACEHOLDER
 }
 
 /** A plain panel button with its marker attribute. */
