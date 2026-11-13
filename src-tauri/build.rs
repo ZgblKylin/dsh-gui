@@ -18,6 +18,15 @@ fn main() {
         "local_update_projects",
         "cached_update_status",
         "remote_call",
+        // Desktop-tabs host routes proxied for the SSH connection dialog
+        // (see the remote_*_tabs/connection/ssh_hosts commands in `src/main.rs`).
+        "remote_tabs",
+        "remote_tabs_put",
+        "remote_connections",
+        "remote_connection_up",
+        "remote_connection_down",
+        "remote_ssh_hosts",
+        "remote_wsl_hosts",
         "check_updates",
         "start_update",
         "update_root",

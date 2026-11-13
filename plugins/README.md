@@ -189,15 +189,29 @@ npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本�
 - [dsh-commandcode-provider](https://github.com/Mars-Sea/dsh-commandcode-provider) npm包（pin `0.17.3`，packageSpec `@mars-sea/dsh-commandcode-provider@0.17.3`；`engines.dsh` 改为析取区间 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，`0.2.2-rc.1` 落在第二段（`0.2.2-alpha.2 <= 0.2.2-rc.1 < 0.2.3-0`），其 `@deepseek-ai/dsh-*` peer 与 `dsh.compatibility.dshReleases`（已记 `0.2.2-rc.1` 为 compatible）同样放行，因此准入闸门自行接纳、不再需要精确版本例外（0.15.5 时代的例外已随 pin 撤销）；注意 0.16.0 起 `engines.node` 抬到 `>=24.9`，与本工程 harness 的 Node 下限一致；其 bundle 层插入 entry id `llm-commandcode`）
 - [dsh-pause](https://github.com/better-er/dsh-pause) npm包（pin `0.1.8`；「DSH·暂停」：host 半在 `agent/pre-step` waterfall 上卡出暂停点（每个 turn 的首次请求不停、不打断在途调用），browser 半经 `conversation.input.right` slot 在 composer 工具行渲染开关与放行控件，会话开关默认关闭（Config `defaultEnabled`）；0.1.8 新增键盘 Pause 键切换，以及模型空闲且输入为空时连按两次回车的「强制继续」（经 `agent.followup` 送一条内容为空的唤醒消息，不产生用户消息）；RPC 走插件向 webServer 自注册的 `/dsh-pause` 前缀路由。manifest 无 `engines.dsh`，六条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.2`，覆盖 0.2.2-rc.1 的准入闸门、无需例外（另有非 dsh 的 `@deepseek-ai/schemastery >=3.18.0` peer，不进准入闸门）；`engines.node` 声明 `>=26.3.1` 高于 harness 的 `>=24.9.0`，profile 未开 `engine-strict` 故只告警。包声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-pause`）
 - [dsh-skill-mcp-center](https://github.com/Max-Null/dsh-skill-mcp-center) npm包（pin `@max-null/dsh-skill-mcp-center@0.7.0`；仓库侧只有 wrapper 的 `install.mjs`，包以发布形态提供预构建 `dist/` 与 `client.js`，无构建步骤。host 半 inject 为 `loader` / `tools` 并从 `ctx.skills` 读取技能目录；client 半在设置页新增「Skill & MCP」分区，`dsh-better-sidebar` 存在时另在右侧栏提供 MCP 实时状态面板（可选 peer，本工程已安装）。manifest 无 `engines.dsh`，准入闸门按 `@deepseek-ai/dsh*` peer（`>=0.1.1-rc.1 <0.3.0`）放行 0.2.2-rc.1；声明 `dsh.bundle.patch`，entry id `skill-mcp-center`）
-- [ds-harness-remote](https://github.com/liguobao/ds-harness-remote) npm包（pin `0.6.3`；DSH Remote：低延迟 P2P 端到端加密的远程访问插件，PC / 移动端 / Remote Web 可远程继续本机 Harness 会话与工作区，不开放公网监听端口、无需路由端口转发；host 半向官方 `tools` service 注册 `remote_*` 工具组（列出在线机器与工作区、读写 / 创建会话、收发消息、上下传文件），client 半在设置页提供 Remote 面板。开发基线为 `dsh-v0.2.2-rc.1`；manifest 无 `engines.dsh`，`@deepseek-ai/dsh*` peer 均为 `>=0.2.2-0 <0.2.3-0` 等多段区间，按 `includePrerelease` 覆盖 pinned 的 0.2.2-rc.1、无需精确版本例外；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `ds-harness-remote`：0.6.3 起只插这一行，上一版的 `ds-harness-remote-tui` 条件行与 dsh-tui 判定已移除（上游注明「dsh-TUI 集成推迟到后续版本」，本版本只出 Desktop / Web Host 面），不写手工 insert；`@roamhq/wrtc` 是可选原生 WebRTC 依赖（安装失败按 optional 跳过）。与内建 `dsh-remote` 的多后端 / SSH 隧道方案相互独立，可同时安装）
+- [ds-harness-remote](https://github.com/liguobao/ds-harness-remote) npm包（pin `0.6.3`；DSH Remote：低延迟 P2P 端到端加密的远程访问插件，PC / 移动端 / Remote Web 可远程继续本机 Harness 会话与工作区，不开放公网监听端口、无需路由端口转发；host 半向官方 `tools` service 注册 `remote_*` 工具组（列出在线机器与工作区、读写 / 创建会话、收发消息、上下传文件），client 半在设置页提供 Remote 面板。开发基线为 `dsh-v0.2.2-rc.1`；manifest 无 `engines.dsh`，`@deepseek-ai/dsh*` peer 均为 `>=0.2.2-0 <0.2.3-0` 等多段区间，按 `includePrerelease` 覆盖 pinned 的 0.2.2-rc.1、无需精确版本例外；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `ds-harness-remote`：0.6.3 起只插这一行，上一版的 `ds-harness-remote-tui` 条件行与 dsh-tui 判定已移除（上游注明「dsh-TUI 集成推迟到后续版本」，本版本只出 Desktop / Web Host 面），不写手工 insert；`@roamhq/wrtc` 是可选原生 WebRTC 依赖（安装失败按 optional 跳过）。与内建 `dsh-remote` 的本机后端 / Docker 连接方案相互独立，可同时安装）
 
 ## Current plugins
 
-- `remote` — in-tree plugin at `remote/dsh-remote`: multi-backend remote mode
-  for the web GUI (connection tabs, new-connection page, SSH deploy, Docker
-  exec connect). It
+- `remote` — in-tree plugin at `remote/dsh-remote`: the local-backend and
+  Docker connection modes for the web GUI (connection tabs, new-connection
+  page, local `dsh web` backend spawn, Docker `exec` connect). SSH remote
+  connections are provided by `desktop-tabs/dsh-desktop-tabs`' host half and
+  shared by the Tauri shell and the desktop app; `dsh-remote` no longer owns an
+  SSH transport or a credential store. It
   declares `dsh.bundle.patch` and mounts through its own bundle layer (no
   manual cordis insert). See `remote/dsh-remote/docs/`.
+- `desktop-tabs` — in-tree plugin at `desktop-tabs/dsh-desktop-tabs`, installed
+  into the `web` and `desktop` profiles. Its host half is the single SSH
+  remote-connection backend: it owns `<DSH_HOME>/gui/desktop-tabs.json` and the
+  `/desktop-tabs/api/*` routes (saved connections, `up`/`down`, `~/.ssh/config`
+  imports), starting or reusing a remote `dsh web` in a `dsh-gui` tmux session
+  and forwarding its loopback port. Its browser half mounts the desktop-shell
+  caption tab strip and is inert in an ordinary `dsh web` page; the Tauri shell
+  copies the two shared connection-dialog modules
+  (`src/client/ui/connection-list.js`, `connection-settings.js`) at build time
+  and renders them in its own SSH dialog. It declares `dsh.bundle.patch` and
+  mounts through its own bundle layer. See `desktop-tabs/dsh-desktop-tabs/README.md`.
 - `better-sidebar` — npm wrapper whose `install.mjs` installs two upstream
   packages (`omdsh-dev/DSH-better-sidebar` and `ChenRuoT/dsh-sidebar-qa`) in
   order — `dsh-better-sidebar@0.30.1` FIRST (the 0.2.2 线适配版, 14 条
@@ -407,7 +421,7 @@ npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本�
   (`>=0.2.2-0 <0.2.3-0`) admit the pinned 0.2.2-rc.1 runtime under
   `includePrerelease` without an exemption. `@roamhq/wrtc` is an optional
   native WebRTC dependency (pnpm skips it when unavailable). Independent of
-  the in-repo `dsh-remote` multi-backend/SSH-tunnel mode; both can be
+  the in-repo `dsh-remote` local-backend/Docker mode; both can be
   installed. See the upstream repository and https://dsh.r2049.cn/app.
 - `harness` — a single flat wrapper at `harness/` that owns the official
   dsh-family plugins it installs: `install.mjs` only loads the sibling installers

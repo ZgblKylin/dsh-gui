@@ -1,8 +1,13 @@
 // dsh-gui frameless shell: custom title bar, window controls, config menu,
 // connection tabs (VSCode-style), the new-connection dialog, and the About
-// dialog. Talks to the Rust side through __TAURI__.core.invoke; the remote
-// machinery lives in the dsh-remote plugin host and is reached through the
-// `remote_call` Rust command (a loopback HTTP proxy to /remote-api).
+// dialog. Talks to the Rust side through __TAURI__.core.invoke.
+//
+// Two backends are reached through it: the dsh-remote plugin host (Docker and
+// local connections, via the `remote_call` Rust proxy to /remote-api) and the
+// dsh-desktop-tabs plugin host (SSH connections, via the `remote_*` commands
+// proxying /desktop-tabs/api/*). The SSH card renders the controls shared with
+// the desktop shell — index.html loads them as a module bridge and this file
+// (a classic script) awaits that bridge when the dialog opens.
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -214,15 +219,6 @@ function wireWindowTitle() {
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-function bufferToB64(buf) {
-  const u = new Uint8Array(buf);
-  let s = "";
-  const CH = 0x8000;
-  for (let i = 0; i < u.length; i += CH) {
-    s += String.fromCharCode.apply(null, Array.from(u.subarray(i, i + CH)));
-  }
-  return btoa(s);
-}
 
 let tabs = loadJSON(LS_TABS, []);
 let activeId = loadJSON(LS_ACTIVE, null);
@@ -369,6 +365,10 @@ async function openDialog(kind, projectId, mode) {
     if (kind === "conn") {
       newConnection();
       $("conn-overlay").classList.remove("hidden");
+      // The SSH card is rendered from the shared-control module bridge; a load
+      // failure has to be visible instead of leaving an empty card.
+      remoteUiFailureShown = false;
+      void ensureRemoteUi().catch(reportRemoteUiFailure);
     } else if (kind === "update") {
       void openUpdateDialogWithBestState();
     } else if (kind === "about") {
@@ -469,23 +469,42 @@ function switchTab(id) {
   syncViews();
 }
 
-function closeTab(id) {
+/** Close one tab. `options.keepConnection` skips the remote `down` call — used
+ *  when the tab is being replaced by a new one for the same connection. */
+function closeTab(id, options) {
   const idx = tabs.findIndex((t) => t.id === id);
   if (idx < 0) return;
   const closing = tabs[idx];
+  const keepConnection = options !== undefined && options.keepConnection === true;
+  if (
+    !keepConnection &&
+    closing.type === "remote" &&
+    typeof closing.connectionId === "string" &&
+    closing.connectionId !== ""
+  ) {
+    // A remote tab owns only its local tunnel: the backend keeps running in the
+    // remote tmux session and can be reopened from either shell. A failed down
+    // must not block closing the tab; it is reported to the shell log only.
+    remoteCall("remote_connection_down", { id: closing.connectionId }).catch((error) => {
+      invoke("shell_log", {
+        msg: `remote down failed for ${closing.connectionId}: ${remoteErrText(error)}`,
+      }).catch(() => {});
+    });
+  }
   if (createdViews.has(id)) {
     createdViews.delete(id);
     if (tauri) invoke("view_close", { tabId: id }).catch(() => {});
   }
   const next = tabs.filter((t) => t.id !== id);
   if (next.length === 0) {
-    // Every tab closed: auto-open a fresh new-connection flow.
+    // Every tab closed: auto-open a fresh new-connection flow (unless the close
+    // is part of a replacement, which pushes the new tab right after).
     tabs = [];
     activeId = null;
     persist();
     renderTabs();
     syncViews();
-    openConnection();
+    if (!(options !== undefined && options.silent === true)) openConnection();
     return;
   }
   tabs = next;
@@ -573,11 +592,12 @@ async function rpc(op, args) {
 // Selected connection card. The dialog offers the SSH and Docker cards; saved
 // records may still carry `local`, whose backend the host half keeps serving.
 let connType = "remote";
-let serverKeyPath = null;
 // Generation counter invalidates in-flight connect attempts when the user
 // cancels, so a late-resolving RPC never adds a tab or repaints a closed dialog.
+// It covers the shell's own Docker/local paths only; the shared SSH card keeps
+// its own generation (`remoteDialogGen`).
 let connectGen = 0;
-// Live-progress poll timer, module-level so the cancel button can stop it.
+// Live-progress poll timer for Docker: module-level so cancel can stop it.
 let statusPollTimer = null;
 // Id of the saved connection currently being edited (null = building a new
 // one). On a successful connect this decides update-vs-insert into the list.
@@ -586,55 +606,702 @@ let connectEditId = null;
 // "launch" (直接启动 → update, button stays 连接).
 let connectMode = "new";
 
-// Preset remote start commands offered by the SSH card's dropdown. Picking one
-// writes it into the field, which stays editable afterwards.
-const SSH_START_COMMAND_PRESETS = [
-  { cmd: `npx '@deepseek-ai/dsh' web`, note: "默认" },
-  { cmd: `npm '@deepseek-ai/dsh' web`, note: "预设" },
-  { cmd: "npm run harness", note: "预设" },
-];
+/* ── SSH card: shared desktop-tabs controls ──────────────────
+   The shell no longer has an SSH implementation of its own. The card mounts
+   the same connection list and settings panel the desktop shell renders
+   (copied into this asset dir at build time, see index.html) and reaches the
+   dsh-desktop-tabs plugin's loopback routes through the `remote_*` Rust
+   commands. `<DSH_HOME>/gui/desktop-tabs.json` is therefore the one config
+   store: a connection made in either shell opens in the other, and closing a
+   tab only drops this host's tunnel.
 
-/** Render the preset rows; the one matching the field is checked and marked 当前. */
-function renderStartCmdMenu() {
-  const menu = $("conn-ssh-startcmd-menu");
-  if (!menu) return;
-  const current = $("conn-ssh-startcmd").value.trim();
-  menu.innerHTML = "";
-  for (const preset of SSH_START_COMMAND_PRESETS) {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "conn-cmd-item";
-    item.setAttribute("role", "option");
-    item.dataset.cmd = preset.cmd;
-    const check = document.createElement("span");
-    check.className = "cmd-check";
-    check.textContent = preset.cmd === current ? "✓" : "";
-    const cmd = document.createElement("span");
-    cmd.textContent = preset.cmd;
-    const note = document.createElement("span");
-    note.className = "cmd-note";
-    note.textContent = preset.cmd === current ? "当前" : preset.note;
-    item.append(check, cmd, note);
-    menu.appendChild(item);
+   The commands answer with JSON text. `remote_connection_up` stays pending
+   until the connection settles, so progress is streamed by polling
+   `/connections` while it runs (see `startRemoteLogPoll`). */
+
+/** Poll interval of the connection-progress log. */
+const REMOTE_POLL_MS = 500;
+/** localStorage marker set after the one-time legacy SSH import succeeded. */
+const LS_REMOTE_MIGRATION = "dsh.remote.connections.migrated.v1";
+
+// The mounted shared controls: { list, settings } once the module bridge has
+// loaded, plus the first load failure (reported in the card, never thrown away).
+let remoteUi = null;
+let remoteUiError = null;
+let remoteUiFailureShown = false;
+// The plugin's open desktop tabs, written back unchanged on every PUT (the
+// dialog must not disturb the desktop shell's tab list).
+let remoteTabs = [];
+// The plugin's saved SSH connections; the only connection store for the card.
+let remoteConnections = [];
+// Connection whose progress log / settings panel is in focus.
+let remoteActiveId = null;
+// 500 ms `remote_connections` poller while a connection attempt is in flight.
+let remotePollTimer = null;
+// Bumped whenever the dialog/card state changes, so stale async work stops.
+let remoteDialogGen = 0;
+// Id of the connection currently being brought up (one attempt at a time).
+let remoteBusy = null;
+
+function remoteErrText(error) {
+  return String((error && error.message) || error);
+}
+
+/** Invoke one desktop-tabs bridge command and parse its JSON answer. */
+async function remoteCall(command, args) {
+  const raw = await invoke(command, args);
+  if (typeof raw !== "string" || raw.trim() === "") return {};
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    throw new Error(command + " 返回了无法解析的响应");
   }
 }
 
-function openStartCmdMenu() {
-  renderStartCmdMenu();
-  $("conn-ssh-startcmd-menu").classList.remove("hidden");
-  $("conn-ssh-startcmd-presets").setAttribute("aria-expanded", "true");
+/** @returns the SSH host alias a connection descriptor names, if any. */
+function sshHostOf(ssh) {
+  if (typeof ssh !== "object" || ssh === null) return undefined;
+  const host = ssh.host;
+  return typeof host === "string" && host.trim() !== "" ? host.trim() : undefined;
 }
 
-function closeStartCmdMenu() {
-  const menu = $("conn-ssh-startcmd-menu");
-  if (!menu || menu.classList.contains("hidden")) return;
-  menu.classList.add("hidden");
-  $("conn-ssh-startcmd-presets").setAttribute("aria-expanded", "false");
+/** @returns the WSL distribution a connection descriptor names, if any. */
+function wslDistroOf(wsl) {
+  if (typeof wsl !== "object" || wsl === null) return undefined;
+  const distro = wsl.distro;
+  return typeof distro === "string" && distro.trim() !== "" ? distro.trim() : undefined;
 }
 
-function toggleStartCmdMenu() {
-  if ($("conn-ssh-startcmd-menu").classList.contains("hidden")) openStartCmdMenu();
-  else closeStartCmdMenu();
+/** @returns the connection kind: `ssh` unless the record says `wsl`. */
+function connectionKindOf(connection) {
+  const type = connection !== null && typeof connection === "object" && typeof connection.type === "string"
+    ? connection.type.trim().toLowerCase()
+    : "";
+  return type === "wsl" ? "wsl" : "ssh";
+}
+
+/** @returns the host name a connection connects to: its SSH alias or WSL distribution. */
+function connectionHostOf(connection) {
+  if (connection === null || typeof connection !== "object") return undefined;
+  return wslDistroOf(connection.wsl) ?? sshHostOf(connection.ssh);
+}
+
+/** @returns the connection id stem `ssh-<sanitized>` for one alias. */
+function sanitizeConnectionIdPart(text) {
+  const cleaned = String(text || "")
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[-.]+|-+$/g, "");
+  return cleaned === "" ? "host" : cleaned;
+}
+
+/** Ids already taken by connections or desktop tabs. */
+function remoteTakenIds() {
+  const taken = new Set();
+  for (const connection of remoteConnections) {
+    if (connection && typeof connection.id === "string") taken.add(connection.id);
+  }
+  for (const tab of remoteTabs) {
+    if (tab && typeof tab.id === "string") taken.add(tab.id);
+  }
+  return taken;
+}
+
+/** @returns a free connection id, preferring the readable `ssh-<alias>` / `wsl-<distro>` form. */
+function uniqueRemoteConnectionId(kind, name, taken) {
+  const stem = String(kind || "ssh") + "-" + sanitizeConnectionIdPart(name);
+  if (!taken.has(stem)) return stem;
+  let suffix = 2;
+  while (taken.has(stem + "-" + suffix)) suffix += 1;
+  return stem + "-" + suffix;
+}
+
+function normalizeRemoteTabs(value) {
+  return Array.isArray(value) ? value.filter((row) => row !== null && typeof row === "object" && !Array.isArray(row)) : [];
+}
+
+function normalizeRemoteConnections(value) {
+  return Array.isArray(value) ? value.filter((row) => row !== null && typeof row === "object" && !Array.isArray(row)) : [];
+}
+
+function normalizeSshHosts(value) {
+  return Array.isArray(value)
+    ? value.filter((row) => row !== null && typeof row === "object" && typeof row.alias === "string" && row.alias !== "")
+    : [];
+}
+
+function normalizeWslHosts(value) {
+  return Array.isArray(value)
+    ? value.filter((row) => row !== null && typeof row === "object" && typeof row.name === "string" && row.name !== "")
+    : [];
+}
+
+/** @returns whether the connection dialog is currently visible in this window. */
+function connDialogVisible() {
+  const overlay = $("conn-overlay");
+  return overlay !== null && !overlay.classList.contains("hidden");
+}
+
+/** Report a failure inside the SSH card (list status line + log) and once as a
+ *  toast per dialog open. */
+function remoteFail(message) {
+  if (remoteUi) remoteUi.list.fail(message);
+  connLog("SSH 连接", false, message);
+  if (!remoteUiFailureShown) {
+    remoteUiFailureShown = true;
+    toast(message);
+  }
+  if (DIALOG_VIEW) scheduleFit();
+}
+
+/** @returns the loaded shared controls, mounting them on first use. */
+async function ensureRemoteUi() {
+  if (remoteUi !== null) return remoteUi;
+  if (remoteUiError !== null) throw remoteUiError;
+  let bridge;
+  try {
+    bridge = await window.__dshRemoteUiReady;
+  } catch (error) {
+    remoteUiError = new Error("共享连接控件加载失败：" + remoteErrText(error));
+    throw remoteUiError;
+  }
+  if (
+    bridge === null ||
+    typeof bridge !== "object" ||
+    typeof bridge.createConnectionList !== "function" ||
+    typeof bridge.createConnectionSettings !== "function"
+  ) {
+    remoteUiError = new Error("共享连接控件导出不完整（createConnectionList / createConnectionSettings）");
+    throw remoteUiError;
+  }
+  const list = bridge.createConnectionList({
+    onOpen: (connection) => remoteOpenConnection(connection),
+    onEdit: (connection) => remoteEditConnection(connection),
+    onDelete: (connection) => remoteDeleteConnection(connection),
+    onPickHost: (host) => remoteDraftFromHost(host),
+    onPickWslHost: (host) => remoteDraftFromWslHost(host),
+  });
+  const settings = bridge.createConnectionSettings({
+    onConfirm: (draft) => remoteConfirmSettings(draft),
+    onCancel: () => {
+      remoteActiveId = null;
+    },
+  });
+  $("conn-remote-list-slot").replaceChildren(list.element);
+  $("conn-remote-settings-slot").replaceChildren(settings.element);
+  remoteUi = { list, settings };
+  return remoteUi;
+}
+
+/** Show a shared-control load failure in the card itself (the log is the first
+ *  place a user looks) instead of leaving the SSH card empty. */
+function reportRemoteUiFailure(error) {
+  const message = remoteErrText(error);
+  const slot = $("conn-remote-list-slot");
+  if (slot !== null) {
+    const note = document.createElement("p");
+    note.className = "conn-remote-error";
+    note.textContent = "SSH 连接界面不可用：" + message + " 请重新构建（npm run build）后重启 dsh-gui。";
+    slot.replaceChildren(note);
+  }
+  connLog("共享连接控件", false, message);
+  if (!remoteUiFailureShown) {
+    remoteUiFailureShown = true;
+    toast(message);
+  }
+}
+
+/** Mount the shared controls and load the shared config for the SSH card. */
+async function openRemoteCard() {
+  const gen = ++remoteDialogGen;
+  remoteActiveId = null;
+  $("conn-remote-ui").classList.remove("hidden");
+  let ui;
+  try {
+    ui = await ensureRemoteUi();
+  } catch (error) {
+    if (gen !== remoteDialogGen) return;
+    reportRemoteUiFailure(error);
+    return;
+  }
+  if (gen !== remoteDialogGen || connType !== "remote") return;
+  ui.list.open();
+  await loadRemoteState(gen);
+  if (gen !== remoteDialogGen || connType !== "remote") return;
+  await refreshRemoteCardLog(gen);
+}
+
+/** Read the shared tab/connection lists and the SSH/WSL hosts, then run the
+ *  one-time import of the shell's legacy records. */
+async function loadRemoteState(gen) {
+  let snapshot;
+  try {
+    snapshot = await remoteCall("remote_tabs");
+  } catch (error) {
+    if (gen !== remoteDialogGen) return;
+    remoteFail("读取桌面连接配置失败：" + remoteErrText(error));
+    return;
+  }
+  if (gen !== remoteDialogGen || connType !== "remote") return;
+  remoteTabs = normalizeRemoteTabs(snapshot.tabs);
+  remoteConnections = normalizeRemoteConnections(snapshot.connections);
+  renderRemoteConnections();
+  // Both host lists are conveniences: either may be unavailable on its own
+  // (no ~/.ssh/config, no wsl.exe) and must not take the other down.
+  const [hosts, wslHosts] = await Promise.all([
+    remoteCall("remote_ssh_hosts")
+      .then((answer) => normalizeSshHosts(answer.hosts))
+      .catch((error) => {
+        if (gen === remoteDialogGen) remoteFail("读取 SSH 主机列表失败：" + remoteErrText(error));
+        return [];
+      }),
+    remoteCall("remote_wsl_hosts")
+      .then((answer) => normalizeWslHosts(answer.hosts))
+      .catch((error) => {
+        if (gen === remoteDialogGen) remoteFail("读取 WSL 主机列表失败：" + remoteErrText(error));
+        return [];
+      }),
+  ]);
+  if (gen !== remoteDialogGen || connType !== "remote") return;
+  if (remoteUi !== null) {
+    remoteUi.list.setSshHosts(hosts);
+    remoteUi.list.setWslHosts(wslHosts);
+  }
+  await importLegacyConnections(gen);
+}
+
+function renderRemoteConnections() {
+  if (remoteUi === null) return;
+  remoteUi.list.setConnections(remoteConnections);
+  if (DIALOG_VIEW) scheduleFit();
+}
+
+/** Fold one `{ tabs, connections }` answer into the card's state. */
+function applyRemoteSnapshot(snapshot, fallbackConnections) {
+  if (snapshot !== null && typeof snapshot === "object" && Array.isArray(snapshot.tabs)) {
+    remoteTabs = normalizeRemoteTabs(snapshot.tabs);
+  }
+  if (snapshot !== null && typeof snapshot === "object" && Array.isArray(snapshot.connections)) {
+    remoteConnections = normalizeRemoteConnections(snapshot.connections);
+  } else {
+    remoteConnections = normalizeRemoteConnections(fallbackConnections);
+  }
+  renderRemoteConnections();
+}
+
+/** One-time import of the shell's old `localStorage` SSH records into the
+ *  shared `connections` list. The marker is written only after the PUT
+ *  succeeds, so a failed import is retried the next time the card opens. */
+async function importLegacyConnections(gen) {
+  let alreadyImported = false;
+  try {
+    alreadyImported = localStorage.getItem(LS_REMOTE_MIGRATION) === "1";
+  } catch (_) {
+    alreadyImported = false;
+  }
+  if (alreadyImported) return;
+  const legacy = (Array.isArray(savedConnections) ? savedConnections : []).filter(
+    (record) =>
+      record !== null &&
+      typeof record === "object" &&
+      record.type === "remote" &&
+      typeof record.sshHost === "string" &&
+      record.sshHost.trim() !== ""
+  );
+  const additions = [];
+  const taken = remoteTakenIds();
+  for (const record of legacy) {
+    const host = record.sshHost.trim();
+    const title = typeof record.name === "string" && record.name.trim() !== "" ? record.name.trim() : host;
+    // A retried import after a successful PUT whose marker write failed must
+    // not add the same connection twice.
+    const exists = remoteConnections.some(
+      (connection) =>
+        sshHostOf(connection.ssh) === host && String(connection.title || "") === title
+    );
+    if (exists) continue;
+    const id = uniqueRemoteConnectionId("ssh", host, taken);
+    taken.add(id);
+    const connection = { id, title, type: "ssh", ssh: { host } };
+    if (typeof record.workdir === "string" && record.workdir.trim() !== "") connection.workdir = record.workdir.trim();
+    if (typeof record.startCommand === "string" && record.startCommand.trim() !== "") {
+      connection.startCommand = record.startCommand.trim();
+    }
+    additions.push(connection);
+  }
+  if (additions.length === 0) {
+    markRemoteMigrationDone();
+    return;
+  }
+  let snapshot;
+  try {
+    snapshot = await remoteCall("remote_tabs_put", {
+      body: JSON.stringify({ tabs: remoteTabs, connections: [...remoteConnections, ...additions] }),
+    });
+  } catch (error) {
+    if (gen !== remoteDialogGen) return;
+    remoteFail("旧 SSH 连接迁移失败（下次打开会重试）：" + remoteErrText(error));
+    return;
+  }
+  if (gen !== remoteDialogGen) return;
+  applyRemoteSnapshot(snapshot, null);
+  markRemoteMigrationDone();
+  // The migrated records now live in the shared config; drop them from the
+  // shell's own store so the Docker card no longer lists them as launchable.
+  savedConnections = savedConnections.filter((record) => !(record !== null && typeof record === "object" && record.type === "remote"));
+  saveJSON(LS_SAVED, savedConnections);
+  renderSavedList();
+  connLog("旧 SSH 连接迁移", true, `${additions.length} 条已导入共享配置`);
+  if (DIALOG_VIEW) scheduleFit();
+}
+
+function markRemoteMigrationDone() {
+  try {
+    localStorage.setItem(LS_REMOTE_MIGRATION, "1");
+  } catch (_) {
+    /* storage unavailable: the import is idempotent but will retry on each open */
+  }
+}
+
+/** Click a configured row: bring the connection up and open its tab. */
+async function remoteOpenConnection(connection) {
+  const id = connection !== null && typeof connection === "object" && typeof connection.id === "string" ? connection.id : "";
+  if (id === "") throw new Error("连接缺少 id");
+  if (remoteBusy !== null) throw new Error("已有连接正在建立，请稍候");
+  const gen = remoteDialogGen;
+  remoteActiveId = id;
+  remoteBusy = id;
+  startRemoteLogPoll(id);
+  let snapshot = null;
+  let failure = null;
+  try {
+    snapshot = await remoteCall("remote_connection_up", { id });
+  } catch (error) {
+    failure = error;
+  } finally {
+    remoteBusy = null;
+    await finishRemoteLogPoll(gen);
+  }
+  if (gen !== remoteDialogGen) {
+    // The dialog moved on while the connection was coming up: leave the
+    // connection alone (the next click reuses it) and open nothing here.
+    return;
+  }
+  if (failure !== null) {
+    const message = remoteErrText(failure);
+    // The final poll has usually painted the same reason already; only append
+    // a log line when it did not (so the failure is never silent).
+    if (remoteUi !== null) remoteUi.list.fail(message);
+    if (!remoteLogHasError()) connLog("连接失败", false, message);
+    throw new Error(message);
+  }
+  const url = snapshot !== null && typeof snapshot.url === "string" ? snapshot.url : "";
+  if (url === "") throw new Error("连接已建立，但没有返回可加载地址");
+  openRemoteTab(connection, url);
+}
+
+/** ✎ on a configured row: open the settings panel for it. */
+function remoteEditConnection(connection) {
+  if (remoteUi === null || connection === null || typeof connection !== "object") return;
+  remoteActiveId = typeof connection.id === "string" ? connection.id : null;
+  remoteUi.settings.open({
+    id: typeof connection.id === "string" ? connection.id : undefined,
+    kind: connectionKindOf(connection),
+    title: typeof connection.title === "string" && connection.title !== "" ? connection.title : String(connection.id || ""),
+    ...(typeof connection.ssh === "object" && connection.ssh !== null ? { ssh: connection.ssh } : {}),
+    ...(typeof connection.wsl === "object" && connection.wsl !== null ? { wsl: connection.wsl } : {}),
+    account: typeof connection.account === "string" ? connection.account : "",
+    workdir: typeof connection.workdir === "string" ? connection.workdir : "",
+    startCommand: typeof connection.startCommand === "string" ? connection.startCommand : "",
+  });
+  if (DIALOG_VIEW) scheduleFit();
+}
+
+/** Host row click: start a new-connection draft for that alias. The id is
+ *  derived on confirm (`ssh-<alias>` with a free suffix), so the panel opens
+ *  as 新建 SSH 连接 just like the desktop shell's. */
+function remoteDraftFromHost(host) {
+  if (remoteUi === null || host === null || typeof host !== "object" || typeof host.alias !== "string") return;
+  remoteActiveId = null;
+  remoteUi.settings.open({
+    kind: "ssh",
+    title: host.alias,
+    ssh: { host: host.alias },
+    account: "",
+    workdir: "",
+    startCommand: "",
+  });
+  if (DIALOG_VIEW) scheduleFit();
+}
+
+/** WSL row click: the same draft flow for one distribution. */
+function remoteDraftFromWslHost(host) {
+  if (remoteUi === null || host === null || typeof host !== "object" || typeof host.name !== "string") return;
+  remoteActiveId = null;
+  remoteUi.settings.open({
+    kind: "wsl",
+    title: host.name,
+    wsl: { distro: host.name },
+    account: "",
+    workdir: "",
+    startCommand: "",
+  });
+  if (DIALOG_VIEW) scheduleFit();
+}
+
+/** Settings-panel confirm: persist the connection, drop a stale channel, and
+ *  bring it up. Rejections are shown in the panel's status line. */
+async function remoteConfirmSettings(draft) {
+  if (remoteBusy !== null) throw new Error("已有连接正在建立，请稍候");
+  const kind = draft !== null && typeof draft === "object" && draft.kind === "wsl" ? "wsl" : "ssh";
+  const host = kind === "wsl"
+    ? wslDistroOf(draft !== null && typeof draft === "object" ? draft.wsl : undefined)
+    : sshHostOf(draft !== null && typeof draft === "object" ? draft.ssh : undefined);
+  if (host === undefined) throw new Error(kind === "wsl" ? "缺少 WSL 发行版，无法保存连接" : "缺少 SSH 主机，无法保存连接");
+  const gen = remoteDialogGen;
+  const title = typeof draft.title === "string" && draft.title.trim() !== "" ? draft.title.trim() : host;
+  const taken = remoteTakenIds();
+  const id =
+    typeof draft.id === "string" && draft.id !== "" ? draft.id : uniqueRemoteConnectionId(kind, host, taken);
+  const connection = { id, title, type: kind, [kind === "wsl" ? "wsl" : "ssh"]: draft[kind === "wsl" ? "wsl" : "ssh"] };
+  const account = typeof draft.account === "string" ? draft.account.trim() : "";
+  const workdir = typeof draft.workdir === "string" ? draft.workdir.trim() : "";
+  const startCommand = typeof draft.startCommand === "string" ? draft.startCommand.trim() : "";
+  if (account !== "") connection.account = account;
+  if (workdir !== "") connection.workdir = workdir;
+  if (startCommand !== "") connection.startCommand = startCommand;
+  const known = remoteConnections.some((row) => row !== null && typeof row === "object" && row.id === id);
+  const next = known
+    ? remoteConnections.map((row) => (row !== null && typeof row === "object" && row.id === id ? connection : row))
+    : [...remoteConnections, connection];
+  // Persist first: the host half reads the descriptor back from this file for
+  // the `up` below, and the desktop shell must see the same connection.
+  let snapshot;
+  try {
+    snapshot = await remoteCall("remote_tabs_put", {
+      body: JSON.stringify({ tabs: remoteTabs, connections: next }),
+    });
+  } catch (error) {
+    throw new Error("保存连接失败：" + remoteErrText(error));
+  }
+  if (gen !== remoteDialogGen) return;
+  applyRemoteSnapshot(snapshot, next);
+  remoteActiveId = id;
+  remoteBusy = id;
+  startRemoteLogPoll(id);
+  let url = "";
+  let failure = null;
+  try {
+    // Edited settings only apply to a fresh session: drop the old tunnel
+    // first (an idle connection has nothing to drop, so this is always safe).
+    try {
+      await remoteCall("remote_connection_down", { id });
+    } catch (_) {
+      /* an idle connection has nothing to drop */
+    }
+    const up = await remoteCall("remote_connection_up", { id });
+    url = up !== null && typeof up === "object" && typeof up.url === "string" ? up.url : "";
+  } catch (error) {
+    failure = error;
+  } finally {
+    remoteBusy = null;
+    await finishRemoteLogPoll(gen);
+  }
+  if (gen !== remoteDialogGen) return;
+  if (failure !== null) throw new Error("连接失败：" + remoteErrText(failure));
+  if (url === "") throw new Error("连接已建立，但没有返回可加载地址");
+  openRemoteTab(connection, url);
+}
+
+/** ✕ on a configured row: remove the connection and close its tab when open. */
+async function remoteDeleteConnection(connection) {
+  const id = connection !== null && typeof connection === "object" && typeof connection.id === "string" ? connection.id : "";
+  if (id === "") throw new Error("连接缺少 id");
+  const gen = remoteDialogGen;
+  const next = remoteConnections.filter((row) => !(row !== null && typeof row === "object" && row.id === id));
+  let snapshot;
+  try {
+    snapshot = await remoteCall("remote_tabs_put", {
+      body: JSON.stringify({ tabs: remoteTabs, connections: next }),
+    });
+  } catch (error) {
+    throw new Error("删除连接失败：" + remoteErrText(error));
+  }
+  if (gen !== remoteDialogGen) return;
+  applyRemoteSnapshot(snapshot, next);
+  // Only the local tunnel goes down; the remote backend stays in its tmux
+  // session and can be reopened from the desktop shell.
+  try {
+    await remoteCall("remote_connection_down", { id });
+  } catch (error) {
+    connLog("断开连接", false, remoteErrText(error));
+  }
+  if (gen !== remoteDialogGen) return;
+  if (remoteActiveId === id) remoteActiveId = null;
+  // The tab lives in the main shell window, so the removal is reported through
+  // the dialog→shell channel (the same one a new connection uses). A plain
+  // browser preview owns its own tabs and closes the tab directly.
+  if (DIALOG_VIEW) {
+    invoke("connection_added", { tab: { closeConnectionId: id } }).catch((error) => {
+      connLog("关闭标签", false, remoteErrText(error));
+    });
+  } else {
+    const openTab = tabs.find((tab) => tab !== null && typeof tab === "object" && tab.connectionId === id);
+    if (openTab !== undefined) closeTab(openTab.id, { keepConnection: true });
+  }
+  connLog("删除连接", true, id);
+  if (DIALOG_VIEW) scheduleFit();
+  // The shared list closes itself after a successful row action (it is a popup
+  // in the desktop shell); here it is the card's permanent content, so put it
+  // back on the next tick.
+  setTimeout(() => {
+    if (remoteUi !== null && connType === "remote" && connDialogVisible()) remoteUi.list.open();
+  }, 0);
+}
+
+/** Open the shell tab for a connected SSH or WSL connection. */
+function openRemoteTab(connection, url) {
+  const title =
+    connection !== null && typeof connection === "object" && typeof connection.title === "string" && connection.title !== ""
+      ? connection.title
+      : "远程连接";
+  const host = connectionHostOf(connection);
+  const meta = {
+    type: "remote",
+    address: host === undefined ? "" : host,
+    connectionId: typeof connection.id === "string" ? connection.id : "",
+  };
+  teardownRemoteUi();
+  addTab(title, url, meta);
+}
+
+/** Start the 500 ms connection-progress poll for one connection. */
+function startRemoteLogPoll(id) {
+  stopRemoteLogPoll();
+  const log = $("conn-log");
+  if (log !== null) log.innerHTML = "";
+  remotePollTimer = setInterval(() => {
+    void pollRemoteLog(id);
+  }, REMOTE_POLL_MS);
+}
+
+function stopRemoteLogPoll() {
+  if (remotePollTimer !== null) {
+    clearInterval(remotePollTimer);
+    remotePollTimer = null;
+  }
+}
+
+/** Fetch `/connections` once and paint the log of the followed connection. */
+async function pollRemoteLog(id) {
+  if (remotePollTimer === null) return;
+  let snapshot;
+  try {
+    snapshot = await remoteCall("remote_connections");
+  } catch (_) {
+    // Transient poll failures are expected while `up` runs; the `up` result is
+    // authoritative, so a failed poll just skips this iteration.
+    return;
+  }
+  if (remotePollTimer === null || remoteActiveId !== id) return;
+  paintRemoteLog(remoteStatusOf(snapshot, id));
+}
+
+/** Read the log once more after the connection settled so the final lines are
+ *  never lost, then stop polling. */
+async function finishRemoteLogPoll(gen) {
+  const id = remoteActiveId;
+  stopRemoteLogPoll();
+  if (id === null || gen !== remoteDialogGen) return;
+  let snapshot;
+  try {
+    snapshot = await remoteCall("remote_connections");
+  } catch (_) {
+    return;
+  }
+  if (gen !== remoteDialogGen || remoteActiveId !== id) return;
+  paintRemoteLog(remoteStatusOf(snapshot, id));
+}
+
+/** On card open, show the state an earlier attempt left behind (if any). */
+async function refreshRemoteCardLog(gen) {
+  let snapshot;
+  try {
+    snapshot = await remoteCall("remote_connections");
+  } catch (_) {
+    return;
+  }
+  if (gen !== remoteDialogGen || connType !== "remote") return;
+  const statuses = Array.isArray(snapshot.connections) ? snapshot.connections : [];
+  const leftover = statuses.find(
+    (row) => row !== null && typeof row === "object" && row.state !== "idle"
+  );
+  if (leftover === undefined) return;
+  paintRemoteLog(leftover);
+}
+
+/** @returns one connection's status row, or undefined. */
+function remoteStatusOf(snapshot, id) {
+  if (snapshot === null || typeof snapshot !== "object" || !Array.isArray(snapshot.connections)) return undefined;
+  return snapshot.connections.find((row) => row !== null && typeof row === "object" && row.id === id);
+}
+
+/** Paint the connection log from one `/connections` status row. The URL is
+ *  deliberately never printed: it carries the remote launch token. */
+function paintRemoteLog(status) {
+  const log = $("conn-log");
+  if (log === null) return;
+  log.innerHTML = "";
+  const row = status !== null && typeof status === "object" ? status : null;
+  const lines = row !== null && Array.isArray(row.log) ? row.log : [];
+  for (const line of lines) appendRemoteLogLine("info", "· ", line);
+  if (row !== null) {
+    if (row.state === "connecting") appendRemoteLogLine("info", "· ", "连接中…");
+    else if (row.state === "up") appendRemoteLogLine("ok", "✓ ", "连接已就绪");
+    else if (row.state === "error") {
+      appendRemoteLogLine("err", "✗ ", "连接失败" + (typeof row.error === "string" && row.error !== "" ? " — " + row.error : ""));
+    }
+  }
+  if (DIALOG_VIEW) scheduleFit();
+}
+
+function appendRemoteLogLine(kind, prefix, text) {
+  const el = document.createElement("div");
+  el.className = kind;
+  el.textContent = prefix + String(text ?? "");
+  const log = $("conn-log");
+  if (log === null) return;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+/** @returns whether the log box already carries a failure line. */
+function remoteLogHasError() {
+  const log = $("conn-log");
+  if (log === null) return false;
+  return Array.from(log.children).some((child) => child.className === "err");
+}
+
+/** Drop the SSH card's transient state: poller, open panels, focus. Bumping the
+ *  generation makes every in-flight answer a no-op. */
+function teardownRemoteUi() {
+  remoteDialogGen += 1;
+  remoteBusy = null;
+  remoteActiveId = null;
+  stopRemoteLogPoll();
+  if (remoteUi !== null) {
+    remoteUi.list.close();
+    remoteUi.settings.close();
+  }
+}
+
+/** Leave the SSH card for the Docker/local card. */
+function closeRemoteCardView() {
+  teardownRemoteUi();
+  $("conn-remote-ui").classList.add("hidden");
+  // The log box is shared by both cards; an SSH progress log must not read as
+  // the Docker form's log.
+  $("conn-log").innerHTML = "";
 }
 
 function setConnType(type) {
@@ -644,48 +1311,36 @@ function setConnType(type) {
   }
   const remote = type === "remote";
   const docker = type === "docker";
-  // The SSH card has no opt-in toggle: its parameters are always shown and the
-  // connection always runs through an SSH session (never a direct web probe).
-  $("conn-ssh-auth").classList.toggle("hidden", !remote);
-  $("conn-ssh-port-wrap").classList.toggle("hidden", !remote);
-  $("conn-ssh-workdir-wrap").classList.toggle("hidden", !remote);
-  $("conn-ssh-startcmd-wrap").classList.toggle("hidden", !remote);
-  $("conn-creds").classList.toggle("hidden", !remote);
-  $("conn-save-wrap").classList.toggle("hidden", !remote);
+  // The SSH card is the shared desktop-tabs panel; Docker and local records
+  // keep the shell's own saved list and form (dsh-remote still serves them).
+  $("conn-list").classList.toggle("hidden", remote);
+  $("conn-config").classList.toggle("hidden", remote);
+  $("conn-remote-ui").classList.toggle("hidden", !remote);
+  $("conn-connect").classList.toggle("hidden", remote);
   $("conn-docker-container-wrap").classList.toggle("hidden", !docker);
   $("conn-docker-user-workdir-wrap").classList.toggle("hidden", !docker);
   $("conn-docker-env-wrap").classList.toggle("hidden", !docker);
   $("conn-docker-startcmd-wrap").classList.toggle("hidden", !docker);
   // `端口` means a different thing per backend, so the label follows the card;
   // a saved `local` record selects no card and keeps the plain label.
-  $("conn-port-label").textContent = remote
-    ? "端口（远端 dsh 监听）"
-    : docker
-      ? "端口（容器内 dsh 监听）"
-      : "端口";
-  closeStartCmdMenu();
+  $("conn-port-label").textContent = docker ? "端口（容器内 dsh 监听）" : "端口";
+  if (remote) {
+    void openRemoteCard();
+  } else {
+    closeRemoteCardView();
+  }
   if (DIALOG_VIEW) scheduleFit();
 }
 
 function resetConnForm() {
   $("conn-name").value = "";
   $("conn-port").value = String(defaultPort);
-  $("conn-ssh-host").value = "";
-  $("conn-ssh-user").value = "";
-  $("conn-ssh-port").value = "";
-  $("conn-ssh-workdir").value = "";
-  $("conn-ssh-startcmd").value = "";
   $("conn-docker-container").value = "";
   $("conn-docker-user").value = "";
   $("conn-docker-workdir").value = "";
   $("conn-docker-startcmd").value = "";
   setDockerEnvRows([]);
-  $("conn-password").value = "";
-  $("conn-keyfile").value = "";
-  $("conn-key-path").textContent = "";
-  $("conn-save-auth").checked = true;
   $("conn-log").innerHTML = "";
-  serverKeyPath = null;
   $("conn-connect").disabled = false;
   $("conn-connect").textContent = "连接";
   // A new connection starts on the first card of the dialog.
@@ -717,22 +1372,16 @@ function updateStoredConnection(id, entry) {
   persistConnections();
 }
 
-/** Read the current form into a saveable connection record (no secrets — the
- *  password/key live in the creds store keyed by `name`). */
+/** Read the current form into a saveable connection record. Only the shell's
+ *  own backends land here: SSH connections live in the shared desktop-tabs
+ *  config and are written by the settings panel instead. */
 function readForm() {
   const entry = {
     name: $("conn-name").value.trim() || "未命名连接",
     type: connType,
     port: Number($("conn-port").value) || defaultPort,
   };
-  if (connType === "remote") {
-    entry.sshHost = $("conn-ssh-host").value.trim() || undefined;
-    entry.sshUser = $("conn-ssh-user").value.trim() || undefined;
-    entry.sshPort = Number($("conn-ssh-port").value) || undefined;
-    entry.workdir = $("conn-ssh-workdir").value.trim() || undefined;
-    entry.startCommand = $("conn-ssh-startcmd").value.trim() || undefined;
-    entry.saveAuth = $("conn-save-auth").checked;
-  } else if (connType === "docker") {
+  if (connType === "docker") {
     entry.container = $("conn-docker-container").value.trim() || undefined;
     entry.user = $("conn-docker-user").value.trim() || undefined;
     entry.workdir = $("conn-docker-workdir").value.trim() || undefined;
@@ -748,27 +1397,15 @@ function fillFormFromSaved(entry) {
   const docker = entry.type === "docker";
   $("conn-name").value = entry.name || "";
   $("conn-port").value = String(entry.port ?? defaultPort);
-  // The SSH target is `sshHost`; `addr` is accepted as a fallback source so a
-  // saved record without `sshHost` still fills in a host.
-  $("conn-ssh-host").value = entry.sshHost || entry.addr || "";
-  $("conn-ssh-user").value = entry.sshUser || "";
-  $("conn-ssh-port").value = entry.sshPort ? String(entry.sshPort) : "";
   // The work directory and the start command exist once per backend but are
   // stored under one record key, so each is written to the field of the
-  // record's own type: a container path must never reach the SSH form.
-  $("conn-ssh-workdir").value = docker ? "" : entry.workdir || "";
-  $("conn-ssh-startcmd").value = docker ? "" : entry.startCommand || "";
+  // record's own type: a container path must never reach another backend.
   $("conn-docker-container").value = entry.container || "";
   $("conn-docker-user").value = entry.user || "";
   $("conn-docker-workdir").value = docker ? entry.workdir || "" : "";
   $("conn-docker-startcmd").value = docker ? entry.startCommand || "" : "";
   setDockerEnvRows(entry.env || []);
-  $("conn-password").value = "";
-  $("conn-keyfile").value = "";
-  $("conn-key-path").textContent = "";
-  $("conn-save-auth").checked = entry.saveAuth !== false;
-  serverKeyPath = null;
-  setConnType(entry.type === "remote" ? "remote" : entry.type === "docker" ? "docker" : "local");
+  setConnType(docker ? "docker" : "local");
 }
 
 /** On a successful connect, record the connection into the list (update the
@@ -798,15 +1435,13 @@ function renderSavedList() {
   if (!list) return;
   list.innerHTML = "";
   for (const c of savedConnections) {
+    // Legacy SSH records are migrated into the shared desktop-tabs config on
+    // the next SSH-card open; they are not launchable through this list.
+    if (!c || c.type === "remote") continue;
     const item = document.createElement("div");
     item.className = "conn-list-item" + (c.id === connectEditId ? " active" : "");
-    const kind = c.type === "docker" ? "Docker" : c.type === "remote" ? "SSH" : "本地";
-    const target =
-      c.type === "docker"
-        ? (c.container || "容器")
-        : c.type === "remote"
-          ? (c.sshHost || c.addr || "远端")
-          : "本机";
+    const kind = c.type === "docker" ? "Docker" : "本地";
+    const target = c.type === "docker" ? (c.container || "容器") : "本机";
     item.title = `${kind} · ${target}:${c.port ?? ""}`;
     const name = document.createElement("span");
     name.className = "item-name";
@@ -858,10 +1493,8 @@ function launchSaved(id) {
 }
 
 function deleteSaved(id) {
-  const entry = savedConnections.find((c) => c.id === id);
   savedConnections = savedConnections.filter((c) => c.id !== id);
   persistConnections();
-  if (entry) void rpc("creds.remove", { name: entry.name }).catch(() => {});
   if (connectEditId === id) newConnection();
   else renderSavedList();
 }
@@ -875,32 +1508,6 @@ function connLog(step, ok, detail) {
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
   if (DIALOG_VIEW) scheduleFit();
-}
-
-function onPickKey(file) {
-  serverKeyPath = null;
-  $("conn-key-path").textContent = "";
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      connLog("上传密钥", undefined, file.name);
-      const w = await rpc("keyfile.write", {
-        name: $("conn-name").value.trim() || "key",
-        b64: bufferToB64(reader.result),
-      });
-      if (w.ok === true) {
-        serverKeyPath = w.path;
-        $("conn-key-path").textContent = w.path;
-        connLog("密钥已保存", true, w.path);
-      } else {
-        connLog("密钥保存失败", false, w.error ?? "");
-      }
-    } catch (e) {
-      connLog("密钥读取失败", false, String(e && e.message ? e.message : e));
-    }
-  };
-  reader.readAsArrayBuffer(file);
 }
 
 /* ── Docker env-variable list (configurable KEY/VALUE rows) ── */
@@ -962,18 +1569,17 @@ function collectDockerEnv() {
 }
 
 async function doConnect() {
+  // The SSH card is driven by the shared controls (`remoteOpenConnection` /
+  // `remoteConfirmSettings`); this button only serves the Docker/local cards.
+  if (connType === "remote") return;
   const gen = ++connectGen;
   const btn = $("conn-connect");
   btn.disabled = true;
   btn.textContent = "连接中…";
   $("conn-log").innerHTML = "";
-  // The connect log repaints through scheduleFit; keeping the absolutely
-  // positioned preset menu out of that measurement avoids a window resize.
-  closeStartCmdMenu();
   try {
     if (connType === "local") await connectLocal(gen);
     else if (connType === "docker") await connectDocker(gen);
-    else await connectRemote(gen);
   } catch (e) {
     if (gen === connectGen) connLog("连接失败", false, String(e && e.message ? e.message : e));
   } finally {
@@ -1045,8 +1651,8 @@ async function connectLocal(gen) {
   }
 }
 
-// Repaint the whole new-connection log from a line array (used by the remote
-// path so live server progress can stream in without piling up duplicates).
+// Repaint the whole Docker connect log from a line array so live server
+// progress can stream in without piling up duplicates.
 function paintConnLog(lines) {
   const log = $("conn-log");
   log.innerHTML = "";
@@ -1061,137 +1667,6 @@ function paintConnLog(lines) {
   }
   log.scrollTop = log.scrollHeight;
   if (DIALOG_VIEW) scheduleFit();
-}
-
-async function connectRemote(gen) {
-  const name = $("conn-name").value.trim();
-  const p = Number($("conn-port").value);
-  const sshHost = $("conn-ssh-host").value.trim();
-  const lines = [];
-  const show = () => paintConnLog(lines);
-  const push = (step, ok, detail) => {
-    lines.push({ step, ok, detail });
-    show();
-  };
-  if (name === "") {
-    push("校验", false, "请填写连接名");
-    return;
-  }
-  if (sshHost === "") {
-    push("校验", false, "请填写 SSH 主机");
-    return;
-  }
-  if (!Number.isInteger(p) || p <= 0 || p > 65535) {
-    push("校验", false, "端口无效");
-    return;
-  }
-
-  // SSH is the only path on this card (no direct-web probe): the host half
-  // starts or reuses the remote dsh inside an SSH session, forwards the remote
-  // loopback port, and returns the local URL to load.
-  const sshConn = {
-    port: p,
-    sshHost,
-    sshUser: $("conn-ssh-user").value.trim() || undefined,
-    sshPort: Number($("conn-ssh-port").value) || undefined,
-    workdir: $("conn-ssh-workdir").value.trim() || undefined,
-    startCommand: $("conn-ssh-startcmd").value.trim() || undefined,
-    password: $("conn-password").value || undefined,
-    keyFile: serverKeyPath,
-  };
-  if (!sshConn.password && !sshConn.keyFile) {
-    push("使用已保存认证", undefined, "读取凭据…");
-    const saved = await rpc("creds.read", { name });
-    if (gen !== connectGen) return;
-    if (saved.exists === true && saved.payload) {
-      const pl = saved.payload;
-      sshConn.sshUser = sshConn.sshUser || pl.sshUser;
-      sshConn.sshHost = sshConn.sshHost || pl.sshHost;
-      sshConn.sshPort = sshConn.sshPort || pl.sshPort;
-      sshConn.password = pl.password;
-      sshConn.keyFile = pl.keyFile;
-      push("使用已保存认证", true, name);
-    } else {
-      push("无已保存认证", true, "将尝试 ~/.ssh/config");
-    }
-  }
-  // No client-side credential check: a bare SSH host is a valid target when
-  // ~/.ssh/config supplies the user and key. The host half probes that config
-  // and answers `authRequired` when the host really needs a credential.
-  push(
-    "建立 SSH 会话",
-    undefined,
-    `${sshConn.sshUser !== undefined ? sshConn.sshUser + "@" : ""}${sshConn.sshHost}`
-  );
-  const preamble = lines.slice();
-
-  // The host pipeline runs in ONE ssh.connect RPC; live-stream its progress
-  // via ssh.status instead of staring at a silent "建立 SSH 会话".
-  let lastServerJson = "";
-  statusPollTimer = setInterval(async () => {
-    try {
-      if (gen !== connectGen) {
-        clearInterval(statusPollTimer);
-        statusPollTimer = null;
-        return;
-      }
-      const st = await rpc("ssh.status");
-      if (gen !== connectGen) return;
-      const steps = Array.isArray(st && st.steps) ? st.steps : [];
-      const json = JSON.stringify(steps);
-      if (json !== lastServerJson) {
-        lastServerJson = json;
-        paintConnLog([...preamble, ...steps]);
-      }
-      if (st && st.running === false) clearInterval(statusPollTimer);
-    } catch (_) {
-      /* transient poll errors are fine — the connect result is authoritative */
-    }
-  }, 800);
-
-  let res;
-  try {
-    res = await rpc("ssh.connect", { conn: sshConn });
-  } finally {
-    if (statusPollTimer !== null && statusPollTimer !== undefined) {
-      clearInterval(statusPollTimer);
-      statusPollTimer = null;
-    }
-  }
-  if (gen !== connectGen) return;
-  const finalSteps = Array.isArray(res && res.log) ? res.log : [];
-  paintConnLog([...preamble, ...finalSteps]);
-  if (res && res.ok === true) {
-    if ($("conn-save-auth").checked && ($("conn-password").value !== "" || serverKeyPath !== null)) {
-      await rpc("creds.save", {
-        name,
-        payload: {
-          sshUser: sshConn.sshUser,
-          sshHost: sshConn.sshHost,
-          password: $("conn-password").value || undefined,
-          keyFile: serverKeyPath || undefined,
-          sshPort: sshConn.sshPort,
-        },
-      });
-    }
-    // The tunnel URL is the only loadable address now: without it the pipeline
-    // reported success but nothing can be opened, so keep the dialog on screen.
-    // `connLog` appends one line instead of repainting from `lines`, which holds
-    // only the client-side preamble.
-    const url = typeof res.url === "string" ? res.url : "";
-    if (url === "") {
-      connLog("加载前端", false, "SSH 会话已建立，但未返回可加载地址");
-      return;
-    }
-    recordSuccessfulConnection();
-    addTab(name, url, { type: "remote", address: sshHost, port: p });
-  } else if (res && res.authRequired === true) {
-    connLog(
-      "回退到连接配置",
-      false,
-      "该主机需要认证（SSH 别名无法免密）——请填写 SSH 用户名、密码或密钥文件（二选一），或勾选保存认证"
-    );
-  }
 }
 
 async function connectDocker(gen) {
@@ -1303,7 +1778,24 @@ function wireConnectionAdded() {
   if (!tauri || !tauri.event || DIALOG_VIEW) return;
   tauri.event.listen(CONNECTION_ADDED_EVENT, (event) => {
     const tab = event.payload && event.payload.tab;
-    if (!tab || typeof tab.id !== "string" || typeof tab.url !== "string") return;
+    if (!tab || typeof tab !== "object") return;
+    // A connection removed from the dialog asks the shell to drop the tab that
+    // shows it (the dialog window cannot touch this window's tab list).
+    if (typeof tab.closeConnectionId === "string" && tab.closeConnectionId !== "") {
+      const open = tabs.find(
+        (candidate) => candidate && (candidate.connectionId === tab.closeConnectionId || candidate.id === tab.closeConnectionId)
+      );
+      if (open !== undefined) closeTab(open.id, { keepConnection: true, silent: true });
+      return;
+    }
+    if (typeof tab.id !== "string" || typeof tab.url !== "string") return;
+    // A connection opened from the dialog replaces the tab that already shows
+    // it (reconnect after editing); the dialog already dropped the old tunnel,
+    // so the replaced tab must not bring it down again.
+    if (typeof tab.connectionId === "string" && tab.connectionId !== "") {
+      const stale = tabs.find((candidate) => candidate && candidate.connectionId === tab.connectionId);
+      if (stale !== undefined) closeTab(stale.id, { keepConnection: true, silent: true });
+    }
     tabs.push(tab);
     activeId = tab.id;
     persist();
@@ -3135,51 +3627,39 @@ document.addEventListener(
 for (const card of document.querySelectorAll(".conn-type-card")) {
   card.addEventListener("click", () => setConnType(card.dataset.type));
 }
-$("conn-ssh-startcmd-presets").addEventListener("click", (e) => {
-  e.stopPropagation();
-  toggleStartCmdMenu();
-});
-$("conn-ssh-startcmd-menu").addEventListener("click", (e) => {
-  const item = e.target && e.target.closest ? e.target.closest(".conn-cmd-item") : null;
-  if (!item) return;
-  $("conn-ssh-startcmd").value = item.dataset.cmd || "";
-  closeStartCmdMenu();
-});
-$("conn-ssh-startcmd").addEventListener("input", () => {
-  if (!$("conn-ssh-startcmd-menu").classList.contains("hidden")) renderStartCmdMenu();
-});
-// A click anywhere else (or Escape) closes the preset menu. The menu is
-// absolutely positioned, so opening/closing never resizes the dialog window.
-document.addEventListener("click", (e) => {
-  const t = e.target;
-  if (t && t.closest && t.closest("#conn-ssh-startcmd-wrap")) return;
-  closeStartCmdMenu();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  // The shell's own Escape handler closes the dialog; while the preset menu is
-  // open, Escape dismisses the menu only.
-  if ($("conn-ssh-startcmd-menu").classList.contains("hidden")) return;
-  closeStartCmdMenu();
-  e.stopImmediatePropagation();
-});
+// Escape closes the shared SSH panels before the dialog itself. This handler
+// is registered (before the panels exist) in the capture phase, so the panels'
+// own Escape listeners never run while one is open; a second Escape, with both
+// panels closed, closes the dialog through the shell handler below.
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (e.key !== "Escape" || remoteUi === null) return;
+    if (!remoteUi.list.isOpen() && !remoteUi.settings.isOpen()) return;
+    remoteUi.list.close();
+    remoteUi.settings.close();
+    e.stopImmediatePropagation();
+  },
+  true
+);
 
 function cancelConnection() {
-  // Abort any in-flight connect: invalidate the client generation, stop the
-  // live-progress poll, and tell the host to cancel + clean up its remote
-  // tmux session/tunnel so reopening starts fresh.
+  // Abort any in-flight Docker/local connect: invalidate the client generation
+  // and stop the live-progress poll. The shared SSH card only polled its log
+  // (teardownRemoteUi stops that); `up` has no cancel route, and a settled
+  // connection is simply reused by the next click.
   connectGen += 1;
   if (statusPollTimer !== null && statusPollTimer !== undefined) {
     clearInterval(statusPollTimer);
     statusPollTimer = null;
   }
-  void rpc("ssh.cancel").catch(() => {});
-  void rpc("docker.cancel").catch(() => {});
+  if (connType === "docker") void rpc("docker.cancel").catch(() => {});
   if (connType === "local") {
     // A cancelled local connect may have started a backend; stop it.
     const p = Number($("conn-port").value);
     if (Number.isInteger(p) && p > 0) void rpc("local.stop", { port: p });
   }
+  teardownRemoteUi();
   const btn = $("conn-connect");
   btn.disabled = false;
   btn.textContent = connectMode === "edit" ? "保存并连接" : "连接";
@@ -3190,7 +3670,6 @@ function cancelConnection() {
 
 $("conn-cancel").addEventListener("click", cancelConnection);
 $("conn-connect").addEventListener("click", () => void doConnect());
-$("conn-keyfile").addEventListener("change", (e) => onPickKey(e.target.files?.[0] ?? null));
 $("conn-log-copy").addEventListener("click", () => {
   const text = Array.from($("conn-log").children)
     .map((el) => el.textContent)
@@ -3207,6 +3686,7 @@ $("conn-docker-env-list").addEventListener("click", (e) => {
 });
 $("conn-overlay").addEventListener("click", (e) => {
   if (e.target === $("conn-overlay")) {
+    teardownRemoteUi();
     markModal(false);
     $("conn-overlay").classList.add("hidden");
     if (DIALOG_VIEW) closeDialogWindow();
@@ -3560,8 +4040,16 @@ async function fitDialogToContent() {
 async function startDialogView(project, mode) {
   if (DIALOG_VIEW === "conn") {
     $("conn-overlay").classList.remove("hidden");
+    // The SSH card is rendered from the shared-control module bridge; await it
+    // before painting the card and report a failure instead of showing it empty.
+    remoteUiFailureShown = false;
+    try {
+      await ensureRemoteUi();
+    } catch (error) {
+      reportRemoteUiFailure(error);
+    }
     newConnection();
-    $("conn-name").focus();
+    if (connType !== "remote") $("conn-name").focus();
   } else if (DIALOG_VIEW === "update") {
     $("update-overlay").classList.remove("hidden");
     void openUpdateDialogWithBestState();

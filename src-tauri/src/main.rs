@@ -1337,22 +1337,17 @@ async fn update_changelog(
 /// Operation names the shell may forward to the harness `/remote-api` route.
 /// Whitelist only: the dsh-remote plugin host implements exactly these, and the
 /// shell must never reach outside them (path-injection guard on `op`).
+///
+/// SSH is not in this list: its whole transport moved to the `dsh-desktop-tabs`
+/// plugin and is reached through the `/desktop-tabs/api/*` commands declared
+/// below (`DESKTOP_TABS_API`), so `dsh-remote` now serves the local backend and
+/// Docker only.
 const REMOTE_OPS: &[&str] = &[
     "env",
     "probe",
     "local.start",
     "local.stop",
     "local.list",
-    "creds.has",
-    "creds.read",
-    "creds.save",
-    "creds.remove",
-    "keyfile.write",
-    "auth.available",
-    "tunnel.close",
-    "ssh.connect",
-    "ssh.cancel",
-    "ssh.status",
     "docker.available",
     "docker.list",
     "docker.connect",
@@ -1361,16 +1356,41 @@ const REMOTE_OPS: &[&str] = &[
     "diag",
 ];
 
-/// Minimal JSON HTTP/1.1 POST to the harness loopback server. The shell page
+/// HTTP method the shell's loopback bridge may send. A closed set rather than a
+/// free string, so a caller can never write an arbitrary request line.
+#[derive(Clone, Copy)]
+enum LoopbackMethod {
+    Get,
+    Post,
+    Put,
+}
+
+impl LoopbackMethod {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+        }
+    }
+
+    /// Only the writing methods declare `Content-Type: application/json`.
+    fn has_body(self) -> bool {
+        !matches!(self, Self::Get)
+    }
+}
+
+/// Minimal JSON HTTP/1.1 request to the harness loopback server. The shell page
 /// lives on the app origin, so a browser `fetch` to `http://127.0.0.1:<port>`
 /// would be cross-origin — and the harness's browser-trust fence deliberately
 /// refuses cross-origin requests. An ad-hoc TcpStream request carries no
 /// `Origin`/`Sec-Fetch-Site` headers, which the fence accepts as same-host.
 /// Returns the numeric status, the raw status line, and the (de-chunked)
 /// response body; non-2xx statuses are returned to the caller for its own
-/// policy.
-pub(crate) fn http_post_json_raw(
+/// policy. A method with no body sends `Content-Length: 0`.
+fn http_request_raw(
     port: u16,
+    method: LoopbackMethod,
     path: &str,
     body: &str,
     cookie: Option<&str>,
@@ -1383,8 +1403,12 @@ pub(crate) fn http_post_json_raw(
     let _ = stream.set_read_timeout(Some(Duration::from_secs(600)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
     let mut header = format!(
-        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n"
+        "{} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n",
+        method.as_str()
     );
+    if method.has_body() {
+        header.push_str("Content-Type: application/json\r\n");
+    }
     if let Some(cookie) = cookie {
         header.push_str(&format!("Cookie: {cookie}\r\n"));
     }
@@ -1394,7 +1418,7 @@ pub(crate) fn http_post_json_raw(
     );
     stream
         .write_all(request.as_bytes())
-        .map_err(|e| format!("failed to send POST {path}: {e}"))?;
+        .map_err(|e| format!("failed to send {} {path}: {e}", method.as_str()))?;
     let mut response = Vec::new();
     let mut buf = [0u8; 16384];
     loop {
@@ -1407,13 +1431,23 @@ pub(crate) fn http_post_json_raw(
             {
                 break
             }
-            Err(e) => return Err(format!("failed reading POST {path} response: {e}")),
+            Err(e) => {
+                return Err(format!(
+                    "failed reading {} {path} response: {e}",
+                    method.as_str()
+                ))
+            }
         }
     }
     let text = String::from_utf8_lossy(&response).into_owned();
     let (head, body) = match text.find("\r\n\r\n") {
         Some(i) => (&text[..i], &text[i + 4..]),
-        None => return Err(format!("malformed response from POST {path}")),
+        None => {
+            return Err(format!(
+                "malformed response from {} {path}",
+                method.as_str()
+            ))
+        }
     };
     let status_line = head.lines().next().unwrap_or("");
     let status_code = status_line
@@ -1432,6 +1466,17 @@ pub(crate) fn http_post_json_raw(
     Ok((status_code, status_line.to_string(), body))
 }
 
+/// POST-only form of [`http_request_raw`], kept for the callers whose endpoint
+/// accepts just POST (`/remote-api/*`, the changelog route).
+pub(crate) fn http_post_json_raw(
+    port: u16,
+    path: &str,
+    body: &str,
+    cookie: Option<&str>,
+) -> Result<(u16, String, String), String> {
+    http_request_raw(port, LoopbackMethod::Post, path, body, cookie)
+}
+
 /// Erroring wrapper for the remote-ops whitelist: any non-2xx status becomes
 /// an Err carrying the status line and the response body.
 fn http_post_json(port: u16, op: &str, body: &str, cookie: Option<&str>) -> Result<String, String> {
@@ -1444,6 +1489,53 @@ fn http_post_json(port: u16, op: &str, body: &str, cookie: Option<&str>) -> Resu
         ));
     }
     Ok(response)
+}
+
+/// Message for a failed response of the desktop-tabs routes: those answer
+/// `{ "error": "..." }`, so that field wins; anything else (a 405 with an empty
+/// body, a non-JSON failure) degrades to the status line plus a truncated body.
+fn response_error(status: &str, body: &str) -> String {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(message) = value.get("error").and_then(|error| error.as_str()) {
+            if !message.trim().is_empty() {
+                return message.to_string();
+            }
+        }
+    }
+    format!("{status}: {}", body.chars().take(500).collect::<String>())
+}
+
+/// One `/desktop-tabs/api` exchange: any non-2xx status becomes an Err carrying
+/// the route's own error text. The successful body is returned verbatim (it is
+/// JSON the shell page parses itself).
+fn desktop_tabs_request(
+    port: u16,
+    method: LoopbackMethod,
+    path: &str,
+    body: &str,
+    cookie: Option<&str>,
+) -> Result<String, String> {
+    let (code, status, response) = http_request_raw(port, method, path, body, cookie)?;
+    if !(200..300).contains(&code) {
+        return Err(response_error(&status, &response));
+    }
+    Ok(response)
+}
+
+/// Percent-encode one path segment: every byte outside the RFC 3986 unreserved
+/// set (`A-Za-z0-9-._~`) becomes `%XX` with uppercase hex. A connection id can
+/// therefore never add a path separator, a query, or a fragment to the route.
+fn encode_path_segment(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(char::from(byte))
+            }
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
 }
 
 /// Strip HTTP chunked-transfer framing out of a response body.
@@ -1584,6 +1676,157 @@ async fn remote_call(
     tauri::async_runtime::spawn_blocking(move || http_post_json(port, &op, &body, cookie.as_deref()))
         .await
         .map_err(|e| format!("remote_call task failed: {e}"))?
+}
+
+/// Path prefix of the desktop-tabs host routes (registered by the
+/// `dsh-desktop-tabs` plugin, see its `src/remote/index.ts`). The shell only ever
+/// calls inside this prefix, and the routes' `id` segment is percent-encoded.
+const DESKTOP_TABS_API: &str = "/desktop-tabs/api";
+
+/// Run one `/desktop-tabs/api` request: same webview gate, cookie and read
+/// timeout as [`remote_call`], off the main thread because a connection `up`
+/// runs native `ssh` + a remote backend boot.
+async fn desktop_tabs_call(
+    webview: tauri::Webview,
+    state: &ShellState,
+    method: LoopbackMethod,
+    path: String,
+    body: String,
+) -> Result<String, String> {
+    views::ensure_shell_or_dialog(&webview)?;
+    let port = state.port;
+    let cookie = ready_cookie(state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        desktop_tabs_request(port, method, &path, &body, cookie.as_deref())
+    })
+    .await
+    .map_err(|e| format!("desktop-tabs request task failed: {e}"))?
+}
+
+/// Read the desktop tab list: `{ tabs, connections }`. The shell keeps `tabs`
+/// so a later `remote_tabs_put` can replace it unchanged.
+#[tauri::command]
+async fn remote_tabs(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<String, String> {
+    desktop_tabs_call(
+        webview,
+        &state,
+        LoopbackMethod::Get,
+        format!("{DESKTOP_TABS_API}/tabs"),
+        String::new(),
+    )
+    .await
+}
+
+/// Atomically replace the persisted tab/connection lists. `body` must be the
+/// complete `{ "tabs": [...], "connections": [...] }` JSON, not a patch; the
+/// plugin rejects a payload without `tabs`.
+#[tauri::command]
+async fn remote_tabs_put(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+    body: String,
+) -> Result<String, String> {
+    desktop_tabs_call(
+        webview,
+        &state,
+        LoopbackMethod::Put,
+        format!("{DESKTOP_TABS_API}/tabs"),
+        body,
+    )
+    .await
+}
+
+/// Read every SSH connection's `state`/`url`/`error`/`log` while the dialog
+/// polls it.
+#[tauri::command]
+async fn remote_connections(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<String, String> {
+    desktop_tabs_call(
+        webview,
+        &state,
+        LoopbackMethod::Get,
+        format!("{DESKTOP_TABS_API}/connections"),
+        String::new(),
+    )
+    .await
+}
+
+/// Bring one SSH connection up; the response carries the ready `url`.
+#[tauri::command]
+async fn remote_connection_up(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+    id: String,
+) -> Result<String, String> {
+    desktop_tabs_call(
+        webview,
+        &state,
+        LoopbackMethod::Post,
+        format!(
+            "{DESKTOP_TABS_API}/connections/{}/up",
+            encode_path_segment(&id)
+        ),
+        String::new(),
+    )
+    .await
+}
+
+/// Bring one SSH connection down (the local tunnel only; the remote tmux
+/// session and its backend stay up).
+#[tauri::command]
+async fn remote_connection_down(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+    id: String,
+) -> Result<String, String> {
+    desktop_tabs_call(
+        webview,
+        &state,
+        LoopbackMethod::Post,
+        format!(
+            "{DESKTOP_TABS_API}/connections/{}/down",
+            encode_path_segment(&id)
+        ),
+        String::new(),
+    )
+    .await
+}
+
+/// Read the `Host` aliases of `~/.ssh/config` that can be imported.
+#[tauri::command]
+async fn remote_ssh_hosts(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<String, String> {
+    desktop_tabs_call(
+        webview,
+        &state,
+        LoopbackMethod::Get,
+        format!("{DESKTOP_TABS_API}/ssh-hosts"),
+        String::new(),
+    )
+    .await
+}
+
+/// Read the WSL distributions `wsl.exe -l -v` reports that can be imported.
+#[tauri::command]
+async fn remote_wsl_hosts(
+    webview: tauri::Webview,
+    state: State<'_, ShellState>,
+) -> Result<String, String> {
+    desktop_tabs_call(
+        webview,
+        &state,
+        LoopbackMethod::Get,
+        format!("{DESKTOP_TABS_API}/wsl-hosts"),
+        String::new(),
+    )
+    .await
 }
 
 /// Harness PID for the update launcher, refused while the harness is still
@@ -2011,6 +2254,14 @@ fn main() {
             local_update_projects,
             cached_update_status,
             remote_call,
+            // Desktop-tabs host routes proxied for the SSH/WSL connection dialog.
+            remote_tabs,
+            remote_tabs_put,
+            remote_connections,
+            remote_connection_up,
+            remote_connection_down,
+            remote_ssh_hosts,
+            remote_wsl_hosts,
             check_updates,
             start_update,
             update_root,
@@ -2048,8 +2299,8 @@ fn main() {
 #[cfg(all(test, windows))]
 mod tests {
     use super::{
-        ensure_loopback_port_available, external_http_url, job::KillJob, loopback_listener_pid,
-        parse_launch_token,
+        encode_path_segment, ensure_loopback_port_available, external_http_url, job::KillJob,
+        loopback_listener_pid, parse_launch_token, response_error,
     };
     use std::net::TcpListener;
     use std::time::Duration;
@@ -2085,6 +2336,35 @@ mod tests {
                 "{refused} must be refused"
             );
         }
+    }
+
+    /// A connection id travels as exactly one path segment: anything outside
+    /// the RFC 3986 unreserved set is percent-encoded, so a crafted id cannot
+    /// append a further segment, a query, or a fragment.
+    #[test]
+    fn connection_ids_are_encoded_as_one_path_segment() {
+        assert_eq!(encode_path_segment("ssh-wsl"), "ssh-wsl");
+        assert_eq!(encode_path_segment("a.b_c~d-e9"), "a.b_c~d-e9");
+        assert_eq!(encode_path_segment("a/b"), "a%2Fb");
+        assert_eq!(encode_path_segment("../x?y#z"), "..%2Fx%3Fy%23z");
+        assert_eq!(encode_path_segment("a b"), "a%20b");
+        assert_eq!(encode_path_segment("é"), "%C3%A9");
+        // An already-encoded sequence is encoded again, never passed through.
+        assert_eq!(encode_path_segment("%2F"), "%252F");
+    }
+
+    /// The desktop-tabs routes answer `{ error }`; that text is what the dialog
+    /// shows, so it must win over the status line.
+    #[test]
+    fn failed_route_responses_prefer_their_error_field() {
+        assert_eq!(
+            response_error("HTTP/1.1 502 Bad Gateway", r#"{"id":"x","error":"ssh 失败"}"#),
+            "ssh 失败"
+        );
+        // No JSON to read: the status line and a bounded body stand in.
+        let message = response_error("HTTP/1.1 500 Internal Server Error", &"x".repeat(600));
+        assert!(message.contains("500"), "unexpected message: {message}");
+        assert!(message.len() < 600, "the body must be truncated");
     }
 
     /// Spawn a long-lived node helper to stand in for the harness. Hidden like

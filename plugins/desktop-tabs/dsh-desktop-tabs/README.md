@@ -10,10 +10,28 @@ desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条
 连接的标签时**立即**切到该标签的空白占位页并显示连接日志（轮询
 `/desktop-tabs/api/connections`），连接成功后再加载 webview。
 
-本插件是 desktop-shell-only 原型：`install.mjs` 只在 `DSH_PLUGIN_PROFILE=desktop` 时安装，
-普通 `web` profile 的组合不会被改动。浏览器半在非 desktop 环境（没有
-`window.dshDesktop.browser`）不渲染任何东西，宿主半在普通 `dsh web` 下只注册路由、不产生
-可见行为。
+**本插件由两个外壳共用，但只在一处以 UI 呈现。** host 半（`src/index.ts` + `src/remote/**`）
+是 SSH 远程连接的唯一实现与唯一配置来源，`web` profile（Tauri 壳 `dsh-gui.exe`）与
+`desktop` profile 都安装它：两边都经 `/desktop-tabs/api/*` 建连、读写同一份
+`<DSH_HOME>/gui/desktop-tabs.json`，远端 `dsh-gui` tmux 会话与磁盘 token 文件也共享，因此
+任一边断开后另一边可以直接接上同一个远端会话。browser 半仍只在 desktop 壳里工作：普通
+`dsh web` 页面拿不到 `window.dshDesktop.browser`，`apply()` 直接返回，标签条、`+` 面板、
+设置面板与远端视图都不渲染——`web` profile 只多出路由与 host 半，不改动既有页面。
+
+## 与 Tauri 壳共用
+
+Tauri 壳（`web` profile）的 SSH 远程连接不再有自己的 `ssh2` 实现，而是复用本插件：
+
+| 维度 | 共用方式 |
+|---|---|
+| 后端 | Tauri 的 Rust 命令代理本插件的 `/desktop-tabs/api/*`（`GET`/`PUT tabs`、`GET connections`、`POST connections/<id>/up`、`POST connections/<id>/down`、`GET ssh-hosts`、`GET wsl-hosts`），拿到 `up` 返回的 `url` 后由外壳创建子 webview |
+| 配置 | 同一份 `<DSH_HOME>/gui/desktop-tabs.json` 的 `connections`（SSH 与 WSL 两种 `type`）；`tabs` 仍是 desktop 打开标签的列表，Tauri 只读它做保留式回写，Tauri 自己的标签仍在自己的 `localStorage` |
+| 远端会话 | 同一套 `dsh-gui` tmux 会话、`$HOME/.dsh-gui-remote.log` 与 `.dsh-gui-remote.token`（见「远程连接生命周期」） |
+| UI 控件 | `src/client/ui/connection-list.js` 与 `src/client/ui/connection-settings.js` 是**无 import 的纯 DOM ESM 工厂**：desktop 的 `tabs.ts` 直接 import，Tauri 构建把它们原样复制到 `src-tauri/ui/` 并挂到 `window.__dshRemoteUi`；两边因此渲染同一份三组列表与「账号」设置页 |
+| 认证 | 统一为只走本机 `ssh`（`BatchMode=yes`）：`~/.ssh/config` + ssh-agent + 免口令密钥；不再有密码、上传密钥或 `~/.ssh/config` 之外的凭据来源 |
+
+代价是 password 认证消失（desktop 实现从不做交互认证）；Windows 需要系统 OpenSSH 的
+`ssh.exe`。失败文案与本文档都按此说明。
 
 ## 结构
 
@@ -25,8 +43,8 @@ desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条
 | host 半 | `src/remote/wsl.ts` | `wsl.exe` 传输层（`-d <发行版>` / `-u <账号>`、脚本走 stdin 的 `bash -l -s`、`WSL_UTF8` 与 UTF-16LE 兜底解码）、发行版列表解析、端口探测脚本、启动失败分类 |
 | client 半 | `src/client/index.ts` | 探测 `window.dshDesktop.browser`（protocol version 1）；缺失则完全惰性 |
 | client 半 | `src/client/tabs.ts` | 标签条几何、标签与连接状态、切换与增删改、持久化、连接日志轮询 |
-| client 半 | `src/client/panel.ts` | `+` 面板：搜索框、可折叠的「已配置」「SSH 主机」「WSL 主机」三组、行内编辑/删除 |
-| client 半 | `src/client/config-panel.ts` | 右侧启动参数面板：账号、工作路径、启动命令、两个内置预设、确认/取消 |
+| 双壳共享 | `src/client/ui/connection-list.js` | `+` 面板：搜索框、可折叠的「已配置」「SSH 主机」「WSL 主机」三组、行内编辑/删除（无 import 纯 DOM 工厂） |
+| 双壳共享 | `src/client/ui/connection-settings.js` | 右侧启动参数面板：账号、工作路径、启动命令、两个内置预设、确认/取消（无 import 纯 DOM 工厂） |
 | client 半 | `src/client/api.ts` | 宿主 API 客户端（读写 `{ tabs, connections }`、连接状态、`up`/`down`、SSH 与 WSL 主机） |
 | client 半 | `src/client/types.ts` | client 半共享的 `DesktopTab`、`SavedConnection`、`ConnectionStatus`、`SshHost`、`WslHost` |
 | client 半 | `src/client/view.ts` | 远端视图层：按标签各自保留的 guest（切走只隐藏）、占位页、状态行、连接日志、租约与 webview 生命周期 |
@@ -221,6 +239,12 @@ Electron 不为 `<webview>` guest 提供默认右键菜单（desktop 主进程�
 
 ## 已知限制
 
+- `web` profile 只启用 host 半：标签条、`+` 面板、设置面板与远端视图都只在 desktop 壳出现，
+  普通 `dsh web` 页面不会被改动；Tauri 壳自己承载对话框与标签。
+- SSH 认证只有 `BatchMode=yes` 一条路：密码、上传密钥、`ssh.config` 之外的凭据来源都不可用，
+  远端必须配好 `~/.ssh/config` / ssh-agent / 免口令密钥；Windows 需系统 OpenSSH 的 `ssh.exe`。
+- 两个外壳共享 `connections`，不共享打开标签：`desktop-tabs.json` 的 `tabs` 是 desktop 的
+  标签列表，Tauri 只读它做保留式回写，Tauri 自己的标签仍存在它自己的 `localStorage`。
 - 租约通道与 `webviewTag` 是上游内部实现，没有对外契约；desktop 升级可能改变行为。
 - 远端标签的 partition 由外壳随机生成且无 `persist:` 前缀：同一标签 id 在**同一次应用
   进程内**重建可复用 cookie（免重复认证），但应用重启后丢失，需要重新建立连接。
@@ -271,10 +295,12 @@ Electron 不为 `<webview>` guest 提供默认右键菜单（desktop 主进程�
 一条连接的远端 dsh 放在名为 `dsh-gui` 的 tmux 会话中长期存活，**SSH 连接与 WSL 连接共用
 同名会话、同一份日志与 token 文件**——两边绑定的都是回环地址，谁先启动的后端另一边都能直接
 复用，因此不会互相重启。会话名、日志路径（`$HOME/.dsh-gui-remote.log`）与磁盘 token 文件
-（`$HOME/.dsh-gui-remote.token`）都和 `plugins/remote/dsh-remote` 一致，两个插件对同一台远端
-主机（或同一个 WSL 发行版）可共享同一个后端；差异只在传输与承载层：本插件 SSH 经本机的原生
-`ssh` 开隧道、WSL 经 `wsl.exe` 执行命令并由 WSL2 localhost 转发直连，标签页都由桌面壳的
-`<webview>` 承载；`plugins/remote/dsh-remote` 基于纯 JS `ssh2`、标签页画在 Tauri 原生标题栏。
+（`$HOME/.dsh-gui-remote.token`）都和 `plugins/remote/dsh-remote` 一致，多个外壳与同一台远端
+主机（或同一个 WSL 发行版）可共享同一个后端。差异只在传输与承载层：本插件 SSH 经本机的原生
+`ssh` 开隧道、WSL 经 `wsl.exe` 执行命令并由 WSL2 localhost 转发直连；desktop 壳用租约
+`<webview>` 承载标签页，Tauri 壳经同一组路由与同一份配置建连、用子 webview 承载，所以切换
+外壳可以继续同一个远端会话。`plugins/remote/dsh-remote` 收缩为本机后端与 Docker 连接，不再
+自带 SSH 实现。
 
 `up` 先对 `dsh-gui` 会话做一次幂等确保：会话 MISSING 或 STALE（面板已死）时新建会话并启动 dsh，
 ALIVE 时直接复用、不重启。存活判定读远端磁盘 token 文件（token 采集自启动日志
@@ -349,16 +375,23 @@ shell 里直接返回，于是启动会退回系统 Node。系统 Node 过旧时
 ## 构建与安装
 
 ```powershell
-npm run build:desktop -- --plugins-only   # 装进 <runtime-root>/.dsh/profiles/desktop
+npm run build                             # 装进 <runtime-root>/.dsh/profiles/web（Tauri 壳使用）
+npm run build:desktop -- --plugins-only   # 装进 <runtime-root>/.dsh/profiles/desktop（desktop 壳使用）
 ```
+
+两个 profile 都安装本插件（`install.mjs` 不再按 profile 短路）：`web` profile 里只有 host 半
+生效，`desktop` profile 里 browser 半额外挂载标签条。Tauri 壳构建时还会把
+`src/client/ui/connection-list.js` 与 `src/client/ui/connection-settings.js` 原样复制到
+`src-tauri/ui/`（生成物，`.gitignore` 排除），让该壳的 SSH 页复用同一份控件。
 
 包内直接构建：`pnpm install && pnpm run build`（产出 `lib/index.js` 与 `lib/client.js`）。
 
 行为测试直接以 Node 运行 `tests/` 下的脚本（`pnpm run test` 依次执行）：`remote.test.mjs`
 （host 半的会话脚本与路由）、`wsl.test.mjs`（WSL 传输层：输出解码、发行版列表解析、端口探测
-脚本、启动失败分类、错误码诊断、脚本通道清洗）、`panel.spec.ts`（`+` 面板三组、连接方式
-前缀、WSL 主机行、配置面板账号字段与 draft）、`view-retention.spec.ts`（切换保留、刷新卸载、
-租约与轮询释放、窗口标题跟随活跃标签与恢复）、`window-title.spec.ts`（窗口标题状态机：
-采样、接管期间写回、远程切换不重采样、恢复与 dispose）、`clipboard-relay.spec.ts`、
-`notify-relay.spec.ts` 与 `image-menu.spec.ts`（远端图片右键菜单：取图脚本、菜单定位与关闭、
-复制、失败文案、视图层 `context-menu` 接线）。
+脚本、启动失败分类、错误码诊断、脚本通道清洗）、`panel.spec.ts`（双壳共用控件：`+` 面板三组、
+连接方式前缀、WSL 主机行、搜索筛选与折叠、行内编辑/删除、配置面板账号字段与 draft、预设与
+确认取消、失败文案在面板内可见）、`view-retention.spec.ts`（切换保留、刷新卸载、租约与轮询
+释放、窗口标题跟随活跃标签与恢复）、`window-title.spec.ts`（窗口标题状态机：采样、接管期间
+写回、远程切换不重采样、恢复与 dispose）、`clipboard-relay.spec.ts`、`notify-relay.spec.ts`
+与 `image-menu.spec.ts`（远端图片右键菜单：取图脚本、菜单定位与关闭、复制、失败文案、视图层
+`context-menu` 接线）。

@@ -3,8 +3,9 @@
  *
  * Emits two artifacts from the source tree, same contract as before:
  *  - `lib/index.js`  — the Node/host half (ESM): registers `/remote-api/*`
- *    HTTP routes on the harness web server and owns local backend spawns,
- *    the credential store, and SSH start + tunnel.
+ *    HTTP routes on the harness web server and owns local backend spawns and
+ *    the Docker exec tunnel. (SSH remote connections live in the
+ *    `dsh-desktop-tabs` plugin's host half.)
  *  - `lib/client.js` — the browser half (CJS closure factory): the
  *    `window.__ModuleLoader__.load({ id, factory })` handoff the dsh client
  *    module table expects.
@@ -74,12 +75,9 @@ export default [
     fixedExtension: false,
     dts: false,
     clean: false,
-    // Externalize every @deepseek-ai/* peer AND ssh2 (CJS with an optional
-    // native `cpu-features` binding): they resolve at runtime through the
-    // package's own node_modules, and rolldown must not trace/bundle ssh2's
-    // optional native deps. `ssh-config` (dual ESM/CJS) stays external too:
-    // it resolves via its exports map at runtime like any plain dependency.
-    deps: { neverBundle: [/^@deepseek-ai\//, 'ssh2', 'ssh-config'] },
+    // Externalize every @deepseek-ai/* peer: they resolve at runtime through
+    // the package's own node_modules.
+    deps: { neverBundle: [/^@deepseek-ai\//] },
   },
   {
     entry: { client: 'src/client/index.ts' },

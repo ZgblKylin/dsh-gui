@@ -1,12 +1,14 @@
 /**
- * Regression test for the `+` panel (`src/client/panel.ts`) and the connection
- * settings panel (`src/client/config-panel.ts`).
+ * Regression test for the two shells' shared connection UI
+ * (`src/client/ui/connection-list.js` and `src/client/ui/connection-settings.js`):
+ * the desktop browser half bundles them and the Tauri shell copies the same files
+ * into `src-tauri/ui/`.
  *
- * The `+` panel gained a third foldable group for the WSL distributions the host
- * half reports, the same shape as the SSH host group, and a saved connection now
+ * The `+` panel carries a third foldable group for the WSL distributions the host
+ * half reports, the same shape as the SSH host group, and a saved connection
  * reads `<kind prefix> - <title>` so `SSH - peer` and `WSL - archlinux` stay
- * distinguishable in one list. The settings panel gained the account field whose
- * placeholder and heading follow the connection kind. Both new behaviours are
+ * distinguishable in one list. The settings panel carries the account field whose
+ * placeholder and heading follow the connection kind. Both behaviours are
  * asserted here against a minimal fake DOM; the panels only need elements,
  * attributes, children, listeners, and a document that carries keydown listeners.
  *
@@ -16,8 +18,8 @@
  * Run: `node tests/panel.spec.ts`
  */
 
-import { createConfigPanel, type ConfigPanel, type ConnectionDraft } from '../src/client/config-panel.ts'
-import { createPanel, type Panel, type PanelHandlers } from '../src/client/panel.ts'
+import { createConnectionList } from '../src/client/ui/connection-list.js'
+import { createConnectionSettings } from '../src/client/ui/connection-settings.js'
 import {
   connectionTypeLabel,
   hostOfWsl,
@@ -26,6 +28,51 @@ import {
   type SshHost,
   type WslHost,
 } from '../src/client/types.ts'
+
+/** One saved-connection action set, as the shared list factory takes it. */
+interface ConnectionListHandlers {
+  onOpen(connection: SavedConnection): Promise<void> | void
+  onEdit(connection: SavedConnection): void
+  onDelete(connection: SavedConnection): Promise<void> | void
+  onPickHost(host: SshHost): void
+  onPickWslHost(host: WslHost): void
+}
+
+/** The list factory's returned transitions. */
+interface ConnectionList {
+  readonly element: HTMLElement
+  isOpen(): boolean
+  open(): void
+  close(): void
+  toggle(): void
+  setConnections(connections: readonly SavedConnection[]): void
+  setSshHosts(hosts: readonly SshHost[]): void
+  setWslHosts(hosts: readonly WslHost[]): void
+  fail(message: string): void
+  dispose(): void
+}
+
+/** The values one settings session edits. */
+interface ConnectionDraft {
+  readonly id?: string
+  readonly kind: string
+  readonly title: string
+  readonly ssh?: unknown
+  readonly wsl?: unknown
+  readonly account: string
+  readonly workdir: string
+  readonly startCommand: string
+}
+
+/** The settings factory's returned transitions. */
+interface ConnectionSettings {
+  readonly element: HTMLElement
+  isOpen(): boolean
+  open(draft: ConnectionDraft): void
+  close(): void
+  fail(message: string): void
+  dispose(): void
+}
 
 let failures = 0
 /** @returns whether the assertion held; counts a mismatch as a failure. */
@@ -179,48 +226,48 @@ function marked(root: FakeElement, attr: string, value?: string): FakeElement[] 
 }
 
 /** @returns the one foldable group's root element. */
-function group(panel: Panel, name: string): FakeElement {
+function group(panel: ConnectionList, name: string): FakeElement {
   const root = marked(panel.element as unknown as FakeElement, 'data-dsh-desktop-tabs-section', name)[0]
   if (root === undefined) throw new Error(`missing section ${name}`)
   return root
 }
 
 /** @returns the group heading button. */
-function groupToggle(panel: Panel, name: string): FakeElement {
+function groupToggle(panel: ConnectionList, name: string): FakeElement {
   const toggle = group(panel, name).children.find((child) => child.getAttribute('data-dsh-desktop-tabs-section-toggle') === name)
   if (toggle === undefined) throw new Error(`missing section toggle ${name}`)
   return toggle
 }
 
 /** @returns the group's rows container. */
-function groupBody(panel: Panel, name: string): FakeElement {
+function groupBody(panel: ConnectionList, name: string): FakeElement {
   const body = group(panel, name).children.find((child) => child.getAttribute('data-dsh-desktop-tabs-section-body') === name)
   if (body === undefined) throw new Error(`missing section body ${name}`)
   return body
 }
 
 /** @returns the search box. */
-function searchBox(panel: Panel): FakeElement {
+function searchBox(panel: ConnectionList): FakeElement {
   const box = marked(panel.element as unknown as FakeElement, 'data-dsh-desktop-tabs-search')[0]
   if (box === undefined) throw new Error('missing search box')
   return box
 }
 
 /** Type a query into the search box and let the panel re-render. */
-function search(panel: Panel, query: string): void {
+function search(panel: ConnectionList, query: string): void {
   const box = searchBox(panel)
   box.value = query
   box.dispatch('input')
 }
 
 /** @returns the visible text of a group heading, e.g. `已配置 (1/2)`. */
-function headingText(panel: Panel, name: string): string {
+function headingText(panel: ConnectionList, name: string): string {
   // The toggle's first child is the fold arrow, the second the label.
   return groupToggle(panel, name).children[1]?.textContent ?? ''
 }
 
 /** @returns the account input of the settings panel. */
-function accountInput(panel: ConfigPanel): FakeElement {
+function accountInput(panel: ConnectionSettings): FakeElement {
   const input = marked(panel.element as unknown as FakeElement, 'data-dsh-desktop-tabs-account')[0]
   if (input === undefined) throw new Error('missing account input')
   return input
@@ -259,7 +306,7 @@ const WSL_HOSTS: WslHost[] = [
 
 /** Recording handlers, so the panel's callbacks can be asserted after a click. */
 function recordingHandlers(): {
-  handlers: PanelHandlers
+  handlers: ConnectionListHandlers
   opened: string[]
   edited: string[]
   deleted: string[]
@@ -278,9 +325,9 @@ function recordingHandlers(): {
     pickedSsh,
     pickedWsl,
     handlers: {
-      onOpenConnection: async (connection) => { opened.push(connection.id) },
-      onEditConnection: (connection) => { edited.push(connection.id) },
-      onDeleteConnection: async (connection) => { deleted.push(connection.id) },
+      onOpen: async (connection) => { opened.push(connection.id) },
+      onEdit: (connection) => { edited.push(connection.id) },
+      onDelete: async (connection) => { deleted.push(connection.id) },
       onPickHost: (host) => { pickedSsh.push(host.alias) },
       onPickWslHost: (host) => { pickedWsl.push(host.name) },
     },
@@ -291,7 +338,7 @@ function recordingHandlers(): {
 function configuredRows(): void {
   installFakeDom()
   const recording = recordingHandlers()
-  const panel = createPanel(recording.handlers)
+  const panel = createConnectionList(recording.handlers)
   panel.setConnections([SSH_CONNECTION, WSL_CONNECTION])
   panel.setSshHosts(SSH_HOSTS)
   panel.setWslHosts(WSL_HOSTS)
@@ -347,7 +394,7 @@ function configuredRows(): void {
 function wslHosts(): void {
   installFakeDom()
   const recording = recordingHandlers()
-  const panel = createPanel(recording.handlers)
+  const panel = createConnectionList(recording.handlers)
   panel.setWslHosts(WSL_HOSTS)
   panel.open()
 
@@ -389,7 +436,7 @@ function wslHosts(): void {
 async function configPanel(): Promise<void> {
   installFakeDom()
   const drafts: ConnectionDraft[] = []
-  const panel = createConfigPanel({
+  const panel = createConnectionSettings({
     onConfirm: async (draft) => { drafts.push(draft) },
     onCancel: () => {},
   })

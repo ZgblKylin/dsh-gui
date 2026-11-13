@@ -51,8 +51,6 @@
 
 import { downConnection, fetchConnections, fetchSshHosts, fetchTabs, fetchWslHosts, putTabs, upConnection } from './api.ts'
 import type { DesktopBrowserBridge } from './bridge.ts'
-import { CONFIG_PANEL_ATTR, createConfigPanel, type ConfigPanel, type ConnectionDraft } from './config-panel.ts'
-import { createPanel, PANEL_ATTR, type Panel } from './panel.ts'
 import { installStyles, removeStyles } from './styles.ts'
 import {
   hostOfSsh,
@@ -66,7 +64,24 @@ import {
   type SshHost,
   type WslHost,
 } from './types.ts'
+import { CONNECTION_LIST_ATTR, createConnectionList } from './ui/connection-list.js'
+import { CONNECTION_SETTINGS_ATTR, createConnectionSettings } from './ui/connection-settings.js'
 import { createRemoteView, VIEW_ATTR, type RemoteTarget, type RemoteView } from './view.ts'
+
+/** The values one settings session edits; the shared panel factory carries them unread. */
+interface ConnectionDraft {
+  /** Absent while creating a connection. */
+  readonly id?: string
+  /** Connection kind: `ssh` or `wsl`; the title prefix and the account hint follow it. */
+  readonly kind: string
+  readonly title: string
+  readonly ssh?: unknown
+  readonly wsl?: unknown
+  /** Login account, already trimmed; empty means the channel's own default. */
+  readonly account: string
+  readonly workdir: string
+  readonly startCommand: string
+}
 
 /** Marks the strip element. */
 const STRIP_ATTR = 'data-dsh-desktop-tabs'
@@ -103,7 +118,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   installStyles()
   // Single instance: a mount that outlived its fiber would otherwise leave a
   // second strip, view layer, and panels behind.
-  document.querySelectorAll(`[${STRIP_ATTR}], [${VIEW_ATTR}], [${PANEL_ATTR}], [${CONFIG_PANEL_ATTR}]`)
+  document.querySelectorAll(`[${STRIP_ATTR}], [${VIEW_ATTR}], [${CONNECTION_LIST_ATTR}], [${CONNECTION_SETTINGS_ATTR}]`)
     .forEach((stale) => { stale.remove() })
   const strip = document.createElement('div')
   strip.setAttribute(STRIP_ATTR, '')
@@ -111,14 +126,14 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   strip.setAttribute('aria-label', STRIP_LABEL)
   strip.hidden = true
   const view: RemoteView = createRemoteView(bridge)
-  const panel: Panel = createPanel({
-    onOpenConnection: openConnection,
-    onEditConnection: editConnection,
-    onDeleteConnection: deleteConnection,
+  const panel = createConnectionList({
+    onOpen: openConnection,
+    onEdit: editConnection,
+    onDelete: deleteConnection,
     onPickHost: pickHost,
     onPickWslHost: pickWslHost,
   })
-  const config: ConfigPanel = createConfigPanel({
+  const config = createConnectionSettings({
     onConfirm: confirmConnection,
     onCancel: () => {},
   })

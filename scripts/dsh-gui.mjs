@@ -105,6 +105,42 @@ const SRC_TAURI = join(ROOT, 'src-tauri')
 /** Repository-root template deployed to `<DSH_HOME>/AGENTS.md` when missing. */
 const AGENTS_FILE_TEMPLATE = join(ROOT, 'AGENTS.global_template.md')
 
+/**
+ * Connection-dialog controls owned by the `dsh-desktop-tabs` plugin and copied
+ * into the shell's asset directory for the Tauri build.
+ *
+ * Both shells render the same two modules: the desktop plugin bundles them into
+ * its browser half, the Tauri shell copies them verbatim (they are import-free
+ * plain ESM) and `ui/index.html` loads them as a module bridge. The copies are
+ * build artifacts (`.gitignore`d), so the plugin source stays the only one.
+ */
+const REMOTE_UI_ASSETS = [
+  {
+    source: join(PLUGINS, 'desktop-tabs', 'dsh-desktop-tabs', 'src', 'client', 'ui', 'connection-list.js'),
+    target: join(SRC_TAURI, 'ui', 'dsh-connection-list.js'),
+  },
+  {
+    source: join(PLUGINS, 'desktop-tabs', 'dsh-desktop-tabs', 'src', 'client', 'ui', 'connection-settings.js'),
+    target: join(SRC_TAURI, 'ui', 'dsh-connection-settings.js'),
+  },
+]
+
+/**
+ * Copy the shared connection-dialog modules into `src-tauri/ui/`.
+ *
+ * Tauri embeds `ui/` at compile time (`frontendDist`), so this has to run
+ * before cargo — a plain `cargo build` without it fails on the missing modules.
+ */
+function syncRemoteUiAssets() {
+  for (const { source, target } of REMOTE_UI_ASSETS) {
+    if (!existsSync(source)) {
+      throw new Error(`missing shared connection UI module ${source} — the dsh-desktop-tabs plugin sources must be present`)
+    }
+    copyFileSync(source, target)
+    console.log(`synced ${source} -> ${target}`)
+  }
+}
+
 function step(name, fn) {
   console.log(`\n==> ${name}`)
   fn()
@@ -379,6 +415,9 @@ function buildExe(debug) {
   const profile = debug ? 'debug' : 'release'
   const cargoBinary = resolveCargo()
   const env = { ...process.env, ...cargoToolchainEnv(cargoBinary) }
+  // The connection dialog shares its controls with the desktop plugin; the
+  // copied modules are embedded into the exe by cargo, so sync them first.
+  step('Sync shared connection UI', syncRemoteUiAssets)
   step(`Build entry exe (cargo build ${debug ? '--debug' : '--release'})`, () => {
     run(cargoBinary ?? 'cargo', ['build', ...(debug ? [] : ['--release'])], { cwd: SRC_TAURI, env })
   })

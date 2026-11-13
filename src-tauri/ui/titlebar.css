@@ -1130,15 +1130,10 @@ body.no-tauri .titlebar-btn {
   margin-bottom: 12px;
 }
 
-/* SSH 端口 + 密码/密钥 同行：端口固定窄列，其余给凭据 */
-.conn-field-row.conn-field-row--port-creds {
-  grid-template-columns: 132px 1fr;
-  align-items: start;
-}
-
 /* Three-column layout: saved-connection list | config form | start-cmd + log.
  * The grid fills the dialog's content area; each column manages its own
- * overflow so the dialog itself never grows a whole-page scrollbar. */
+ * overflow so the dialog itself never grows a whole-page scrollbar. The SSH
+ * card replaces the first two columns with `#conn-remote-ui` (see below). */
 .conn-dialog-main {
   flex: 1 1 auto;
   min-height: 0;
@@ -1147,8 +1142,21 @@ body.no-tauri .titlebar-btn {
   gap: 16px;
 }
 
-/* The form column scrolls on its own when the SSH extension makes it taller
-   than the window. */
+/* Pin the columns: the SSH card hides the first two, and auto-placement would
+   otherwise pull the log column into the empty first column. */
+.conn-dialog-main > .conn-list {
+  grid-column: 1;
+}
+
+.conn-dialog-main > .conn-config {
+  grid-column: 2;
+}
+
+.conn-dialog-main > .conn-right {
+  grid-column: 3;
+}
+
+/* The form column scrolls on its own when the form is taller than the window. */
 .conn-config {
   min-width: 0;
   min-height: 0;
@@ -1171,11 +1179,338 @@ body.no-tauri .titlebar-btn {
     grid-template-columns: 180px minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
   }
-  .conn-right {
+  .conn-dialog-main > .conn-right {
     grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .conn-remote-ui {
+    grid-column: 1 / -1;
+    grid-row: 1;
   }
   .conn-right .conn-log {
     max-height: 180px;
+  }
+}
+
+/* SSH card: the shared connection list | settings panel pair, side by side in
+   the first two grid columns (the Docker/local list and form are hidden while
+   this card is selected). The log column on the right stays shared. */
+.conn-remote-ui {
+  grid-column: 1 / 3;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 16px;
+}
+
+/* While the settings panel is closed (the common state: just browsing the
+   list), the list takes the whole card width instead of leaving a blank half. */
+.conn-remote-ui:has([data-dsh-desktop-tabs-config][hidden]) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.conn-remote-list-slot {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+}
+
+.conn-remote-settings-slot {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* The shared controls are class-free plain DOM (the desktop shell styles them
+   separately), so the dialog styles them through their marker attributes. */
+.conn-remote-ui [data-dsh-desktop-tabs-panel],
+.conn-remote-ui [data-dsh-desktop-tabs-config] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* `hidden` as the controls' open/close state: the display rule above would
+   otherwise override the UA `[hidden]` default and leave a closed panel shown. */
+.conn-remote-ui [hidden] {
+  display: none !important;
+}
+
+/* The list is the card's permanent content here, not the desktop shell's
+   popup: its own close button has nothing to reveal and is hidden. */
+.conn-remote-ui [data-dsh-desktop-tabs-panel-close] {
+  display: none;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-panel-status],
+.conn-remote-ui [data-dsh-desktop-tabs-config-status] {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(248, 81, 73, 0.1);
+  color: #f85149;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-search],
+.conn-remote-ui [data-dsh-desktop-tabs-workdir],
+.conn-remote-ui [data-dsh-desktop-tabs-start-command] {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-search]:focus,
+.conn-remote-ui [data-dsh-desktop-tabs-workdir]:focus,
+.conn-remote-ui [data-dsh-desktop-tabs-start-command]:focus {
+  border-color: var(--accent);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-section] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-section-toggle] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-section-toggle]:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-section-body] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-connection] {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-connection-open] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-connection-open]:hover {
+  color: var(--accent);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-row-actions] {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-connection-edit],
+.conn-remote-ui [data-dsh-desktop-tabs-connection-delete] {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: default;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-connection-edit]:hover,
+.conn-remote-ui [data-dsh-desktop-tabs-connection-delete]:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-connection-delete]:hover {
+  color: #f85149;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-ssh-host] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-ssh-host]:hover {
+  border-color: var(--accent);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-empty] {
+  margin: 0;
+  padding: 4px 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-config-title] {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-config-field] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-config-label] {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-command-row] {
+  display: flex;
+  gap: 6px;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-command-row] [data-dsh-desktop-tabs-start-command] {
+  flex: 1;
+  min-width: 0;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-presets-toggle] {
+  flex: 0 0 34px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: default;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-presets-toggle]:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-presets] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--titlebar-bg);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-preset] {
+  padding: 7px 9px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  text-align: left;
+  cursor: default;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-preset]:hover {
+  background: rgba(47, 129, 247, 0.16);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-config-actions] {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-config-confirm],
+.conn-remote-ui [data-dsh-desktop-tabs-config-cancel] {
+  padding: 7px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: default;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-config-confirm] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-config-confirm]:hover {
+  filter: brightness(1.1);
+}
+
+.conn-remote-ui [data-dsh-desktop-tabs-config-cancel]:hover {
+  background: var(--hover);
+}
+
+/* Load failure of the shared-control module bridge (see app.js
+   `reportRemoteUiFailure`): the card reports it in place of the list. */
+.conn-remote-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #f85149;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 880px) {
+  .conn-remote-ui {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1296,108 +1631,6 @@ body.no-tauri .titlebar-btn {
 
 .conn-input:focus {
   border-color: var(--accent);
-}
-
-/* ── SSH start-command preset dropdown ─────────────────────── */
-/* The field anchors an absolutely-positioned menu, so opening it never
-   reflows the form (the native dialog window keeps its fitted size). */
-.conn-cmd-wrap {
-  position: relative;
-}
-
-.conn-cmd-row {
-  display: flex;
-  gap: 6px;
-}
-
-.conn-cmd-caret {
-  flex: 0 0 34px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 11px;
-  cursor: default;
-}
-
-.conn-cmd-caret:hover {
-  color: var(--text);
-  border-color: var(--accent);
-}
-
-.conn-cmd-menu {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 2px);
-  z-index: 40;
-  padding: 4px;
-  background: var(--titlebar-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
-}
-
-.conn-cmd-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  /* Rows are buttons (clickable + focusable), so reset the UA button chrome
-     (background/border/centering) that would otherwise fight the dark theme. */
-  width: 100%;
-  padding: 7px 9px;
-  border: none;
-  background: none;
-  text-align: left;
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 12.5px;
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  cursor: default;
-}
-
-.conn-cmd-item:hover {
-  background: rgba(47, 129, 247, 0.16);
-}
-
-.conn-cmd-item .cmd-check {
-  flex: 0 0 12px;
-  color: #3fb950;
-}
-
-.conn-cmd-item .cmd-note {
-  margin-left: auto;
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.conn-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text);
-  font-size: 13px;
-  margin: 4px 0 14px;
-  user-select: none;
-}
-
-.conn-key-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.conn-key-path {
-  font-size: 12px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 60%;
 }
 
 .conn-docker-env-list {

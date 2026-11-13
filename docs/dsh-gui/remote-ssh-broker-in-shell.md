@@ -5,6 +5,13 @@ dsh-gui 的 Rust 壳层。方案 A（watchdog 自动重启本地 harness）已�
 承载 `/remote-api` 的本地 harness 崩溃后自动恢复；B 把远端连接的全部机制移出 harness，
 使远端连接的可用性与本地 harness 存活彻底解耦。本设计尚未实施，供后续按本文件实施时使用。
 
+> SSH 远程连接已由 `plugins/desktop-tabs/dsh-desktop-tabs` 的 host 半提供，Tauri 壳经
+> `src-tauri/src/main.rs` 的 `remote_tabs` / `remote_connection_up` 等命令代理它的
+> `/desktop-tabs/api/*` 路由；`/remote-api` 只剩本机后端与 Docker 两类 op。下文第二节的 op
+> 表因此只适用于 Docker 与 `local.*`：`ssh.*`、`creds.*`、`keyfile.write`、
+> `auth.available` 与 `tunnel.close` 已随 SSH 实现迁移而移除。若继续实施本方案，需要同时
+> 接管 `desktop-tabs` 的 SSH 链路，而不是 `/remote-api`。
+
 ## 现状盘点
 
 `/remote-api` 由 `plugins/remote/dsh-remote` 插件的 host 端注册在本地 harness 的 loopback

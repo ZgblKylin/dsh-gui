@@ -32,12 +32,19 @@ new-connection button, and on their inner side a hamburger (☰) menu — the
 standard minimize / maximize / close controls come after it, and the hamburger
 menu carries the tab list plus **新建连接** / **关闭当前连接** and the existing
 **关于** / **退出** entries. The new-connection dialog supports a local backend
-(probe the port, or start the built-in harness on it), a remote backend
-(VSCode Remote SSH style: load the frontend, or SSH-deploy it to another host,
-reaching it over an SSH local port forward), and a Docker backend (start dsh
-inside a running container via `docker exec` and bridge its loopback port with
-a `docker exec -i` stdio tunnel — no port mapping required). The connection
-chrome lives in the
+(probe the port, or start the built-in harness on it), an SSH backend, and a
+Docker backend (start dsh inside a running container via `docker exec` and
+bridge its loopback port with a `docker exec -i` stdio tunnel — no port mapping
+required). The SSH backend is the `dsh-desktop-tabs` plugin's host half, shared
+with the Electron desktop app: it starts or reuses a `dsh web` backend in a
+`dsh-gui` tmux session on the remote host through the local `ssh` client, forwards
+the remote loopback port, and loads the returned URL in a tab webview. Compared
+connections and their working directory / start command live in
+`<DSH_HOME>/gui/desktop-tabs.json`, the same file the desktop app reads, so a
+connection configured in either shell opens in the other and reuses the remote
+backend. SSH authentication is delegated to `ssh` itself (`~/.ssh/config`,
+ssh-agent, passphrase-less keys); the dialog has no credential fields. The
+connection chrome lives in the
 native title bar — the embedded harness page renders none of it. The About
 dialog shows the version (exact git tag, else the commit short hash), license,
 and GitHub link for dsh-gui, the deepseek-harness submodule, the whale-girl
@@ -70,9 +77,11 @@ browser.
   close buttons and persisted tab/active state; closing the last tab reopens
   the new-connection dialog.
 - **New connection (`＋`)** — local backend (probe the port, or start the
-  built-in harness on it), remote backend (load the frontend, or SSH-deploy
-  it to another host and reach it through a loopback-only SSH local port
-  forward), and Docker backend (start dsh in a running container via
+  built-in harness on it), SSH backend (the desktop app's `dsh-desktop-tabs`
+  host half: native `ssh` + a remote `dsh-gui` tmux session + a
+  loopback-only SSH local port forward, with the connection list and settings
+  panel shared with the desktop shell), and Docker backend (start dsh in a
+  running container via
   `docker exec -d`, then bridge its loopback port with a `docker exec -i`
   stdio tunnel — the container needs no `-p` port mapping; the container-side
   user, working directory and environment-variable list are configurable).
@@ -153,8 +162,10 @@ browser.
 ### Plugins
 
 - **`dsh-remote`** — multi-backend remote mode: the connection tabs,
-  new-connection dialog, local backend start, and VSCode Remote SSH-style
-  deploy/tunnel described above (see `plugins/remote/dsh-remote/docs/`).
+new-connection dialog, local backend start, and the Docker `exec` backend
+described above (see `plugins/remote/dsh-remote/docs/`). SSH connections are
+served by `dsh-desktop-tabs` (below) and share their configuration and remote
+`dsh-gui` tmux sessions between the Tauri and desktop shells.
 - **`dsh-sidebar-qa`** — select conversation text → right-panel follow-up
   question in a dedicated same-workspace session (`❓追问·<主题>`), without
   interrupting the main conversation; thin consumer of `dsh-better-sidebar`
@@ -187,6 +198,14 @@ browser.
   the model does not notice the pause; the per-session switch is off by
   default.
 
+- **`dsh-desktop-tabs`** — the remote-connection backend shared by the two
+  shells: `<DSH_HOME>/gui/desktop-tabs.json` holds saved SSH connections and the
+  open tab list, `/desktop-tabs/api/*` establishes them (native `ssh`, a
+  long-lived `dsh-gui` tmux session on the remote host, port forward, token
+  harvest and health check) and reports their progress, and the same
+  connection-list / settings-panel DOM is rendered by the Electron desktop
+  caption strip and by this shell's SSH dialog. In an ordinary `dsh web` page
+  the browser half stays inert.
 - **`ds-harness-remote`** — community P2P remote access: continue the running
   Harness and its workspaces from another PC, a phone, or the web over a
   low-latency, end-to-end encrypted connection (no public listener or router
@@ -194,7 +213,7 @@ browser.
   and workspaces and driving Harness sessions from an Agent. Installs from
   npm and mounts through its own bundle patch (`ds-harness-remote` entry;
   `ds-harness-remote-tui` only for dsh-tui profiles); independent of the
-  in-repo `dsh-remote` multi-backend mode.
+  in-repo `dsh-remote` local-backend/Docker mode.
 
 ![dsh-gui with the plugin features expanded](docs/dsh-gui/images/dsh-gui-features.png)
 
