@@ -359,6 +359,84 @@ WSL 连接的**配置面板与启动流程与 SSH 相同**（同一套 `+` 面�
 WSL 主机列表来自 `wsl.exe -l -v`（`{ name, state?, version?, default? }`）；没有 WSL 的机器
 上该组为空，不影响 SSH 主机列表与已保存连接（两个列表各自独立失败）。
 
+## 远程主机标签（ds-harness-remote）
+
+`+` 面板新增第四组「远程主机」，把 [`ds-harness-remote`](https://github.com/liguobao/ds-harness-remote)
+的主机与工作区打开为**独立 tab**：每个已保存的 `remote` 连接各起一个本地
+`dsh web` 子后端，子后端的 gateway 在页面加载前整体切到目标主机/工作区，tab 的
+`<webview>` 只加载子后端的回环 URL。`ds-harness-remote` 本体、P2P 协议与远端主机
+都不改动。
+
+- **为什么不是纯前端**：ds-harness-remote 的远程目标是**每个本地 dsh 进程一份**的
+  `gatewaySwitch` 单例；官方所有浏览器 tab 共享同一个 `browserPeer`，gateway 调用
+  没有 tab 标识。要在同一界面里同时看多个主机，必须每个 tab 有自己的后端进程。
+- **子后端**：`<DSH_HOME>/gui/remote-tabs/<safe connection id>/home/` 是独立
+  `DSH_HOME`；`profiles/remote-tab/` 是生成的极小 profile（`node_modules` junction
+  到 desktop profile，bundles 白名单：base / web-app / ds-harness-remote /
+  dsh-remote-tab-boot / 本机 UI 插件），`ds-harness-remote` 配置
+  `role: client` + `hostControl.enabled: false`，子后端**不会**注册成 Host。
+- **身份**：每个已保存连接一个 **owned client 设备**，由本机已授权的 Remote Host
+  通过服务器 `register-owned-role` 自动注册（host → client 允许；client → client
+  会 409），因此不需要交互登录，也不会与父端客户端互相 `CONNECTION_REPLACED`。
+  关闭 tab 只停进程、保留身份；删除连接才 revoke 并删除 child home。
+- **启动**：service 层生成 profile 时补齐 `@deepseek-ai/dsh-client-connection` 的
+  peer 链接（desktop profile 的 pnpm 安装不会 hoist 这个 optional peer，运行时
+  `.harness` / 源码树里有副本），spawn `<runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js
+  --profile remote-tab --host 127.0.0.1 --port 0 --no-open`，环境擦掉父端的
+  `DSH_PROFILE*`/session 键，注入独立 `DSH_HOME` 与 `DSH_REMOTE_TAB_TARGET`。
+- **就绪**：stdout 同时出现 `dsh web: http://127.0.0.1:<port>/?token=…` 与
+  `[remote-tab-boot] ready <deviceId> <workspacePath>` 才算成功（90 s 超时）；日志
+  token 一律脱敏。bootstrap 在子进程里调用
+  `dshRemoteClient.openRemoteWorkspace(deviceId, path)`，失败时子进程保留日志、父端
+  tab 显示错误，`⟳` 可重试。
+
+**前提**：桌面应用（Electron）；`ds-harness-remote` 已登录并启用「允许控制本机」
+（host 授权用于 mint client 设备）；`dsh-remote-tab-boot` 已安装到 desktop profile
+（`node plugins/remote-tab-boot/install.mjs` 或 `npm run build:desktop --
+--plugins-only`，安装前退出桌面应用）；运行时根有 `.harness`（或源码树
+`deepseek-harness/node_modules`）提供 peer 包。安装/重启后生效。
+
+**配置**：`<DSH_HOME>/gui/desktop-tabs.json` 的连接条目：
+
+```json
+{
+  "id": "remote-<hash>",
+  "title": "Desktop-ZgblKylin · /srv/app",
+  "type": "remote",
+  "remote": {
+    "targetDeviceId": "…",
+    "targetName": "Desktop-ZgblKylin",
+    "workspacePath": "/srv/app",
+    "backend": "harness"
+  }
+}
+```
+
+URL/token 只在运行时内存里，不落盘。
+
+**路由**（除现有 `/desktop-tabs/api/*` 外）：
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/desktop-tabs/api/remote-hosts` | ds-harness-remote 的在线主机列表 |
+| GET | `/desktop-tabs/api/remote-workspaces?targetDeviceId=<id>` | 该主机的 harness 工作区；父端处于 remote 模式时拒绝 |
+| POST | `/desktop-tabs/api/connections/<id>/forget` | 停子后端 + revoke 子设备 + 删 child home（删除连接用） |
+
+**集成限制**：
+
+- 仅桌面应用（Electron）有标签条；Tauri 壳不渲染远程主机组。
+- v1 只支持 `harness` 工作区；Codex/Cursor/ACP 目录在 host 路由被过滤。
+- 父端 `ds-harness-remote` 处于 remote 模式时不做工作区实时发现（同身份第二次
+  control 连接会顶掉现有连接）；已保存连接仍可直接打开。
+- 一个已保存连接一个子进程；同一主机不同工作区请保存多条连接（各自独立 client
+  设备）。子后端有自己的本地 settings（父 settings 只在首次生成时复制）；远端
+  设置仍由远端提供。
+- 子后端成本：每个打开的 tab 一个 Node 进程；关闭 tab 才释放。设备会出现在账号
+  设备列表，删除连接时回收；远端 Host 的 trusted-peers 上限 256，避免无限创建连接。
+- 依赖 ds-harness-remote 0.6.3 的公开/非 `#private` 运行时字段（`dshRemoteClient.server`、
+  `.identities`、`dshRemote.serverApi`）、CLI 输出与 profile 配置语义；升级该包或
+  dsh 运行时后需要回归。
+
 ## 远端启动使用的 shell 环境
 
 远端启动命令在 `dsh-gui` tmux 面板里经 `bash -l -i -c`（登录 + 交互）执行，与

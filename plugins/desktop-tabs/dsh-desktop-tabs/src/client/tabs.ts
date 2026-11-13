@@ -13,9 +13,11 @@
  * connection settings panel hang from the same edge.
  *
  * The `+` panel lists saved connections plus the SSH hosts `~/.ssh/config`
- * declares and the WSL distributions `wsl.exe` reports. Both host lists are
- * conveniences fetched side by side: each may fail on its own without emptying
- * the other or the saved connections.
+ * declares, the WSL distributions `wsl.exe` reports, and the remote host devices
+ * ds-harness-remote offers. Expanding a remote host lists its workspaces; opening
+ * one saves a `remote` connection and starts an isolated child Harness tab. All
+ * host lists are conveniences fetched side by side: each may fail on its own
+ * without emptying the others or the saved connections.
  *
  * Switching retains: every open remote tab owns a guest that stays attached
  * while another tab is shown, so selecting a tab only reveals its surface — the
@@ -49,17 +51,32 @@
  * hidden until the Windows caption menu actually exists.
  */
 
-import { downConnection, fetchConnections, fetchSshHosts, fetchTabs, fetchWslHosts, putTabs, upConnection } from './api.ts'
+import {
+  downConnection,
+  fetchConnections,
+  fetchRemoteHosts,
+  fetchRemoteWorkspaces,
+  fetchSshHosts,
+  fetchTabs,
+  fetchWslHosts,
+  forgetConnection,
+  putTabs,
+  upConnection,
+} from './api.ts'
 import type { DesktopBrowserBridge } from './bridge.ts'
 import { installStyles, removeStyles } from './styles.ts'
 import {
   hostOfSsh,
   hostOfWsl,
   isLocalTab,
+  isRemoteConnection,
+  savedRemoteConnection,
   sshOfAlias,
   wslOfDistro,
   type ConnectionStatus,
   type DesktopTab,
+  type RemoteHost,
+  type RemoteWorkspace,
   type SavedConnection,
   type SshHost,
   type WslHost,
@@ -132,6 +149,9 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     onDelete: deleteConnection,
     onPickHost: pickHost,
     onPickWslHost: pickWslHost,
+    onRemoteHost: loadRemoteWorkspaces,
+    onRemoteWorkspace: openRemoteWorkspace,
+    onRefreshRemote: refreshRemoteHosts,
   })
   const config = createConnectionSettings({
     onConfirm: confirmConnection,
@@ -139,6 +159,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   })
   panel.setSshHosts([])
   panel.setWslHosts([])
+  panel.setRemoteHosts([])
   document.body.append(strip, view.element, panel.element, config.element)
 
   /** The open tabs, local tab first. */
@@ -147,6 +168,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   let connections: SavedConnection[] = []
   let hosts: readonly SshHost[] = []
   let wslHosts: readonly WslHost[] = []
+  let remoteHosts: readonly RemoteHost[] = []
   let activeId: string | undefined
   /** Bumped per connection attempt; a tab's entry invalidates its older attempt. */
   let attemptSeq = 0
@@ -206,7 +228,13 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     }
   }
 
-  /** Rebuild the strip from `tabs`: one entry per tab, then the `+` button. */
+  /**
+   * Rebuild the strip from `tabs`: one entry per tab, then the `+` button.
+   *
+   * The remote host list is not re-pushed here: its expansion state belongs to
+   * the panel and must survive tab switches and connection edits. It is set when
+   * it is loaded (mount, or the remote group's refresh).
+   */
   const render = (): void => {
     strip.replaceChildren(...tabs.map(createTabEntry), createAddButton())
     panel.setConnections(connections)
@@ -290,7 +318,15 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     add.title = ADD_LABEL
     add.setAttribute('aria-label', ADD_LABEL)
     add.setAttribute(ADD_ATTR, '')
-    add.addEventListener('click', () => { panel.toggle() })
+    add.addEventListener('click', () => {
+      panel.toggle()
+      // Host devices' online state changes while the panel is closed, so each
+      // open refreshes the remote group; a failure is shown in the panel itself.
+      if (!panel.isOpen()) return
+      void refreshRemoteHosts().catch((error: unknown) => {
+        panel.setRemoteError(message(error))
+      })
+    })
     return add
   }
 
@@ -476,7 +512,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
       activeId = undefined
       guard(activate(tabs[0]?.id), 'switch')
     }
-    if (tab.ssh !== undefined || tab.wsl !== undefined) {
+    if (tab.ssh !== undefined || tab.wsl !== undefined || tab.remote !== undefined) {
       void downConnection(tab.id).catch((error: unknown) => {
         console.warn(`[dsh-desktop-tabs] could not bring connection '${tab.id}' down:`, error)
       })
@@ -491,6 +527,11 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
 
   /** Open a saved connection: activate its tab, or create the tab first. */
   async function openConnection(connection: SavedConnection): Promise<void> {
+    if (connection.remote === undefined && isRemoteConnection(connection)) {
+      // A remote row without its device/workspace descriptor cannot open a tab;
+      // report it instead of turning it into the local view.
+      throw new Error('远程连接缺少目标信息，请删除后重新添加')
+    }
     const existing = tabs.find((tab) => tab.id === connection.id)
     if (existing !== undefined) {
       guard(activate(connection.id), 'switch')
@@ -506,6 +547,9 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
 
   /** Open the settings panel for an existing connection. */
   function editConnection(connection: SavedConnection): void {
+    // A remote-tab connection has no editable settings in v1: its device and
+    // workspace are fixed, so the panel offers delete (and add again) only.
+    if (isRemoteConnection(connection)) return
     config.open({
       id: connection.id,
       kind: connection.type,
@@ -545,10 +589,36 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     placeConfig()
   }
 
+  /** Expand one remote host in the panel: discover its workspaces. */
+  async function loadRemoteWorkspaces(host: RemoteHost): Promise<readonly RemoteWorkspace[]> {
+    const answer = await fetchRemoteWorkspaces(host.deviceId)
+    // The panel shows a rejection in its status line; an answer that carries a
+    // reason could not be discovered (no remote plugin, or the parent is in
+    // remote mode) and is the same failure.
+    if (answer.error !== undefined) throw new Error(answer.error)
+    return answer.workspaces
+  }
+
+  /** Open one remote host workspace: save its connection, then open its tab. */
+  async function openRemoteWorkspace(host: RemoteHost, workspace: RemoteWorkspace): Promise<void> {
+    await upsertConnection(savedRemoteConnection(host, workspace))
+  }
+
+  /**
+   * Reload the remote host list (the remote group's heading refresh, and each
+   * panel open). A discovery failure rejects so the panel shows its reason.
+   */
+  async function refreshRemoteHosts(): Promise<void> {
+    const answer = await fetchRemoteHosts()
+    remoteHosts = answer.hosts
+    panel.setRemoteHosts(remoteHosts)
+    if (answer.error !== undefined) throw new Error(`远程主机不可用：${answer.error}`)
+  }
+
   /** Save a connection draft and open — or reopen — its tab. */
   async function confirmConnection(draft: ConnectionDraft): Promise<void> {
     const id = draft.id ?? uniqueConnectionId(draft.kind, connectionStem(draft))
-    const entry: SavedConnection = {
+    await upsertConnection({
       id,
       title: draft.title,
       type: draft.kind,
@@ -557,7 +627,15 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
       ...(draft.account.trim() === '' ? {} : { account: draft.account.trim() }),
       ...(draft.workdir.trim() === '' ? {} : { workdir: draft.workdir.trim() }),
       ...(draft.startCommand.trim() === '' ? {} : { startCommand: draft.startCommand.trim() }),
-    }
+    })
+  }
+
+  /**
+   * Save one connection (insert or replace) and open — or reopen — its tab.
+   * Both the settings panel's confirm and the remote workspace pick land here.
+   */
+  async function upsertConnection(entry: SavedConnection): Promise<void> {
+    const id = entry.id
     const known = connections.some((connection) => connection.id === id)
     connections = known ? connections.map((connection) => (connection.id === id ? entry : connection)) : [...connections, entry]
     const openTab = tabs.find((tab) => tab.id === id)
@@ -577,6 +655,8 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     }
     tabs = [...tabs, tabOfConnection(entry)]
     render()
+    // Persist before connecting: the host half reads this tab's connection
+    // descriptor from the config file when `up` arrives.
     await persist()
     panel.close()
     guard(activate(id), 'switch')
@@ -594,39 +674,56 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
         activeId = undefined
         guard(activate(tabs[0]?.id), 'switch')
       }
+    } else {
+      render()
+    }
+    if (isRemoteConnection(connection)) {
+      // Forget, not just down: the host half stops the child Harness, revokes its
+      // client device, and removes its home. The config file still holds the row
+      // at this point, which is how the host half resolves the connection by id.
+      await forgetConnection(connection.id).catch((error: unknown) => {
+        console.warn(`[dsh-desktop-tabs] could not forget remote connection '${connection.id}':`, error)
+      })
+    } else if (openTab !== undefined) {
       // Bring the session down while the file still holds the descriptor.
       await downConnection(connection.id).catch((error: unknown) => {
         console.warn(`[dsh-desktop-tabs] could not bring connection '${connection.id}' down:`, error)
       })
-    } else {
-      render()
     }
     await persist()
   }
 
-  /** Read the stored tabs and connections, then the SSH and WSL host lists side by side. */
+  /**
+   * Read the stored tabs and connections, then the SSH, WSL, and remote host
+   * lists side by side. Every host list is a convenience: any of them may be
+   * unavailable on its own and must not take the others down.
+   */
   async function load(): Promise<void> {
-    try {
-      const snapshot = await fetchTabs()
-      tabs = normalize(snapshot.tabs)
-      connections = [...snapshot.connections]
-    } catch (error: unknown) {
+    // Start every list at once: the strip appears as soon as the stored tabs
+    // arrive, while discovery keeps running in parallel.
+    const snapshotPromise = fetchTabs().catch((error: unknown) => {
       console.warn('[dsh-desktop-tabs] could not read tab targets:', error)
-      tabs = normalize([])
-      connections = []
-    }
+      return undefined
+    })
+    const sshPromise = fetchSshHosts().catch(() => [] as SshHost[])
+    const wslPromise = fetchWslHosts().catch(() => [] as WslHost[])
+    const remotePromise = fetchRemoteHosts().catch((error: unknown) => ({
+      hosts: [] as RemoteHost[],
+      error: message(error),
+    }))
+    const snapshot = await snapshotPromise
+    tabs = normalize(snapshot?.tabs ?? [])
+    connections = [...(snapshot?.connections ?? [])]
     render()
     guard(activate(tabs[0]?.id), 'switch')
-    // Both host lists are conveniences: either may be unavailable on its own
-    // (no `~/.ssh/config`, no `wsl.exe`) and must not take the other down.
-    const [ssh, wsl] = await Promise.all([
-      fetchSshHosts().catch(() => [] as SshHost[]),
-      fetchWslHosts().catch(() => [] as WslHost[]),
-    ])
+    const [ssh, wsl, remote] = await Promise.all([sshPromise, wslPromise, remotePromise])
     hosts = ssh
     wslHosts = wsl
+    remoteHosts = remote.hosts
     panel.setSshHosts(hosts)
     panel.setWslHosts(wslHosts)
+    panel.setRemoteHosts(remoteHosts)
+    if (remote.error !== undefined) panel.setRemoteError(`远程主机不可用：${remote.error}`)
   }
 
   /** Store both persisted lists. */
@@ -710,6 +807,7 @@ function tabOfConnection(connection: SavedConnection): DesktopTab {
     title: connection.title,
     ...(connection.ssh === undefined ? {} : { ssh: connection.ssh }),
     ...(connection.wsl === undefined ? {} : { wsl: connection.wsl }),
+    ...(connection.remote === undefined ? {} : { remote: connection.remote }),
   }
 }
 
@@ -728,6 +826,7 @@ function tabWithConnection(tab: DesktopTab, connection: SavedConnection): Deskto
     ...(tab.url === undefined ? {} : { url: tab.url }),
     ...(connection.ssh === undefined ? {} : { ssh: connection.ssh }),
     ...(connection.wsl === undefined ? {} : { wsl: connection.wsl }),
+    ...(connection.remote === undefined ? {} : { remote: connection.remote }),
   }
 }
 

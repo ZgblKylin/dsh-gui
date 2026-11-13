@@ -5,8 +5,10 @@
  * into `src-tauri/ui/`.
  *
  * The `+` panel carries a third foldable group for the WSL distributions the host
- * half reports, the same shape as the SSH host group, and a saved connection
- * reads `<kind prefix> - <title>` so `SSH - peer` and `WSL - archlinux` stay
+ * half reports, the same shape as the SSH host group, and a fourth group for the
+ * remote host devices ds-harness-remote offers (see `remote-tab-client.spec.ts`
+ * for its expansion and pick flow). A saved connection reads
+ * `<kind prefix> - <title>` so `SSH - peer` and `WSL - archlinux` stay
  * distinguishable in one list. The settings panel carries the account field whose
  * placeholder and heading follow the connection kind. Both behaviours are
  * asserted here against a minimal fake DOM; the panels only need elements,
@@ -234,7 +236,7 @@ function group(panel: ConnectionList, name: string): FakeElement {
 
 /** @returns the group heading button. */
 function groupToggle(panel: ConnectionList, name: string): FakeElement {
-  const toggle = group(panel, name).children.find((child) => child.getAttribute('data-dsh-desktop-tabs-section-toggle') === name)
+  const toggle = marked(group(panel, name), 'data-dsh-desktop-tabs-section-toggle', name)[0]
   if (toggle === undefined) throw new Error(`missing section toggle ${name}`)
   return toggle
 }
@@ -374,7 +376,8 @@ function configuredRows(): void {
   check(headingText(panel, 'configured') === '已配置 (1/2)', 'configured: filtered heading shows the total')
   check(marked(panel.element as unknown as FakeElement, 'data-dsh-desktop-tabs-ssh-host').length === 2, 'search: the ssh prefix keeps the ssh hosts')
   check(marked(panel.element as unknown as FakeElement, 'data-dsh-desktop-tabs-wsl-host').length === 0, 'search: the ssh prefix filters out the wsl hosts')
-  check(marked(panel.element as unknown as FakeElement, 'data-dsh-desktop-tabs-empty').length === 1, 'search: the emptied wsl group shows its filtered hint')
+  const wslEmptyHints = marked(groupBody(panel, 'wsl-hosts'), 'data-dsh-desktop-tabs-empty')
+  check(wslEmptyHints.length === 1 && wslEmptyHints[0]?.textContent === '没有匹配项', 'search: the emptied wsl group shows its filtered hint')
 
   search(panel, 'wsl')
   const wslRows = marked(panel.element as unknown as FakeElement, 'data-dsh-desktop-tabs-connection')
@@ -424,10 +427,11 @@ function wslHosts(): void {
 
   panel.setWslHosts(WSL_HOSTS)
   search(panel, 'zzz')
-  // With nothing matching, all three groups fall back to the filtered hint.
+  // With nothing matching, every group (the remote group included) falls back to
+  // the filtered hint.
   const filteredHints = marked(panel.element as unknown as FakeElement, 'data-dsh-desktop-tabs-empty')
     .filter((hint) => hint.textContent === '没有匹配项')
-  check(filteredHints.length === 3, 'wsl group: a narrowing search shows the filtered hint, not the empty hint')
+  check(filteredHints.length === 4, 'wsl group: a narrowing search shows the filtered hint, not the empty hint')
 
   panel.dispose()
 }

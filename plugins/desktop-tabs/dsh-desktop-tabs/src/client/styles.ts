@@ -468,6 +468,96 @@ html[data-dsh-desktop-tabs-cover] body { background: var(--dsw-alias-bg-base, #1
   color: var(--dsw-alias-label-secondary);
   background: transparent;
 }
+/* Foldable group heading: the fold toggle, plus the remote group's refresh
+   control. The toggle keeps its own hover/click surface. */
+[data-dsh-desktop-tabs-section-header] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+[data-dsh-desktop-tabs-section-header] [data-dsh-desktop-tabs-section-toggle] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+[data-dsh-desktop-tabs-panel] [data-dsh-desktop-tabs-remote-refresh] {
+  height: 22px;
+  min-width: 22px;
+  padding: 0 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  text-align: center;
+  background: transparent;
+}
+[data-dsh-desktop-tabs-panel] [data-dsh-desktop-tabs-remote-refresh]:hover {
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+}
+/* Remote hosts expand in place: the host row leads, its workspace rows sit
+   indented beneath it. Rows keep their natural height inside the scroll box. */
+[data-dsh-desktop-tabs-section-body] > [data-dsh-desktop-tabs-remote-host-row] {
+  flex: 0 0 auto;
+}
+[data-dsh-desktop-tabs-remote-host-row] {
+  display: flex;
+  flex-direction: column;
+}
+[data-dsh-desktop-tabs-remote-host-row] > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 26px;
+}
+[data-dsh-desktop-tabs-remote-host-arrow] {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+[data-dsh-desktop-tabs-remote-host-name] {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-dsh-desktop-tabs-remote-host-meta] {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+[data-dsh-desktop-tabs-panel] [data-dsh-desktop-tabs-remote-workspace] {
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-height: 26px;
+  margin-left: 14px;
+  padding: 4px 8px;
+  text-align: left;
+  white-space: normal;
+}
+[data-dsh-desktop-tabs-remote-workspace-title] {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-dsh-desktop-tabs-remote-workspace-path] {
+  max-width: 100%;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-dsh-desktop-tabs-remote-hint] {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 2px 8px 2px 14px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
 `
 
 /** Install the owned stylesheet; idempotent under re-evaluation. */

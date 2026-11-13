@@ -29,9 +29,11 @@
  * exactly like the shared pipeline does.
  */
 
+import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { installPlugin } from '../../scripts/plugin-install.mjs'
+import { ROOT, WEB_HOME } from '../../scripts/toolchain.mjs'
 
 /** This plugin's directory — the wrapper that owns the plugin package. */
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -40,3 +42,40 @@ installPlugin({
   id: 'desktop-tabs',
   packageDir: join(HERE, 'dsh-desktop-tabs'),
 })
+
+// ds-harness-remote's dist imports @deepseek-ai/dsh-client-connection, but the
+// profile installer does not hoist that optional peer. Link the runtime copy so
+// the parent plugin (and every generated remote-tab child profile) can load it
+// before the child-profile generator runs.
+ensureDsHarnessRemotePeer(
+  process.env.DSH_HOME ?? WEB_HOME,
+  (process.env.DSH_PLUGIN_PROFILE ?? 'web').trim() || 'web',
+)
+
+/**
+ * Link the runtime's @deepseek-ai/dsh-client-connection into one profile.
+ * @param {string} dshHome - harness home holding the profiles.
+ * @param {string} profile - profile name inside `dshHome/profiles`.
+ */
+function ensureDsHarnessRemotePeer(dshHome, profile) {
+  const profileDir = join(dshHome, 'profiles', profile)
+  const target = join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-client-connection')
+  if (existsSync(target)) return
+  const runtimeRoot = dirname(dshHome)
+  const source = [
+    join(runtimeRoot, '.harness', 'node_modules', '@deepseek-ai', 'dsh-client-connection'),
+    join(runtimeRoot, '.desktop', 'source', 'node_modules', '@deepseek-ai', 'dsh-client-connection'),
+    join(ROOT, 'deepseek-harness', 'node_modules', '@deepseek-ai', 'dsh-client-connection'),
+  ].find((candidate) => existsSync(candidate))
+  if (source === undefined) {
+    console.warn('  @deepseek-ai/dsh-client-connection is unavailable in the runtime and source trees; ds-harness-remote may fail to load until it is linked manually')
+    return
+  }
+  try {
+    mkdirSync(dirname(target), { recursive: true })
+    symlinkSync(source, target, process.platform === 'win32' ? 'junction' : 'dir')
+    console.log(`  linked @deepseek-ai/dsh-client-connection into ${profileDir}`)
+  } catch (error) {
+    console.warn(`  could not link @deepseek-ai/dsh-client-connection into ${profileDir}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}

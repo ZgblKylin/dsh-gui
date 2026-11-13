@@ -1,0 +1,6 @@
+# dsh-remote-tab-boot bundle patch: registers the remote-tab child bootstrap entry.
+# Applied only in the child profile generated for a remote desktop tab, which
+# lists dsh-remote-tab-boot in dsh.profile.bundles.
+- insert:
+    - id: remote-tab-boot
+      name: dsh-remote-tab-boot

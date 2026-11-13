@@ -30,7 +30,7 @@
   "scripts": {
     "build": "tsdown",
     "watch": "tsdown --watch",
-    "test": "node tests/remote.test.mjs && node tests/wsl.test.mjs && node tests/panel.spec.ts && node tests/shared-ui.spec.ts && node tests/view-retention.spec.ts && node tests/window-title.spec.ts && node tests/clipboard-relay.spec.ts && node tests/notify-relay.spec.ts && node tests/image-menu.spec.ts"
+    "test": "node tests/remote.test.mjs && node tests/wsl.test.mjs && node tests/panel.spec.ts && node tests/remote-tab-client.spec.ts && node tests/remote-tab-profile.spec.ts && node tests/remote-tab-identity.spec.ts && node tests/remote-tab-supervisor.spec.ts && node tests/remote-tab-routes.spec.ts && node tests/remote-tab-targets.spec.ts && node tests/shared-ui.spec.ts && node tests/view-retention.spec.ts && node tests/window-title.spec.ts && node tests/clipboard-relay.spec.ts && node tests/notify-relay.spec.ts && node tests/image-menu.spec.ts"
   },
   "license": "Unlicense",
   "peerDependencies": {

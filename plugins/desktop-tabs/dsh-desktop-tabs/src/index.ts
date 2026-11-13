@@ -25,12 +25,22 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 
 import { registerRemoteConnections } from './remote/index.ts'
+import {
+  createRemoteTabSupervisor,
+  ensureRemoteTabIdentity,
+  registerRemoteTabRoutes,
+  resolveDesktopContext,
+  revokeRemoteTabIdentity,
+} from './remote-tab/index.ts'
 import { readDesktopTabs, resolveDshHome, TabsValidationError, tabsFilePath, writeDesktopTabs } from './targets.ts'
 
 // The remote module's public surface (connection manager, routes, and its
 // command builders) is part of the built host entry, so the package test and
-// composition code can import it from `lib/index.js`.
+// composition code can import it from `lib/index.js`. The remote-tab half and
+// the tab-config helpers are re-exported for the same reason.
 export * from './remote/index.ts'
+export * from './remote-tab/index.ts'
+export * from './targets.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -71,6 +81,7 @@ export function apply(ctx: Context): void {
   // one once per host boot instead of once per client request.
   const reported = new Set<string>()
   ctx.effect(() => {
+    const readTabs = (): ReturnType<typeof readDesktopTabs> => readDesktopTabs(dshHome)
     const disposeTabs = ctx.webServer.register({
       kind: 'exact',
       path: TABS_PATH,
@@ -87,6 +98,42 @@ export function apply(ctx: Context): void {
         })
       },
     })
+    // One supervisor per host boot owns every remote-tab child process. The
+    // parent profile/runtime facts come from the desktop host's argv; outside
+    // the desktop the supervisor still constructs, and `up` explains why it
+    // cannot start a child.
+    const desktopContext = resolveDesktopContext(process.argv, process.env)
+    const supervisor = createRemoteTabSupervisor({
+      dshHome,
+      ...(desktopContext.parentProfileDir === undefined ? {} : { parentProfileDir: desktopContext.parentProfileDir }),
+      ...(desktopContext.runtimeDir === undefined ? {} : { runtimeDir: desktopContext.runtimeDir }),
+      ...(desktopContext.cliPath === undefined ? {} : { cliPath: desktopContext.cliPath }),
+      ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),
+      resolveIdentity: async ({ childHome, deviceName }) => {
+        const identity = await ensureRemoteTabIdentity({
+          client: ctx.get('dshRemoteClient', false),
+          host: ctx.get('dshRemote', false),
+          childHome,
+          deviceName,
+          ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),
+        })
+        return { serverUrl: identity.serverUrl, deviceId: identity.deviceId }
+      },
+      revokeIdentity: async ({ childHome }) => {
+        await revokeRemoteTabIdentity({
+          client: ctx.get('dshRemoteClient', false),
+          childHome,
+          ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),
+        })
+      },
+    })
+    const remoteTabs = registerRemoteTabRoutes({
+      readTabs,
+      getClient: () => ctx.get('dshRemoteClient', false),
+      supervisor,
+      webServer: ctx.webServer,
+      ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),
+    })
     // The manager resolves a tab's connection settings by id. Hand it the same
     // `{ tabs, connections }` rows this half serves the client: the file's tab
     // rows alone carry neither `workdir` nor `startCommand`, which only the
@@ -97,9 +144,11 @@ export function apply(ctx: Context): void {
         const stored = readDesktopTabs(dshHome)
         return { tabs: stored.tabs, connections: stored.connections }
       },
+      remote: remoteTabs.bridge,
     })
     return () => {
       disposeConnections()
+      remoteTabs.dispose()
       disposeTabs()
     }
   }, 'dsh-desktop-tabs: tab routes')

@@ -10,10 +10,12 @@
  *     { "id": "dev", "title": "测试机", "url": "http://127.0.0.1:19999/?token=<t>" },
  *     { "id": "dev2", "title": "测试机 2", "port": 19999, "tokenFile": "C:/Users/me/.dsh-gui-remote.token" },
  *     { "id": "wsl", "title": "WSL", "ssh": { "host": "WSL" } },
- *     { "id": "wsl-arch", "title": "archlinux", "wsl": { "distro": "archlinux" } }
+ *     { "id": "wsl-arch", "title": "archlinux", "wsl": { "distro": "archlinux" } },
+ *     { "id": "remote-1", "title": "host · workspace", "remote": { "targetDeviceId": "…", "workspacePath": "/src/app" } }
  *   ],
  *   "connections": [
- *     { "id": "wsl-arch", "title": "archlinux", "type": "wsl", "wsl": { "distro": "archlinux" }, "account": "chongfei" }
+ *     { "id": "wsl-arch", "title": "archlinux", "type": "wsl", "wsl": { "distro": "archlinux" }, "account": "chongfei" },
+ *     { "id": "remote-1", "title": "host · workspace", "type": "remote", "remote": { "targetDeviceId": "…", "workspacePath": "/src/app" } }
  *   ]
  * }
  * ```
@@ -24,12 +26,17 @@
  * `http://127.0.0.1:<port>/?token=<token>`. A tab carrying `ssh` or `wsl` is a
  * remote whose address the remote half resolves on activation, so it needs no
  * `url` here; those objects are opaque to this module and round-trip verbatim. A
- * tab with none of the four is the local view. Exactly one local tab is always
- * present and always first.
+ * tab carrying `remote` is a remote tab owned by `./remote-tab/`: its URL is
+ * runtime-only and never persisted, so the row is served without one and the
+ * client asks the connection routes for the child backend. A tab with none of
+ * those five is the local view. Exactly one local tab is always present and
+ * always first.
  *
- * A saved connection additionally carries `type` (`ssh` or `wsl`) and an
- * optional flat `account` login name; `wsl` and `account` are validated
- * (object / non-empty string) and round-tripped unread.
+ * A saved connection additionally carries `type` (`ssh`, `wsl`, or `remote`) and
+ * an optional flat `account` login name; `wsl` and `account` are validated
+ * (object / non-empty string) and round-tripped unread. A `remote` descriptor is
+ * validated here (non-empty target device and workspace, harness backend only)
+ * and handed to `./remote-tab/` unchanged.
  *
  * A `port` tab whose token file is missing, empty, or malformed is dropped — a
  * remote that has not published its token yet must not turn into a broken tab.
@@ -44,6 +51,8 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 
+import type { RemoteConnectionSpec } from './remote-tab/types.ts'
+
 /** One tab the client half can render; `url` is absent for the local view and on an unresolved remote tab. */
 export interface DesktopTab {
   readonly id: string
@@ -53,6 +62,8 @@ export interface DesktopTab {
   readonly ssh?: unknown
   /** WSL connection description owned by `./remote/index.ts`; round-tripped unread. */
   readonly wsl?: unknown
+  /** Remote-tab target owned by `./remote-tab/`; the child backend resolves its URL at open time. */
+  readonly remote?: RemoteConnectionSpec
 }
 
 /**
@@ -63,12 +74,14 @@ export interface DesktopTab {
 export interface DesktopConnection {
   readonly id: string
   readonly title: string
-  /** Connection kind; `ssh` and `wsl` are the kinds implemented today. */
+  /** Connection kind; `ssh` and `wsl` are the kinds implemented today, `remote` is a remote tab. */
   readonly type: string
   /** SSH destination description owned by `./remote/index.ts`; round-tripped unread. */
   readonly ssh?: unknown
   /** WSL destination description owned by `./remote/index.ts`; round-tripped unread. */
   readonly wsl?: unknown
+  /** Remote-tab target owned by `./remote-tab/`; the child backend resolves its URL at open time. */
+  readonly remote?: RemoteConnectionSpec
   /** Explicit remote login name (`ssh -l` / `wsl.exe -u`); absent means the default. */
   readonly account?: string
   /** Remote working directory; absent means the remote `$HOME`. */
@@ -94,6 +107,7 @@ interface TabRow {
   url?: string
   ssh?: unknown
   wsl?: unknown
+  remote?: RemoteConnectionSpec
   port?: number
   tokenFile?: string
 }
@@ -105,6 +119,7 @@ interface ConnectionRow {
   type: string
   ssh?: unknown
   wsl?: unknown
+  remote?: RemoteConnectionSpec
   account?: string
   workdir?: string
   startCommand?: string
@@ -127,6 +142,15 @@ export const MAX_TABS = 64
 
 /** Upper bound on one submitted saved-connection list. */
 export const MAX_CONNECTIONS = 64
+
+/** Upper bound on a remote target device id. */
+const MAX_TARGET_DEVICE_ID = 200
+
+/** Upper bound on a remote target display name. */
+const MAX_TARGET_NAME = 200
+
+/** Upper bound on a remote workspace path. */
+const MAX_WORKSPACE_PATH = 4096
 
 /**
  * Resolve the Harness home directory: an explicit `DSH_HOME` wins, otherwise
@@ -287,6 +311,11 @@ function readRow(raw: unknown, index: number, problem: (message: string) => void
     }
     row.wsl = raw.wsl
   }
+  if (raw.remote !== undefined) {
+    const remote = readRemoteSpec(raw.remote, `tab '${id}'`, problem)
+    if (remote === undefined) return undefined
+    row.remote = remote
+  }
   if (raw.port !== undefined && raw.port !== null) {
     if (typeof raw.port !== 'number' || !Number.isInteger(raw.port) || raw.port <= 0 || raw.port > 65535) {
       problem(`tab '${id}' has an invalid "port"`)
@@ -332,10 +361,21 @@ function readConnection(raw: unknown, index: number, problem: (message: string) 
     problem(`connections[${index}] has no non-empty "id"`)
     return undefined
   }
+  let remote: RemoteConnectionSpec | undefined
+  if (raw.remote !== undefined) {
+    remote = readRemoteSpec(raw.remote, `connection '${id}'`, problem)
+    if (remote === undefined) return undefined
+  }
+  const declaredType = typeof raw.type === 'string' && raw.type.trim() !== '' ? raw.type.trim() : undefined
+  if (declaredType === 'remote' && remote === undefined) {
+    problem(`connection '${id}' has type "remote" but no "remote" descriptor`)
+    return undefined
+  }
   const row: ConnectionRow = {
     id,
     title: typeof raw.title === 'string' && raw.title.trim() !== '' ? raw.title.trim() : id,
-    type: typeof raw.type === 'string' && raw.type.trim() !== '' ? raw.type.trim() : 'ssh',
+    type: declaredType ?? (remote === undefined ? 'ssh' : 'remote'),
+    ...(remote === undefined ? {} : { remote }),
   }
   if (raw.ssh !== undefined) {
     if (!isRecord(raw.ssh)) {
@@ -378,6 +418,57 @@ function readConnection(raw: unknown, index: number, problem: (message: string) 
 }
 
 /**
+ * Validate one `remote` descriptor and copy it into its stored form.
+ *
+ * The descriptor belongs to `./remote-tab/`; this module only guards the fields
+ * that make it addressable (a non-empty target device and workspace path, a
+ * bounded length) and the one backend this release implements. Everything else
+ * is round-tripped untouched.
+ * @param raw - the submitted `remote` value.
+ * @param label - row label used in the problem text.
+ * @param problem - reports a problem; may throw (write) or collect (read).
+ * @returns the normalized descriptor, or undefined when it was reported.
+ */
+function readRemoteSpec(
+  raw: unknown,
+  label: string,
+  problem: (message: string) => void,
+): RemoteConnectionSpec | undefined {
+  if (!isRecord(raw)) {
+    problem(`${label} has a non-object "remote"`)
+    return undefined
+  }
+  const targetDeviceId = typeof raw.targetDeviceId === 'string' ? raw.targetDeviceId.trim() : ''
+  if (targetDeviceId === '' || targetDeviceId.length > MAX_TARGET_DEVICE_ID) {
+    problem(`${label} has an invalid "remote.targetDeviceId" (a non-empty string of at most ${MAX_TARGET_DEVICE_ID} characters is required)`)
+    return undefined
+  }
+  const workspacePath = typeof raw.workspacePath === 'string' ? raw.workspacePath.trim() : ''
+  if (workspacePath === '' || workspacePath.length > MAX_WORKSPACE_PATH) {
+    problem(`${label} has an invalid "remote.workspacePath" (a non-empty path of at most ${MAX_WORKSPACE_PATH} characters is required)`)
+    return undefined
+  }
+  const backend = raw.backend === undefined || raw.backend === null
+    ? undefined
+    : typeof raw.backend === 'string' ? raw.backend.trim() : ''
+  if (backend !== undefined && backend !== 'harness') {
+    problem(`${label} has an unsupported "remote.backend" (only "harness" is implemented)`)
+    return undefined
+  }
+  const targetName = typeof raw.targetName === 'string' ? raw.targetName.trim() : ''
+  if (targetName.length > MAX_TARGET_NAME) {
+    problem(`${label} has an over-long "remote.targetName" (at most ${MAX_TARGET_NAME} characters)`)
+    return undefined
+  }
+  return {
+    targetDeviceId,
+    workspacePath,
+    ...(targetName === '' ? {} : { targetName }),
+    ...(backend === undefined ? {} : { backend }),
+  }
+}
+
+/**
  * Order the submitted rows for storage: the local row first, then the remote
  * rows in submission order. Any further row with no address source is dropped —
  * only one local view can be shown. A `port` tab posted back with its resolved
@@ -389,19 +480,35 @@ function orderRows(rows: readonly TabRow[], previous: readonly TabRow[]): TabRow
   const local = rows.find((row) => isLocalRow(row)) ?? { ...LOCAL_ROW }
   const remotes = rows
     .filter((row) => !isLocalRow(row))
-    .map((row) => restoreDeferred(row, prior.get(row.id)))
+    .map((row) => storeTabRow(restoreDeferred(row, prior.get(row.id))))
   return [local, ...remotes]
 }
 
-/** A row with no address source at all is the local view. */
+/**
+ * The stored form of one remote row.
+ *
+ * A remote tab's URL is runtime-only: the child backend mints it at open time
+ * and its token must never reach the config file. A submitted row that carries a
+ * resolved `url` keeps only its id, title, and `remote` descriptor.
+ */
+function storeTabRow(row: TabRow): TabRow {
+  if (row.remote === undefined) return row
+  return { id: row.id, title: row.title, remote: row.remote }
+}
+
+/** A row with no address source at all is the local view; a `remote` row is not. */
 function isLocalRow(row: TabRow): boolean {
-  return row.url === undefined && row.port === undefined && row.ssh === undefined && row.wsl === undefined
+  return row.url === undefined
+    && row.port === undefined
+    && row.ssh === undefined
+    && row.wsl === undefined
+    && row.remote === undefined
 }
 
 /** Restore a `port` tab's stored form when the submitted row carries its resolved URL. */
 function restoreDeferred(row: TabRow, previous: TabRow | undefined): TabRow {
   if (previous === undefined || previous.port === undefined || row.url === undefined) return row
-  if (row.ssh !== undefined || row.wsl !== undefined) return row
+  if (row.ssh !== undefined || row.wsl !== undefined || row.remote !== undefined) return row
   const restored: TabRow = { id: row.id, title: row.title, port: previous.port }
   if (previous.tokenFile !== undefined) restored.tokenFile = previous.tokenFile
   return restored
@@ -425,11 +532,13 @@ function resolveRows(rows: readonly TabRow[], home: string): { tabs: DesktopTab[
       }
       url = `http://127.0.0.1:${row.port}/?token=${encodeURIComponent(token)}`
     }
-    if (url === undefined && row.ssh === undefined && row.wsl === undefined) {
+    if (url === undefined && row.ssh === undefined && row.wsl === undefined && row.remote === undefined) {
       if (local === undefined) local = tabOf(row, undefined)
       else warnings.push('more than one tab has no resolvable url — only the first is kept as the local view')
       continue
     }
+    // A `remote` tab travels without a URL: the child backend mints one at open
+    // time through the connection routes, so it is a tab even with no address yet.
     remotes.push(tabOf(row, url))
   }
   return { tabs: [local ?? LOCAL_TAB, ...remotes], warnings }
@@ -443,6 +552,7 @@ function tabOf(row: TabRow, url: string | undefined): DesktopTab {
     ...(url === undefined ? {} : { url }),
     ...(row.ssh === undefined ? {} : { ssh: row.ssh }),
     ...(row.wsl === undefined ? {} : { wsl: row.wsl }),
+    ...(row.remote === undefined ? {} : { remote: row.remote }),
   }
 }
 

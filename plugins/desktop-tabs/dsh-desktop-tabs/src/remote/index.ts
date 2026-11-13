@@ -9,11 +9,17 @@
  * `plugins/remote/dsh-remote`; `./session.ts` implements the lifecycle and
  * `./wsl.ts` the `wsl.exe` transport.
  *
+ * A tab carrying a `remote` descriptor is served by `../remote-tab/` instead:
+ * the caller passes that module's bridge as `options.remote`, its statuses are
+ * merged into `GET /connections`, and `up`/`down`/`forget` are dispatched to it
+ * so a saved remote connection is never mistaken for a configured SSH/WSL tab.
+ *
  * `registerRemoteConnections` exposes the manager over these loopback-only routes:
  *
  * - `GET  /desktop-tabs/api/connections` — state and connection log of every remote tab
  * - `POST /desktop-tabs/api/connections/<id>/up` — connect, answer `{ url }`
  * - `POST /desktop-tabs/api/connections/<id>/down` — disconnect the local side only
+ * - `POST /desktop-tabs/api/connections/<id>/forget` — stop the child, revoke it, remove its home
  * - `GET  /desktop-tabs/api/ssh-hosts` — importable `~/.ssh/config` destinations
  * - `GET  /desktop-tabs/api/wsl-hosts` — installed WSL distributions
  *
@@ -26,9 +32,11 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
+import type { RemoteTabBridge } from '../remote-tab/types.ts'
 import { readConfiguredRemoteTabs } from './config.ts'
 import { readSshHosts } from './ssh-config.ts'
 import { RemoteConnectionManager } from './session.ts'
+import { redactToken } from './text.ts'
 import { readWslHosts, wslAvailable } from './wsl.ts'
 import type {
   RemoteConnections,
@@ -116,7 +124,7 @@ export const SSH_HOSTS_PATH = '/desktop-tabs/api/ssh-hosts'
 export const WSL_HOSTS_PATH = '/desktop-tabs/api/wsl-hosts'
 
 /** `/<tabId>/<action>` below the connection prefix. */
-const ACTION_PATTERN = /^\/([^/]+)\/(up|down)$/
+const ACTION_PATTERN = /^\/([^/]+)\/(up|down|forget)$/
 
 /**
  * Create the in-process connection manager.
@@ -136,13 +144,15 @@ export function createRemoteConnections(options: RemoteConnectionsOptions): Remo
  * @param webServer - web server owning the routes.
  * @param options - harness home plus, optionally, the host half's own target rows
  * (a plain tab array or its `{ tabs, connections }` response); without it the rows
- * are read from `<dshHome>/gui/desktop-tabs.json`.
+ * are read from `<dshHome>/gui/desktop-tabs.json`. `remote` is the remote-tab
+ * bridge: its statuses are merged into the status route, and `up`/`down`/`forget`
+ * for an id it owns never reach the SSH/WSL manager.
  * @returns a disposer removing the routes and stopping every connection.
  */
 export function registerRemoteConnections(
   ctx: unknown,
   webServer: RemoteWebServer,
-  options: { dshHome: string; tabs?: () => Promise<RemoteTargetSource> },
+  options: { dshHome: string; tabs?: () => Promise<RemoteTargetSource>; remote?: RemoteTabBridge },
 ): () => void {
   const logger = loggerOf(ctx)
   if (webServer.host !== undefined && webServer.host !== '127.0.0.1') {
@@ -158,12 +168,12 @@ export function registerRemoteConnections(
     webServer.register({
       kind: 'exact',
       path: CONNECTIONS_ROUTE_PREFIX,
-      handler: (req, res) => { respondStatus(req, res, connections) },
+      handler: (req, res) => { respondStatus(req, res, connections, options.remote) },
     }),
     webServer.register({
       kind: 'prefix',
       path: CONNECTIONS_ROUTE_PREFIX,
-      handler: async (req, res) => { await respondAction(req, res, connections, logger) },
+      handler: async (req, res) => { await respondAction(req, res, connections, options.remote, logger) },
     }),
     webServer.register({
       kind: 'exact',
@@ -179,11 +189,17 @@ export function registerRemoteConnections(
   return () => {
     for (const dispose of routes.reverse()) dispose()
     connections.dispose()
+    options.remote?.dispose()
   }
 }
 
 /** Answer `GET /desktop-tabs/api/connections`. */
-function respondStatus(req: IncomingMessage, res: ServerResponse, connections: RemoteConnections): void {
+function respondStatus(
+  req: IncomingMessage,
+  res: ServerResponse,
+  connections: RemoteConnections,
+  remote: RemoteTabBridge | undefined,
+): void {
   const head = req.method === 'HEAD'
   if (req.method !== 'GET' && !head) {
     res.writeHead(405, { allow: 'GET, HEAD' })
@@ -194,14 +210,19 @@ function respondStatus(req: IncomingMessage, res: ServerResponse, connections: R
     writeJson(res, 403, { error: 'untrusted origin' }, head)
     return
   }
-  writeJson(res, 200, { connections: connections.status() }, head)
+  // One merged list: SSH/WSL rows first, then remote-tab rows (which include an
+  // idle row for every configured remote connection).
+  const rows = new Map(connections.status().map((row) => [row.id, row]))
+  for (const row of remote?.status() ?? []) rows.set(row.id, row)
+  writeJson(res, 200, { connections: [...rows.values()] }, head)
 }
 
-/** Answer `POST /desktop-tabs/api/connections/<id>/up|down`. */
+/** Answer `POST /desktop-tabs/api/connections/<id>/up|down|forget`. */
 async function respondAction(
   req: IncomingMessage,
   res: ServerResponse,
   connections: RemoteConnections,
+  remote: RemoteTabBridge | undefined,
   logger: RemoteLogger | undefined,
 ): Promise<void> {
   if (req.method !== 'POST') {
@@ -228,18 +249,40 @@ async function respondAction(
   }
   // The action body carries nothing; the request is drained so the socket can close.
   req.resume()
-  if (match[2] === 'up') {
+  // A saved remote connection is dispatched to the remote-tab bridge; only the
+  // remaining ids belong to the SSH/WSL manager.
+  const remoteTab = remote?.connectionFor(id)
+  const action = match[2]
+  if (action === 'forget') {
+    if (remote === undefined || remoteTab === undefined) {
+      writeJson(res, 404, { error: `'${id}' is not a saved remote connection` }, false)
+      return
+    }
     try {
-      const { url } = await connections.up(id)
+      await remote.forget(id)
+      writeJson(res, 200, { id, ok: true }, false)
+    } catch (error: unknown) {
+      const reason = redactToken(message(error))
+      logger?.warn(`[dsh-desktop-tabs] remote-tab '${id}' failed to forget: ${reason}`)
+      writeJson(res, 502, { id, error: reason }, false)
+    }
+    return
+  }
+  if (action === 'up') {
+    try {
+      const { url } = remoteTab === undefined || remote === undefined
+        ? await connections.up(id)
+        : await remote.up(remoteTab)
       writeJson(res, 200, { id, url }, false)
     } catch (error) {
-      const reason = message(error)
+      const reason = redactToken(message(error))
       logger?.warn(`[dsh-desktop-tabs] remote '${id}' failed to connect: ${reason}`)
       writeJson(res, 502, { id, error: reason }, false)
     }
     return
   }
-  await connections.down(id)
+  if (remoteTab !== undefined && remote !== undefined) await remote.down(id)
+  else await connections.down(id)
   writeJson(res, 200, { id, ok: true }, false)
 }
 

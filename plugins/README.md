@@ -206,12 +206,26 @@ npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本�
   remote-connection backend: it owns `<DSH_HOME>/gui/desktop-tabs.json` and the
   `/desktop-tabs/api/*` routes (saved connections, `up`/`down`, `~/.ssh/config`
   imports), starting or reusing a remote `dsh web` in a `dsh-gui` tmux session
-  and forwarding its loopback port. Its browser half mounts the desktop-shell
-  caption tab strip and is inert in an ordinary `dsh web` page; the Tauri shell
-  copies the two shared connection-dialog modules
-  (`src/client/ui/connection-list.js`, `connection-settings.js`) at build time
-  and renders them in its own SSH dialog. It declares `dsh.bundle.patch` and
-  mounts through its own bundle layer. See `desktop-tabs/dsh-desktop-tabs/README.md`.
+  and forwarding its loopback port. It also carries the **remote-host tab**
+  supervisor: one `remote` saved connection per ds-harness-remote host/workspace
+  starts an isolated child `dsh web` under `<DSH_HOME>/gui/remote-tabs/…` (one
+  owned client device, a generated `remote-tab` profile, `hostControl` off) and
+  loads that child URL in a tab; `GET /desktop-tabs/api/remote-hosts` and
+  `GET /desktop-tabs/api/remote-workspaces` feed the `+` panel's fourth group.
+  Its browser half mounts the desktop-shell caption tab strip and is inert in an
+  ordinary `dsh web` page; the Tauri shell copies the two shared
+  connection-dialog modules (`src/client/ui/connection-list.js`,
+  `connection-settings.js`) at build time and renders them in its own SSH
+  dialog. It declares `dsh.bundle.patch` and mounts through its own bundle
+  layer. See `desktop-tabs/dsh-desktop-tabs/README.md`.
+- `remote-tab-boot` — in-tree child bootstrap at `remote-tab-boot/`, installed
+  only into the `desktop` profile and present in the generated child
+  `remote-tab` profile's `node_modules` through the parent-profile junction. It
+  is inert without `DSH_REMOTE_TAB_TARGET`; with a target it waits for
+  `dshRemoteClient`, calls `openRemoteWorkspace(deviceId, path)` with a 60 s
+  timeout, prints the `[remote-tab-boot] ready …` sentinel, and throws on
+  failure. It declares `dsh.bundle.patch` and mounts through its own bundle
+  layer. See `remote-tab-boot/dsh-remote-tab-boot/README.md`.
 - `better-sidebar` — npm wrapper whose `install.mjs` installs two upstream
   packages (`omdsh-dev/DSH-better-sidebar` and `ChenRuoT/dsh-sidebar-qa`) in
   order — `dsh-better-sidebar@0.30.1` FIRST (the 0.2.2 线适配版, 14 条

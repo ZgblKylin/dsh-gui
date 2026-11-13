@@ -1,0 +1,12 @@
+# pnpm settings for this package's build-time dev install.
+#
+# The build install only needs tsdown, typescript and @types/node; nothing at
+# runtime resolves through this tree. `nodeLinker: hoisted` keeps the
+# dependency tree as real directories instead of the isolated linker's
+# Windows junctions, which Node's ESM resolver cannot walk through (imports
+# from a junctioned package fall back to the lexical path and miss its
+# sibling dependencies).
+packages:
+  - .
+
+nodeLinker: hoisted
