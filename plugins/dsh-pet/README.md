@@ -18,9 +18,9 @@ plugins/dsh-pet/
 
 ## 兼容性状态
 
-`dsh-pet` 0.4.6 在本仓库 pin 的 harness（dsh `0.2.2-rc.1`）下**可正常安装运行**：
+`dsh-pet` 0.4.6 在本仓库 pin 的 harness（dsh `0.2.2-rc.3`）下**可正常安装运行**：
 
-- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.2-rc.1`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；包内 `dsh.compatibility.dshReleases` 已把 `0.2.2-rc.1` 记为 compatible；
+- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.2-rc.3`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；包内 `dsh.compatibility.dshReleases` 记录到 `0.2.2-rc.1`（仅作「验证于」展示，不参与准入判定）；
 - host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm', 'commands', 'connection']`：`agentDefaultModel` 服务由 base bundle 的 `@deepseek-ai/dsh-agent-default-model` 提供，`connection` 供桌面模式的「打开 AI 设置」取已鉴权站点 URL，其余服务随 base 与 web-app bundle 挂载，host 半可正常激活；
 - 浏览器半在 `src/client/app.ts` 声明本地 inject
   `['slots', 'locale', 'connection', 'remote', 'remote.commands', 'commandUi']`：

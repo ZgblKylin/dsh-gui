@@ -23,11 +23,11 @@
  * so the pins are per package — each pin tracks its own package's published
  * release.
  *
- * The harness dsh-v0.2.2-rc.1 admission gate reads a package's `engines.dsh`
+ * The harness dsh-v0.2.2-rc.3 admission gate reads a package's `engines.dsh`
  * first and only falls back to its dsh peer ranges when that field is absent.
  * The three packages declare no `engines.dsh`; their ranges are
  * `>=0.1.7-rc.1` for the manager and `>=0.2.2-0 <0.2.3-0` for both skins — all
- * admit 0.2.2-rc.1, and the skins record their DSH compatibility in `skin.json`
+ * admit 0.2.2-rc.3, and the skins record their DSH compatibility in `skin.json`
  * (shown by the manager only, never read by the gate), so no exemption is
  * needed.
  *

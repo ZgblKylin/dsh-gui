@@ -3,8 +3,8 @@
  * install.mjs — install the `better-sidebar` plugin group into the web profile.
  *
  * DSH-better-sidebar 从 npm 安装：v0.30.1 的 14 条 @deepseek-ai/dsh-* peerDeps
- * 全部指向 ^0.2.2-rc.1，与本工程 pinned 的 dsh-v0.2.2-rc.1 harness 匹配——准入
- * 闸门对没有 engines.dsh 的包逐条比对 dsh peer 区间，0.2.2-rc.1 落在
+ * 全部指向 ^0.2.2-rc.1，与本工程 pinned 的 dsh-v0.2.2-rc.3 harness 匹配——准入
+ * 闸门对没有 engines.dsh 的包逐条比对 dsh peer 区间，0.2.2-rc.3 落在
  * ^0.2.2-rc.1（>=0.2.2-rc.1 <0.3.0-0）内。上游自 v0.21.1 起把右列交由 DSH 原生
  * 右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与
  * `ctx.betterSidebar` 服务。固定精确版本而非 @latest，是因为 pinned pnpm 11.7
@@ -12,8 +12,8 @@
  * 到更旧版本；精确 pin 由 pnpm 自动写入 profile 的 minimumReleaseAgeExclude，安装
  * 结果确定。
  *
- * 与 harness 的硬依赖：0.26.0 的 host inject 仍含 `webRuntime`，而 rc.2 已移除该
- * 服务，旧包在 rc.2 上会因依赖缺失整层 pending；0.28.x 改用 `connection` 服务与
+ * 与 harness 的硬依赖：0.26.0 的 host inject 仍含 `webRuntime`，而该服务已在 0.2.1-alpha.1
+ * 移除，旧包在 0.2.2 线上会因依赖缺失整层 pending；0.28.x 改用 `connection` 服务与
  * `ctx.connection.requestRejection`，由官方 web-app bundle 的 `ui-connection` 行提供。
  * 因此本 pin 必须与 harness 同批更换。
  *
@@ -34,7 +34,7 @@
  * 规范化，修复 LAN / `--trusted-host` 访问 `/sidebarqa/api` 恒 403 的问题。
  * client 半按 `assistantStream` 逐段渲染回答，失败或中断的轮次显示
  * 「本轮回答失败：<原因>」。manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖
- * pinned harness 0.2.2-rc.1，peer 与 `dsh.client.inject` 均与 1.2.1 一致。
+ * pinned harness 0.2.2-rc.3，peer 与 `dsh.client.inject` 均与 1.2.1 一致。
  *
  * 已知限制（上游 1.2.2 仍未适配）：`src/client/session-wire.ts` 的
  * `ctx.remote.session.follow(...)` 没有传 `activate: true`，而 harness 0.2.2 起
@@ -64,7 +64,7 @@ installNpmPlugin({
 // 1.2.1 起信任围栏读 `webStartup`（按 `webServer.host` 与 bind IP 规范化），修复
 // LAN / `--trusted-host` 访问 `/sidebarqa/api` 恒 403 的问题；client 半按
 // `assistantStream` 逐段渲染回答，失败或中断的轮次显示原因。manifest 的
-// `engines.dsh >=0.1.7-alpha.1` 覆盖 pinned harness 0.2.2-rc.1，准入闸门按
+// `engines.dsh >=0.1.7-alpha.1` 覆盖 pinned harness 0.2.2-rc.3，准入闸门按
 // engines.dsh 判定放行。
 installNpmPlugin({
   id: 'sidebar-qa',

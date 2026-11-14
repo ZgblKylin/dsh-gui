@@ -4,9 +4,9 @@ dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在
 管理。installer 平铺，没有二级子目录；`install.mjs` 是流水线入口，按顺序加载目录里的
 各插件 installer。`skills/` 子目录存放 WSL 专用 skill 模板，由 `wsl-workarounds.mjs`
 安装。本 wrapper 只安装 Browser Use（Playwright MCP）与
-Computer Use（Cua Driver native）两组包；Agent Teams 与 Auto review 是随 dsh
-安装提供的官方可选 bundle，由插件页开关直接管理，本 wrapper 既不安装它们，也不
-派生任何 preset。
+Computer Use（Cua Driver native）两组包；Agent Teams 已内置在 web-app 组合中（旧的
+可选 bundle 已退役），Auto review 仍是随 dsh 安装提供的官方可选 bundle，由插件页
+开关直接管理；本 wrapper 两者都不安装，也不派生任何 preset。
 
 | 文件 | 插件 | 说明 |
 | --- | --- | --- |
@@ -26,17 +26,15 @@ WSL 下 browser-use 与 computer-use 各有一处环境限制：browser-use 无�
 
 一次性安装 skill `wsl-xvfb-service` 不复制到 `<DSH_HOME>/skills/`：它检测真实环境（二进制路径、可用显示编号、分辨率、已有 service）后生成 Xvfb 与 openbox 的 systemd user service，只需执行一次。虚拟桌面装好之后，computer-use 的日常说明由 `wsl-computer-use` 提供。
 
-Agent Teams 与 Auto review 是随 dsh 安装提供的官方可选 bundle（`@deepseek-ai/dsh-experimental-agent-team-profile`、`@deepseek-ai/dsh-experimental-auto-review`，见 `deepseek-harness/packages/boot/app-boot/src/profile.ts` 的 `OPTIONAL_BUNDLES`）：插件页（插件 → 智能体团队 / 自动授权审查）的开关把它们写入 profile 的 `dsh.profile.bundles`，本 wrapper 不安装它们，也不向 patch 层写入任何 preset 声明。**Browser Use 与 Computer Use 的包都不声明 `dsh.bundle.patch`**，是普通 npm 依赖，由 `browser-use.mjs` / `computer-use.mjs` 通过共享流水线的显式 `mount` 选项写入 insert 行（Browser Use 的服务行 + 提供方行，提供方行带 `config`；Computer Use 的服务行 + 原生提供方行，原生提供方无配置、行不带 `config`，见下）。
+Auto review 是随 dsh 安装提供的官方可选 bundle（`@deepseek-ai/dsh-experimental-auto-review`，见 `deepseek-harness/packages/util/official-bundles/src/bundles.ts` 的 `OPTIONAL_BUNDLES`）：插件页（插件 → 自动授权审查）的开关把它写入 profile 的 `dsh.profile.bundles`，本 wrapper 不安装它，也不向 patch 层写入任何 preset 声明。Agent Teams 现在由 web-app 组合内置（见下一节）。**Browser Use 与 Computer Use 的包都不声明 `dsh.bundle.patch`**，是普通 npm 依赖，由 `browser-use.mjs` / `computer-use.mjs` 通过共享流水线的显式 `mount` 选项写入 insert 行（Browser Use 的服务行 + 提供方行，提供方行带 `config`；Computer Use 的服务行 + 原生提供方行，原生提供方无配置、行不带 `config`，见下）。
 
 ## Agent Teams
 
-官方 `@deepseek-ai/dsh-experimental-agent-team-profile` 随 dsh 安装提供，并列入 harness 的 `OPTIONAL_BUNDLES`。本仓库不安装它，也不派生 preset：插件页（插件 → 智能体团队）的开关只把该 bundle 写进 profile 的 `dsh.profile.bundles`，roster 里因此是官方预设本身——标准模式、PTC 模式、极简模式、创造模式。
+Agent Teams 在 `dsh-v0.2.2-rc.3` 由 web-app 组合内置：`deepseek-harness/packages/bundle/web-app/cordis.patch.yml` 的 `ui-agent-team` 行挂载 `@deepseek-ai/dsh-client-ui-agent-team`，不需要安装或开关。旧的 `@deepseek-ai/dsh-experimental-agent-team-profile` 已列入 harness 的 `RETIRED_BUNDLES`（`deepseek-harness/packages/util/official-bundles/src/bundles.ts`，`dsh-v0.2.2-rc.1` 时即如此），不在 `OPTIONAL_BUNDLES` 中；profile 的 `dsh.profile.bundles` 若仍保留该包名，启动时会被跳过并打印一条告警（`packages/boot/app-boot/src/profile.ts` 的 `reportSkippedBundles`），可以直接删除该条目。本仓库不安装它，也不派生 preset。
 
-### 用途与已知限制
+### 当前状态
 
-官方 Agent Teams 默认关闭（随附 profile 都不引用它），且它的组合与官方 preset 存在一处错配：实验 bundle 的 `cordis.patch.yml` 在顶层禁用四个 delegation 行（`tool-subagent-control`、`tool-subagent-list-agents`、`tool-subagent`、`tool-subagent-fork`），但 `dsh-web-app` 早已在顶层裁掉这些行，真正提供 delegation 工具的是 preset 行（`standard` / `cordis` / `ptc` 各自挂回 `tool-subagent-control` 且 `backgroundMode: continuable`）。一条 preset 的 `config.plugins` 由 `mountPreset()` 挂成一棵独立的 Loader 子树（`deepseek-harness/packages/preset/agent-preset-registry/src/mount.ts`），顶层 patch 够不到它，于是出现**错配**：`send_message` / `list_agents` / `interrupt_agent` 被 Agent Teams 的 scoped 版本遮蔽（只认 Team roster 成员名），而 `subagent` / `subagent_fork` 仍可创建 continuable 子级——父 agent 无法再寻址这种子 agent。
-
-本仓库不向 preset 层写入禁用声明，因此不修补这处错配：开启 Agent Teams 并使用官方 preset 时，上述表现原样存在。要让直接委派与 Team 工具一致，需要自行复制官方声明并在 `config.plugins` 的 preset 层禁用同样四行。
+该实验 bundle 已 retired、不再加载，此前记录的「实验 bundle 与官方 preset 的 delegation 工具错配」不再适用于当前组合；本仓库不向 preset 层写入任何声明，也不假设内置 Team 组合的具体工具面。
 
 ## Auto review
 
@@ -74,13 +72,13 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-browser-use@0.2.2-rc.1` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.1` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
+| `@deepseek-ai/dsh-browser-use@0.2.2-rc.3` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.3` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
 
-两个包都精确 pin `0.2.2-rc.1`，与本仓库 pinned 的 `dsh-v0.2.2-rc.1` 运行时
-配套（peerDependencies 精确指向 `0.2.2-rc.1`）。**这个 pin 必须随 harness
+两个包都精确 pin `0.2.2-rc.3`，与本仓库 pinned 的 `dsh-v0.2.2-rc.3` 运行时
+配套（peerDependencies 精确指向 `0.2.2-rc.3`）。**这个 pin 必须随 harness
 同批移动**：准入闸门拿运行中的 dsh 版本逐条比对每个 `@deepseek-ai/dsh*` peer，
-留在 `0.2.1-alpha.2` 的包会被 0.2.2-rc.1 拒绝。dsh 家族实验包的 npm `latest`
+留在 `0.2.2-rc.1` 的包会被 0.2.2-rc.3 拒绝。dsh 家族实验包的 npm `latest`
 dist-tag 落后于已发布的 prerelease，不能通过 `@latest` 或范围解析。均为
 prerelease，进不了 Community Market。核心服务先装：提供方 inject `browserUse`。
 
@@ -161,13 +159,13 @@ npm run install:plugins        # 或 npm run build
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-computer-use@0.2.2-rc.1` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.1` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
+| `@deepseek-ai/dsh-computer-use@0.2.2-rc.3` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.3` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
 
-两个包都精确 pin `0.2.2-rc.1`，与本仓库 pinned 的 `dsh-v0.2.2-rc.1` 运行时
-配套（peerDependencies 全部指向 `0.2.2-rc.1`）。**这个 pin 必须随 harness
+两个包都精确 pin `0.2.2-rc.3`，与本仓库 pinned 的 `dsh-v0.2.2-rc.3` 运行时
+配套（peerDependencies 全部指向 `0.2.2-rc.3`）。**这个 pin 必须随 harness
 同批移动**：准入闸门拿运行中的 dsh 版本逐条比对每个 `@deepseek-ai/dsh*` peer，
-留在 `0.2.1-alpha.2` 的包会被 0.2.2-rc.1 拒绝。均为 prerelease，进不了
+留在 `0.2.2-rc.1` 的包会被 0.2.2-rc.3 拒绝。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `computerUse`。
 
 ### 挂载与配置
@@ -220,9 +218,9 @@ npm run install:plugins        # 或 npm run build
 
 重启后：
 
-- **Agent Teams**：在插件页开启「智能体团队」后重启；新会话的预设选择器里是官方预设
-  （标准模式、PTC 模式、极简模式、创造模式），没有 Team 变体。直接委派与 Team roster
-  的错配见本文的 Agent Teams 一节。
+- **Agent Teams**：随 web-app 组合内置（`ui-agent-team` 行），无需插件页开关；旧「智能体团队」
+  开关与对应 bundle 已退役。新会话的预设选择器由官方 preset 决定，本仓库不派生 preset；
+  内置 Team 组合的具体工具面以实际运行为准（见本文「Agent Teams」一节）。
 - **Auto review**：在插件页开启「自动授权审查」后重启，再在当前会话权限选择器
   （composer 旁的「访问模式」菜单，或 `/permission` slash 选择器）中选择带 `EXP`
   角标的 `Auto review`，在确认对话框中勾选「我已了解这些风险，并愿意继续」后点
@@ -237,11 +235,11 @@ npm run install:plugins        # 或 npm run build
 
 ## 已知限制
 
-- **Agent Teams 与官方 preset 的错配保持原样**。开启 Agent Teams 并使用官方 preset
-  时，`send_message` / `list_agents` / `interrupt_agent` 只认 Team roster 成员名，
-  而 `subagent` / `subagent_fork` 仍可创建父级无法寻址的 continuable 子级；机制见
-  「Agent Teams」一节。本 wrapper 不派生 preset，也不代为把某个预设设为默认
-  （`agentPresets.default`）。
+- **Agent Teams 已随 web-app 组合内置**（`ui-agent-team` 行），旧的实验 bundle 已
+  retired、不再加载；本仓库不安装它、不派生 preset，也不代为把某个预设设为默认
+  （`agentPresets.default`）。此前记录的「实验 bundle 与官方 preset 的 delegation
+  工具错配」只属于那个已退役的 bundle；内置 Team 组合的工具面以实际运行为准，本仓库
+  不做假设。
 - **Auto review 是实验功能、需在插件页开启**。它不是确定性安全边界：每次受支持调用
   额外产生一次模型请求并增加延迟，模型分类可能误放行或误拒绝；不提供豁免、缓存
   grant、人工 fallback、可配置策略或重试。关闭开关并重启后，存活的 Auto 会话被迁移
@@ -249,9 +247,9 @@ npm run install:plugins        # 或 npm run build
 
 ## 卸载
 
-在插件页关闭「智能体团队」或「自动授权审查」开关：开关把对应 bundle 从 profile 的
-`dsh.profile.bundles` 移除，该层在下次启动时不再加载。本 wrapper 不向 patch 层写入
-preset 声明，因此没有额外的清理步骤。
+在插件页关闭「自动授权审查」开关：开关把该 bundle 从 profile 的
+`dsh.profile.bundles` 移除，该层在下次启动时不再加载。Agent Teams 没有开关（已内置）；
+profile 里若还留着退役的 `@deepseek-ai/dsh-experimental-agent-team-profile` 条目，直接从 `dsh.profile.bundles` 删除即可。本 wrapper 不向 patch 层写入 preset 声明，因此没有额外的清理步骤。
 
 Browser Use 与 Computer Use 从 profile 卸载：
 
@@ -279,9 +277,9 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
 - 依赖 `scripts/plugin-install.mjs` 的共享流水线；各包经 `installNpmPlugin`
   安装，每个 installer 也可单独运行。Browser Use 与 Computer Use 是仅有的两个用显式
   `mount` 的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），
-  各自写入两行 insert（Browser Use 提供方行带 `config`）。Agent Teams 与 Auto
-  review 不经过共享流水线：它们是 dsh 安装随附的官方可选 bundle，只由插件页开关
-  写入 `dsh.profile.bundles`，`DSH_PLUGIN_SKIP=<wrapper id>` 因此只对 browser-use
-  与 computer-use 生效；`DSH_PLUGIN_FORCE_INSTALL=1` 反过来强制安装。
-- 本 wrapper 安装的四个包都不传 `exempt`：它们的 peer 已被 0.2.2-rc.1 的准入闸门
+  各自写入两行 insert（Browser Use 提供方行带 `config`）。Auto review 不经过共享
+  流水线：它是 dsh 安装随附的官方可选 bundle，只由插件页开关写入 `dsh.profile.bundles`；
+  Agent Teams 已由 web-app 组合内置，不需要安装。`DSH_PLUGIN_SKIP=<wrapper id>` 因此
+  只对 browser-use 与 computer-use 生效；`DSH_PLUGIN_FORCE_INSTALL=1` 反过来强制安装。
+- 本 wrapper 安装的四个包都不传 `exempt`：它们的 peer 已被 0.2.2-rc.3 的准入闸门
   接受，不需要版本例外（例外只用于上游尚未适配 0.2 的包，见 `plugins/README.md`）。

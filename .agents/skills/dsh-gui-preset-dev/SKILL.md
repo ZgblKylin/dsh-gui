@@ -51,17 +51,19 @@ preset 声明里每行插件怎么写、哪些服务能进 preset，以 deepseek
    先复制 `config.plugins` 成新声明再改。直接编辑
    `packages/bundle/web-app/presets/` 会被升级覆盖，破坏 `cordis` 会让创造模式
    本身失效。
-4. **动组合前加载 `editing-cordis-compositions` skill**。
+4. **动组合前加载 `dsh-doc` skill 并读其 `references/compositions.md`**。
 5. 发布一个服务的行必须和消费它的行一起放进带 `isolate` realm 的 group 里，否则
    preset 挂载会被拒绝（见 3.3）。
 
-创造模式随带的三个技能是权威指导，编写任何 preset 前先读：
+创造模式随带的 `dsh-doc` skill 是权威指导，编写任何 preset 前先读：
 
-- [`skills/editing-cordis-compositions/SKILL.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md)
+- [`skills/dsh-doc/SKILL.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/dsh-doc/SKILL.md)
+  —— skill 入口与 references 索引。
+- [`skills/dsh-doc/references/compositions.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/dsh-doc/references/compositions.md)
   —— 组合编辑、平面判断、realm 规则与挂载校验。
-- [`skills/cordis-composition-reference/SKILL.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/cordis-composition-reference/SKILL.md)
+- [`skills/dsh-doc/references/composition-reference.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/dsh-doc/references/composition-reference.md)
   —— Loader YAML 方言（`insert`、按 id 覆盖、`group`、`disabled`、`isolate`、`!!js`）与可安装包清单。
-- [`skills/cordis-plugin-development/SKILL.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/cordis-plugin-development/SKILL.md)
+- [`skills/dsh-doc/references/plugin-development.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/dsh-doc/references/plugin-development.md)
   —— 在创造模式里临时探测/实验插件时的动态 Cordis 开发方法。
 
 ## 2. dsh-gui 工程特有的 preset 目录结构与安装方式
@@ -361,7 +363,8 @@ persona 不发布服务，可以裸放。Windows 上同一 group 里另有 `term
 - [`packages/preset/agent-preset/README.md`](../../../deepseek-harness/packages/preset/agent-preset/README.md) —— 声明字段与注册接口契约。
 - [`packages/preset/agent-preset-registry/README.md`](../../../deepseek-harness/packages/preset/agent-preset-registry/README.md) —— 注册、代际、挂载审计与泄漏拒绝。
 - [`packages/preset/README.md`](../../../deepseek-harness/packages/preset/README.md) —— preset 包族与宿主/agent 平面总览。
-- [`packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/editing-cordis-compositions/SKILL.md) —— 创造模式组合编辑权威 skill。
-- [`packages/preset/agent-preset/skills/cordis-composition-reference/SKILL.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/cordis-composition-reference/SKILL.md) —— Loader YAML 方言与可安装包清单。
-- [`packages/preset/agent-preset/skills/cordis-plugin-development/SKILL.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/cordis-plugin-development/SKILL.md) —— 创造模式动态插件实验权威 skill。
+- [`packages/preset/agent-preset/skills/dsh-doc/SKILL.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/dsh-doc/SKILL.md) —— 创造模式文档与插件开发 skill 入口。
+- [`packages/preset/agent-preset/skills/dsh-doc/references/compositions.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/dsh-doc/references/compositions.md) —— 创造模式组合编辑权威参考。
+- [`packages/preset/agent-preset/skills/dsh-doc/references/composition-reference.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/dsh-doc/references/composition-reference.md) —— Loader YAML 方言与可安装包清单。
+- [`packages/preset/agent-preset/skills/dsh-doc/references/plugin-development.md`](../../../deepseek-harness/packages/preset/agent-preset/skills/dsh-doc/references/plugin-development.md) —— 创造模式动态插件实验权威参考。
 - [`docs/cordis-primer.md`](../../../deepseek-harness/docs/cordis-primer.md) —— Cordis 插件/服务/事件/realm 基础。
