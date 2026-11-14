@@ -371,30 +371,40 @@ WSL 主机列表来自 `wsl.exe -l -v`（`{ name, state?, version?, default? }`�
   `gatewaySwitch` 单例；官方所有浏览器 tab 共享同一个 `browserPeer`，gateway 调用
   没有 tab 标识。要在同一界面里同时看多个主机，必须每个 tab 有自己的后端进程。
 - **子后端**：`<DSH_HOME>/gui/remote-tabs/<safe connection id>/home/` 是独立
-  `DSH_HOME`；`profiles/remote-tab/` 是生成的极小 profile（`node_modules` junction
-  到 desktop profile，bundles 白名单：base / web-app / ds-harness-remote /
-  dsh-remote-tab-boot / 本机 UI 插件），`ds-harness-remote` 配置
-  `role: client` + `hostControl.enabled: false`，子后端**不会**注册成 Host。
-- **身份**：每个已保存连接一个 **owned client 设备**，由本机已授权的 Remote Host
-  通过服务器 `register-owned-role` 自动注册（host → client 允许；client → client
-  会 409），因此不需要交互登录，也不会与父端客户端互相 `CONNECTION_REPLACED`。
-  关闭 tab 只停进程、保留身份；删除连接才 revoke 并删除 child home。
-- **启动**：service 层生成 profile 时补齐 `@deepseek-ai/dsh-client-connection` 的
-  peer 链接（desktop profile 的 pnpm 安装不会 hoist 这个 optional peer，运行时
-  `.harness` / 源码树里有副本），spawn `<runtime>/node_modules/@deepseek-ai/dsh/lib/bin.js
-  --profile remote-tab --host 127.0.0.1 --port 0 --no-open`，环境擦掉父端的
-  `DSH_PROFILE*`/session 键，注入独立 `DSH_HOME` 与 `DSH_REMOTE_TAB_TARGET`。
+  `DSH_HOME`；`profiles/remote-tab/` 是生成的子 profile：`node_modules` 复用父
+  profile，`dsh.profile.bundles` 与父 `cordis.patch.yml` **原样复制**（没有白名单/
+  排除清单），provider 只追加自己的 bundle/patch。子进程通过生成的 ESM loader 把
+  `@deepseek-ai/*` 先解析到**宿主 runtime**、再 fallback 到父 profile，使核心包与
+  宿主共享实例，profile-only 插件包也能加载；app-boot 仍会跳过 `link:` 类 bundle
+  （更新、桌面壳、opencode/mcp 等），这是运行时行为而不是插件自身的清单。
+- **身份**：provider（当前为 ds-harness-remote）负责把每个已保存连接 mint 成一个
+  **owned client 设备**：由本机已授权的 Remote Host 通过服务器 `register-owned-role`
+  自动注册（host → client 允许；client → client 会 409），不需要交互登录，也不会与
+  父端客户端互相 `CONNECTION_REPLACED`。关闭 tab 只停进程、保留身份；删除连接才
+  revoke 并删除 child home。没有 provider 时 remote-tab 功能报不可用，SSH/WSL 不受影响。
+- **启动**：service 层从宿主解析 parent profile（`argv[3]`、`DSH_PROFILE_DIR`、
+  `$DSH_HOME/profiles/<DSH_PROFILE|web>`），子运行时优先选**真实 dsh 运行时**：
+  `DSH_REMOTE_TAB_RUNTIME` → `<runtimeRoot>/.harness` → 源码构建 → 父 runtimeDir（真实
+  目录）→ 父 runtimeDir（asar 兜底）。子 Node 优先真实 Node：`DSH_REMOTE_TAB_NODE` →
+  非 Electron 的 `npm_node_execpath` → PATH 上的 `node` → 运行时自带 Node → Electron
+  兜底（asar + Electron 组合会直接给出可操作错误，不再让 loader 挂住）。子 CLI 与
+  loader anchor 用选中的 runtime；子 home 生成 `remote-tab-loader.mjs`；spawn 参数为
+  `[--expose-internals?] --experimental-loader <loader> <cli> --profile remote-tab
+  --host 127.0.0.1 --port 0 --no-open`，环境擦掉父端 `DSH_PROFILE*`/session 键并注入
+  独立 `DSH_HOME` 与 provider 的目标变量。
 - **就绪**：stdout 同时出现 `dsh web: http://127.0.0.1:<port>/?token=…` 与
   `[remote-tab-boot] ready <deviceId> <workspacePath>` 才算成功（90 s 超时）；日志
   token 一律脱敏。bootstrap 在子进程里调用
   `dshRemoteClient.openRemoteWorkspace(deviceId, path)`，失败时子进程保留日志、父端
   tab 显示错误，`⟳` 可重试。
 
-**前提**：桌面应用（Electron）；`ds-harness-remote` 已登录并启用「允许控制本机」
-（host 授权用于 mint client 设备）；`dsh-remote-tab-boot` 已安装到 desktop profile
-（`node plugins/remote-tab-boot/install.mjs` 或 `npm run build:desktop --
---plugins-only`，安装前退出桌面应用）；运行时根有 `.harness`（或源码树
-`deepseek-harness/node_modules`）提供 peer 包。安装/重启后生效。
+**前提**：desktop 应用（Electron）或任何能提供 provider 的 dsh 宿主；ds-harness-remote
+已登录并启用「允许控制本机」（host 授权用于 mint client 设备）；`dsh-remote-tab-boot`
+已安装在当前 profile（`node plugins/remote-tab-boot/install.mjs` 或
+`npm run build:desktop -- --plugins-only`，安装前退出桌面应用）。子进程需要一个真实的
+dsh 运行时（默认 `<runtimeRoot>/.harness` 或源码构建）和一个真实 Node；只有 asar 运行时
++ Electron 时无法可靠加载 loader，会给出明确错误，可用 `DSH_REMOTE_TAB_RUNTIME` /
+`DSH_REMOTE_TAB_NODE` 指定。安装/重启后生效。
 
 **配置**：`<DSH_HOME>/gui/desktop-tabs.json` 的连接条目：
 
@@ -429,13 +439,18 @@ URL/token 只在运行时内存里，不落盘。
 - 父端 `ds-harness-remote` 处于 remote 模式时不做工作区实时发现（同身份第二次
   control 连接会顶掉现有连接）；已保存连接仍可直接打开。
 - 一个已保存连接一个子进程；同一主机不同工作区请保存多条连接（各自独立 client
-  设备）。子后端有自己的本地 settings（父 settings 只在首次生成时复制）；远端
-  设置仍由远端提供。
+  设备）。子后端有自己的本地 settings（父 `cordis.patch.yml` 与 provider 声明的
+  homeFiles 在首次生成时复制）；远端设置仍由远端提供。
+- 子页面是 guest webview，没有 desktop 壳的 preload；依赖 `window.dshDesktop` 的
+  客户端插件（例如 better-sidebar 的 desktop preset）可能只渲染 Web fallback。
+- app-boot 在子 profile 中会跳过一些 `link:` bundle（更新、desktop-tabs、dsh-remote、
+  opencode/mcp 等）；这是 app-boot 的解析行为，不是插件的 bundle 清单。
 - 子后端成本：每个打开的 tab 一个 Node 进程；关闭 tab 才释放。设备会出现在账号
   设备列表，删除连接时回收；远端 Host 的 trusted-peers 上限 256，避免无限创建连接。
-- 依赖 ds-harness-remote 0.6.3 的公开/非 `#private` 运行时字段（`dshRemoteClient.server`、
-  `.identities`、`dshRemote.serverApi`）、CLI 输出与 profile 配置语义；升级该包或
-  dsh 运行时后需要回归。
+- 当前 provider 是 ds-harness-remote 0.6.3；通用 core 不直接依赖它，provider 缺失时
+  远程标签功能报不可用，SSH/WSL 与其余界面不受影响。provider 依赖 ds-harness-remote
+  的公开/非 `#private` 运行时字段（`dshRemoteClient.server`、`.identities`、
+  `dshRemote.serverApi`）、CLI 输出与 profile 配置语义；升级该包或 dsh 运行时后需要回归。
 
 ## 远端启动使用的 shell 环境
 

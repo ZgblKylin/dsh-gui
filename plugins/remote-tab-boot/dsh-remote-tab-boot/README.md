@@ -1,6 +1,6 @@
 # dsh-remote-tab-boot
 
-远程桌面标签页的子进程引导插件。desktop 应用为每个远程连接生成一个独立的 `remote-tab` 子 profile 与一个 `dsh web` 子进程；本插件只挂载在该子 profile 中，在子进程启动时通过 `ds-harness-remote` 的客户端服务打开目标 Host 上的工作区，然后打印父端监督器等待的哨兵行。没有目标的 profile 中插件完全惰性。
+远程桌面标签页的子进程引导插件。宿主为每个远程连接生成一个独立的 `remote-tab` 子 profile 与一个 `dsh web` 子进程；本插件只挂载在该子 profile 中，在子进程启动时通过当前 provider（ds-harness-remote）的客户端服务打开目标 Host 上的工作区，然后打印父端监督器等待的哨兵行。没有目标的 profile 中插件完全惰性。
 
 ## 环境变量契约
 
@@ -42,7 +42,7 @@
 
 ## 安装
 
-`plugins/remote-tab-boot/install.mjs` 只在 `DSH_PLUGIN_PROFILE === 'desktop'` 时调用共享安装器 `installPlugin` 构建并链接包；其他 profile 只打印跳过并退出 0。子 profile 的 `node_modules` 是指向 desktop profile `node_modules` 的 junction，因此包只需要安装在 desktop profile。
+`plugins/remote-tab-boot/install.mjs` 调用共享安装器 `installPlugin` 构建并链接包到当前 profile；任意 profile 都安装。子 profile 的 `node_modules` 复用父 profile 的依赖树，因此包只需要安装在宿主所在的 profile。
 
 本包声明 `dsh.bundle.patch`，`dsh plugin add` 会把它 reconcile 进 `dsh.profile.bundles`，并按其 `cordis.patch.yml` 以 bundle 层插入 entry，不需要手工修改 profile 的 `cordis.patch.yml`。
 

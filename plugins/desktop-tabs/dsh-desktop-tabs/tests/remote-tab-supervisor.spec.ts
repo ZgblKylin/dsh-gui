@@ -1,6 +1,6 @@
 /**
- * Tests of the remote-tab child supervisor, run against the built package
- * (`../lib/index.js`).
+ * Tests of the generic remote-tab child supervisor, run against the built
+ * package (`../lib/index.js`).
  *
  * The child processes are emulated by an in-process fake: the injected spawner
  * records the spawn plan the production code would run and returns a
@@ -9,25 +9,39 @@
  * early exit, redaction, down, forget, and dispose paths real without starting a
  * second `dsh` — the test sandbox refuses a nested child with piped stdio, and a
  * real child is not needed to exercise the supervisor's own logic. The plan of a
- * real child (arguments, scrubbed environment) is asserted directly as a pure
- * function.
+ * real child (Node choice, loader flag, scrubbed environment) is asserted
+ * directly as a pure function, and one default-path case drives the real
+ * runtime/Node selection and profile generation inside a fixture.
  *
  * Usage (from the package directory): node tests/remote-tab-supervisor.spec.ts
  */
 
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
 
+import { cleanup, fakeProvider, makeFixture } from './remote-tab-fixtures.ts'
+
 const here = dirname(fileURLToPath(import.meta.url))
 const mod = await import(pathToFileURL(join(here, '..', 'lib', 'index.js')).href)
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-remote-tab-supervisor-'))
 const CHILD_URL = 'http://127.0.0.1:34567/?token=SecretChildToken123'
+const loaderPath = join(root, 'generated-loader.mjs')
+writeFileSync(loaderPath, '// generated loader\n')
+
+/** One spawn plan as captured by the injected spawner. */
+interface CapturedPlan {
+  readonly args: readonly string[]
+  readonly env: NodeJS.ProcessEnv
+  readonly cwd: string
+  readonly command: string
+  readonly electron: boolean
+}
 
 /** How one fake child should behave after "spawn". */
 type FakeMode = 'ready' | 'no-boot' | 'exit1' | 'token-error' | 'ignore-sigterm'
@@ -94,15 +108,20 @@ class FakeChild extends EventEmitter {
 /** One supervisor under test, its captured plans, and its children. */
 interface Harness {
   readonly supervisor: ReturnType<typeof mod.createRemoteTabSupervisor>
-  readonly plans: { args: readonly string[]; env: NodeJS.ProcessEnv; cwd: string; command: string }[]
+  readonly plans: CapturedPlan[]
   readonly children: FakeChild[]
+  readonly providerCalls: ReturnType<typeof fakeProvider>['calls']
 }
+
+/** The fake Node used by the seam-based tests. */
+const FAKE_NODE = { command: '/fake/node', electron: false, kind: 'host-node' } as const
 
 /** Build a supervisor whose "children" are `FakeChild` instances in `mode`. */
 function makeHarness(mode: FakeMode, overrides: Record<string, unknown> = {}): Harness {
-  const plans: Harness['plans'] = []
+  const plans: CapturedPlan[] = []
   const children: FakeChild[] = []
-  const spawn = (plan: { args: readonly string[]; env: NodeJS.ProcessEnv; cwd: string; command: string }) => {
+  const { provider, calls } = fakeProvider()
+  const spawn = (plan: CapturedPlan) => {
     plans.push(plan)
     const child = new FakeChild(mode)
     children.push(child)
@@ -110,20 +129,23 @@ function makeHarness(mode: FakeMode, overrides: Record<string, unknown> = {}): H
   }
   const supervisor = mod.createRemoteTabSupervisor({
     dshHome: join(root, 'parent-home'),
+    provider,
     parentProfileDir: join(root, 'parent-profile'),
-    runtimeDir: join(root, 'runtime'),
+    parentRuntimeDir: join(root, 'runtime'),
+    hostExecPath: '/fake/node',
+    hostElectron: false,
+    childNode: FAKE_NODE,
     spawn,
     readyTimeoutMs: 2_000,
     terminateTimeoutMs: 500,
-    resolveIdentity: async () => ({ serverUrl: 'https://dsh.example.test', deviceId: 'device-12345678' }),
     prepareProfile: async ({ childHome }: { childHome: string }) => {
       mkdirSync(childHome, { recursive: true })
       writeFileSync(join(childHome, 'marker.txt'), 'child home\n')
-      return { cliPath: '/fake/bin.js' }
+      return { cliPath: '/fake/bin.js', loaderPath, bundles: [provider.readyBundle] }
     },
     ...overrides,
   })
-  return { supervisor, plans, children }
+  return { supervisor, plans, children, providerCalls: calls }
 }
 
 /** A unique request per test, so records do not bleed across cases. */
@@ -156,8 +178,8 @@ async function tick(ms = 30): Promise<void> {
     cliPath: 'C:/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js',
     childHome: 'C:/children/one/home',
     target: { targetDeviceId: 'device-1', workspacePath: '/src/app', backend: 'harness' },
-    electron: false,
-    execPath: 'C:/runtime/node.exe',
+    node: { command: 'C:/node/node.exe', electron: false, kind: 'path-node' },
+    loaderPath: 'C:/children/one/home/remote-tab-loader.mjs',
     env: {
       PATH: 'C:/bin',
       DSH_PROFILE: 'desktop',
@@ -170,8 +192,11 @@ async function tick(ms = 30): Promise<void> {
       DSH_GUI_ROOT: 'C:/gui',
     },
   })
-  assert.equal(plan.command, 'C:/runtime/node.exe', 'the configured executable runs the child')
-  assert.deepEqual(plan.args, [
+  assert.equal(plan.command, 'C:/node/node.exe', 'the selected real Node runs the child')
+  assert.equal(plan.electron, false, 'the plan records that no Electron Node mode is needed')
+  assert.equal(plan.args[0], '--experimental-loader', 'the loader flag comes first')
+  assert.equal(plan.args[1], pathToFileURL('C:/children/one/home/remote-tab-loader.mjs').href, 'the loader is passed as a file URL')
+  assert.deepEqual(plan.args.slice(2), [
     'C:/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js',
     '--profile',
     'remote-tab',
@@ -197,19 +222,41 @@ async function tick(ms = 30): Promise<void> {
   assert.equal(plan.env.DSH_SESSION_ID, undefined)
   assert.equal(plan.env.DSH_SHELL, undefined)
   assert.equal(plan.env.DSH_WEB_URL, undefined)
-  assert.equal(plan.env.ELECTRON_RUN_AS_NODE, undefined, 'a plain Node child does not carry the Electron flag')
+  assert.equal(plan.env.ELECTRON_RUN_AS_NODE, undefined, 'a real Node child does not carry the Electron flag')
 
   const electron = mod.childSpawnPlan({
     cliPath: 'C:/runtime/loader.js',
     childHome: 'C:/children/two/home',
     target: { targetDeviceId: 'device-2', workspacePath: '/src/app' },
-    electron: true,
-    execPath: 'C:/app/DeepSeek Harness.exe',
+    node: { command: 'C:/app/DeepSeek Harness.exe', electron: true, kind: 'electron-fallback' },
+    loaderPath: 'C:/children/two/home/loader.mjs',
     env: {},
   })
   assert.equal(electron.args[0], '--expose-internals', 'the Electron spawn exposes internals first')
+  assert.equal(electron.args[1], '--experimental-loader', 'the Electron spawn still loads the child loader')
   assert.equal(electron.env.ELECTRON_RUN_AS_NODE, '1', 'the Electron spawn runs the executable in Node mode')
-  assert.equal(electron.args[3], 'remote-tab', 'the profile name follows --profile under Electron too')
+  assert.equal(electron.args[4], '--profile', 'the profile flag follows the CLI entry')
+  assert.equal(electron.electron, true)
+
+  const withoutLoader = mod.childSpawnPlan({
+    cliPath: 'C:/runtime/loader.js',
+    childHome: 'C:/children/three/home',
+    target: { targetDeviceId: 'device-3', workspacePath: '/w' },
+    node: { command: 'C:/node/node.exe', electron: false, kind: 'path-node' },
+    env: {},
+  })
+  assert.ok(!withoutLoader.args.includes('--experimental-loader'), 'a plan without a loader omits the flag')
+
+  const oldNode = mod.childSpawnPlan({
+    cliPath: 'C:/runtime/loader.js',
+    childHome: 'C:/children/four/home',
+    target: { targetDeviceId: 'device-4', workspacePath: '/w' },
+    node: { command: 'C:/node/node.exe', electron: false, kind: 'path-node' },
+    loaderPath: 'C:/children/four/home/loader.mjs',
+    supportsLoader: false,
+    env: {},
+  })
+  assert.ok(!oldNode.args.includes('--experimental-loader'), 'a Node without loader support omits the flag')
 
   assert.ok(mod.isBootReadyLine('[remote-tab-boot] ready dev /src/app'), 'the sentinel line is recognized')
   assert.ok(!mod.isBootReadyLine('other output'), 'ordinary output is not a ready sentinel')
@@ -225,8 +272,14 @@ async function tick(ms = 30): Promise<void> {
   const { url } = await harness.supervisor.up(request)
   assert.equal(url, CHILD_URL, 'up answers the child URL')
   assert.equal(harness.plans.length, 1, 'one child is spawned')
-  assert.deepEqual(harness.plans[0].args.slice(1, 3), ['--profile', 'remote-tab'], 'the child boots the remote-tab profile')
+  assert.deepEqual(harness.plans[0].args.slice(3, 5), ['--profile', 'remote-tab'], 'the child boots the remote-tab profile')
+  assert.equal(harness.plans[0].args[1], pathToFileURL(loaderPath).href, 'the child is spawned with the generated loader')
+  assert.equal(harness.plans[0].command, FAKE_NODE.command, 'the spawner receives the selected Node')
   assert.equal(harness.plans[0].cwd, mod.remoteTabHome(join(root, 'parent-home'), request.id), 'the child home is derived from the connection id')
+  assert.deepEqual(harness.providerCalls.identityArgs, [{
+    childHome: mod.remoteTabHome(join(root, 'parent-home'), request.id),
+    deviceName: 'Desktop-ZgblKylin · archlinux · 远程标签',
+  }], 'the provider mints the child identity for this connection')
 
   const status = harness.supervisor.status()
   assert.equal(status.length, 1)
@@ -244,6 +297,50 @@ async function tick(ms = 30): Promise<void> {
   assert.ok(existsSync(join(root, 'parent-home', 'gui', 'remote-tabs')), 'down keeps the child home directory')
   await until(() => harness.children[0].exitCode !== null, 'the child exits after down')
   assert.equal(harness.children[0].signalCode, null)
+}
+
+// ---------------------------------------------------------------- default selection path
+{
+  // No profile seam: the supervisor selects `<runtimeRoot>/.harness` and a real
+  // Node, generates the child profile, and spawns with the generated loader.
+  const fixture = makeFixture({ harnessRuntime: true })
+  const { provider } = fakeProvider()
+  const plans: CapturedPlan[] = []
+  const children: FakeChild[] = []
+  const supervisor = mod.createRemoteTabSupervisor({
+    dshHome: fixture.parentHome,
+    provider,
+    parentProfileDir: fixture.parentProfile,
+    hostExecPath: '/fake/node',
+    hostElectron: false,
+    env: {},
+    spawn: (plan: CapturedPlan) => {
+      plans.push(plan)
+      const child = new FakeChild('ready')
+      children.push(child)
+      return child
+    },
+    readyTimeoutMs: 2_000,
+    terminateTimeoutMs: 500,
+  })
+  const request = requestFor('remote-selected')
+  const { url } = await supervisor.up(request)
+  assert.equal(url, CHILD_URL, 'the default path reaches readiness')
+  const plan = plans[0]
+  const harnessCli = join(fixture.runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+  assert.equal(plan.command, '/fake/node', 'a real (non-Electron) Node is selected')
+  assert.equal(plan.electron, false)
+  assert.ok(plan.args.includes('--experimental-loader'), 'the generated loader is passed')
+  assert.ok(plan.args.includes(harnessCli), 'the child CLI comes from the selected .harness runtime')
+  const childHome = mod.remoteTabHome(fixture.parentHome, request.id)
+  const loaderFile = join(childHome, 'remote-tab-loader.mjs')
+  assert.ok(existsSync(loaderFile), 'the loader is generated in the child home')
+  assert.ok(readFileSync(loaderFile, 'utf8').includes(JSON.stringify(join(fixture.runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'))), 'the loader anchors at the selected runtime')
+  const profile = JSON.parse(readFileSync(join(childHome, 'profiles', 'remote-tab', 'package.json'), 'utf8'))
+  assert.ok(profile.dsh.profile.bundles.includes('dsh-remote-tab-boot'), 'the provider bootstrap bundle is listed')
+  await supervisor.dispose()
+  await until(() => children[0].exitCode !== null, 'the selected child is stopped')
+  cleanup(fixture)
 }
 
 // ---------------------------------------------------------------- unexpected exit after up
@@ -295,16 +392,13 @@ async function tick(ms = 30): Promise<void> {
 
 // ---------------------------------------------------------------- forget
 {
-  const revoked: string[] = []
   const request = requestFor('remote-forget')
-  const forgetHarness = makeHarness('ready', {
-    revokeIdentity: async ({ childHome }: { childHome: string }) => { revoked.push(childHome) },
-  })
+  const forgetHarness = makeHarness('ready')
   await forgetHarness.supervisor.up(request)
   const childHome = mod.remoteTabHome(join(root, 'parent-home'), request.id)
   assert.ok(existsSync(childHome), 'the child home exists before forget')
   await forgetHarness.supervisor.forget(request.id)
-  assert.deepEqual(revoked, [childHome], 'forget revokes the child device')
+  assert.deepEqual(forgetHarness.providerCalls.revoked, [childHome], 'forget revokes the child device through the provider')
   assert.ok(!existsSync(childHome), 'forget removes the child home')
   assert.deepEqual(forgetHarness.supervisor.status(), [], 'forget clears the tab status')
   await until(() => forgetHarness.children[0].exitCode !== null, 'forget stops the child')
@@ -321,31 +415,63 @@ async function tick(ms = 30): Promise<void> {
   assert.ok(harness.children.every((child) => child.exitCode !== null), 'dispose stops every child')
 }
 
-// ---------------------------------------------------------------- missing boot bundle
+// ---------------------------------------------------------------- selection failures
 {
+  const harness = makeHarness('ready', { prepareProfile: undefined, provider: undefined })
+  await assert.rejects(() => harness.supervisor.up(requestFor('remote-no-provider')), /未配置远程后端 provider/u, 'a supervisor without a provider reports the feature unavailable')
+}
+{
+  const harness = makeHarness('ready', { prepareProfile: undefined, parentProfileDir: undefined })
+  await assert.rejects(() => harness.supervisor.up(requestFor('remote-no-profile')), /父 profile/u, 'a missing parent profile is reported')
+}
+{
+  // No real runtime anywhere and no hosting runtime: actionable error.
+  const harness = makeHarness('ready', {
+    prepareProfile: undefined,
+    parentRuntimeDir: undefined,
+    env: {},
+    childNode: undefined,
+  })
+  await assert.rejects(
+    () => harness.supervisor.up(requestFor('remote-no-runtime')),
+    /未找到可用于子后端的真实 dsh 运行时/u,
+    'a missing runtime is reported before any network work',
+  )
+}
+{
+  // Electron-only fallback with an asar runtime cannot work: fail with the
+  // actionable Node error instead of hanging in the loader.
+  const harness = makeHarness('ready', {
+    prepareProfile: undefined,
+    childRuntime: {
+      runtimeDir: 'C:/app/resources/app.asar/dsh',
+      cliPath: 'C:/app/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js',
+      anchor: 'C:/app/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh/package.json',
+      kind: 'parent-asar',
+    },
+    childNode: { command: 'C:/app/DeepSeek Harness.exe', electron: true, kind: 'electron-fallback' },
+  })
+  await assert.rejects(
+    () => harness.supervisor.up(requestFor('remote-asar-electron')),
+    /找不到真实 Node/u,
+    'the Electron + asar combination is refused with the real cause',
+  )
+}
+{
+  // A ready bundle missing from the generated profile fails fast instead of
+  // waiting out the readiness budget.
   const harness = makeHarness('ready', {
     prepareProfile: async ({ childHome }: { childHome: string }) => {
       mkdirSync(childHome, { recursive: true })
-      return { cliPath: '/fake/bin.js', bundles: ['@deepseek-ai/dsh-base', 'ds-harness-remote'] }
+      return { cliPath: '/fake/bin.js', loaderPath, bundles: ['@deepseek-ai/dsh-base'] }
     },
   })
   await assert.rejects(
     () => harness.supervisor.up(requestFor('remote-no-boot')),
     /dsh-remote-tab-boot/u,
-    'a profile without the bootstrap bundle fails fast instead of waiting out the budget',
+    'a profile without the provider bootstrap bundle fails fast',
   )
   assert.equal(harness.plans.length, 0, 'no child is spawned without the bootstrap plugin')
-}
-
-// ---------------------------------------------------------------- desktop context
-{
-  const noProfile = mod.createRemoteTabSupervisor({
-    dshHome: join(root, 'parent-home'),
-    spawn: () => { throw new Error('must not spawn') },
-    resolveIdentity: async () => ({ serverUrl: 'https://dsh.example.test', deviceId: 'device-1' }),
-    revokeIdentity: async () => {},
-  })
-  await assert.rejects(() => noProfile.up(requestFor('remote-nodesktop')), /仅在桌面应用中可用/u, 'outside the desktop the launch explains what is missing')
 }
 
 rmSync(root, { recursive: true, force: true })

@@ -219,9 +219,9 @@ npm 型 wrapper 的安装目标必须以精确 spec 字面量写在安装脚本�
   dialog. It declares `dsh.bundle.patch` and mounts through its own bundle
   layer. See `desktop-tabs/dsh-desktop-tabs/README.md`.
 - `remote-tab-boot` — in-tree child bootstrap at `remote-tab-boot/`, installed
-  only into the `desktop` profile and present in the generated child
-  `remote-tab` profile's `node_modules` through the parent-profile junction. It
-  is inert without `DSH_REMOTE_TAB_TARGET`; with a target it waits for
+  into the hosting profile and present in the generated child `remote-tab`
+  profile's `node_modules` through the parent-profile junction. It is inert
+  without `DSH_REMOTE_TAB_TARGET`; with a target it waits for
   `dshRemoteClient`, calls `openRemoteWorkspace(deviceId, path)` with a 60 s
   timeout, prints the `[remote-tab-boot] ready …` sentinel, and throws on
   failure. It declares `dsh.bundle.patch` and mounts through its own bundle

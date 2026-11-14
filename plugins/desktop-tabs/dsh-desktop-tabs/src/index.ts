@@ -26,11 +26,10 @@ import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 
 import { registerRemoteConnections } from './remote/index.ts'
 import {
+  createDsHarnessRemoteProvider,
   createRemoteTabSupervisor,
-  ensureRemoteTabIdentity,
   registerRemoteTabRoutes,
-  resolveDesktopContext,
-  revokeRemoteTabIdentity,
+  resolveRemoteTabContext,
 } from './remote-tab/index.ts'
 import { readDesktopTabs, resolveDshHome, TabsValidationError, tabsFilePath, writeDesktopTabs } from './targets.ts'
 
@@ -99,37 +98,28 @@ export function apply(ctx: Context): void {
       },
     })
     // One supervisor per host boot owns every remote-tab child process. The
-    // parent profile/runtime facts come from the desktop host's argv; outside
-    // the desktop the supervisor still constructs, and `up` explains why it
-    // cannot start a child.
-    const desktopContext = resolveDesktopContext(process.argv, process.env)
+    // runtime/profile facts are resolved generically from the hosting process
+    // (argv, DSH_PROFILE_DIR, DSH_HOME); outside an app boot the feature simply
+    // reports what is missing when a saved connection is opened.
+    const remoteTabContext = resolveRemoteTabContext(process.argv, process.env)
+    // The provider reflects the ds-harness-remote services at call time. Nothing
+    // here depends on the plugin package being importable, and the tab list plus
+    // the SSH/WSL connections keep working when it is absent.
+    const remoteTabProvider = createDsHarnessRemoteProvider({
+      getClient: () => ctx.get('dshRemoteClient', false),
+      getHost: () => ctx.get('dshRemote', false),
+      ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),
+    })
     const supervisor = createRemoteTabSupervisor({
       dshHome,
-      ...(desktopContext.parentProfileDir === undefined ? {} : { parentProfileDir: desktopContext.parentProfileDir }),
-      ...(desktopContext.runtimeDir === undefined ? {} : { runtimeDir: desktopContext.runtimeDir }),
-      ...(desktopContext.cliPath === undefined ? {} : { cliPath: desktopContext.cliPath }),
+      provider: remoteTabProvider,
+      ...(remoteTabContext.parentProfileDir === undefined ? {} : { parentProfileDir: remoteTabContext.parentProfileDir }),
+      ...(remoteTabContext.runtimeDir === undefined ? {} : { parentRuntimeDir: remoteTabContext.runtimeDir }),
       ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),
-      resolveIdentity: async ({ childHome, deviceName }) => {
-        const identity = await ensureRemoteTabIdentity({
-          client: ctx.get('dshRemoteClient', false),
-          host: ctx.get('dshRemote', false),
-          childHome,
-          deviceName,
-          ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),
-        })
-        return { serverUrl: identity.serverUrl, deviceId: identity.deviceId }
-      },
-      revokeIdentity: async ({ childHome }) => {
-        await revokeRemoteTabIdentity({
-          client: ctx.get('dshRemoteClient', false),
-          childHome,
-          ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),
-        })
-      },
     })
     const remoteTabs = registerRemoteTabRoutes({
       readTabs,
-      getClient: () => ctx.get('dshRemoteClient', false),
+      provider: remoteTabProvider,
       supervisor,
       webServer: ctx.webServer,
       ...(ctx.logger === undefined ? {} : { logger: ctx.logger }),

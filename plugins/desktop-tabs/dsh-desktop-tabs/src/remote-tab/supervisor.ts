@@ -4,14 +4,20 @@
  * Each saved remote connection owns one child `dsh web` process, started with
  * `--profile remote-tab` and a private `DSH_HOME`; the process prints
  * `dsh web: http://127.0.0.1:<port>/?token=...` once its web server is bound,
- * and the profile's `dsh-remote-tab-boot` plugin prints
- * `[remote-tab-boot] ready …` once the remote workspace is open. `up` reports
- * the loadable URL only after both lines arrived, so the embedded webview never
- * loads a half-initialized backend.
+ * and the provider's bootstrap plugin prints `[remote-tab-boot] ready …` once
+ * the remote workspace is open. `up` reports the loadable URL only after both
+ * lines arrived, so the embedded webview never loads a half-initialized
+ * backend.
  *
- * The child environment is built, never inherited as-is: the desktop Host runs
- * with `DSH_PROFILE` / `DSH_PROFILE_DIR` set, and passing `--profile` inside a
- * process that already selects one makes the CLI fail
+ * The child runs the hosting process's dsh runtime and is spawned with the
+ * generated ESM loader (`./loader.ts`) so its profile plugins share the host's
+ * core module instances and still reach profile-only packages. The whole
+ * backend-specific half — identity, patch, bundles, home files — comes from the
+ * {@link RemoteTabProvider}; this module only owns the process.
+ *
+ * The child environment is built, never inherited as-is: the hosting process
+ * runs with `DSH_PROFILE` / `DSH_PROFILE_DIR` set, and passing `--profile`
+ * inside a process that already selects one makes the CLI fail
  * (`select a profile only once`). Those keys are dropped, `DSH_HOME` points at
  * the child home, and the target rides in `DSH_REMOTE_TAB_TARGET`.
  *
@@ -20,16 +26,23 @@
  * the host logger.
  *
  * Spawning and the readiness budget are injectable so the package test can run
- * a fake child script instead of a real `dsh web` process.
+ * a fake child instead of a real `dsh web` process.
  */
 
 import { spawn as nodeSpawn, spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 
 import { redactToken, stripAnsi } from '../remote/text.ts'
 import type { RemoteLogger } from '../remote/types.ts'
 import { remoteDeviceName, remoteTabHome, writeRemoteTabProfile } from './profile.ts'
-import type { RemoteConnectionSpec, RemoteTabRequest, RemoteTabStatus } from './types.ts'
+import {
+  nodeSupportsExperimentalLoader,
+  selectChildNode,
+  selectChildRuntime,
+} from './runtime.ts'
+import type { ChildNode, ChildRuntime } from './runtime.ts'
+import type { RemoteConnectionSpec, RemoteTabProvider, RemoteTabRequest, RemoteTabStatus } from './types.ts'
 
 /** Cap on one status-log line, so one verbose child line cannot flood the panel. */
 const MAX_LOG_LINE = 400
@@ -92,6 +105,8 @@ export interface ChildSpawnPlan {
   readonly args: readonly string[]
   readonly env: NodeJS.ProcessEnv
   readonly cwd: string
+  /** Whether the selected executable is Electron and runs in Node mode. */
+  readonly electron: boolean
 }
 
 /** Injectable spawner; the default spawns a real child process. */
@@ -99,22 +114,21 @@ export type ChildSpawner = (plan: ChildSpawnPlan) => MinimalChildProcess
 
 /** Options of one spawn plan. */
 export interface ChildSpawnPlanOptions {
-  /** Resolved `@deepseek-ai/dsh/lib/bin.js`. */
+  /** Resolved `@deepseek-ai/dsh/lib/bin.js` of the selected child runtime. */
   readonly cliPath: string
   /** Child Harness home; also the working directory. */
   readonly childHome: string
   /** Remote target handed to the bootstrap plugin. */
   readonly target: RemoteConnectionSpec
-  /** Run under Electron's Node mode (adds `--expose-internals`). */
-  readonly electron?: boolean
-  /** Executable to run; defaults to this process's executable. */
-  readonly execPath?: string
+  /** Selected Node executable (a real Node, or Electron as the last fallback). */
+  readonly node: ChildNode
+  /** Generated ESM loader the child loads before the CLI. */
+  readonly loaderPath?: string
+  /** Whether the selected executable supports `--experimental-loader`; defaults to the host's Node version. */
+  readonly supportsLoader?: boolean
   /** Parent environment to build the child environment from. */
   readonly env?: NodeJS.ProcessEnv
 }
-
-/** Bundle that prints the readiness sentinel; a child without it can never become ready. */
-export const BOOT_BUNDLE = 'dsh-remote-tab-boot'
 
 /** Resolved child profile facts one `up` needs. */
 export interface PreparedChildProfile {
@@ -122,30 +136,40 @@ export interface PreparedChildProfile {
   readonly profileDir?: string
   /** Bundle list the generated profile carries; absent when a test seam prepared it. */
   readonly bundles?: readonly string[]
+  /** Generated ESM loader the child loads. */
+  readonly loaderPath?: string
 }
 
-/** Child identity facts one `up` needs; the full identity lives in `./identity.ts`. */
-export interface ResolvedChildIdentity {
+/** Arguments of the injected profile preparer. */
+export interface PrepareChildProfileArgs {
+  readonly childHome: string
   readonly serverUrl: string
-  readonly deviceId: string
+  /** Selected child runtime; absent when a test seam prepares the profile itself. */
+  readonly runtime?: ChildRuntime
 }
 
 /** Construction options of one supervisor. */
 export interface RemoteTabSupervisorOptions {
   /** Parent Harness home; contains `gui/remote-tabs/`. */
   readonly dshHome: string
-  /** Desktop plugin profile the child profile links into; absent outside the desktop. */
+  /** Backend provider; absent only when the feature is not composed. */
+  readonly provider?: RemoteTabProvider
+  /** Hosting profile the child profile links into; resolved generically. */
   readonly parentProfileDir?: string
-  /** Immutable runtime directory; absent outside the desktop. */
-  readonly runtimeDir?: string
-  /** Explicit child CLI entry; overrides resolution. */
+  /** Hosting runtime directory (may be inside an asar archive). */
+  readonly parentRuntimeDir?: string
+  /** Explicit child runtime override; selected when absent. */
+  readonly childRuntime?: ChildRuntime
+  /** Explicit child Node override; selected when absent. */
+  readonly childNode?: ChildNode
+  /** Explicit child CLI entry; overrides the selected runtime's CLI. */
   readonly cliPath?: string
-  /** Parent environment used for the child environment. */
+  /** Hosting executable; defaults to `process.execPath`. */
+  readonly hostExecPath?: string
+  /** Whether the hosting process is Electron; defaults to detection. */
+  readonly hostElectron?: boolean
+  /** Parent environment used for selection and for the child environment. */
   readonly env?: NodeJS.ProcessEnv
-  /** Force (or disable) the Electron Node-mode spawn plan. */
-  readonly electron?: boolean
-  /** Executable to run; defaults to this process's executable. */
-  readonly execPath?: string
   /** Injected spawner, for tests. */
   readonly spawn?: ChildSpawner
   /** Readiness budget in milliseconds. */
@@ -153,12 +177,8 @@ export interface RemoteTabSupervisorOptions {
   /** Grace period before the forced kill, in milliseconds. */
   readonly terminateTimeoutMs?: number
   readonly logger?: RemoteLogger
-  /** Mint or reuse the child identity; implemented by `./identity.ts`. */
-  readonly resolveIdentity: (args: { childHome: string; deviceName: string }) => Promise<ResolvedChildIdentity>
-  /** Revoke the child identity; implemented by `./identity.ts`. */
-  readonly revokeIdentity: (args: { childHome: string }) => Promise<void>
   /** Generate the child profile; defaults to {@link writeRemoteTabProfile}. */
-  readonly prepareProfile?: (args: { childHome: string; serverUrl: string }) => Promise<PreparedChildProfile>
+  readonly prepareProfile?: (args: PrepareChildProfileArgs) => Promise<PreparedChildProfile>
 }
 
 /** One running child. */
@@ -177,16 +197,20 @@ interface StatusRecord {
 
 /**
  * Build the spawn plan of one child backend.
- * @param options - CLI, child home, target, and launch mode.
+ * @param options - CLI, child home, target, selected Node, and loader.
  * @returns command, arguments, environment, and working directory.
  */
 export function childSpawnPlan(options: ChildSpawnPlanOptions): ChildSpawnPlan {
-  const electron = options.electron ?? process.versions.electron !== undefined
-  // `--profile` selects the profile whose `dsh-web-app` bundle boots the web
+  const electron = options.node.electron
+  const supportsLoader = options.supportsLoader ?? nodeSupportsExperimentalLoader(process.versions.node)
+  // `--profile` selects the profile whose shell bundles boot the web
   // application; `web` is only its shorthand alias, not a subcommand, so it is
-  // not passed here. The host and port flags belong to the web application.
+  // not passed here. The loader flag must precede the CLI entry.
   const args = [
     ...(electron ? ['--expose-internals'] : []),
+    ...(options.loaderPath === undefined || !supportsLoader
+      ? []
+      : ['--experimental-loader', pathToFileURL(options.loaderPath).href]),
     options.cliPath,
     '--profile',
     'remote-tab',
@@ -197,10 +221,11 @@ export function childSpawnPlan(options: ChildSpawnPlanOptions): ChildSpawnPlan {
     '--no-open',
   ]
   return {
-    command: options.execPath ?? process.execPath,
+    command: options.node.command,
     args,
     env: childEnvironment(options.env ?? process.env, options.childHome, options.target, electron),
     cwd: options.childHome,
+    electron,
   }
 }
 
@@ -337,10 +362,13 @@ export class RemoteTabSupervisor {
     if (id === '') return
     const childHome = remoteTabHome(this.options.dshHome, id)
     await this.down(id)
-    try {
-      await this.options.revokeIdentity({ childHome })
-    } catch (error: unknown) {
-      this.options.logger?.warn(`[dsh-desktop-tabs] remote-tab '${id}' device revocation failed: ${redactLogLine(message(error))}`)
+    const provider = this.options.provider
+    if (provider !== undefined) {
+      try {
+        await provider.revokeIdentity({ childHome })
+      } catch (error: unknown) {
+        this.options.logger?.warn(`[dsh-desktop-tabs] remote-tab '${id}' device revocation failed: ${redactLogLine(message(error))}`)
+      }
     }
     rmSync(childHome, { recursive: true, force: true })
     this.options.logger?.info(`[dsh-desktop-tabs] remote-tab '${id}' forgotten`)
@@ -367,30 +395,52 @@ export class RemoteTabSupervisor {
     this.note(record, `开始启动远程标签：${request.remote.targetName ?? request.remote.targetDeviceId} · ${request.remote.workspacePath}`)
 
     try {
-      this.assertDesktopContext()
+      this.assertRemoteTabContext()
+      const provider = this.requireProvider()
+      // Pick the real runtime and Node before any network work: a broken launch
+      // environment must fail with a clear message, not a hung child. A test
+      // seam that prepares the profile itself may omit the runtime entirely.
+      const runtime = this.options.prepareProfile === undefined ? this.childRuntime() : this.options.childRuntime
+      const node = this.childNode()
+      if (node.kind === 'electron-fallback' && runtime?.kind === 'parent-asar') {
+        throw new Error(
+          '找不到真实 Node：子后端的 ESM loader 无法从 asar 运行时解析模块。'
+          + '请设置 DSH_REMOTE_TAB_NODE 指向 node，或把 node 加入 PATH，'
+          + `或通过 DSH_REMOTE_TAB_RUNTIME 指定真实运行时（当前回退：${runtime.runtimeDir}）`,
+        )
+      }
+      if (node.warning !== undefined) this.log('warn', `[dsh-desktop-tabs] ${node.warning}`)
+      if (runtime?.kind === 'parent-asar') {
+        this.log('warn', '[dsh-desktop-tabs] 子后端回退到 asar 打包运行时：真实 Node 无法加载 asar 内的模块，'
+          + '请在宿主运行环境安装 .harness 运行时或设置 DSH_REMOTE_TAB_RUNTIME')
+      }
       const childHome = remoteTabHome(this.options.dshHome, id)
       const deviceName = remoteDeviceName(request.title)
-      const identity = await this.options.resolveIdentity({ childHome, deviceName })
+      const identity = await provider.ensureIdentity({ childHome, deviceName })
       this.note(record, `子设备已就绪（${identity.deviceId.slice(0, 8)}），目标 ${request.remote.targetDeviceId.slice(0, 8)}`)
+      this.note(record, runtime === undefined
+        ? `子后端 Node：${node.command}（${node.kind}）`
+        : `子后端运行时：${runtime.runtimeDir}（${runtime.kind}）；Node：${node.command}（${node.kind}）`)
       mkdirSync(childHome, { recursive: true })
-      const prepared = await this.prepareProfile(childHome, identity.serverUrl)
-      if (prepared.bundles !== undefined && !prepared.bundles.includes(BOOT_BUNDLE)) {
+      const prepared = await this.prepareProfile(childHome, identity.serverUrl, runtime)
+      const readyBundle = provider.readyBundle
+      if (prepared.bundles !== undefined && readyBundle !== undefined && !prepared.bundles.includes(readyBundle)) {
         // Without the bootstrap plugin the child would boot its UI but never open
         // the remote workspace nor print the ready sentinel; fail fast instead of
         // waiting out the 90-second budget.
         throw new Error(
-          `远程标签启动插件 ${BOOT_BUNDLE} 尚未安装：请先在桌面应用中构建并安装该插件，再打开远程标签`,
+          `远程标签启动插件 ${readyBundle} 尚未安装：请先在宿主应用中构建并安装该插件，再打开远程标签`,
         )
       }
       const plan = childSpawnPlan({
         cliPath: prepared.cliPath,
         childHome,
         target: request.remote,
-        ...(this.options.electron === undefined ? {} : { electron: this.options.electron }),
-        ...(this.options.execPath === undefined ? {} : { execPath: this.options.execPath }),
+        node,
+        ...(prepared.loaderPath === undefined ? {} : { loaderPath: prepared.loaderPath }),
         ...(this.options.env === undefined ? {} : { env: this.options.env }),
       })
-      this.note(record, `启动子后端（${plan.command} --profile remote-tab --host 127.0.0.1 --port 0 --no-open）`)
+      this.note(record, `启动子后端（${plan.command}${plan.electron ? ' [Electron node 模式]' : ''}${plan.args.includes('--experimental-loader') ? ' --experimental-loader <loader>' : ''} --profile remote-tab --host 127.0.0.1 --port 0 --no-open）`)
       const child = this.spawner(plan)
       this.children.set(id, child)
       this.watchExit(id, child)
@@ -413,29 +463,84 @@ export class RemoteTabSupervisor {
     }
   }
 
-  /** Generate the child profile (default) or ask the injected preparer. */
-  private async prepareProfile(childHome: string, serverUrl: string): Promise<PreparedChildProfile> {
-    if (this.options.prepareProfile !== undefined) return await this.options.prepareProfile({ childHome, serverUrl })
+  /**
+   * Generate the child profile (default) or ask the injected preparer. The
+   * provider's bundles, patch, and home files all come from the provider
+   * descriptor, so the generic core never names a backend plugin; the chosen
+   * runtime supplies the child CLI and the loader's first anchor.
+   */
+  private async prepareProfile(
+    childHome: string,
+    serverUrl: string,
+    runtime: ChildRuntime | undefined,
+  ): Promise<PreparedChildProfile> {
+    if (this.options.prepareProfile !== undefined) {
+      return await this.options.prepareProfile({
+        childHome,
+        serverUrl,
+        ...(runtime === undefined ? {} : { runtime }),
+      })
+    }
+    if (runtime === undefined) throw new Error('远程标签功能不可用：未选择子后端运行时')
     const profile = writeRemoteTabProfile({
       parentProfileDir: this.parentProfileDir(),
       parentDshHome: this.options.dshHome,
       childHome,
       serverUrl,
-      ...(this.options.runtimeDir === undefined ? {} : { runtimeDir: this.options.runtimeDir }),
-      ...(this.options.cliPath === undefined ? {} : { cliPath: this.options.cliPath }),
+      provider: this.requireProvider(),
+      runtimeDir: runtime.runtimeDir,
+      runtimeAnchor: runtime.anchor,
+      cliPath: this.options.cliPath ?? runtime.cliPath,
       ...(this.options.env === undefined ? {} : { env: this.options.env }),
     })
-    return { cliPath: profile.cliPath, profileDir: profile.profileDir, bundles: profile.bundles }
+    return {
+      cliPath: profile.cliPath,
+      profileDir: profile.profileDir,
+      bundles: profile.bundles,
+      loaderPath: profile.loaderPath,
+    }
   }
 
-  /** Fail fast with an actionable message when the desktop facts are absent. */
-  private assertDesktopContext(): void {
-    if (this.options.prepareProfile !== undefined) return
-    if (this.options.parentProfileDir === undefined) {
-      throw new Error('远程标签仅在桌面应用中可用：未找到桌面 profile 目录（process.argv[3] / DSH_PROFILE_DIR）')
+  /** Select (or accept) the child runtime, preferring a real installation over asar. */
+  private childRuntime(): ChildRuntime {
+    if (this.options.childRuntime !== undefined) return this.options.childRuntime
+    return selectChildRuntime({
+      ...(this.options.env === undefined ? {} : { env: this.options.env }),
+      dshHome: this.options.dshHome,
+      ...(this.options.parentRuntimeDir === undefined ? {} : { parentRuntimeDir: this.options.parentRuntimeDir }),
+    })
+  }
+
+  /** Select (or accept) the child Node, preferring a real Node over Electron. */
+  private childNode(): ChildNode {
+    if (this.options.childNode !== undefined) return this.options.childNode
+    return selectChildNode({
+      ...(this.options.env === undefined ? {} : { env: this.options.env }),
+      dshHome: this.options.dshHome,
+      ...(this.options.parentRuntimeDir === undefined ? {} : { parentRuntimeDir: this.options.parentRuntimeDir }),
+      hostExecPath: this.options.hostExecPath ?? process.execPath,
+      hostElectron: this.options.hostElectron ?? process.versions.electron !== undefined,
+    })
+  }
+
+  /** Fail fast with an actionable message when the feature was not composed. */
+  private requireProvider(): RemoteTabProvider {
+    const provider = this.options.provider
+    if (provider === undefined) {
+      throw new Error('远程标签功能不可用：未配置远程后端 provider')
     }
-    if (this.options.cliPath === undefined && this.options.runtimeDir === undefined) {
-      throw new Error('远程标签仅在桌面应用中可用：未找到 dsh 运行时目录（process.argv[2]）')
+    return provider
+  }
+
+  /** Fail fast with an actionable message when the launch facts are absent. */
+  private assertRemoteTabContext(): void {
+    if (this.options.prepareProfile !== undefined) {
+      this.requireProvider()
+      return
+    }
+    this.requireProvider()
+    if (this.options.parentProfileDir === undefined) {
+      throw new Error('远程标签功能不可用：无法解析父 profile 目录（argv[3] / DSH_PROFILE_DIR / DSH_HOME/profiles/<profile>）')
     }
   }
 
@@ -443,7 +548,7 @@ export class RemoteTabSupervisor {
   private parentProfileDir(): string {
     const directory = this.options.parentProfileDir
     if (directory === undefined) {
-      throw new Error('远程标签仅在桌面应用中可用：未找到桌面 profile 目录')
+      throw new Error('远程标签功能不可用：无法解析父 profile 目录')
     }
     return directory
   }

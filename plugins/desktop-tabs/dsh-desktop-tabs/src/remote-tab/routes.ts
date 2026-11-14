@@ -9,11 +9,11 @@
  * module exposes the {@link RemoteTabBridge} that `../remote/index.ts` merges
  * into `GET /connections` and dispatches `up`/`down`/`forget` through.
  *
- * Discovery reads `ctx.get('dshRemoteClient', false)` at request time, so a
- * plugin enabled or logged in after boot starts answering without a restart.
- * Workspace discovery opens a temporary background carrier, which the parent
- * only allows in local mode; while the main UI itself is in remote mode the
- * route refuses instead of opening a second control connection.
+ * Discovery goes through the {@link RemoteTabProvider}: this module knows no
+ * backend plugin. The provider reads its services at request time, so a plugin
+ * enabled or logged in after boot starts answering without a restart; when it
+ * cannot answer (plugin absent, not enabled, or the parent UI already holds the
+ * remote control connection) its error text becomes the answer's `error`.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -23,11 +23,11 @@ import type { RemoteConnectionStatus, RemoteLogger, RemoteWebServer } from '../r
 import type { DesktopTabs } from '../targets.ts'
 import type { RemoteTabSupervisor } from './supervisor.ts'
 import type {
-  RemoteConnectionSpec,
-  RemoteHost,
   RemoteTabBridge,
+  RemoteTabProvider,
   RemoteTabRequest,
   RemoteWorkspace,
+  RemoteWorkspaceUnavailable,
 } from './types.ts'
 
 /** Route serving the discoverable Remote hosts. */
@@ -36,11 +36,8 @@ export const REMOTE_HOSTS_PATH = '/desktop-tabs/api/remote-hosts'
 /** Route serving one host's workspaces. */
 export const REMOTE_WORKSPACES_PATH = '/desktop-tabs/api/remote-workspaces'
 
-/** Answer used when ds-harness-remote is not installed or not enabled. */
-export const REMOTE_PLUGIN_UNAVAILABLE = 'ds-harness-remote is not installed/enabled'
-
-/** Answer used while the parent UI itself holds a remote control connection. */
-export const REMOTE_MODE_WORKSPACE_ERROR = '主界面处于远程模式，请先在 Remote 面板退出后再浏览工作区'
+/** Answer used when the feature was composed without any backend provider. */
+export const REMOTE_PROVIDER_UNAVAILABLE = '远程标签功能不可用：未配置远程后端 provider'
 
 /** Default discovery budget: a background carrier plus backend catalogs. */
 export const DEFAULT_DISCOVERY_TIMEOUT_MS = 60_000
@@ -49,8 +46,8 @@ export const DEFAULT_DISCOVERY_TIMEOUT_MS = 60_000
 export interface RemoteTabRegistrationOptions {
   /** The host half's tab/connection rows, read synchronously per request. */
   readonly readTabs: () => DesktopTabs
-  /** `ctx.get('dshRemoteClient', false)`, read per request. */
-  readonly getClient: () => unknown
+  /** Backend provider; absent only when the feature is not composed. */
+  readonly provider?: RemoteTabProvider
   /** The child-process supervisor owned by this registration. */
   readonly supervisor: RemoteTabSupervisor
   /** Web server owning the routes. */
@@ -182,14 +179,13 @@ async function respondHosts(
     writeJson(res, 403, { error: 'untrusted origin' }, head)
     return
   }
-  const client = asClientRuntime(options.getClient())
-  if (client === undefined) {
-    writeJson(res, 200, { hosts: [], error: REMOTE_PLUGIN_UNAVAILABLE }, head)
+  const provider = options.provider
+  if (provider === undefined) {
+    writeJson(res, 200, { hosts: [], error: REMOTE_PROVIDER_UNAVAILABLE }, head)
     return
   }
   try {
-    const devices = await client.devices(AbortSignal.timeout(timeoutMs))
-    const hosts = devices.map(hostOf).filter((host): host is RemoteHost => host !== undefined)
+    const hosts = await provider.listHosts(AbortSignal.timeout(timeoutMs))
     writeJson(res, 200, { hosts }, head)
   } catch (error: unknown) {
     const reason = discoveryError(error, timeoutMs)
@@ -220,37 +216,15 @@ async function respondWorkspaces(
     writeJson(res, 200, { workspaces: [], error: '缺少 targetDeviceId 参数' }, head)
     return
   }
-  const client = asClientRuntime(options.getClient())
-  if (client === undefined) {
-    writeJson(res, 200, { workspaces: [], error: REMOTE_PLUGIN_UNAVAILABLE }, head)
-    return
-  }
-  // Opening a tool carrier while the UI already holds the control connection
-  // would replace the warm connection on the server, so it is refused here.
-  if (client.status()?.mode === 'remote') {
-    writeJson(res, 200, { workspaces: [], error: REMOTE_MODE_WORKSPACE_ERROR }, head)
+  const provider = options.provider
+  if (provider === undefined) {
+    writeJson(res, 200, { workspaces: [], error: REMOTE_PROVIDER_UNAVAILABLE }, head)
     return
   }
   try {
-    const result = await client.discoverToolWorkspaces(targetDeviceId, AbortSignal.timeout(timeoutMs))
-    const workspaces = (result.workspaces ?? []).flatMap((raw): RemoteWorkspace[] => {
-      const row = asRecord(raw)
-      const workspaceId = nonEmptyString(row?.workspaceId)
-      const path = nonEmptyString(row?.path)
-      if (row === undefined || workspaceId === undefined || path === undefined) return []
-      const title = nonEmptyString(row.title) ?? path
-      const backend = nonEmptyString(row.backend)
-      // v1 opens Harness workspaces only; the catalog may also carry Codex/ACP
-      // rows, which the child bootstrap and the target validator do not support.
-      if (backend !== undefined && backend !== 'harness') return []
-      return [{ workspaceId, path, title, ...(backend === undefined ? {} : { backend }) }]
-    })
-    const unavailable = (result.unavailable ?? []).flatMap((raw): { backend: string; code: string }[] => {
-      const row = asRecord(raw)
-      const backend = nonEmptyString(row?.backend)
-      const code = nonEmptyString(row?.code)
-      return backend === undefined || code === undefined ? [] : [{ backend, code }]
-    })
+    const discovery = await provider.discoverWorkspaces(targetDeviceId, AbortSignal.timeout(timeoutMs))
+    const workspaces: readonly RemoteWorkspace[] = discovery.workspaces
+    const unavailable: readonly RemoteWorkspaceUnavailable[] = discovery.unavailable
     writeJson(res, 200, {
       workspaces,
       ...(unavailable.length === 0 ? {} : { unavailable }),
@@ -259,45 +233,6 @@ async function respondWorkspaces(
     const reason = discoveryError(error, timeoutMs)
     options.logger?.warn(`[dsh-desktop-tabs] 读取远程工作区失败（${shortId(targetDeviceId)}）：${reason}`)
     writeJson(res, 200, { workspaces: [], error: reason }, head)
-  }
-}
-
-/** The client runtime subset the discovery routes drive. */
-interface ClientRuntimeLike {
-  devices(signal?: AbortSignal): Promise<readonly unknown[]>
-  status(): { mode?: string } | undefined
-  discoverToolWorkspaces(
-    targetDeviceId: string,
-    signal?: AbortSignal,
-  ): Promise<{ workspaces?: readonly unknown[]; unavailable?: readonly unknown[] }>
-}
-
-/** Reflect the optional client runtime, or undefined when it is not a usable runtime. */
-function asClientRuntime(value: unknown): ClientRuntimeLike | undefined {
-  const record = asRecord(value)
-  if (record === undefined) return undefined
-  const devices = record.devices
-  const status = record.status
-  const discover = record.discoverToolWorkspaces
-  if (typeof devices !== 'function' || typeof status !== 'function' || typeof discover !== 'function') return undefined
-  return value as ClientRuntimeLike
-}
-
-/** Project one server device descriptor onto the panel shape. */
-function hostOf(raw: unknown): RemoteHost | undefined {
-  const row = asRecord(raw)
-  const deviceId = nonEmptyString(row?.deviceId)
-  if (row === undefined || deviceId === undefined) return undefined
-  const name = nonEmptyString(row.name) ?? deviceId.slice(0, 8)
-  const platform = nonEmptyString(row.platform)
-  const version = nonEmptyString(row.harnessVersion) ?? nonEmptyString(row.clientVersion)
-  const online = typeof row.online === 'boolean' ? row.online : undefined
-  return {
-    deviceId,
-    name,
-    ...(platform === undefined ? {} : { platform }),
-    ...(online === undefined ? {} : { online }),
-    ...(version === undefined ? {} : { version }),
   }
 }
 
@@ -348,23 +283,6 @@ function queryValue(req: IncomingMessage, name: string): string | undefined {
   } catch {
     return undefined
   }
-}
-
-/** Narrow an unknown value to a record. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/** Narrow an unknown value to a record, or undefined. */
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined
-}
-
-/** @returns a trimmed non-empty string, or undefined. */
-function nonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const text = value.trim()
-  return text === '' ? undefined : text
 }
 
 /** First eight characters of an id, for logs. */

@@ -1,12 +1,13 @@
 /**
- * Tests of the remote-tab discovery routes and the connection bridge, run
- * against the built package (`../lib/index.js`).
+ * Tests of the generic remote-tab discovery routes and the connection bridge,
+ * run against the built package (`../lib/index.js`).
  *
  * A fake web server records the registered routes; the handlers are invoked
- * directly with fake request/response objects, so no HTTP listener is started
- * and no remote plugin is needed. The bridge is exercised both directly and
- * through `registerRemoteConnections`, which proves a saved remote connection
- * is dispatched to the remote-tab half instead of the SSH/WSL manager.
+ * directly with fake request/response objects, so no HTTP listener is started.
+ * The provider fake (`remote-tab-fixtures.ts`) stands in for the backend
+ * plugin, which proves the routes know no backend-specific code; a missing
+ * provider must answer the generic "feature unavailable" text while the
+ * connection dispatch keeps working.
  *
  * Usage (from the package directory): node tests/remote-tab-routes.spec.ts
  */
@@ -16,6 +17,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import assert from 'node:assert/strict'
+
+import { fakeProvider } from './remote-tab-fixtures.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const mod = await import(pathToFileURL(join(here, '..', 'lib', 'index.js')).href)
@@ -44,21 +47,17 @@ function fakeRequest(options: {
   method?: string
   url: string
   headers?: Record<string, string>
-  body?: unknown
 }): {
   method: string
   url: string
   headers: Record<string, string>
   resume(): void
-  on(event: string, listener: (chunk?: unknown) => void): void
 } {
-  const headers = { host: '127.0.0.1:1', ...options.headers }
   return {
     method: options.method ?? 'GET',
     url: options.url,
-    headers,
+    headers: { host: '127.0.0.1:1', ...options.headers },
     resume() {},
-    on() {},
   }
 }
 
@@ -127,17 +126,10 @@ function fakeSupervisor(): {
 {
   const webServer = fakeWebServer()
   const supervisor = fakeSupervisor()
+  const { provider, calls } = fakeProvider()
   const registration = mod.registerRemoteTabRoutes({
     readTabs: makeReadTabs(),
-    getClient: () => ({
-      devices: async () => [
-        { deviceId: 'device-1', name: 'Desktop-ZgblKylin', platform: 'linux', online: true, harnessVersion: '0.1.0' },
-        { deviceId: 'device-2', name: '', platform: 'win32' },
-        { name: 'missing id' },
-      ],
-      status: () => ({ mode: 'local' }),
-      discoverToolWorkspaces: async () => ({ workspaces: [], unavailable: [] }),
-    }),
+    provider,
     supervisor,
     webServer,
   })
@@ -147,11 +139,10 @@ function fakeSupervisor(): {
   const response = fakeResponse()
   await route.handler(fakeRequest({ url: mod.REMOTE_HOSTS_PATH }), response)
   assert.equal(response.status, 200)
-  const body = JSON.parse(response.body)
-  assert.deepEqual(body.hosts, [
-    { deviceId: 'device-1', name: 'Desktop-ZgblKylin', platform: 'linux', online: true, version: '0.1.0' },
-    { deviceId: 'device-2', name: 'device-2', platform: 'win32' },
-  ], 'hosts are mapped and rows without a device id are dropped')
+  assert.deepEqual(JSON.parse(response.body), {
+    hosts: [{ deviceId: 'device-1', name: 'Desktop-ZgblKylin', platform: 'linux', online: true, version: '0.1.0' }],
+  }, 'hosts come from the provider')
+  assert.equal(calls.hostsRequests, 1, 'the provider is asked for hosts')
   assert.equal(response.headers['cache-control'], 'no-store', 'responses are never cached')
 
   const wrongMethod = fakeResponse()
@@ -168,26 +159,45 @@ function fakeSupervisor(): {
   assert.equal(supervisor.calls.disposed, 1, 'the disposer also stops the child supervisor')
 }
 
-// ---------------------------------------------------------------- unavailable plugin
+// ---------------------------------------------------------------- provider unavailable
 {
   const webServer = fakeWebServer()
   const supervisor = fakeSupervisor()
   const registration = mod.registerRemoteTabRoutes({
     readTabs: makeReadTabs(),
-    getClient: () => undefined,
     supervisor,
     webServer,
   })
   const hostsRoute = webServer.routes.find((entry) => entry.path === mod.REMOTE_HOSTS_PATH)
-  const response = fakeResponse()
-  await hostsRoute.handler(fakeRequest({ url: mod.REMOTE_HOSTS_PATH }), response)
-  assert.equal(response.status, 200)
-  assert.deepEqual(JSON.parse(response.body), { hosts: [], error: mod.REMOTE_PLUGIN_UNAVAILABLE }, 'a missing plugin answers an empty list plus the reason')
+  const hosts = fakeResponse()
+  await hostsRoute.handler(fakeRequest({ url: mod.REMOTE_HOSTS_PATH }), hosts)
+  assert.deepEqual(JSON.parse(hosts.body), { hosts: [], error: mod.REMOTE_PROVIDER_UNAVAILABLE }, 'no provider answers the generic unavailable text')
 
   const workspacesRoute = webServer.routes.find((entry) => entry.path === mod.REMOTE_WORKSPACES_PATH)
   const workspaces = fakeResponse()
   await workspacesRoute.handler(fakeRequest({ url: `${mod.REMOTE_WORKSPACES_PATH}?targetDeviceId=device-1` }), workspaces)
-  assert.deepEqual(JSON.parse(workspaces.body), { workspaces: [], error: mod.REMOTE_PLUGIN_UNAVAILABLE })
+  assert.deepEqual(JSON.parse(workspaces.body), { workspaces: [], error: mod.REMOTE_PROVIDER_UNAVAILABLE })
+  registration.dispose()
+}
+
+// ---------------------------------------------------------------- provider errors
+{
+  const webServer = fakeWebServer()
+  const supervisor = fakeSupervisor()
+  const { provider } = fakeProvider({
+    async listHosts() { throw new Error(mod.DS_HARNESS_REMOTE_UNAVAILABLE) },
+    async discoverWorkspaces() { throw new Error(mod.REMOTE_MODE_WORKSPACE_ERROR) },
+  })
+  const registration = mod.registerRemoteTabRoutes({ readTabs: makeReadTabs(), provider, supervisor, webServer })
+  const hostsRoute = webServer.routes.find((entry) => entry.path === mod.REMOTE_HOSTS_PATH)
+  const hosts = fakeResponse()
+  await hostsRoute.handler(fakeRequest({ url: mod.REMOTE_HOSTS_PATH }), hosts)
+  assert.deepEqual(JSON.parse(hosts.body), { hosts: [], error: mod.DS_HARNESS_REMOTE_UNAVAILABLE }, 'a provider error becomes the answer reason')
+
+  const workspacesRoute = webServer.routes.find((entry) => entry.path === mod.REMOTE_WORKSPACES_PATH)
+  const workspaces = fakeResponse()
+  await workspacesRoute.handler(fakeRequest({ url: `${mod.REMOTE_WORKSPACES_PATH}?targetDeviceId=device-1` }), workspaces)
+  assert.deepEqual(JSON.parse(workspaces.body), { workspaces: [], error: mod.REMOTE_MODE_WORKSPACE_ERROR }, 'the remote-mode refusal text survives')
   registration.dispose()
 }
 
@@ -195,49 +205,25 @@ function fakeSupervisor(): {
 {
   const webServer = fakeWebServer()
   const supervisor = fakeSupervisor()
-  let mode = 'local'
-  const registration = mod.registerRemoteTabRoutes({
-    readTabs: makeReadTabs(),
-    getClient: () => ({
-      devices: async () => [],
-      status: () => ({ mode }),
-      discoverToolWorkspaces: async () => ({
-        workspaces: [
-          { backend: 'harness', workspaceId: 'ws-1', path: '/src/app', title: 'app' },
-          { backend: 'codex', workspaceId: 'ws-2', path: '/src/other' },
-          { backend: 'harness', workspaceId: '', path: '/broken' },
-        ],
-        unavailable: [{ backend: 'cursor', code: 'BACKEND_UNAVAILABLE' }, { code: 'NO_BACKEND' }],
-      }),
-    }),
-    supervisor,
-    webServer,
-  })
+  const { provider, calls } = fakeProvider()
+  const registration = mod.registerRemoteTabRoutes({ readTabs: makeReadTabs(), provider, supervisor, webServer })
   const route = webServer.routes.find((entry) => entry.path === mod.REMOTE_WORKSPACES_PATH)
 
   const response = fakeResponse()
   await route.handler(fakeRequest({ url: `${mod.REMOTE_WORKSPACES_PATH}?targetDeviceId=device-1` }), response)
   assert.equal(response.status, 200)
   assert.deepEqual(JSON.parse(response.body), {
-    // v1 only opens Harness workspaces; the Codex row is dropped and the
-    // malformed Harness row is ignored.
     workspaces: [
       { workspaceId: 'ws-1', path: '/src/app', title: 'app', backend: 'harness' },
+      { workspaceId: 'ws-2', path: '/src/other', title: 'other' },
     ],
     unavailable: [{ backend: 'cursor', code: 'BACKEND_UNAVAILABLE' }],
-  }, 'Harness workspaces are mapped; non-Harness and malformed rows are dropped')
+  }, 'workspaces and unavailable backends come from the provider')
+  assert.deepEqual(calls.workspaceRequests, ['device-1'], 'the provider is asked for the target device')
 
   const missing = fakeResponse()
   await route.handler(fakeRequest({ url: mod.REMOTE_WORKSPACES_PATH }), missing)
   assert.match(JSON.parse(missing.body).error, /targetDeviceId/u, 'a missing target device is reported')
-
-  mode = 'remote'
-  const remoteMode = fakeResponse()
-  await route.handler(fakeRequest({ url: `${mod.REMOTE_WORKSPACES_PATH}?targetDeviceId=device-1` }), remoteMode)
-  assert.deepEqual(JSON.parse(remoteMode.body), {
-    workspaces: [],
-    error: mod.REMOTE_MODE_WORKSPACE_ERROR,
-  }, 'workspace discovery is refused while the UI holds a remote control connection')
 
   const crossSite = fakeResponse()
   await route.handler(fakeRequest({
@@ -252,26 +238,25 @@ function fakeSupervisor(): {
 {
   const webServer = fakeWebServer()
   const supervisor = fakeSupervisor()
+  const { provider } = fakeProvider({
+    listHosts: (_signal?: AbortSignal) => new Promise((_resolve, reject) => {
+      _signal?.addEventListener('abort', () => { reject(new DOMException('aborted', 'AbortError')) }, { once: true })
+    }),
+  })
   const registration = mod.registerRemoteTabRoutes({
     readTabs: makeReadTabs(),
-    getClient: () => ({
-      devices: async () => [],
-      status: () => ({ mode: 'local' }),
-      discoverToolWorkspaces: (_id: string, signal: AbortSignal) => new Promise((_resolve, reject) => {
-        signal.addEventListener('abort', () => { reject(new DOMException('aborted', 'AbortError')) }, { once: true })
-      }),
-    }),
+    provider,
     supervisor,
     webServer,
     discoveryTimeoutMs: 50,
   })
-  const route = webServer.routes.find((entry) => entry.path === mod.REMOTE_WORKSPACES_PATH)
+  const route = webServer.routes.find((entry) => entry.path === mod.REMOTE_HOSTS_PATH)
   const response = fakeResponse()
   // `AbortSignal.timeout` does not keep the event loop alive on its own, and
-  // this fake client has no sockets; hold the loop until the signal fires.
+  // this fake provider has no sockets; hold the loop until the signal fires.
   const keepAlive = setInterval(() => {}, 50)
   try {
-    await route.handler(fakeRequest({ url: `${mod.REMOTE_WORKSPACES_PATH}?targetDeviceId=device-1` }), response)
+    await route.handler(fakeRequest({ url: mod.REMOTE_HOSTS_PATH }), response)
   } finally {
     clearInterval(keepAlive)
   }
@@ -282,12 +267,12 @@ function fakeSupervisor(): {
 
 // ---------------------------------------------------------------- bridge
 {
-  const supervisor = fakeSupervisor() as ReturnType<typeof fakeSupervisor> & { setStatus(next: unknown[]): void }
+  const supervisor = fakeSupervisor()
   const bridge = mod.createRemoteTabBridge({ readTabs: makeReadTabs(), supervisor })
   assert.equal(bridge.status().length, 1, 'a configured remote connection is reported idle before any child exists')
   assert.deepEqual(bridge.status()[0], { id: 'remote-1', state: 'idle', log: [] })
 
-  supervisor.setStatus([{ id: 'remote-2', state: 'up', url: 'http://127.0.0.1:1/?token=t', log: ['line'], error: undefined }])
+  supervisor.setStatus([{ id: 'remote-2', state: 'up', url: 'http://127.0.0.1:1/?token=t', log: ['line'] }])
   const merged = bridge.status()
   assert.equal(merged.length, 2, 'records and configured rows are merged')
   const record = merged.find((row: { id: string }) => row.id === 'remote-2')
@@ -311,12 +296,8 @@ function fakeSupervisor(): {
 {
   const webServer = fakeWebServer()
   const supervisor = fakeSupervisor()
-  const registration = mod.registerRemoteTabRoutes({
-    readTabs: makeReadTabs(),
-    getClient: () => undefined,
-    supervisor,
-    webServer,
-  })
+  const { provider } = fakeProvider()
+  const registration = mod.registerRemoteTabRoutes({ readTabs: makeReadTabs(), provider, supervisor, webServer })
   const disposeConnections = mod.registerRemoteConnections({}, webServer, {
     dshHome: root,
     tabs: async () => ({ tabs: makeReadTabs()().tabs, connections: makeReadTabs()().connections }),
@@ -327,8 +308,7 @@ function fakeSupervisor(): {
 
   const status = fakeResponse()
   await statusRoute.handler(fakeRequest({ url: mod.CONNECTIONS_ROUTE_PREFIX }), status)
-  const statusBody = JSON.parse(status.body)
-  assert.deepEqual(statusBody.connections, [{ id: 'remote-1', state: 'idle', log: [] }], 'GET /connections carries the remote row')
+  assert.deepEqual(JSON.parse(status.body).connections, [{ id: 'remote-1', state: 'idle', log: [] }], 'GET /connections carries the remote row')
 
   const up = fakeResponse()
   await actionRoute.handler(fakeRequest({ method: 'POST', url: `${mod.CONNECTIONS_ROUTE_PREFIX}/remote-1/up` }), up)
@@ -362,13 +342,13 @@ function fakeSupervisor(): {
 }
 
 // ---------------------------------------------------------------- plugin wiring
-// `apply` is the only entry the desktop host calls; a fake Cordis context proves
-// it registers the tab route, both discovery routes, and the connection routes,
-// and that its disposer removes them and stops the supervisor.
+// `apply` is the only entry the host calls; a fake Cordis context proves it
+// registers the tab route, both discovery routes, and the connection routes,
+// and that its disposer removes them and stops the supervisor. With no remote
+// services the provider reports the feature unavailable without breaking boot.
 {
   const registered: { kind: 'exact' | 'prefix'; path: string; handler: (req: unknown, res: unknown) => unknown }[] = []
   const cleanups: (() => void)[] = []
-  const services: Record<string, unknown> = {}
   const ctx = {
     webServer: {
       host: '127.0.0.1',
@@ -385,8 +365,8 @@ function fakeSupervisor(): {
       cleanups.push(callback())
       return () => {}
     },
-    get(name: string) {
-      return services[name]
+    get() {
+      return undefined
     },
   }
   mod.apply(ctx)
@@ -396,11 +376,12 @@ function fakeSupervisor(): {
   assert.ok(paths.includes(mod.REMOTE_WORKSPACES_PATH), 'apply registers the remote-workspace route')
   assert.equal(paths.filter((path) => path === mod.CONNECTIONS_ROUTE_PREFIX).length, 2, 'apply registers the connection status and action routes')
 
-  // The hosts route answers the "plugin unavailable" shape with no services.
+  // The backend plugin is absent here; the discovery route answers the plugin's
+  // unavailable text rather than failing the host.
   const hostsRoute = registered.find((route) => route.path === mod.REMOTE_HOSTS_PATH)
   const response = fakeResponse()
   await hostsRoute.handler(fakeRequest({ url: mod.REMOTE_HOSTS_PATH }), response)
-  assert.deepEqual(JSON.parse(response.body), { hosts: [], error: mod.REMOTE_PLUGIN_UNAVAILABLE })
+  assert.deepEqual(JSON.parse(response.body), { hosts: [], error: mod.DS_HARNESS_REMOTE_UNAVAILABLE })
 
   for (const cleanup of cleanups.reverse()) cleanup()
   assert.equal(registered.length, 0, 'the apply disposer removes every route')

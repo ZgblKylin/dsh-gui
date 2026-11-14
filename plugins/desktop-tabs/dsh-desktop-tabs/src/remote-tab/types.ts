@@ -1,15 +1,15 @@
 /**
  * Public types of the remote-tab host module.
  *
- * A remote tab is one saved `ds-harness-remote` connection: the desktop's
- * parent Remote Host identity mints an owned child Client identity, and one
- * child `dsh web` process per connection runs under its own `DSH_HOME`, opens
- * the remote workspace and is embedded as a webview tab. This module owns
- * everything between a persisted row's `remote` descriptor and a loadable
+ * A remote tab is one saved connection to a remote Harness workspace: one child
+ * `dsh` process per connection runs under its own `DSH_HOME`, opens the remote
+ * workspace, and is embedded as a webview tab. This module owns everything
+ * between a persisted row's `remote` descriptor and a loadable
  * `http://127.0.0.1:<port>/?token=...` URL: `./profile.ts` generates the child
- * profile, `./identity.ts` mints/reuses the child device, `./supervisor.ts`
- * owns the child process, and `./routes.ts` serves the panel's discovery routes
- * and the shared connection routes.
+ * profile from the parent composition, `./loader.ts` generates the child's ESM
+ * resolver, `./supervisor.ts` owns the child process, `./routes.ts` serves the
+ * panel's discovery routes and the shared connection routes, and a
+ * {@link RemoteTabProvider} supplies the backend-specific half.
  *
  * The token in a returned URL never enters a log line or an error message.
  */
@@ -69,7 +69,7 @@ export interface RemoteTabRequest {
 
 /**
  * Facts about the minted child identity. The child's access and refresh tokens
- * stay inside `./identity.ts`; the profile only needs the server URL, and
+ * stay inside the provider module; the profile only needs the server URL, and
  * revocation only needs the directory.
  */
 export interface RemoteTabIdentity {
@@ -79,6 +79,72 @@ export interface RemoteTabIdentity {
   readonly deviceId: string
   /** How this call obtained the child credentials; for diagnostics only. */
   readonly authorization?: 'reused' | 'minted' | 'recovered'
+}
+
+/** One parent file copied once into the child home; both paths are home-relative. */
+export interface RemoteTabHomeFile {
+  /** Path relative to the parent Harness home. */
+  readonly source: string
+  /** Path relative to the child Harness home. */
+  readonly target: string
+}
+
+/** Backends whose workspace catalog could not be read while discovering. */
+export interface RemoteWorkspaceUnavailable {
+  readonly backend: string
+  readonly code: string
+}
+
+/** One host's workspace discovery result. */
+export interface RemoteWorkspaceDiscovery {
+  readonly workspaces: readonly RemoteWorkspace[]
+  readonly unavailable: readonly RemoteWorkspaceUnavailable[]
+}
+
+/** Parent-profile facts a provider may need before a child profile is written. */
+export interface RemoteTabParentPreparation {
+  readonly parentProfileDir: string
+  readonly parentDshHome: string
+  readonly runtimeDir?: string
+  readonly env?: NodeJS.ProcessEnv
+}
+
+/**
+ * One remote-backend provider: everything the remote-tab feature needs that is
+ * specific to a backend plugin.
+ *
+ * The generic core (`./profile.ts`, `./supervisor.ts`, `./routes.ts`) never
+ * names a backend plugin; it asks the provider for its bundle additions, patch
+ * layer, home files, child identity, and discovery calls. `desktop-tabs` loads
+ * without the backend plugin at all: the reflection-based provider reports the
+ * feature unavailable while the tab list and the SSH/WSL connections keep
+ * working.
+ */
+export interface RemoteTabProvider {
+  /** Stable provider id, for logs and error text (the backend plugin package name). */
+  readonly id: string
+  /** Human-readable name used in Chinese error messages. */
+  readonly label: string
+  /** Child-profile bundles the provider appends to the parent composition. */
+  readonly bundles: readonly string[]
+  /** Bundles that must resolve for the provider to work at all. */
+  readonly requiredBundles: readonly string[]
+  /** Bundle that opens the workspace and prints the readiness sentinel. */
+  readonly readyBundle?: string
+  /** Parent files copied into the child home on first creation. */
+  readonly homeFiles: readonly RemoteTabHomeFile[]
+  /** Set up the parent profile before the child boots (optional peer links etc.). */
+  prepareParent?(args: RemoteTabParentPreparation): void
+  /** Patch layer appended after the parent profile's own patch copy. */
+  renderPatch(args: { readonly serverUrl: string }): string
+  /** Mint or reuse the child identity; tokens stay inside the provider. */
+  ensureIdentity(args: { readonly childHome: string; readonly deviceName: string }): Promise<RemoteTabIdentity>
+  /** Revoke the child identity, best-effort. */
+  revokeIdentity(args: { readonly childHome: string }): Promise<void>
+  /** Discover the backend's remote hosts. */
+  listHosts(signal?: AbortSignal): Promise<readonly RemoteHost[]>
+  /** Discover one host's workspaces. */
+  discoverWorkspaces(targetDeviceId: string, signal?: AbortSignal): Promise<RemoteWorkspaceDiscovery>
 }
 
 /**
