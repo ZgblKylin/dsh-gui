@@ -31,9 +31,9 @@ plugins/commandcode-provider/
 
 ## 兼容性状态
 
-上游 0.17.3 用双通道析取区间声明引擎：`engines.dsh` 为 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，`dsh.compatibility.dsh` 与 15 个 `@deepseek-ai/dsh-*` peer 采用同一区间（0.16.0 起如此）。第一段接纳 0.2.1 线从 rc.2 起的每个 RC；第二段接纳 0.2.2 线从 alpha.2 起的预发布，`0.2.2-rc.1` 落在其中。上界写成 `<0.2.2-0` / `<0.2.3-0`，因此排除 0.2.2 的正式版与 0.2.3 及以后。上游还把 `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` / `0.2.2-alpha.3` / `0.2.2-rc.1` 记入 `dsh.compatibility.dshReleases`，作为经过完整引擎矩阵验证的版本记录。
+上游 0.17.3 用双通道析取区间声明引擎：`engines.dsh` 为 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，`dsh.compatibility.dsh` 与 15 个 `@deepseek-ai/dsh-*` peer 采用同一区间（0.16.0 起如此）。第一段接纳 0.2.1 线从 rc.2 起的每个 RC；第二段接纳 0.2.2 线从 alpha.2 起的预发布，`0.2.2-rc.3` 落在其中。上界写成 `<0.2.2-0` / `<0.2.3-0`，因此排除 0.2.2 的正式版与 0.2.3 及以后。上游还把 `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-alpha.2` / `0.2.2-alpha.3` / `0.2.2-rc.1` 记入 `dsh.compatibility.dshReleases`，作为经过完整引擎矩阵验证的版本记录。
 
-本仓库 pin 的 harness 是 **dsh-v0.2.2-rc.1**，落在第二段内（`0.2.2-alpha.2 <= 0.2.2-rc.1 < 0.2.3-0`），且 `dsh.compatibility.dshReleases` 已把它记为 `compatible`。准入闸门先读 `engines.dsh` 并只按它判定，因此闸门**自行接纳**该包，`install.mjs` 不再需要 `exempt`——0.15.5 时代授予的精确版本例外（绑定包版本 `0.15.5` + 运行版本 `0.2.2-rc.1`）已随 pin 更新一并撤销，它本来也不可能覆盖 `0.17.3`。
+本仓库 pin 的 harness 是 **dsh-v0.2.2-rc.3**，落在第二段内（`0.2.2-alpha.2 <= 0.2.2-rc.3 < 0.2.3-0`）。准入闸门先读 `engines.dsh` 并只按它判定，因此闸门**自行接纳**该包，`install.mjs` 不再需要 `exempt`——0.15.5 时代授予的精确版本例外（绑定包版本 `0.15.5` + 运行版本 `0.2.2-rc.1`）已随 pin 更新一并撤销，它本来也不可能覆盖 `0.17.3`。上游 `dsh.compatibility.dshReleases` 目前记录到 `0.2.2-rc.1`（仅作「验证于」展示，不参与准入判定）。
 
 安装后应满足：
 
@@ -85,7 +85,7 @@ node plugins/commandcode-provider/install.mjs
 2. 重跑本 wrapper（`node plugins/commandcode-provider/install.mjs`）；若目标版本仍
    落在 pnpm 的 24h 年龄窗口内，精确 pin 即可绕过。
 
-上游的区间声明同时覆盖 0.2.1 线从 rc.2 起的每个 RC 与 0.2.2 线从 alpha.2 起的预发布（含 `0.2.2-rc.1`），因此只需同步 `install.mjs` 的精确版本，无需改动兼容字段；目标运行时落在区间外时，按 `plugins/README.md` 的例外流程传入理由。另注意 0.16.0 起 `engines.node` 从 22 抬到 `>=24.9`（与 dsh 0.2.2 引擎的下限一致），在 Node 22/23 上安装会报 `EBADENGINE`。
+上游的区间声明同时覆盖 0.2.1 线从 rc.2 起的每个 RC 与 0.2.2 线从 alpha.2 起的预发布（含 `0.2.2-rc.3`），因此只需同步 `install.mjs` 的精确版本，无需改动兼容字段；目标运行时落在区间外时，按 `plugins/README.md` 的例外流程传入理由。另注意 0.16.0 起 `engines.node` 从 22 抬到 `>=24.9`（与 dsh 0.2.2 引擎的下限一致），在 Node 22/23 上安装会报 `EBADENGINE`。
 
 ## 验证
 
@@ -104,7 +104,7 @@ node ..\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --dump-c
 
 - **非官方集成**：需要自己的 Command Code 账号与 key，并遵守其服务条款；与
   Command Code, Inc. 无关。
-- 插件仅面向其配对的 dsh 版本维护，跨版本升级需要上游跟进；当前 pin 的 0.17.3 声明 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，接纳 pinned 的 0.2.2-rc.1，因此**无需**精确版本例外；`engines.node` 为 `>=24.9`，与 harness 的下限一致。
+- 插件仅面向其配对的 dsh 版本维护，跨版本升级需要上游跟进；当前 pin 的 0.17.3 声明 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，接纳 pinned 的 0.2.2-rc.3，因此**无需**精确版本例外；`engines.node` 为 `>=24.9`，与 harness 的下限一致。
 - 图片输入受模型能力限制（仅 Vision 模型），且含图片的会话切到纯文本模型会被 dsh
   拒绝；不支持 `stop` 序列。
 - 浏览器内登录依赖 Host 与浏览器同机（回环回调）；远程 Host 请手动粘贴 key。

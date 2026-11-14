@@ -13,10 +13,10 @@
  * (id `llm-commandcode`, name `@mars-sea/dsh-commandcode-provider`); no manual
  * insert is written here (that would double-mount it).
  *
- * Admission on the pinned harness `dsh-v0.2.2-rc.1` needs no exact-version
+ * Admission on the pinned harness `dsh-v0.2.2-rc.3` needs no exact-version
  * exemption since 0.17.3: its `engines.dsh` is now
- * `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`, so 0.2.2-rc.1 sorts
- * inside the second branch (`0.2.2-alpha.2 <= 0.2.2-rc.1 < 0.2.3-0`). The same
+ * `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`, so 0.2.2-rc.3 sorts
+ * inside the second branch (`0.2.2-alpha.2 <= 0.2.2-rc.3 < 0.2.3-0`). The same
  * disjunction is carried by its `@deepseek-ai/dsh-*` peers, so the admission
  * gate admits the package on its own. Pins through 0.15.5 ended at
  * `<0.2.2-0` and therefore had to grant the exact-version `exempt`; it is

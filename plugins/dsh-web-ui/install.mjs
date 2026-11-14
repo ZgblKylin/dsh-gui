@@ -79,7 +79,7 @@ installNpmPlugin({
 // dsh.client.inject 新增 @deepseek-ai/dsh-client-ui-layout（由官方 web-app bundle
 // 的 ui-layout 行提供，声明 main 与 sidebar.panellist 座位）；engines.dsh
 // 包 manifest 无 engines.dsh，peer `@deepseek-ai/dsh >=0.2.2-rc.1` 覆盖 pinned
-// harness 0.2.2-rc.1；版本对齐上游发布 0.4.16。
+// harness 0.2.2-rc.3；版本对齐上游发布 0.4.16。
 installNpmPlugin({
   id: 'dsh-skill-explorer',
   packageSpec: '@linxin666/dsh-client-ui-skill-explorer@0.4.16',

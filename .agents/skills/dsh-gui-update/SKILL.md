@@ -235,7 +235,7 @@ $env:DSH_HOME = 'E:\Git\dsh-gui-home\dsh-gui\.staging\.dsh'
 | 卸载插件、清理 profile 与 submodule 残留 | `dsh-plugin-uninstall` |
 | 插件 wrapper、npm 安装脚本与 in-tree 插件接线 | `dsh-gui-plugin-dev` |
 | agent preset 的改动与安装 | `dsh-gui-preset-dev` |
-| Cordis 组合与 preset 组合的编写与校验 | `editing-cordis-compositions` |
+| Cordis 组合与 preset 组合的编写与校验 | `dsh-doc`（读 `references/compositions.md` 与 `references/composition-reference.md`） |
 
 ## 9. 常见坑
 

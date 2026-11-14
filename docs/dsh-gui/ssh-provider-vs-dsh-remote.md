@@ -2,7 +2,7 @@
 
 本仓库的 SSH 远程连接由 `plugins/desktop-tabs/dsh-desktop-tabs` 的 host 半提供（Tauri 壳与
 desktop 壳共用，下文称 desktop-tabs），`plugins/remote/dsh-remote` 只负责本机后端与 Docker。
-上游 SSH 提供方家族（`packages/ssh/`，当前 `0.2.2-rc.1`）实现「远端工作区」。常常有人
+上游 SSH 提供方家族（`packages/ssh/`，当前 `0.2.2-rc.3`）实现「远端工作区」。常常有人
 把两者都当作「SSH 远程」，但它们是两种相反的部署模型，不能互相直接替换配置。本文对照
 能力并给出替代判定。
 
@@ -27,7 +27,7 @@ desktop-tabs 的 SSH 后端；对于远端完整 dsh、Docker 容器与并行多
 
 ## 能力逐项对照
 
-| 能力 | desktop-tabs (0.2.1) | 上游 SSH 家族 (0.2.2-rc.1) | 判定 |
+| 能力 | desktop-tabs (0.2.1) | 上游 SSH 家族 (0.2.2-rc.3) | 判定 |
 | --- | --- | --- | --- |
 | 文件工具（读写/编辑/版本保护） | 远端 dsh 的 `tool-fs`，界面里直接可见远端文件 | 本机 `tool-fs` 经 `fs-ssh` 作用于远端文件；工作区实体按主机路径创建与校验，远端独有的路径建不成工作区 | 后者有，Web 工作区不可用（见 [ssh-remote-workspace.md](ssh-remote-workspace.md) 的限制一节） |
 | Bash/终端/LSP | 远端 dsh 内执行，终端面板即远端 | 本机会话的 Bash/终端经 `subprocess-ssh` 执行于远端 | 后者有 |
