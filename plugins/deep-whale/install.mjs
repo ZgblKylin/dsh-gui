@@ -17,11 +17,10 @@
  * ui-skin-maid-atelier / ui-skin-orca-link) — no manual cordis.patch.yml insert
  * is added (that would double-mount them) and nothing is compiled locally.
  *
- * Each package carries its own version in its own upstream release: the two
- * skins are 0.1.10 while the manager stays at 0.1.9. One shared version
- * constant would therefore pin some package to a version that does not exist,
- * so the pins are per package — each pin tracks its own package's published
- * release.
+ * Each package is published as its own release, so the wrapper tracks each
+ * package's own registry `latest` and resolves one exact version per package at
+ * install time. A shared version constant would point some package at a version
+ * that does not exist.
  *
  * The harness dsh-v0.2.2-rc.3 admission gate reads a package's `engines.dsh`
  * first and only falls back to its dsh peer ranges when that field is absent.
@@ -57,18 +56,13 @@ import { pinnedPath, ROOT, run, WEB_HOME } from '../../scripts/toolchain.mjs'
 const ID = 'deep-whale'
 
 /**
- * Exact npm pins matching each package's own version in upstream releases,
- * in upstream install order (manager first, then the two skins).
- * Exact versions bypass pnpm 11's default supply-chain `minimumReleaseAge` gate,
- * which would otherwise silently fall back to an older release for `@latest` or
- * a range. Each pin is one `pkg@version` literal: the desktop update panel parses
- * these literals into plugin rows and rewrites the new version in place, and this
- * script is the authoritative install target for a fresh deployment.
+ * The three packages in upstream install order (manager first, then the two
+ * skins), each tracking its own registry `latest`.
  */
 const SKIN_SPECS = [
-  '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@0.1.9',
-  '@smalltailqwq/dsh-client-ui-skin-maid-atelier@0.1.10',
-  '@smalltailqwq/dsh-client-ui-skin-orca-link@0.1.10',
+  '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@latest',
+  '@smalltailqwq/dsh-client-ui-skin-maid-atelier@latest',
+  '@smalltailqwq/dsh-client-ui-skin-orca-link@latest',
 ]
 
 /** Keys the retired `@dsh-external/*` placeholder scope left behind. */
@@ -131,7 +125,7 @@ function removeLegacyPlaceholderLinks(dshHome) {
 }
 
 for (const spec of SKIN_SPECS) {
-  installNpmPlugin({ id: ID, packageSpec: spec })
+  await installNpmPlugin({ id: ID, packageSpec: spec })
 }
 
 const dshHome = process.env.DSH_HOME ?? WEB_HOME

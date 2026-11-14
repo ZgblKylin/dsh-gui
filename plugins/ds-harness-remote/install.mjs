@@ -3,9 +3,10 @@
  * install.mjs — install the `ds-harness-remote` plugin into the selected profile.
  *
  * 从 npm 安装 `ds-harness-remote`（DSH Remote：基于 P2P 端到端加密连接的远程访问
- * 插件，让 PC、移动端与 Web 访问本机 Harness 会话与工作区），固定精确版本 `0.6.3`
- * 而非 `@latest`：pinned pnpm 11.7 默认的 supply-chain `minimumReleaseAge` 会把过新
- * 的版本挡在 `@latest` 之外并静默回退到更旧版本，精确 pin 由 pnpm 自动写入豁免。
+ * 插件，让 PC、移动端与 Web 访问本机 Harness 会话与工作区），spec 为
+ * `ds-harness-remote@latest`：安装时由共享流水线查询 registry 的 latest 精确版本
+ * 并安装该版本，已装同一版本时跳过，因此上游发布新版本后重跑本脚本即可升级，
+ * 仓库内不维护版本号。
  *
  * 上游：https://github.com/liguobao/ds-harness-remote（默认分支 main，远程 Web
  * https://dsh.r2049.cn/app）。包以发布形态提供预构建的 `dist/index.js`（host 半）与
@@ -40,7 +41,7 @@
 
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
-installNpmPlugin({
+await installNpmPlugin({
   id: 'ds-harness-remote',
-  packageSpec: 'ds-harness-remote@0.6.3',
+  packageSpec: 'ds-harness-remote@latest',
 })

@@ -44,7 +44,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { isDirectory, listProjects, type ProjectRef } from './paths.ts'
+import { installedPackageVersion, isDirectory, listProjects, type ProjectRef } from './paths.ts'
 import {
   gitFailure,
   gitFetch,
@@ -361,18 +361,20 @@ interface NpmGroupOutcome {
  * Update every requested row of one install script.
  *
  * A batch over several packages of one wrapper is the normal case (deep-whale
- * pins three skins): the script is read and rewritten once, all pins move
- * together, and the wrapper re-runs once. Each step isolates its own failures:
+ * installs three skins): the script is read and rewritten once for its exact
+ * pins, and the wrapper re-runs once. Rows whose script tracks
+ * `<package>@latest` carry no version to rewrite and only join that single
+ * re-run. Each step isolates its own failures:
  *
  * - a row whose package disappeared from the script fails alone;
  * - a row whose registry query fails fails alone and never blocks the others;
- * - a row already at the registry version reports `已是最新（<pin>）` and is not
- *   part of the rewrite;
- * - the remaining rows are written together; if one pin can no longer be
+ * - a row already at the registry version reports `已是最新（<installed>）` and is
+ *   not part of the update;
+ * - the remaining exact pins are written together; if one pin can no longer be
  *   replaced (the script changed under the dialog) nothing is written and the
  *   rows that needed a move fail together;
- * - if the installer fails or times out, the script is restored from the
- *   in-memory backup and those rows fail with the same reason.
+ * - if the installer fails or times out, a rewritten script is restored from
+ *   the in-memory backup and those rows fail with the same reason.
  *
  * @param root - repository root.
  * @param targets - the group's requested targets, in request order.
@@ -407,7 +409,7 @@ async function updateNpmGroup(
   }
 
   // One registry phase for the whole group. A failed package only marks its own
-  // row, so the other pins still move.
+  // row, so the other rows still move.
   const pending = items.filter((item) => item.row !== undefined)
   if (pending.length > 0) {
     const answers = await npmPackageLatest(pending.map((item) => item.row!.packageName))
@@ -426,15 +428,19 @@ async function updateNpmGroup(
         item.error = 'npm registry 未返回版本号'
         return
       }
-      if (!isNewerVersion(answer.latest, row.pinnedVersion)) {
-        item.detail = `已是最新（${row.pinnedVersion}）`
+      // The current version is the exact pin, or the profile-installed version
+      // behind a tracking wrapper. An absent tracking package has nothing to
+      // compare, so the wrapper's install is the update.
+      const current = row.pinnedVersion ?? installedPackageVersion(row.packageName)
+      if (current !== undefined && !isNewerVersion(answer.latest, current)) {
+        item.detail = `已是最新（${current}）`
         return
       }
       item.nextVersion = answer.latest
     })
   }
 
-  // Only the rows that need a move take part in the shared rewrite/reinstall.
+  // Only the rows that need the wrapper to run take part in the update.
   const updates = items.filter((item) => item.nextVersion !== undefined)
   if (updates.length > 0) await applyNpmGroup(root, updates, logFor)
 
@@ -446,16 +452,18 @@ async function updateNpmGroup(
 }
 
 /**
- * Rewrite a group's pins into its install script and re-run the wrapper once.
+ * Bring one group's rows to their registry versions with one wrapper run.
  *
- * The script is the only file written. Its previous content is the in-memory
- * backup written back when the wrapper fails (non-zero exit, spawn error, or the
+ * Exact pins are first rewritten into the install script (the only file this
+ * path writes); rows that track `<package>@latest` need no script change and
+ * just share that run. The script's previous content is the in-memory backup
+ * written back when the wrapper fails (non-zero exit, spawn error, or the
  * install timeout), so a failed reinstall never strands the checkout on pins the
  * profile does not have. On success every member gets its own
  * `已更新到 <version>` detail.
  *
  * @param root - repository root.
- * @param items - the group members that need a version move.
+ * @param items - the group members that need the wrapper to run.
  * @param logFor - progress sink bound to one row's id.
  */
 async function applyNpmGroup(
@@ -468,41 +476,47 @@ async function applyNpmGroup(
   // with the group key (updateNpmGroup rejects a moved script).
   const installScript = first.row!.installScript
   const scriptPath = join(root, ...installScript.split('/'))
-  let original: string
-  try {
-    original = readFileSync(scriptPath, 'utf8')
-  } catch (error: unknown) {
-    failNpmGroup(items, `无法读取安装脚本 ${installScript}：${message(error)}`)
-    return
-  }
+  const pinned = items.filter((item) => item.row!.pinnedVersion !== undefined)
 
-  let rewritten = original
-  for (const item of items) {
-    const member = item.row!
-    const nextSpec = `${member.packageName}@${item.nextVersion!}`
+  let original: string | undefined
+  if (pinned.length > 0) {
     try {
-      rewritten = replacePinnedVersion(rewritten, member.spec, nextSpec)
+      original = readFileSync(scriptPath, 'utf8')
     } catch (error: unknown) {
-      // A pin that is no longer in the script means the file changed under the
-      // dialog; aborting the whole write keeps it from landing half updated.
-      failNpmGroup(items, `${message(error)}（请重新打开更新对话框）`)
+      failNpmGroup(items, `无法读取安装脚本 ${installScript}：${message(error)}`)
       return
     }
-    logFor(item.target, `已把安装脚本 ${installScript} 的 pin 改为 ${nextSpec}`)
-  }
 
-  try {
-    writeFileSync(scriptPath, rewritten)
-  } catch (error: unknown) {
-    // The write may have clipped the file before failing; best-effort restore so
-    // the checkout keeps the pins that match what is installed.
-    try {
-      writeFileSync(scriptPath, original)
-    } catch {
-      // The restore failed too; the error below reports the original write.
+    let rewritten = original
+    for (const item of pinned) {
+      const member = item.row!
+      const nextSpec = `${member.packageName}@${item.nextVersion!}`
+      try {
+        rewritten = replacePinnedVersion(rewritten, member.spec, nextSpec)
+      } catch (error: unknown) {
+        // A pin that is no longer in the script means the file changed under the
+        // dialog; aborting the whole write keeps it from landing half updated.
+        failNpmGroup(items, `${message(error)}（请重新打开更新对话框）`)
+        return
+      }
+      logFor(item.target, `已把安装脚本 ${installScript} 的 pin 改为 ${nextSpec}`)
     }
-    failNpmGroup(items, `无法写入安装脚本 ${installScript}：${message(error)}`)
-    return
+
+    try {
+      writeFileSync(scriptPath, rewritten)
+    } catch (error: unknown) {
+      // The write may have clipped the file before failing; best-effort restore
+      // so the checkout keeps the pins that match what is installed.
+      try {
+        writeFileSync(scriptPath, original)
+      } catch {
+        // The restore failed too; the error below reports the original write.
+      }
+      failNpmGroup(items, `无法写入安装脚本 ${installScript}：${message(error)}`)
+      return
+    }
+  } else {
+    logFor(first.target, `安装脚本 ${installScript} 跟踪 npm latest，无需改写版本，直接重新执行`)
   }
 
   try {
@@ -510,16 +524,19 @@ async function applyNpmGroup(
     // group's first row id so the stream stays readable.
     await runInstallScript(root, scriptPath, (line) => logFor(first.target, line))
   } catch (error: unknown) {
-    let rollback = '已把安装脚本回滚到原内容'
-    try {
-      writeFileSync(scriptPath, original)
-    } catch (rollbackError: unknown) {
-      rollback = `安装脚本回滚失败：${message(rollbackError)}`
+    let rollback = '安装脚本未改动'
+    if (original !== undefined) {
+      rollback = '已把安装脚本回滚到原内容'
+      try {
+        writeFileSync(scriptPath, original)
+      } catch (rollbackError: unknown) {
+        rollback = `安装脚本回滚失败：${message(rollbackError)}`
+      }
     }
     failNpmGroup(items, `${message(error)}（${rollback}）`)
     return
   }
-  logFor(first.target, '安装脚本已按新 pin 重新安装')
+  logFor(first.target, original === undefined ? '安装脚本已重新执行' : '安装脚本已按新 pin 重新安装')
   for (const item of items) item.detail = `已更新到 ${item.nextVersion!}`
 }
 

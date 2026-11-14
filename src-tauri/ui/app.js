@@ -2086,10 +2086,10 @@ async function runRootUpdate(project) {
 }
 
 /**
- * In-place update of one npm plugin row: the Rust command rewrites the exact
- * version pin inside the repository install script and re-runs that wrapper,
- * streaming its output through the same `update-root-log` event as the root
- * update. The application keeps running — only a restart makes the
+ * In-place update of one npm plugin row: the Rust command re-runs the
+ * repository install script (raising an exact pin first when the wrapper pins
+ * one), streaming its output through the same `update-root-log` event as the
+ * root update. The application keeps running — only a restart makes the
  * reinstalled plugin take effect — so, unlike `startUpdates`, nothing exits
  * here and no rebuild is needed.
  *
@@ -2106,7 +2106,10 @@ async function runNpmUpdate(project, options) {
   const label = project.packageName || project.name || project.id || "插件";
   if (!keepProgress) clearUpdateProgress();
   appendUpdateProgress(
-    "开始更新 npm 插件 " + label + "（改写安装脚本中的版本 pin 并重新安装到当前 profile）…"
+    "开始更新 npm 插件 " + label +
+    (project.tracksLatest
+      ? "（安装脚本跟踪 npm latest：重新执行脚本装入最新版到当前 profile）…"
+      : "（改写安装脚本中的版本 pin 并重新安装到当前 profile）…")
   );
   setRootUpdateControls(true);
   let unlisten = null;
@@ -2172,7 +2175,7 @@ async function applySelectedUpdates() {
     clearUpdateProgress();
     if (npmRows.length > 0) {
       appendUpdateProgress(
-        "开始更新 " + npmRows.length + " 个 npm 插件（就地改写安装脚本中的版本 pin 并重新安装到当前 profile；应用保持运行）…"
+        "开始更新 " + npmRows.length + " 个 npm 插件（就地重新执行安装脚本到当前 profile；应用保持运行）…"
       );
       for (const project of npmRows) {
         const ok = await runNpmUpdate(project, { keepProgress: true, noRefresh: true });
@@ -2216,10 +2219,11 @@ function updateError(message) {
 }
 
 function updateRow(project, checking) {
-  // npm plugin rows have a different model: their version is the exact npm pin
-  // in a repository install script, so there is no tag/commit target (the
-  // changelog comes from the pin-to-latest GitHub release range instead of a
-  // checkout target). See updateNpmRow.
+  // npm plugin rows have a different model: their version is the install
+  // script's exact pin, or the profile-installed version behind a
+  // `<package>@latest` wrapper, so there is no tag/commit target (the
+  // changelog comes from the installed-version-to-latest GitHub release range
+  // instead of a checkout target). See updateNpmRow.
   if (isNpmProject(project)) return updateNpmRow(project, checking);
   const row = document.createElement("div");
   row.className = "update-item";
@@ -2367,13 +2371,15 @@ function updateRow(project, checking) {
 /**
  * One npm plugin row.
  *
- * The row is a package whose version is the exact npm pin inside a repository
- * install script. It is compared against the npm registry's latest version, so
- * there is no tag/commit selector; its changelog is the GitHub release text
- * covering the pinned version through the registry's latest, which the shell's
- * Rust half resolves directly (no commit range, no AI summary). Its actions are
- * 「更新日志」, 「更新」 — which rewrites that pin and re-runs the wrapper in
- * place, keeping the application running — and 「AI 更新」.
+ * The row is a package installed by a repository install script, compared with
+ * the npm registry's latest version. `current` is the version the script pins,
+ * or — when the script tracks `<package>@latest` — the version installed in the
+ * plugin profile. There is no tag/commit selector; its changelog is the GitHub
+ * release text covering the current version through the registry's latest,
+ * which the shell's Rust half resolves directly (no commit range, no AI
+ * summary). Its actions are 「更新日志」, 「更新」 — which rewrites an exact pin
+ * (or just re-runs a tracking wrapper) in place, keeping the application
+ * running — and 「AI 更新」.
  */
 function updateNpmRow(project, checking) {
   const row = document.createElement("div");
@@ -2391,13 +2397,21 @@ function updateNpmRow(project, checking) {
   else name.textContent = label;
   const versions = document.createElement("div");
   versions.className = "update-item-versions";
-  versions.append(
-    "当前 ",
-    Object.assign(document.createElement("code"), { textContent: project.current || "unknown" }),
-    " → ",
-    "最新 ",
-    Object.assign(document.createElement("code"), { textContent: project.latest || "—" })
-  );
+  if (project.current === "未安装") {
+    versions.append(
+      "未安装 → ",
+      "最新 ",
+      Object.assign(document.createElement("code"), { textContent: project.latest || "—" })
+    );
+  } else {
+    versions.append(
+      "当前 ",
+      Object.assign(document.createElement("code"), { textContent: project.current || "unknown" }),
+      " → ",
+      "最新 ",
+      Object.assign(document.createElement("code"), { textContent: project.latest || "—" })
+    );
+  }
   info.append(name, versions);
 
   const action = document.createElement("div");
@@ -2439,23 +2453,28 @@ function updateNpmRow(project, checking) {
 
   const script = project.installScript || project.path || "";
   // The changelog is a GitHub release range, not a checkout target: the Rust
-  // half reads the release notes between this pin and the registry's latest.
+  // half reads the release notes between the installed version and the
+  // registry's latest.
   const changelog = document.createElement("button");
   changelog.type = "button";
   changelog.className = "secondary update-log";
   changelog.dataset.updateId = project.id;
   changelog.textContent = "更新日志";
-  changelog.title =
-    "查看本次更新会带来的变更：读取安装脚本当前 pin 到 npm 最新版本之间的 GitHub Release 说明";
+  changelog.title = project.tracksLatest
+    ? "查看本次更新会带来的变更：读取当前已安装版本到 npm 最新版本之间的 GitHub Release 说明"
+    : "查看本次更新会带来的变更：读取安装脚本当前 pin 到 npm 最新版本之间的 GitHub Release 说明";
   const button = document.createElement("button");
   button.type = "button";
   button.className = "secondary update-run";
   button.dataset.updateId = project.id;
   button.textContent = "更新";
-  button.title =
-    "把安装脚本 " + (script || "（未知路径）") + " 中的版本 pin 改到 " +
-    (project.latest || "最新版本") +
-    " 并重新执行该脚本，完成本行插件的重新安装（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。完成后重启 dsh-gui 生效；不需要重新构建。";
+  button.title = project.tracksLatest
+    ? "重新执行安装脚本 " + (script || "（未知路径）") +
+      "，按 npm latest 装入 " + (project.latest || "最新版本") +
+      "（当前 profile 就地生效；新设备重新部署时同样装 latest）。完成后重启 dsh-gui 生效；不需要重新构建。"
+    : "把安装脚本 " + (script || "（未知路径）") + " 中的版本 pin 改到 " +
+      (project.latest || "最新版本") +
+      " 并重新执行该脚本，完成本行插件的重新安装（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。完成后重启 dsh-gui 生效；不需要重新构建。";
   const ai = document.createElement("button");
   ai.type = "button";
   ai.className = "primary update-ai";
@@ -2975,10 +2994,11 @@ function renderChangelogMarkdown(src) {
 // git row's tag target the Rust side first tries the official GitHub Release
 // notes and falls back to a dsh-AI summary of the commit range. An npm plugin
 // row has no checkout target: its changelog is the GitHub release range from
-// the install script's pin to the registry's latest, returned directly (no AI
-// run). The AI run can take a few minutes, so the loading line switches to an
-// explicit note after a while; the markdown renders into a scrollable,
-// selectable body, and the copy button copies the raw source text.
+// the current version (exact pin or installed version) to the registry's
+// latest, returned directly (no AI run). The AI run can take a few minutes, so
+// the loading line switches to an explicit note after a while; the markdown
+// renders into a scrollable, selectable body, and the copy button copies the
+// raw source text.
 let changelogBusy = false;
 let changelogStallTimer = null;
 let changelogRawText = "";
@@ -3016,9 +3036,9 @@ async function openChangelog(projectId) {
     return;
   }
   // npm plugin rows resolve their changelog from the GitHub release range
-  // between the install script's pin and the registry's latest version; the
-  // Rust half returns that release text directly, so the loading copy must not
-  // promise an AI summary of commits.
+  // between the current version (exact pin or installed version) and the
+  // registry's latest; the Rust half returns that release text directly, so
+  // the loading copy must not promise an AI summary of commits.
   const npmRow = isNpmProject(project);
   const moduleName = npmRow
     ? project.packageName || project.name || project.id || "插件"
@@ -3125,7 +3145,8 @@ function aiModuleLabel(project) {
 function aiUpdateTargetText(project) {
   const current = project.current || "unknown";
   if (isNpmProject(project)) {
-    return "更新目标：npm 最新版本 " + aiNpmLatestText(project) + "（当前 pin " + current + "）";
+    return "更新目标：npm 最新版本 " + aiNpmLatestText(project) +
+      "（" + aiNpmCurrentText(project) + "）";
   }
   if (updateModeOf(project.id) === "tag") {
     const tag = project.latestTag
@@ -3179,12 +3200,27 @@ const AI_UPDATE_GATE_NOTE = [
   "4. 适配改动直接提交到 staging/verify 工作分支（worktree 内的提交不需要等待用户审批）；全部验证通过后向用户报告结论（worktree 路径、工作分支与提交、目标修订、验证命令与结果、适配改动清单、屏蔽项与未决风险），等用户明确审批后再执行阶段二，把工作分支合并回主分支完成实装。",
 ].join("\n");
 
-// Closing requirement of an npm plugin prompt. An npm plugin row's version
-// lives in the repository's install script, not in a checkout: updating only
-// the installed package (or only the current profile) would be reverted by the
-// next build and would leave a fresh deployment on the old pin, so the
-// script's exact packageSpec is the single source of truth.
+// Closing requirement of an npm plugin prompt whose script pins an exact
+// version. The version lives in the repository's install script, not in a
+// checkout: updating only the installed package (or only the current profile)
+// would be reverted by the next build and would leave a fresh deployment on
+// the old pin, so the script's exact packageSpec is the single source of truth.
 const NPM_UPDATE_REQUIREMENT = "更新安装脚本中的 packageSpec 精确版本，并保证当前 profile 与重新部署的新设备都会安装到新版本；改完重新构建验证。";
+
+// Closing requirement of an npm plugin prompt whose script tracks npm latest.
+// `<package>@latest` is already the single source of truth, so the update only
+// re-runs the wrapper; rewriting a version into the script would defeat the
+// tracking.
+const NPM_LATEST_REQUIREMENT = "安装脚本以 `<包名>@latest` 跟踪 npm 最新版本：重新执行该安装脚本装入最新版并完成验证，不要改写安装脚本中的版本号（它不携带精确版本）。";
+
+// The requirement line for one batch's npm rows: tracking wrappers carry no
+// version to rewrite, exact pins do.
+function npmRequirementFor(projects) {
+  const tracking = projects.filter((project) => project.tracksLatest).length;
+  if (tracking === 0) return NPM_UPDATE_REQUIREMENT;
+  if (tracking === projects.length) return NPM_LATEST_REQUIREMENT;
+  return "按行处理：跟踪 latest 的安装脚本直接重新执行，固定精确版本的安装脚本把 packageSpec 改到目标版本再重新执行；改完重新构建验证。";
+}
 
 // The pinned package name of an npm plugin row: `packageName` is the explicit
 // contract field and wins; `name` carries it as a fallback.
@@ -3192,7 +3228,7 @@ function aiNpmPackageName(project) {
   return project.packageName || project.name || project.id || "插件";
 }
 
-// The install script that carries an npm plugin row's pin, relative to the repo root.
+// The install script that carries an npm plugin row's version, relative to the repo root.
 function aiNpmInstallScript(project) {
   return project.installScript || project.path || "";
 }
@@ -3202,12 +3238,19 @@ function aiNpmLatestText(project) {
   return project.latest || "（请用 npm view 确认）";
 }
 
-// One npm plugin row of a batch prompt: install script, current pin, target.
+// The current version label of an npm plugin row: the installed version behind
+// a tracking wrapper, the exact pin otherwise.
+function aiNpmCurrentText(project) {
+  const current = project.current || "unknown";
+  return project.tracksLatest ? "当前已安装 " + current : "当前 pin " + current;
+}
+
+// One npm plugin row of a batch prompt: install script, current version, target.
 function aiNpmPluginRow(project) {
   const script = aiNpmInstallScript(project);
   return "- 插件 " + aiNpmPackageName(project) +
     "（安装脚本 " + (script || "（未知路径）") +
-    "，当前 pin " + (project.current || "unknown") +
+    "，" + aiNpmCurrentText(project) +
     "，更新到 npm 最新版本 " + aiNpmLatestText(project) + "）";
 }
 
@@ -3241,9 +3284,10 @@ function buildHarnessUpdatePrompt(project) {
   ].join("\n");
 }
 
-// Prompt for one npm plugin row: the package is pinned by a repository install
-// script, so the update edits that script and re-runs it — there is no
-// submodule checkout to move and no tag/commit target to choose.
+// Prompt for one npm plugin row: the package is installed by a repository
+// install script, so the update either raises the script's exact pin or
+// re-runs a latest-tracking wrapper — there is no submodule checkout to move
+// and no tag/commit target to choose.
 function buildNpmPluginPrompt(project) {
   return [
     AI_UPDATE_SKILL,
@@ -3252,8 +3296,8 @@ function buildNpmPluginPrompt(project) {
     "",
     "- 插件：" + aiNpmPackageName(project),
     "- 安装脚本：" + (aiNpmInstallScript(project) || "（未知路径）"),
-    "- 当前 pin：" + (project.current || "unknown") + "；更新目标：npm 最新版本 " + aiNpmLatestText(project),
-    "- 要求：" + NPM_UPDATE_REQUIREMENT,
+    "- " + aiNpmCurrentText(project) + "；更新目标：npm 最新版本 " + aiNpmLatestText(project),
+    "- 要求：" + npmRequirementFor([project]),
     "",
     AI_UPDATE_WORKSPACE_NOTE,
     "",
@@ -3262,22 +3306,21 @@ function buildNpmPluginPrompt(project) {
 }
 
 // Append a batch's row lines, grouped by row type. Git checkout rows keep
-// their existing entry format; npm plugin rows use the install-script pin
-// entry, with the shared requirement under their group. Headings appear only
-// when both types are present, so a git-only batch keeps its original flat
-// list.
+// their existing entry format; npm plugin rows use the install-script entry,
+// with the shared requirement under their group. Headings appear only when
+// both types are present, so a git-only batch keeps its original flat list.
 function appendAiBatchRows(lines, gitRows, npmRows) {
   if (gitRows.length > 0 && npmRows.length > 0) {
     lines.push("仓库模块（git 子模块）：");
     for (const project of gitRows) lines.push(aiModuleRow(project));
-    lines.push("", "npm 插件（更新安装脚本中的版本 pin 并重新安装）：");
+    lines.push("", "npm 插件（重新安装以装入 npm 最新版本）：");
     for (const project of npmRows) lines.push(aiNpmPluginRow(project));
-    lines.push("- 要求：" + NPM_UPDATE_REQUIREMENT);
+    lines.push("- 要求：" + npmRequirementFor(npmRows));
     return;
   }
   for (const project of gitRows) lines.push(aiModuleRow(project));
   for (const project of npmRows) lines.push(aiNpmPluginRow(project));
-  if (npmRows.length > 0) lines.push("- 要求：" + NPM_UPDATE_REQUIREMENT);
+  if (npmRows.length > 0) lines.push("- 要求：" + npmRequirementFor(npmRows));
 }
 
 // Prompt for a batch that includes deepseek-harness plus other rows: the base
@@ -3303,9 +3346,9 @@ function buildHarnessMergedPrompt(harness, others) {
   lines.push(aiModuleRow(harness));
   for (const project of gitRows) lines.push(aiModuleRow(project));
   if (npmRows.length > 0) {
-    lines.push("", "npm 插件（更新安装脚本中的版本 pin 并重新安装）：");
+    lines.push("", "npm 插件（重新安装以装入 npm 最新版本）：");
     for (const project of npmRows) lines.push(aiNpmPluginRow(project));
-    lines.push("- 要求：" + NPM_UPDATE_REQUIREMENT);
+    lines.push("- 要求：" + npmRequirementFor(npmRows));
   }
   lines.push("", HARNESS_MODULE_NOTE, "", AI_UPDATE_WORKSPACE_NOTE, "", AI_UPDATE_GATE_NOTE);
   return lines.join("\n");

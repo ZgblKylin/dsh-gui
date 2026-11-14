@@ -2,17 +2,19 @@
  * npm plugin rows from the `plugins/` install scripts.
  *
  * The desktop update panel's plugin rows are no longer git checkouts: after the
- * npm migration each `plugins/<wrapper>/install.mjs` pins its package(s) with an
- * exact `<name>@<version>` literal, and `installNpmPlugin` installs that pin.
- * This module scans those scripts and turns every extracted literal into one
- * row; `./check.ts` compares a row's pin with the registry's latest version and
- * `./update.ts` rewrites the literal in place and re-runs the wrapper.
+ * npm migration each `plugins/<wrapper>/install.mjs` installs its package(s)
+ * through `installNpmPlugin`, and the script names either an exact
+ * `<name>@<version>` pin or the `<name>@latest` tag. This module scans those
+ * scripts and turns every extracted literal into one row; `./check.ts` compares
+ * a row with the registry's latest version (against the pin, or against the
+ * version installed in the plugin profile for a tracking wrapper), and
+ * `./update.ts` either rewrites an exact pin or re-runs the tracking wrapper.
  *
- * The convention the parser depends on: the spec is a `pkg@version` string
- * literal (single, double, or backtick quotes) inside a file that calls
- * `installNpmPlugin(`. A wrapper that builds the spec dynamically (from a file,
- * a range, `@latest`) produces no row — the source of truth must stay
- * greppable, as `plugins/README.md` says.
+ * The convention the parser depends on: the spec is a `pkg@version` or
+ * `pkg@latest` string literal (single, double, or backtick quotes) inside a
+ * file that calls `installNpmPlugin(`. A wrapper that builds the spec
+ * dynamically (from a file, a range) produces no row — the source of truth must
+ * stay greppable, as `plugins/README.md` says.
  */
 
 import { readdirSync, readFileSync } from 'node:fs'
@@ -28,12 +30,13 @@ const INSTALL_MARKER = 'installNpmPlugin('
 const SKIPPED_DIRECTORIES = new Set(['node_modules'])
 
 /**
- * One `<name>@<version>` string literal body: a bare or scoped package name
- * followed by an exact three-segment semver (prerelease allowed).
+ * One `<name>@<target>` string literal body: a bare or scoped package name
+ * followed by an exact three-segment semver (prerelease allowed) or the
+ * `latest` dist-tag.
  */
-const SPEC_PATTERN = /^((?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*)@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/i
+const SPEC_PATTERN = /^((?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*)@((?:\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)|latest)$/i
 
-/** One npm plugin row: one package pinned by one install script. */
+/** One npm plugin row: one package installed by one install script. */
 export interface PluginNpmRow {
   /** Stable row id: `npm:<packageName>`. */
   id: string
@@ -43,10 +46,15 @@ export interface PluginNpmRow {
   installScript: string
   /** The wrapper id: the first directory segment under `plugins/`. */
   wrapperId: string
-  /** Exact version the script pins. */
-  pinnedVersion: string
-  /** The literal as written in the script: `<packageName>@<pinnedVersion>`. */
+  /**
+   * Exact version the script pins; `undefined` when the literal is
+   * `<packageName>@latest` and the install resolves the version at run time.
+   */
+  pinnedVersion?: string
+  /** The literal as written in the script: `<packageName>@<pinnedVersion>` or `<packageName>@latest`. */
   spec: string
+  /** Whether the literal names the `latest` dist-tag instead of a version. */
+  tracksLatest: boolean
 }
 
 /**
@@ -54,11 +62,11 @@ export interface PluginNpmRow {
  *
  * Scans all `.mjs` files recursively (skipping `node_modules` and dot
  * directories), keeps only those that call `installNpmPlugin(`, strips their
- * comments, and extracts the `<name>@<version>` string literals. One row per
- * package per script (the same package pinned by two scripts keeps both rows:
- * each id repeats and the dialog shows the pin that decides that install).
- * Official `@deepseek-ai/dsh*` packages are excluded because they upgrade with
- * the deepseek-harness row.
+ * comments, and extracts the `<name>@<version>` and `<name>@latest` string
+ * literals. One row per package per script (the same package installed by two
+ * scripts keeps both rows: each id repeats and the dialog shows the target that
+ * decides that install). Official `@deepseek-ai/dsh*` packages are excluded
+ * because they upgrade with the deepseek-harness row.
  *
  * Rows are sorted by install script, then package name, so the dialog's row
  * order is stable across checks.
@@ -100,8 +108,9 @@ export async function listPluginNpmRows(root: string): Promise<PluginNpmRow[]> {
         packageName: spec.packageName,
         installScript,
         wrapperId,
-        pinnedVersion: spec.pinnedVersion,
+        ...(spec.pinnedVersion === undefined ? {} : { pinnedVersion: spec.pinnedVersion }),
         spec: literal.trim(),
+        tracksLatest: spec.tracksLatest,
       })
     }
   }
@@ -221,14 +230,19 @@ function stringLiterals(source: string): string[] {
 }
 
 /**
- * Parse one string literal body as a pinned spec.
- * @returns the package name and pinned version, or `undefined` when the body is
- *   not exactly `<name>@<three-segment semver>`.
+ * Parse one string literal body as an install spec.
+ * @returns the package name, the pinned version (`undefined` for the `latest`
+ *   tag) and the tracking flag; `undefined` when the body is neither
+ *   `<name>@<three-segment semver>` nor `<name>@latest`.
  */
-function parseSpec(literal: string): { packageName: string; pinnedVersion: string } | undefined {
+function parseSpec(literal: string): { packageName: string; pinnedVersion?: string; tracksLatest: boolean } | undefined {
   const match = SPEC_PATTERN.exec(literal.trim())
   if (match === null) return undefined
-  return { packageName: match[1]!, pinnedVersion: match[2]! }
+  const version = match[2]!
+  if (version.toLowerCase() === 'latest') {
+    return { packageName: match[1]!, tracksLatest: true }
+  }
+  return { packageName: match[1]!, pinnedVersion: version, tracksLatest: false }
 }
 
 /** Sort two strings by code unit, independent of the host locale. */

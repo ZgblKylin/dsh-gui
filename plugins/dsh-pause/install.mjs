@@ -2,13 +2,11 @@
 /**
  * install.mjs — install the `dsh-pause` plugin into the selected profile.
  *
- * 来源：npm 发布包 `dsh-pause`（上游 `better-er/dsh-pause`），经
- * `installNpmPlugin` 安装**精确版本 0.1.8** 而非 `@latest`：pinned pnpm 11.7 默认的
- * supply-chain `minimumReleaseAge`（1440 分钟）会把发布不足 24h 的版本挡在 `@latest`
- * 之外并静默回退到上一版，精确 pin 让安装内容与所选上游发布一致（0.1.8 发布于
- * 2026-11-07）。本 wrapper 不引入 git submodule、不构建：发布包已含预构建的
- * `lib/index.js`（host 半）与 `lib/client.js`（browser 半），仓库侧的 `install.mjs`
- * 就是当前 profile 与全新部署共同的权威安装目标。
+ * 来源：npm 发布包 `dsh-pause`（上游 `better-er/dsh-pause`），spec 为
+ * `dsh-pause@latest`：安装时由共享流水线查询 registry 的 latest 精确版本并安装
+ * 该版本，已装同一版本时跳过，因此上游发布新版本后重跑本脚本即可升级，仓库内
+ * 不维护版本号。本 wrapper 不引入 git submodule、不构建：发布包已含预构建的
+ * `lib/index.js`（host 半）与 `lib/client.js`（browser 半）。
  *
  * 功能：「DSH·暂停」。host 半监听 `agent/pre-step` waterfall，在模型完成一轮工具交互、
  * 正要发出下一次请求之前卡住（每个 turn 的首次请求 step 为 1，永不暂停），暂停期间
@@ -49,7 +47,7 @@
 
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
-installNpmPlugin({
+await installNpmPlugin({
   id: 'dsh-pause',
-  packageSpec: 'dsh-pause@0.1.8',
+  packageSpec: 'dsh-pause@latest',
 })

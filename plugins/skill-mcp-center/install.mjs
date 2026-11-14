@@ -2,9 +2,10 @@
 /**
  * install.mjs — install the `skill-mcp-center` plugin into the selected profile.
  *
- * 从 npm 安装 `@max-null/dsh-skill-mcp-center`，固定精确版本 0.7.0 而非 `@latest`：
- * pinned pnpm 11.7 默认的 supply-chain `minimumReleaseAge` 会把过新的版本挡在
- * `@latest` 之外并静默回退到更旧版本，精确 pin 由 pnpm 自动写入豁免，安装结果确定。
+ * 从 npm 安装 `@max-null/dsh-skill-mcp-center`，spec 为
+ * `@max-null/dsh-skill-mcp-center@latest`：安装时由共享流水线查询 registry 的
+ * latest 精确版本并安装该版本，已装同一版本时跳过，因此上游发布新版本后重跑本
+ * 脚本即可升级，仓库内不维护版本号。
  *
  * 本 wrapper 不引入 git submodule：包以发布形态提供预构建的 `dist/`（host 半）与
  * `client.js`（browser 半），没有构建步骤，仓库侧的 `install.mjs` 是唯一来源。
@@ -35,7 +36,7 @@
 
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
-installNpmPlugin({
+await installNpmPlugin({
   id: 'skill-mcp-center',
-  packageSpec: '@max-null/dsh-skill-mcp-center@0.7.0',
+  packageSpec: '@max-null/dsh-skill-mcp-center@latest',
 })

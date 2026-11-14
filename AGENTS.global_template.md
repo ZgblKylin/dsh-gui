@@ -41,6 +41,7 @@
 
 - `$env:DSH_HOME/docs/行文规范.md`：文档、大段代码注释与 git 提交信息的行文规范，编写这些内容前先参考。
 - `$env:DSH_HOME/docs/awesome-design-md/`：第三方只读 DESIGN.md 资料集（VoltAgent 的 awesome-design-md，Google Stitch 的纯文本设计系统文档；构建时整体覆盖，不要修改），做 UI / 视觉一致性相关任务时按需读取对应站点的设计语言。
+- 编写完并交付前，需要使用 trim-cot-leakage skill 检查并清理注释和文档中的推理痕迹。
 
 ## Git 提交规范
 

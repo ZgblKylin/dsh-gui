@@ -11,12 +11,13 @@
  * asks the already-installed `dsh-ai-update` route for the AI summary instead.
  *
  * npm plugin rows (`id` starting with `npm:`) use a different changelog: the
- * row's version range is the install script's pin to the registry's latest
- * version, so there is no commit range to read. Instead the package
- * repository's GitHub Releases between the two versions are collected, and the
- * dialog renders those notes; {@link selectNpmReleases} does the range filter
- * locally. A GitHub failure here *is* reported in `error`, because unlike a git
- * row there is no commit list to fall back to.
+ * row's version range is the current version (an exact pin, or the
+ * profile-installed version behind a `<package>@latest` wrapper) to the
+ * registry's latest version, so there is no commit range to read. Instead the
+ * package repository's GitHub Releases between the two versions are collected,
+ * and the dialog renders those notes; {@link selectNpmReleases} does the range
+ * filter locally. A GitHub failure here *is* reported in `error`, because
+ * unlike a git row there is no commit list to fall back to.
  *
  * Failure policy (contract §4.3): a GitHub lookup that fails, 404s, or returns
  * a release without a body is *not* an error — it silently falls back to the
@@ -27,7 +28,7 @@
 
 import { gitFailure, gitOutput, gitVersion, isGitRepo, localDefaultBranch, remoteDefaultBranch, runGit } from './git.ts'
 import { githubReleasesUrl, npmPackageLatest } from './npm.ts'
-import { isDirectory, listProjects } from './paths.ts'
+import { installedPackageVersion, isDirectory, listProjects } from './paths.ts'
 import { listPluginNpmRows } from './plugin-specs.ts'
 import { compareVersions } from './version.ts'
 
@@ -454,13 +455,13 @@ async function fetchReleaseList(owner: string, repo: string): Promise<ReleaseLis
   return { releases: collected }
 }
 
-/** The npm row's result scaffold: the pin is `from`, the latest is `to`. */
-function npmChangelogResult(id: string, packageName: string, pinnedVersion: string): ChangelogResult {
+/** The npm row's result scaffold: the current version is `from`, the latest is `to`. */
+function npmChangelogResult(id: string, packageName: string, currentVersion: string): ChangelogResult {
   return {
     id,
     name: packageName,
     kind: 'npm',
-    from: pinnedVersion,
+    from: currentVersion,
     // The latest version is filled in once the registry answered; the empty
     // string keeps the field present for the client while it is unknown.
     to: '',
@@ -475,21 +476,27 @@ function npmChangelogResult(id: string, packageName: string, pinnedVersion: stri
 
 /**
  * Build an npm plugin row's changelog: the package repository's GitHub Releases
- * inside `(pinned, registry latest]`.
+ * inside `(current, registry latest]`.
  *
- * The range's two ends come from the install script and the registry rather than
- * from local git, so a lookup failure is reported in `error` — there is no
- * commit list to fall back to.
+ * The range's lower end is the version this deployment runs — the exact pin, or
+ * the profile-installed version behind a tracking wrapper — and the upper end
+ * comes from the registry, so a lookup failure is reported in `error` (there is
+ * no commit list to fall back to).
  * @param root - repository root.
  * @param id - the row id, `npm:<packageName>`.
- * @throws {ChangelogRequestError} when the id or its install-script pin cannot be resolved.
+ * @throws {ChangelogRequestError} when the id, the install row, or a tracking
+ *   wrapper's installed version cannot be resolved.
  */
 async function buildNpmChangelog(root: string, id: string): Promise<ChangelogResult> {
   const packageName = id.slice(NPM_ROW_PREFIX.length).trim()
   if (packageName === '') throw new ChangelogRequestError('npm 行的 id 缺少包名')
   const plugin = (await listPluginNpmRows(root)).find((row) => row.packageName === packageName)
-  if (plugin === undefined) throw new ChangelogRequestError('安装脚本中找不到该 npm 插件的 pin')
-  const result = npmChangelogResult(id, packageName, plugin.pinnedVersion)
+  if (plugin === undefined) throw new ChangelogRequestError('安装脚本中找不到该 npm 插件的安装目标')
+  const currentVersion = plugin.pinnedVersion ?? installedPackageVersion(packageName)
+  if (currentVersion === undefined) {
+    throw new ChangelogRequestError('该插件尚未安装，无法生成更新日志')
+  }
+  const result = npmChangelogResult(id, packageName, currentVersion)
 
   const answers = await npmPackageLatest([packageName])
   const answer = answers[0]
@@ -525,7 +532,7 @@ async function buildNpmChangelog(root: string, id: string): Promise<ChangelogRes
     result.error = fetched.error
     return result
   }
-  const matched = selectNpmReleases(fetched.releases, plugin.pinnedVersion, latest)
+  const matched = selectNpmReleases(fetched.releases, currentVersion, latest)
   result.releases = matched
   result.count = matched.length
   return result

@@ -44,17 +44,24 @@ export interface UpdateProject {
   /** npm plugin row only: the package the install script pins. */
   readonly packageName?: string
   /**
-   * npm plugin row only: the install script that carries the pin, relative to
-   * the repository root (POSIX), e.g. `plugins/skill-mcp-center/install.mjs`.
+   * npm plugin row only: the install script that carries the install target,
+   * relative to the repository root (POSIX), e.g.
+   * `plugins/skill-mcp-center/install.mjs`.
    */
   readonly installScript?: string
+  /**
+   * npm plugin row only: true when the install script tracks
+   * `<package>@latest`. `current` is then the version installed in the plugin
+   * profile, and the update re-runs the wrapper instead of rewriting a pin.
+   */
+  readonly tracksLatest?: boolean
   /** Stable id: `dsh-gui` for the top-level checkout, the `.gitmodules` name otherwise, `npm:<packageName>` for an npm plugin row. */
   readonly id: string
   /** Display name (the module's `package.json` name, the package name, falling back to the id). */
   readonly name: string
   /** Path relative to the repository root, POSIX; empty for the top-level checkout, the install script for an npm plugin row. */
   readonly path: string
-  /** Locally checked-out version: an exact tag when on one, else a short sha; the install script's pinned version for an npm plugin row. */
+  /** Locally checked-out version: an exact tag when on one, else a short sha; for an npm plugin row the exact pin or the profile-installed version. */
   readonly current: string
   /** Version on the remote default branch; the registry's latest version for an npm plugin row; `检查中…` in `mode=local`. */
   readonly latest: string
@@ -64,7 +71,7 @@ export interface UpdateProject {
   readonly latestTagStale?: boolean
   /** Counts towards the badge; false for a tag checkout with no newer tag (always equal to `behind` for npm plugin rows). */
   readonly announce?: boolean
-  /** The update is available: the remote default branch is ahead, or the registry has a newer version than the pinned one. */
+  /** The update is available: the remote default branch is ahead, or the registry has a newer version than the current one. */
   readonly behind: boolean
   /** True for every row in `mode=local` (skeleton placeholders). */
   readonly checking: boolean

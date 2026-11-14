@@ -1,21 +1,22 @@
 # plugins/dsh-web-ui
 
 `dsh-web-ui` 的 wrapper。这个 wrapper 安装该发行仓库中的**插件本体**，全部以 npm
-包形式按**精确版本 pin** 安装进 web profile（见 `plugins/README.md` 的「安装方式」
-一节），版本号与上游发布保持同步（当前 `0.4.16`）：
+包形式安装进 web profile，每个包跟踪自己的 registry `latest`（见 `plugins/README.md`
+的「安装方式」一节）：
 
 1. **`dsh-web-ui-settings` 兼容设置桥**
-   （`@linxin666/dsh-client-ui-web-ui-settings@0.4.16`，排在最前）；
+   （`@linxin666/dsh-client-ui-web-ui-settings`，排在最前）；
 2. **`dsh-skill-explorer` 技能中心面板**
-   （`@linxin666/dsh-client-ui-skill-explorer@0.4.16`）；
+   （`@linxin666/dsh-client-ui-skill-explorer`）；
 3. **`dsh-usage` 使用统计**
-   （`@linxin666/dsh-usage@0.4.16`）。
+   （`@linxin666/dsh-usage`）。
 
-用精确版本而非 `@latest`：pnpm 11 的 24h `minimumReleaseAge` 门禁对
-`@latest`/范围解析会**静默回退旧版**，而对精确版本 pin 直接安装并自动豁免，
-保证结果确定、与上游发布一致。升级时需同步 bump 版本号。
+安装脚本把 spec 写成 `<包名>@latest`：`installNpmPlugin` 在安装前向 registry 解析
+出精确版本再交给 pnpm，已装同一版本时跳过。pnpm 11 的 24h `minimumReleaseAge`
+门禁只影响直接交给它的 tag/范围，因此这条路径不会静默装回旧版本；升级不需要改动
+仓库，上游发布后重跑安装即可。
 
-三个包要求 `@deepseek-ai/dsh >= 0.2.2-rc.1`（0.4.16 起从 `>= 0.2.1-rc.3` 抬高），本工程 pinned 的 `dsh-v0.2.2-rc.3` 满足该声明（`>= 0.2.2-rc.1` 在准入闸门的 `includePrerelease` 判定下接纳 rc.3）。0.4.16 另随包提供 `locale/en.json` 与 `locale/zh.json`，面板文案跟随界面语言；`dsh-usage` 的 `engines.node` 同步收到 `>=24.9.0`（与 harness 一致）。
+三个包要求 `@deepseek-ai/dsh >= 0.2.2-rc.1`（0.4.16 起从 `>= 0.2.1-rc.3` 抬高），本工程 pinned 的 `dsh-v0.2.2-rc.3` 满足该声明（`>= 0.2.2-rc.1` 在准入闸门的 `includePrerelease` 判定下接纳 rc.3）。发布包另提供 `locale/en.json` 与 `locale/zh.json`，面板文案跟随界面语言；`dsh-usage` 的 `engines.node` 为 `>=24.9.0`（与 harness 一致）。
 
 > **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper 安装。**
 > 直到 v0.4.4，排除原因是硬冲突：官方 `@deepseek-ai/dsh-web-app` bundle 自带
@@ -63,12 +64,13 @@ renderer 服务，作为独立 bundle 层自挂载。面板提供搜索框（按
 宠物公告气泡读取可选的 `pet` 服务，本工程安装的 `plugins/dsh-pet/`（PC2005-cloud
 的 `dsh-pet`）不提供该服务，因此气泡静默，其余功能不受影响。
 
-安装步骤：共享管线的 `installNpmPlugin()` 依次执行
+安装步骤：共享管线的 `installNpmPlugin()` 依次把三个 `@latest` spec 解析成当前
+精确版本并执行
 
 ```powershell
-dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@0.4.16
-dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@0.4.16
-dsh plugin --profile web add @linxin666/dsh-usage@0.4.16
+dsh plugin --profile web add @linxin666/dsh-client-ui-web-ui-settings@<latest>
+dsh plugin --profile web add @linxin666/dsh-client-ui-skill-explorer@<latest>
+dsh plugin --profile web add @linxin666/dsh-usage@<latest>
 ```
 
 三个包都声明 `dsh.bundle.patch`，`dsh plugin add` 会自动 reconcile 进 profile
@@ -159,15 +161,15 @@ skill `dsh-plugin-uninstall`）。
 ```text
 --- E:\Git\dsh-gui\plugins\dsh-web-ui\install.mjs
 
-==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@0.4.16 from npm)
+==> install plugin 'dsh-web-ui-settings' (@linxin666/dsh-client-ui-web-ui-settings@<latest> from npm)
   ...
 installed plugin 'dsh-web-ui-settings' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@0.4.16 from npm)
+==> install plugin 'dsh-skill-explorer' (@linxin666/dsh-client-ui-skill-explorer@<latest> from npm)
   ...
 installed plugin 'dsh-skill-explorer' into E:\Git\dsh-gui\.dsh\profiles\web
 
-==> install plugin 'dsh-usage' (@linxin666/dsh-usage@0.4.16 from npm)
+==> install plugin 'dsh-usage' (@linxin666/dsh-usage@<latest> from npm)
   ...
 installed plugin 'dsh-usage' into E:\Git\dsh-gui\.dsh\profiles\web
 ```
@@ -180,16 +182,12 @@ node plugins/dsh-web-ui/install.mjs
 
 ## 幂等性
 
-`dsh plugin add <pkg>@0.4.16`（npm，精确版本）可重复执行；bundle 层挂载由受管
-安装器 reconcile 保证幂等。
+`dsh plugin add <pkg>@<latest>`（npm，精确版本）可重复执行；bundle 层挂载由受管
+安装器 reconcile 保证幂等，`installNpmPlugin` 在已装同一版本时跳过安装。
 
 ## 更新源
 
-升级顺序：
-
-1. 审阅上游变更后，把 `install.mjs` 与 `README.md` 中的三个 npm 版本号 bump 到
-   上游新发布对应的版本（精确 pin，`pnpm add` 对精确版本自动豁免发布年龄门禁）；
-2. 重跑安装：
+无需改动仓库：重跑安装即可装入 registry 当前 latest。
 
 ```powershell
 node plugins/dsh-web-ui/install.mjs

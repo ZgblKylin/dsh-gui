@@ -103,6 +103,60 @@ export function dshHomeDir(env: NodeJS.ProcessEnv = process.env): string | undef
   return raw === '' ? undefined : resolve(raw)
 }
 
+/** Profile the desktop host installs plugins into when `DSH_PROFILE` is unset. */
+const DEFAULT_PLUGIN_PROFILE = 'desktop'
+
+/**
+ * The plugin profile the update panel reports against: `<DSH_HOME>/profiles/
+ * <profile>`, where the profile is the one the host runs (`DSH_PROFILE`, the
+ * same value `./update.ts` passes to the wrapper), defaulting to the desktop
+ * app's `desktop` profile.
+ * @param env - process environment to read `DSH_HOME` / `DSH_PROFILE` from.
+ * @returns the absolute profile path, or `undefined` when DSH_HOME is unset.
+ */
+export function pluginProfileDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const home = dshHomeDir(env)
+  if (home === undefined) return undefined
+  const profile = env.DSH_PROFILE?.trim() || DEFAULT_PLUGIN_PROFILE
+  return join(home, 'profiles', profile)
+}
+
+/**
+ * The version installed in the plugin profile for one npm package, read from
+ * the profile's `node_modules` (the hoisted linker keeps every dependency
+ * there). This is an npm plugin row's `current` when its install script tracks
+ * `<package>@latest` instead of pinning a version.
+ * @param packageName - npm package name, scoped names included.
+ * @param env - process environment to read `DSH_HOME` / `DSH_PROFILE` from.
+ * @returns the installed manifest version, or `undefined` when the package is
+ *   not installed (or the home is not configured).
+ */
+export function installedPackageVersion(packageName: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const profile = pluginProfileDir(env)
+  if (profile === undefined) return undefined
+  return manifestVersion(join(profile, 'node_modules', ...packageName.split('/'), 'package.json'))
+}
+
+/** Read one `package.json` file's `version`, or `undefined` when unreadable. */
+function manifestVersion(path: string): string | undefined {
+  let text = ''
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch {
+    return undefined
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (parsed === null || typeof parsed !== 'object') return undefined
+    const value = (parsed as { version?: unknown }).version
+    if (typeof value !== 'string') return undefined
+    const version = value.trim()
+    return version === '' ? undefined : version
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Parse the top-level `[submodule …]` entries of the repository's `.gitmodules`.
  * A section missing `path`, or whose path is absolute or escapes the root

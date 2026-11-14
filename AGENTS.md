@@ -1,7 +1,7 @@
 # 开发约定
 
 本仓库是deepseek-harness的tauri wrapper，以及个人自用的 DSH 插件集合。所有插件使用现有 DSH/Cordis 接口编写，目标是能在官方原版 DSH中无额外依赖直接加载。
-修改或编辑 in-tree 插件时，先检查插件包内的 AGENTS.md、CLAUDE.md、README.md、docs/ 等文档，并遵循目标插件的贡献约定（如有）；npm 型插件的源码在上游仓库，其改动经上游发布后，由本仓库 wrapper 把 `packageSpec` 更新到新版本。
+修改或编辑 in-tree 插件时，先检查插件包内的 AGENTS.md、CLAUDE.md、README.md、docs/ 等文档，并遵循目标插件的贡献约定（如有）；npm 型插件的源码在上游仓库，其改动经上游发布后由下一次构建装入（wrapper 跟踪 registry latest，仓库内不写版本号；`plugins/harness/` 的官方插件固定为 harness 版本，随 harness 升级改写）。
 
 ## 目录结构
 
@@ -13,7 +13,7 @@
 - docs: 文档目录
 - global_template.agents: 全局 agent 配置模板（用户级 skill 与常驻文档；npm run build 时把 `AGENTS.global_template.md` 部署为 `.dsh/AGENTS.md`，并把 `global_template.agents/` 下缺失的文件装到运行时根的 `.dsh/`（docs/、skills/），已存在的文件不覆盖，以免用户对已安装文档/skill 的修改被构建冲掉；harness 从 harness home 直接读取，无需设置 `DSH_AGENTS_HOME`；旧布局的 `.dsh/.agents/` 会先合并到 `.dsh/` 再删除，已安装 `AGENTS.md` 里的旧 `.agents/` 路径引用会被定点改写，其余内容保留）
 - harness.json: dsh 运行时清单（选择 npm 安装还是源码编译，并锁定版本）
-- plugins: 本地插件 wrapper 目录（每个 `plugins/<id>/` 带 `install.mjs`；npm 型从 registry 安装精确版本的发布包，仓库内不含插件源码；in-tree 型自带 `plugins/<id>/<package>` 源码包）
+- plugins: 本地插件 wrapper 目录（每个 `plugins/<id>/` 带 `install.mjs`；npm 型从 registry 安装该包 latest 解析出的精确版本，仓库内不含插件源码；in-tree 型自带 `plugins/<id>/<package>` 源码包）
 - presets: agent preset源目录（presets/<id>/自带install.mjs，npm run build时统一安装到 profile 的 `@deepseek-ai/dsh-agent-preset` 声明行；见 presets/README.md）
 - src-tauri: tauri源码目录
 - src-shim: desktop 快捷方式 shim 的 Rust crate（`npm run build:desktop` 编译）
@@ -36,7 +36,7 @@
 
 - `harness.json` 的 `runtime` 决定外壳与构建用哪个 dsh：`npm` 从 registry 安装 `@deepseek-ai/dsh@<version>` 到运行时根的 `.harness/`，`source` 编译 `deepseek-harness` 子模块；契约见 `scripts/harness-runtime.mjs` 与 `src-tauri/src/harness.rs`，说明见 `docs/dsh-gui/harness-runtime.md`。
 - `deepseek-harness/` 是 pinned 上游子模块，只用于查证规范与提供版本；不要编辑其中的任何文件，不要从该目录向插件源码复制代码。
-- 新增插件时，npm 型只建 `plugins/<id>/install.mjs`，用 `installNpmPlugin` 固定精确版本（`packageSpec` 必须是 `<包名>@<精确版本>` 字面量——外壳与 desktop 插件的更新面板按它检测并就地改写，见 `plugins/README.md` 的安装方式段）；in-tree 型才在 `plugins/<id>/<package>` 下建源码包（`package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`），wrapper 用 `installPlugin` 构建并挂载（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）。
+- 新增插件时，npm 型只建 `plugins/<id>/install.mjs`，用 `installNpmPlugin` 以 `<包名>@latest` 跟踪该包的 registry latest（安装时解析成精确版本，已装同版本则跳过；更新面板按当前 profile 里已装版本显示 `current` 并对比 registry 最新版本，见 `plugins/README.md` 的安装方式段；`plugins/harness/` 的官方 dsh 插件例外，固定为当前 harness 版本）；in-tree 型才在 `plugins/<id>/<package>` 下建源码包（`package.json`、`src/index.ts`（或 `index.js`）、`README.md`，必要时附 `tests/`），wrapper 用 `installPlugin` 构建并挂载（见 `plugins/README.md` 与 `dsh-gui-plugin-dev` skill）。
 
 ## 环境检查
 

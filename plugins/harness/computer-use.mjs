@@ -30,8 +30,10 @@
  *
  * The versions are pinned to the harness revision this repository builds
  * against: both packages declare exact `0.2.2-rc.3` peers, matching the
- * pinned `dsh-v0.2.2-rc.3` runtime. The pin MUST move in lockstep with the
- * harness: the admission gate compares every `@deepseek-ai/dsh*` peer against
+ * pinned `dsh-v0.2.2-rc.3` runtime. This group is the one npm wrapper set that
+ * keeps explicit versions instead of tracking npm `latest`: the specs move in
+ * lockstep with the harness and are rewritten by the harness upgrade flow. The
+ * admission gate compares every `@deepseek-ai/dsh*` peer against
  * the running version, so packages pinned to the previous `0.2.2-rc.1` release
  * are rejected under 0.2.2-rc.3. The four packages of this group all declare
  * exact `0.2.2-rc.3` peers, so all four specs stay on that version. The
@@ -57,13 +59,13 @@ const COMPUTER_USE_SPEC = '@deepseek-ai/dsh-computer-use@0.2.2-rc.3'
 const CUA_DRIVER_NATIVE_SPEC = '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.3'
 
 // The core service first: the provider injects `computerUse`.
-installNpmPlugin({
+await installNpmPlugin({
   id: ID,
   packageSpec: COMPUTER_USE_SPEC,
   mount: { id: 'computer-use', name: '@deepseek-ai/dsh-computer-use' },
 })
 
-installNpmPlugin({
+await installNpmPlugin({
   id: `${ID}-cua-driver-native`,
   packageSpec: CUA_DRIVER_NATIVE_SPEC,
   mount: {

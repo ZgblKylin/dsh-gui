@@ -45,7 +45,31 @@ test('a literal packageSpec becomes one row', async (t) => {
     wrapperId: 'alpha',
     pinnedVersion: '1.2.3',
     spec: 'dsh-alpha@1.2.3',
+    tracksLatest: false,
   }])
+})
+
+test('a latest-tracking spec becomes a row without a pinned version', async (t) => {
+  const root = makeRoot(t)
+  write(root, 'plugins/epsilon/install.mjs', [
+    "installNpmPlugin({ id: 'epsilon', packageSpec: 'dsh-epsilon@latest' })",
+    "installNpmPlugin({ id: 'epsilon-scoped', packageSpec: '@scope/dsh-epsilon@latest' })",
+    '',
+  ].join('\n'))
+
+  const rows = await listPluginNpmRows(root)
+  assert.deepEqual(
+    rows.map((row) => ({
+      packageName: row.packageName,
+      pinnedVersion: row.pinnedVersion,
+      tracksLatest: row.tracksLatest,
+      spec: row.spec,
+    })),
+    [
+      { packageName: '@scope/dsh-epsilon', pinnedVersion: undefined, tracksLatest: true, spec: '@scope/dsh-epsilon@latest' },
+      { packageName: 'dsh-epsilon', pinnedVersion: undefined, tracksLatest: true, spec: 'dsh-epsilon@latest' },
+    ],
+  )
 })
 
 test('constant, array and scoped specs are parsed, each package once', async (t) => {

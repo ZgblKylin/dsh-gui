@@ -122,11 +122,14 @@ writeSync(1, JSON.stringify(results) + '\n');
 "#;
 
 /// Marker identifying an npm wrapper installer; other `.mjs` files are not
-/// scanned for pinned specs.
+/// scanned for install specs.
 const INSTALL_NPM_MARKER: &str = "installNpmPlugin(";
 
 /// Prefix of the official packages: they move with the deepseek-harness row.
 const OFFICIAL_PACKAGE_PREFIX: &str = "@deepseek-ai/dsh";
+
+/// Dist-tag an install script names to track the registry's current release.
+const LATEST_TAG: &str = "latest";
 
 /// Row id prefix of an npm plugin row (`npm:<packageName>`).
 const NPM_ROW_PREFIX: &str = "npm:";
@@ -205,6 +208,12 @@ pub struct ProjectUpdate {
     /// the repository root (POSIX, e.g. `plugins/skill-mcp-center/install.mjs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_script: Option<String>,
+    /// npm plugin rows: true when the install script tracks the registry's
+    /// `latest` tag instead of pinning an exact version. `current` is then the
+    /// version installed in the plugin profile, and the update re-runs the
+    /// wrapper without rewriting it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub tracks_latest: bool,
 }
 
 /// npm-side publish state for one update row.
@@ -226,6 +235,11 @@ pub struct NpmUpdateInfo {
 
 fn default_announce() -> bool {
     true
+}
+
+/// Serde guard that omits a `false` flag from the wire contract.
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Everything the frontend needs after a check.
@@ -733,18 +747,18 @@ fn npm_update_check(path: &Path, packages: Vec<String>, tag: &str) -> Option<Npm
 // npm plugin rows
 //
 // Besides the git checkout rows, the dialog lists one row per npm package
-// pinned by a `plugins/<wrapper>/install.mjs` wrapper. The parser mirrors the
-// desktop plugin's `plugin-specs.ts`: it scans every `.mjs` file that calls
-// `installNpmPlugin(`, strips JavaScript comments, and extracts the exact
-// `<name>@<version>` string literals (single, double, or backtick quotes).
-// The detector depends on that convention — a wrapper that builds its spec
-// dynamically produces no row.
+// installed by a `plugins/<wrapper>/install.mjs` wrapper. The parser mirrors
+// the desktop plugin's `plugin-specs.ts`: it scans every `.mjs` file that calls
+// `installNpmPlugin(`, strips JavaScript comments, and extracts the string
+// literals of the two install-target shapes — `<name>@<version>` pins an exact
+// version, `<name>@latest` tracks the registry tag, whose current version is
+// read from the plugin profile's installed package instead.
 // ---------------------------------------------------------------------------
 
-/// One npm plugin row: one package pinned by one wrapper script.
+/// One npm plugin row: one package installed by one wrapper script.
 ///
 /// `pub(crate)`: the changelog backend resolves an npm row id back to its
-/// pinned version through this type (see `crate::changelog::prepare_npm`).
+/// installed version through this type (see `crate::changelog::prepare_npm`).
 #[derive(Clone, Debug)]
 pub(crate) struct PluginNpmRow {
     /// Stable row id: `npm:<packageName>`.
@@ -756,17 +770,20 @@ pub(crate) struct PluginNpmRow {
     install_script: String,
     /// First directory segment under `plugins/` (the wrapper id).
     wrapper_id: String,
-    /// Exact version the script pins.
-    pub(crate) pinned_version: String,
-    /// The literal as written in the script: `<packageName>@<pinnedVersion>`.
+    /// Exact version the script pins, or `None` when the spec is
+    /// `<package>@latest` and the install resolves the version at run time.
+    pub(crate) pinned_version: Option<String>,
+    /// The literal as written in the script: `<packageName>@<pinnedVersion>`
+    /// or `<packageName>@latest`.
     spec: String,
 }
 
-/// One `<package>@<version>` literal extracted from an install script.
+/// One npm spec literal extracted from an install script.
 #[derive(Clone, Debug)]
 struct PinnedSpec {
     package_name: String,
-    pinned_version: String,
+    /// Exact version, or `None` for the `latest` dist-tag.
+    pinned_version: Option<String>,
     /// The literal as written (trimmed); the in-place rewrite replaces it.
     spec: String,
 }
@@ -942,10 +959,14 @@ fn is_pinned_version(version: &str) -> bool {
     }
 }
 
-/// Parse one string literal body as a pinned spec.
-/// @returns the package name and pinned version, or `None` when the body is
-///   not exactly `<name>@<three-segment semver>`.
-fn parse_pinned_spec(literal: &str) -> Option<(String, String)> {
+/// Parse one string literal body as an npm spec.
+///
+/// Two shapes are install targets: `<name>@<three-segment semver>` pins an
+/// exact version, and `<name>@latest` tracks the registry's `latest` tag (the
+/// wrapper pipeline resolves it to an exact version at install time).
+/// @returns the package name plus `Some(version)` for a pin or `None` for the
+///   `latest` tag; any range, URL, bare name or malformed literal is `None`.
+fn parse_pinned_spec(literal: &str) -> Option<(String, Option<String>)> {
     let literal = literal.trim();
     // A scoped name starts with `@`, so the version separator is the *last*
     // `@` and never at index 0.
@@ -954,14 +975,20 @@ fn parse_pinned_spec(literal: &str) -> Option<(String, String)> {
         return None;
     }
     let package_name = &literal[..at];
-    let pinned_version = &literal[at + 1..];
-    if !is_valid_package_name(package_name) || !is_pinned_version(pinned_version) {
+    let version = &literal[at + 1..];
+    if !is_valid_package_name(package_name) {
         return None;
     }
-    Some((package_name.to_string(), pinned_version.to_string()))
+    if version == LATEST_TAG {
+        return Some((package_name.to_string(), None));
+    }
+    if !is_pinned_version(version) {
+        return None;
+    }
+    Some((package_name.to_string(), Some(version.to_string())))
 }
 
-/// Extract every pinned spec from one install script (comments stripped
+/// Extract every install spec from one install script (comments stripped
 /// first). The first literal per package wins; official `@deepseek-ai/dsh*`
 /// packages are excluded because they move with the deepseek-harness row.
 fn extract_pinned_specs(source: &str) -> Vec<PinnedSpec> {
@@ -1015,7 +1042,7 @@ fn collect_install_scripts(dir: &Path, scripts: &mut Vec<PathBuf>) {
 /// across checks. An unreadable script contributes no rows; an absent
 /// `plugins/` tree is simply an empty list.
 ///
-/// `pub(crate)`: the changelog backend resolves an npm row's pinned version
+/// `pub(crate)`: the changelog backend resolves an npm row's installed version
 /// through this scan (see `crate::changelog::prepare_npm`).
 pub(crate) fn plugin_npm_rows(root: &Path) -> Vec<PluginNpmRow> {
     let mut scripts: Vec<PathBuf> = Vec::new();
@@ -1357,14 +1384,55 @@ pub(crate) fn npm_latest_answers(root: &Path, packages: &[String]) -> Result<Vec
     }
 }
 
-/// Local-only preview of one npm plugin row: the install script's pin is known
-/// offline, the registry answer is not.
-fn local_npm_preview(row: &PluginNpmRow) -> ProjectUpdate {
+/// The profile the shell installs plugins into: an inherited
+/// `DSH_PLUGIN_PROFILE` wins, otherwise the web profile the shell serves.
+fn plugin_profile() -> String {
+    std::env::var("DSH_PLUGIN_PROFILE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "web".to_string())
+}
+
+/// The version installed in the plugin profile for one npm package, read from
+/// the profile's `node_modules` (the hoisted linker keeps every dependency
+/// there).
+fn profile_installed_version(root: &Path, package_name: &str) -> Option<String> {
+    let mut path = crate::roots::dsh_home(root)
+        .join("profiles")
+        .join(plugin_profile())
+        .join("node_modules");
+    for segment in package_name.split('/') {
+        path.push(segment);
+    }
+    path.push("package.json");
+    let manifest = fs::read_to_string(path).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&manifest).ok()?;
+    let version = value.get("version")?.as_str()?.trim().to_string();
+    if version.is_empty() {
+        None
+    } else {
+        Some(version)
+    }
+}
+
+/// The version the current deployment installs for one row: the exact pin, or
+/// the version the profile holds behind a `@latest`-tracking wrapper.
+pub(crate) fn current_npm_row_version(root: &Path, row: &PluginNpmRow) -> Option<String> {
+    match &row.pinned_version {
+        Some(version) => Some(version.clone()),
+        None => profile_installed_version(root, &row.package_name),
+    }
+}
+
+/// Local-only preview of one npm plugin row: the version the current
+/// deployment installs is known offline, the registry answer is not.
+fn local_npm_preview(root: &Path, row: &PluginNpmRow) -> ProjectUpdate {
     ProjectUpdate {
         id: row.id.clone(),
         name: row.package_name.clone(),
         path: row.install_script.clone(),
-        current: row.pinned_version.clone(),
+        current: current_npm_row_version(root, row).unwrap_or_else(|| "未安装".to_string()),
         latest: "检查中…".to_string(),
         latest_tag: None,
         latest_tag_stale: false,
@@ -1377,19 +1445,22 @@ fn local_npm_preview(row: &PluginNpmRow) -> ProjectUpdate {
         kind: Some("npm".to_string()),
         package_name: Some(row.package_name.clone()),
         install_script: Some(row.install_script.clone()),
+        tracks_latest: row.pinned_version.is_none(),
     }
 }
 
 /// Fold one registry answer into its npm plugin row. A failed query keeps the
-/// pin readable, carries the error on the row, and never counts as an update.
-fn checked_npm_row(row: &PluginNpmRow, answer: &PackageLatest) -> ProjectUpdate {
+/// installed version readable, carries the error on the row, and never counts
+/// as an update.
+fn checked_npm_row(root: &Path, row: &PluginNpmRow, answer: &PackageLatest) -> ProjectUpdate {
+    let current = current_npm_row_version(root, row);
     let mut update = ProjectUpdate {
         id: row.id.clone(),
         name: row.package_name.clone(),
         path: row.install_script.clone(),
-        // The pin is what the current deployment installs; the registry answer
-        // is what a fresh deployment would get.
-        current: row.pinned_version.clone(),
+        // The installed version is what this deployment runs; the registry
+        // answer is what a fresh install would get.
+        current: current.clone().unwrap_or_else(|| "未安装".to_string()),
         latest: "—".to_string(),
         latest_tag: None,
         latest_tag_stale: false,
@@ -1402,6 +1473,7 @@ fn checked_npm_row(row: &PluginNpmRow, answer: &PackageLatest) -> ProjectUpdate 
         kind: Some("npm".to_string()),
         package_name: Some(row.package_name.clone()),
         install_script: Some(row.install_script.clone()),
+        tracks_latest: row.pinned_version.is_none(),
     };
     if let Some(error) = &answer.error {
         update.error = Some(format!("npm 版本查询失败：{error}"));
@@ -1412,15 +1484,19 @@ fn checked_npm_row(row: &PluginNpmRow, answer: &PackageLatest) -> ProjectUpdate 
         return update;
     };
     update.latest = latest.clone();
-    update.behind = is_newer(latest, &row.pinned_version);
+    update.behind = match &current {
+        Some(installed) => is_newer(latest, installed),
+        // Not installed yet: the wrapper would install the registry version.
+        None => true,
+    };
     update.announce = update.behind;
     update.release_url = github_releases_url(answer.repository_url.as_deref());
     update
 }
 
-/// The npm plugin rows for one completed check: scan locally, query every pin
-/// in one registry phase, then fold the answers in. A registry failure is
-/// written to the affected row instead of failing the whole check.
+/// The npm plugin rows for one completed check: scan locally, query every
+/// package in one registry phase, then fold the answers in. A registry failure
+/// is written to the affected row instead of failing the whole check.
 fn check_plugin_rows(root: &Path) -> Vec<ProjectUpdate> {
     let rows = plugin_npm_rows(root);
     if rows.is_empty() {
@@ -1431,12 +1507,12 @@ fn check_plugin_rows(root: &Path) -> Vec<ProjectUpdate> {
         Ok(answers) => rows
             .iter()
             .zip(answers.iter())
-            .map(|(row, answer)| checked_npm_row(row, answer))
+            .map(|(row, answer)| checked_npm_row(root, row, answer))
             .collect(),
         Err(error) => rows
             .iter()
             .map(|row| {
-                let mut update = local_npm_preview(row);
+                let mut update = local_npm_preview(root, row);
                 update.checking = false;
                 update.latest = "—".to_string();
                 update.error = Some(format!("npm 版本查询失败：{error}"));
@@ -1555,6 +1631,7 @@ fn check_project(
         kind: None,
         package_name: None,
         install_script: None,
+        tracks_latest: false,
     };
 
     if !path.is_dir() {
@@ -1670,6 +1747,7 @@ fn local_preview_project(
         kind: None,
         package_name: None,
         install_script: None,
+        tracks_latest: false,
     };
     if path.is_dir() && is_git_repo(path) {
         if let Some(sha) = git_output(path, &["rev-parse", "HEAD"]) {
@@ -1696,7 +1774,7 @@ pub fn local_check(root: &Path) -> Vec<ProjectUpdate> {
         ));
     }
     for row in plugin_npm_rows(root) {
-        projects.push(local_npm_preview(&row));
+        projects.push(local_npm_preview(root, &row));
     }
     projects
 }
@@ -2231,11 +2309,7 @@ fn run_install_script_streaming(
         .open(&stderr_path)
         .map_err(|e| format!("无法创建输出文件 {}：{e}", stderr_path.display()))?;
 
-    let profile = std::env::var("DSH_PLUGIN_PROFILE")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "web".to_string());
+    let profile = plugin_profile();
     let mut command = crate::console::hidden_command("node");
     command
         .arg(script)
@@ -2299,9 +2373,12 @@ fn run_install_script_streaming(
     }
 }
 
-/// Update one npm plugin row in place: rewrite the exact pin in its install
-/// script, re-run that wrapper against the current profile, and roll the script
-/// back when the reinstall fails.
+/// Update one npm plugin row in place against the current profile.
+///
+/// A row with an exact pin is rewritten to the registry's latest version and
+/// its wrapper re-run (rolling the script back when the reinstall fails). A
+/// `@latest`-tracking row needs no script write: the wrapper resolves and
+/// installs the current latest version itself, so only the re-run remains.
 ///
 /// The re-scanned row is authoritative (the script may have changed on disk
 /// while the dialog was open). Only the target install script is written; the
@@ -2320,9 +2397,16 @@ pub fn run_npm_plugin_update(
             package_name_of_row_id(id)
         ));
     };
+    let installed = profile_installed_version(root, &row.package_name);
     log(&format!(
-        "检查插件 {}（{}）的最新版本，当前 pin {}",
-        row.package_name, row.wrapper_id, row.pinned_version
+        "检查插件 {}（{}）的最新版本，当前{}",
+        row.package_name,
+        row.wrapper_id,
+        match (&row.pinned_version, &installed) {
+            (Some(pin), _) => format!(" pin {pin}"),
+            (None, Some(version)) => format!("已安装 {version}"),
+            (None, None) => "尚未安装".to_string(),
+        }
     ));
     let packages = vec![row.package_name.clone()];
     let answers = npm_latest_answers(root, &packages)?;
@@ -2335,35 +2419,47 @@ pub fn run_npm_plugin_update(
     let Some(latest) = answer.latest else {
         return Err("npm registry 未返回版本号".to_string());
     };
-    if !is_newer(&latest, &row.pinned_version) {
-        log(&format!("已是最新（{}）", row.pinned_version));
-        return Ok(());
+    let current = row.pinned_version.clone().or(installed);
+    if let Some(current) = &current {
+        if !is_newer(&latest, current) {
+            log(&format!("已是最新（{current}）"));
+            return Ok(());
+        }
     }
 
     let script_path = root.join(&row.install_script);
-    let original = fs::read_to_string(&script_path)
-        .map_err(|e| format!("无法读取安装脚本 {}：{e}", row.install_script))?;
-    let new_spec = format!("{}@{}", row.package_name, latest);
-    let rewritten = replace_pinned_version(&original, &row.spec, &new_spec)?;
-    if let Err(error) = fs::write(&script_path, &rewritten) {
-        // The write may have clipped the file before failing; restore the pin
-        // that matches what the profile currently has installed.
-        let _ = fs::write(&script_path, &original);
-        return Err(format!("无法写入安装脚本 {}：{error}", row.install_script));
-    }
-    log(&format!(
-        "已把安装脚本 {} 的 pin 改为 {new_spec}",
-        row.install_script
-    ));
+    if row.pinned_version.is_some() {
+        let original = fs::read_to_string(&script_path)
+            .map_err(|e| format!("无法读取安装脚本 {}：{e}", row.install_script))?;
+        let new_spec = format!("{}@{}", row.package_name, latest);
+        let rewritten = replace_pinned_version(&original, &row.spec, &new_spec)?;
+        if let Err(error) = fs::write(&script_path, &rewritten) {
+            // The write may have clipped the file before failing; restore the
+            // pin that matches what the profile currently has installed.
+            let _ = fs::write(&script_path, &original);
+            return Err(format!("无法写入安装脚本 {}：{error}", row.install_script));
+        }
+        log(&format!(
+            "已把安装脚本 {} 的 pin 改为 {new_spec}",
+            row.install_script
+        ));
 
-    if let Err(error) = run_install_script_streaming(root, &script_path, &mut *log) {
-        let rollback = match fs::write(&script_path, &original) {
-            Ok(()) => "已回滚安装脚本".to_string(),
-            Err(rollback_error) => format!("安装脚本回滚失败：{rollback_error}"),
-        };
-        return Err(format!("{error}（{rollback}）"));
+        if let Err(error) = run_install_script_streaming(root, &script_path, &mut *log) {
+            let rollback = match fs::write(&script_path, &original) {
+                Ok(()) => "已回滚安装脚本".to_string(),
+                Err(rollback_error) => format!("安装脚本回滚失败：{rollback_error}"),
+            };
+            return Err(format!("{error}（{rollback}）"));
+        }
+        log(&format!("安装脚本已按 {new_spec} 重新安装"));
+    } else {
+        log(&format!(
+            "安装脚本 {} 跟踪 npm latest，无需改写版本，直接重新执行",
+            row.install_script
+        ));
+        run_install_script_streaming(root, &script_path, &mut *log)?;
+        log(&format!("安装脚本已装入 {}（{latest}）", row.package_name));
     }
-    log(&format!("安装脚本已按 {new_spec} 重新安装"));
     log("重启 dsh-gui 后新版本插件生效；不需要重新构建");
     Ok(())
 }
@@ -3049,6 +3145,7 @@ mod tests {
             kind: kind.map(str::to_string),
             package_name: None,
             install_script: None,
+            tracks_latest: false,
         }
     }
 
@@ -3058,9 +3155,25 @@ mod tests {
             package_name: package_name.to_string(),
             install_script: format!("plugins/{package_name}/install.mjs"),
             wrapper_id: package_name.to_string(),
-            pinned_version: pinned_version.to_string(),
+            pinned_version: Some(pinned_version.to_string()),
             spec: format!("{package_name}@{pinned_version}"),
         }
+    }
+
+    fn tracking_plugin_row(package_name: &str) -> PluginNpmRow {
+        PluginNpmRow {
+            id: format!("npm:{package_name}"),
+            package_name: package_name.to_string(),
+            install_script: format!("plugins/{package_name}/install.mjs"),
+            wrapper_id: package_name.to_string(),
+            pinned_version: None,
+            spec: format!("{package_name}@latest"),
+        }
+    }
+
+    /// A root whose `.dsh` does not exist, so the profile lookup finds nothing.
+    fn empty_root() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("dsh-gui-absent-root-{}", std::process::id()))
     }
 
     #[test]
@@ -3200,9 +3313,23 @@ const buildMetadata = 'pkg@1.2.3+build.5'
             vec!["dsh-pet", "@smalltailqwq/dsh-skin", "@scope/multi-part-name", "pkg"],
             "comments, official packages, ranges and duplicates must be filtered"
         );
-        assert_eq!(specs[0].pinned_version, "0.3.8");
+        assert_eq!(specs[0].pinned_version.as_deref(), Some("0.3.8"));
         assert_eq!(specs[0].spec, "dsh-pet@0.3.8");
-        assert_eq!(specs[2].pinned_version, "1.2.3-rc.1");
+        assert_eq!(specs[2].pinned_version.as_deref(), Some("1.2.3-rc.1"));
+    }
+
+    #[test]
+    fn latest_tag_specs_are_tracked_instead_of_pinned() {
+        let specs = extract_pinned_specs(
+            "installNpmPlugin({ packageSpec: 'dsh-pet@latest' })\ninstallNpmPlugin({ packageSpec: '@scope/pkg@latest' })\n",
+        );
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].package_name, "dsh-pet");
+        assert_eq!(specs[0].pinned_version, None);
+        assert_eq!(specs[0].spec, "dsh-pet@latest");
+        assert_eq!(specs[1].pinned_version, None);
+        assert!(parse_pinned_spec("pkg@^1.2.3").is_none());
+        assert!(parse_pinned_spec("pkg").is_none());
     }
 
     #[test]
@@ -3260,7 +3387,7 @@ const buildMetadata = 'pkg@1.2.3+build.5'
         assert_eq!(rows[1].install_script, "plugins/beta/nested.mjs");
         assert_eq!(rows[1].wrapper_id, "beta");
         assert_eq!(rows[2].install_script, "plugins/beta/nested.mjs");
-        assert_eq!(rows[1].pinned_version, "3.0.0");
+        assert_eq!(rows[1].pinned_version.as_deref(), Some("3.0.0"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3323,8 +3450,9 @@ const buildMetadata = 'pkg@1.2.3+build.5'
 
     #[test]
     fn npm_rows_carry_their_wire_fields() {
+        let root = empty_root();
         let row = plugin_row("dsh-pet", "0.3.8");
-        let value = serde_json::to_value(local_npm_preview(&row)).unwrap();
+        let value = serde_json::to_value(local_npm_preview(&root, &row)).unwrap();
         assert_eq!(value["kind"], "npm");
         assert_eq!(value["packageName"], "dsh-pet");
         assert_eq!(value["installScript"], "plugins/dsh-pet/install.mjs");
@@ -3332,8 +3460,13 @@ const buildMetadata = 'pkg@1.2.3+build.5'
         assert_eq!(value["current"], "0.3.8");
         assert_eq!(value["checking"], true);
         assert!(value.get("latestTag").is_none());
+        assert!(
+            value.get("tracksLatest").is_none(),
+            "an exact pin must not carry the tracking flag"
+        );
 
         let checked = checked_npm_row(
+            &root,
             &row,
             &PackageLatest {
                 latest: Some("0.4.0".to_string()),
@@ -3357,6 +3490,7 @@ const buildMetadata = 'pkg@1.2.3+build.5'
         );
 
         let failed = checked_npm_row(
+            &root,
             &row,
             &PackageLatest {
                 latest: None,
@@ -3371,6 +3505,79 @@ const buildMetadata = 'pkg@1.2.3+build.5'
             failed.error.as_deref(),
             Some("npm 版本查询失败：HTTP 404")
         );
+    }
+
+    #[test]
+    fn tracking_rows_report_the_installed_version() {
+        let root = empty_root();
+        let row = tracking_plugin_row("dsh-pet");
+        let preview = local_npm_preview(&root, &row);
+        assert_eq!(preview.current, "未安装");
+        assert!(preview.tracks_latest);
+
+        let checked = checked_npm_row(
+            &root,
+            &row,
+            &PackageLatest {
+                latest: Some("0.4.0".to_string()),
+                repository_url: None,
+                error: None,
+            },
+        );
+        assert!(
+            checked.behind,
+            "an uninstalled tracking row offers the install"
+        );
+        let value = serde_json::to_value(&checked).unwrap();
+        assert_eq!(value["tracksLatest"], true);
+        assert_eq!(value["current"], "未安装");
+    }
+
+    #[test]
+    fn tracking_rows_compare_against_the_profile_installed_version() {
+        let base = std::env::temp_dir().join(format!(
+            "dsh-gui-profile-version-{}",
+            std::process::id()
+        ));
+        let root = base.join("dsh-gui");
+        let package_dir = base
+            .join(".dsh")
+            .join("profiles")
+            .join(plugin_profile())
+            .join("node_modules")
+            .join("dsh-pet");
+        fs::create_dir_all(&package_dir).unwrap();
+        fs::write(
+            package_dir.join("package.json"),
+            r#"{"name":"dsh-pet","version":"0.4.8"}"#,
+        )
+        .unwrap();
+
+        let row = tracking_plugin_row("dsh-pet");
+        let current = checked_npm_row(
+            &root,
+            &row,
+            &PackageLatest {
+                latest: Some("0.4.8".to_string()),
+                repository_url: None,
+                error: None,
+            },
+        );
+        assert_eq!(current.current, "0.4.8");
+        assert!(!current.behind, "the installed version is the latest one");
+
+        let newer = checked_npm_row(
+            &root,
+            &row,
+            &PackageLatest {
+                latest: Some("0.4.9".to_string()),
+                repository_url: None,
+                error: None,
+            },
+        );
+        assert_eq!(newer.current, "0.4.8");
+        assert!(newer.behind);
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

@@ -6,7 +6,7 @@
 
 **git 行**是 dsh-gui 仓库本体与 `.gitmodules` 中的子模块（当前为 `deepseek-harness`、`src-tauri/whale-icon` 与 `global_template.agents/docs/awesome-design-md`）：检测把本地 HEAD 与远端默认分支比较，行内显示「当前 → 最新」（有可用最新 tag 时显示 tag 名，否则显示提交）与 tag/commit 更新目标选择；顶层行的动作是「更新」「更新日志」，子模块行另有「AI 更新」。
 
-**npm 插件行**是 `plugins/**/*.mjs` 安装脚本用 `installNpmPlugin` 精确 pin 的每个 npm 包：检测把脚本中的 pin 与 registry 的最新版本比较，行内显示「当前 → 最新」（当前为脚本 pin，最新为 registry 最新版本），动作是「更新」（就地改写安装脚本的 pin 并重新安装该插件）与「AI 更新」。
+**npm 插件行**是 `plugins/**/*.mjs` 安装脚本用 `installNpmPlugin` 安装的每个 npm 包：检测把当前版本与 registry 的最新版本比较，行内显示「当前 → 最新」。当前版本取脚本里的精确 pin；脚本以 `<包名>@latest` 跟踪上游时取当前 profile 里该包已安装的版本（未安装显示「未安装」）。动作是「更新」（精确 pin 就地改写后重跑脚本；`@latest` 行直接重跑脚本，不改仓库文件）与「AI 更新」。
 
 `harness.json` 选择 `npm` 运行时后，dsh 运行时本身也是 npm 安装型：`deepseek-harness` 行同样先核对最新 tag 是否已有 `@deepseek-ai/dsh` 的 npm 发布，再决定是否安装。
 
@@ -19,9 +19,9 @@ desktop 应用内的 `dsh-auto-update` 插件把同一套面板搬到应用内�
 | 来源 | 行内容 | 版本比较 |
 |---|---|---|
 | git 行 | 仓库根（id `dsh-gui`）与 `.gitmodules` 中的子模块（id 为 submodule name） | 本地 HEAD 与 `origin/<默认分支>`，以及最新 tag |
-| npm 插件行 | `plugins/**/*.mjs` 中调用了 `installNpmPlugin(` 的安装脚本所 pin 的每个包（id `npm:<packageName>`） | 脚本中的精确 pin 与 registry 最新版本 |
+| npm 插件行 | `plugins/**/*.mjs` 中调用了 `installNpmPlugin(` 的安装脚本所安装的每个包（id `npm:<packageName>`） | 当前版本（脚本 pin，或 `@latest` 行的 profile 已装版本）与 registry 最新版本 |
 
-npm 插件行的线协议字段：`kind` 为 `"npm"`、`packageName` 为包名、`installScript` 为相对仓库根的 POSIX 路径（与 `path` 相同）、`current` 为脚本中的 pin、`latest` 为 registry 最新版本、`behind` 与 `announce` 同值、`releaseUrl` 为该包仓库的 GitHub Releases 列表页（可解析时）；不设置 `latestTag` 与 `latestTagStale`。git 行不设置 `kind`、`packageName`、`installScript`，旧缓存中没有这些字段的行同样按 git 行处理。
+npm 插件行的线协议字段：`kind` 为 `"npm"`、`packageName` 为包名、`installScript` 为相对仓库根的 POSIX 路径（与 `path` 相同）、`current` 为当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已装版本，未安装为「未安装」）、`latest` 为 registry 最新版本、`behind` 与 `announce` 同值、`releaseUrl` 为该包仓库的 GitHub Releases 列表页（可解析时）、`tracksLatest` 为 `true` 表示该行的安装脚本跟踪 npm latest（此时「更新」不改写脚本，省略即为 false）。不设置 `latestTag` 与 `latestTagStale`。git 行不设置 `kind`、`packageName`、`installScript`、`tracksLatest`，旧缓存中没有这些字段的行同样按 git 行处理。
 
 ## AI 更新的 tag 保留规则
 
@@ -39,7 +39,7 @@ npm 插件行的线协议字段：`kind` 为 `"npm"`、`packageName` 为包名�
 2. 本次更新包含 `deepseek-harness` 时，还要用 computer use 验证 GUI（桌面外壳）能在该 worktree 中正常启动和运行；
 3. 验证全部通过后先向用户报告结论，**等用户明确审批后**才执行阶段二，把工作分支合并回主分支并更新主工程子模块指针完成实装。
 
-npm 插件行的提示词去掉「更新子模块」相关内容，说明包名、安装脚本、当前 pin 与 registry 目标，并要求更新安装脚本中的 `packageSpec` 精确版本，保证当前 profile 与重新部署的新设备都安装到新版本：
+npm 插件行的提示词去掉「更新子模块」相关内容，说明包名、安装脚本、当前版本与 registry 目标；要求按安装目标分两种：精确 pin 行要求把安装脚本中的 `packageSpec` 改为目标精确版本，`@latest` 行要求重新执行安装脚本装入最新版、不要改写脚本中的版本号（见 `plugins/README.md` 的安装方式段）。两类要求都保证当前 profile 与重新部署的新设备会装到同一版本，并要求改完重新构建验证：
 
 ```
 /dsh-gui-update
@@ -56,7 +56,9 @@ npm 插件行的提示词去掉「更新子模块」相关内容，说明包名�
 <验证门槛>
 ```
 
-批量提示词按行类型分组：两类行同时参与时，git 行归入「仓库模块（git 子模块）：」，npm 行归入「npm 插件（更新安装脚本中的版本 pin 并重新安装）：」并在组末附上述要求行；只含一类行时不加分组标题，git 行沿用原条目格式，npm 行在组末附上述要求行。含 `deepseek-harness` 的合并提示词保持先基座、再其余行的顺序，npm 行单独成组。
+`@latest` 行把倒数第三行写成「- 当前已安装 <current>；更新目标：npm 最新版本 <latest>」，要求行换成「安装脚本以 `<包名>@latest` 跟踪 npm 最新版本：重新执行该安装脚本装入最新版并完成验证，不要改写安装脚本中的版本号（它不携带精确版本）。」。
+
+批量提示词按行类型分组：两类行同时参与时，git 行归入「仓库模块（git 子模块）：」，npm 行归入「npm 插件（重新安装以装入 npm 最新版本）：」并在组末附上述要求行（一批内混有精确 pin 与 `@latest` 行时用按行处理的合并要求）；只含一类行时不加分组标题，git 行沿用原条目格式，npm 行在组末附要求行。含 `deepseek-harness` 的合并提示词保持先基座、再其余行的顺序，npm 行单独成组。
 
 验收命令与判据见 [upgrade-staging-workspace.md](upgrade-staging-workspace.md) 与 skill `dsh-gui-update`。
 
@@ -71,12 +73,13 @@ npm 插件行的提示词去掉「更新子模块」相关内容，说明包名�
 
 ### npm 插件行
 
-- **行扫描**：`plugin_npm_rows` 递归扫描 `plugins/` 下的 `.mjs`（跳过 `node_modules` 与点目录），只处理内容包含 `installNpmPlugin(` 的脚本，且路径至少为 `plugins/<wrapper>/…`；先剥离 `//` 行注释与 `/* */` 块注释（字符串与模板字面量原样保留），再提取字符串字面量中形如 `<包名>@<三段 semver>` 的精确 pin（单引号、双引号、反引号均可，包名可为 `name` 或 `@scope/name`，版本可带 prerelease）；同一脚本内按包名去重；`@deepseek-ai/dsh*` 官方包不产生行（随 `deepseek-harness` 行整体升级）。
+- **行扫描**：`plugin_npm_rows` 递归扫描 `plugins/` 下的 `.mjs`（跳过 `node_modules` 与点目录），只处理内容包含 `installNpmPlugin(` 的脚本，且路径至少为 `plugins/<wrapper>/…`；先剥离 `//` 行注释与 `/* */` 块注释（字符串与模板字面量原样保留），再提取字符串字面量中形如 `<包名>@<三段 semver>` 的精确 pin 或 `<包名>@latest` 的跟踪目标（单引号、双引号、反引号均可，包名可为 `name` 或 `@scope/name`，版本可带 prerelease）；同一脚本内按包名去重；`@deepseek-ai/dsh*` 官方包不产生行（随 `deepseek-harness` 行整体升级）。
+- **当前版本**：精确 pin 行取脚本里的版本；`@latest` 行读当前 profile（`<DSH_HOME>/profiles/<profile>`，profile 取 `DSH_PLUGIN_PROFILE`、缺省 `web`）的 `node_modules/<包名>/package.json`，包未安装时 `current` 为「未安装」。
 - **registry 探测**：一次检查对全部包只启动一次 node 临时脚本（沿用「写临时文件 + 文件重定向 stdio」模式），对每个包请求 `GET https://registry.npmjs.org/<encodeURIComponent(name)>/latest`，请求头 `accept: application/json`（该端点不接受 abbreviated 类型，会返回 406；完整响应同时给出 `version` 与 `repository`）与 `user-agent: dsh-gui-update-check`，单请求 15 秒超时，整次调用 60 秒预算；非 2xx 与不可解析响应只记该包错误，其余包不受影响。
-- **标注**：`behind = is_newer(latest, pin)`，`announce = behind`；`releaseUrl` 由 manifest 的 `repository` 解析为 `https://github.com/<owner>/<repo>/releases`（覆盖 `git+https://`、`https://`、`ssh://git@github.com/`、`git@github.com:` 等形式），非 GitHub 仓库或未声明时省略。
+- **标注**：`behind = is_newer(latest, current)`，`@latest` 行未安装（`current` 不是版本号）时视为可更新，`announce = behind`；`releaseUrl` 由 manifest 的 `repository` 解析为 `https://github.com/<owner>/<repo>/releases`（覆盖 `git+https://`、`https://`、`ssh://git@github.com/`、`git@github.com:` 等形式），非 GitHub 仓库或未声明时省略。
 - **失败隔离**：探测失败的行只带 `error`（`latest` 为「—」、`behind=false`、不计入角标），不改变任何 git 行的状态；`allChecked` 只反映 git 行完整性，npm 行的失败不翻转它，状态行的「N 个工程检查失败」也只统计 git 行。整次调用失败（超时、node 启动失败）时所有 npm 行记录同一错误。
-- **本地预览**：`local_update_projects` 在 git 行之后追加 npm 插件行占位：`current` 为脚本 pin、`latest` 为「检查中…」、`checking=true`、不联网。
-- **更新日志**：npm 插件行落后时同样有「更新日志」按钮：命令 `update_changelog` 对 `npm:` 前缀的 id 走 `prepare_npm`，读取安装脚本 pin 与 registry 最新版本，抓取该包 GitHub 仓库的 Release 列表并筛选 `(pin, latest]` 版本区间，按发布时间倒序渲染，不调用 AI，也不检查 harness 是否就绪；无匹配 Release、包未声明 GitHub 仓库或仓库不在 GitHub 时只渲染提示，不报错。详见 [update-changelog.md](update-changelog.md) 的「npm 插件行」。
+- **本地预览**：`local_update_projects` 在 git 行之后追加 npm 插件行占位：`current` 为当前版本（离线可读）、`latest` 为「检查中…」、`checking=true`、不联网。
+- **更新日志**：npm 插件行落后时同样有「更新日志」按钮：命令 `update_changelog` 对 `npm:` 前缀的 id 走 `prepare_npm`，读取当前版本（脚本 pin 或已装版本）与 registry 最新版本，抓取该包 GitHub 仓库的 Release 列表并筛选 `(current, latest]` 版本区间，按发布时间倒序渲染，不调用 AI，也不检查 harness 是否就绪；无匹配 Release、包未声明 GitHub 仓库、仓库不在 GitHub 或 `@latest` 包尚未安装时只渲染提示，不报错。详见 [update-changelog.md](update-changelog.md) 的「npm 插件行」。
 
 ## 行内模块名的 Releases 页链接
 
@@ -102,11 +105,11 @@ npm 插件行的提示词去掉「更新子模块」相关内容，说明包名�
 `update_npm_plugin` 命令（参数 `{ id }`）在弹窗内就地更新单个 npm 插件行，应用保持运行：
 
 1. 重新扫描安装脚本定位同 id 的行；脚本中已找不到该包时返回「安装脚本中已找不到插件「…」，请重新检查更新」。
-2. 重新查询该包在 registry 的最新版本；不高于当前 pin 时记录「已是最新（<pin>）」并结束，不写文件。
-3. 读取目标安装脚本，把其中的 spec 字面量 `<包名>@<旧 pin>` 全部替换为 `<包名>@<最新版本>`（同一文件中的多处出现一并替换），先保留原文作为备份；写盘失败时恢复原文并报错。
+2. 重新查询该包在 registry 的最新版本；不高于当前版本时记录「已是最新（<当前版本>）」并结束，不写文件。当前版本为脚本 pin，或 `@latest` 行在当前 profile 的已装版本（未安装时直接进入安装）。
+3. 精确 pin 行读取目标安装脚本，把其中的 spec 字面量 `<包名>@<旧 pin>` 全部替换为 `<包名>@<最新版本>`（同一文件中的多处出现一并替换），先保留原文作为备份；写盘失败时恢复原文并报错。`@latest` 行不改写任何文件：安装脚本在运行时会解析 registry 的最新精确版本。
 4. 以仓库根为工作目录执行 `node <installScript>`，环境变量设 `DSH_PLUGIN_PROFILE`（继承外壳已有值，缺省 `web`）与 `DSH_PLUGIN_MIN_AGE=0`，其余环境（含 `DSH_HOME`）继承外壳；stdout 与 stderr 重定向到临时文件并逐行转发为 `update-root-log` 事件；10 分钟未结束时终止直接子进程。
-5. 脚本非零退出或超时时写回备份并返回错误（文案附「已回滚安装脚本」）；成功时记录「安装脚本已按 <spec> 重新安装」与「重启 dsh-gui 后新版本插件生效；不需要重新构建」。
-6. 命令只写目标安装脚本这一个文件，不执行 `git clean`；它与检测、顶层更新共用外壳的更新锁，串行执行。
+5. 脚本非零退出或超时时：精确 pin 行写回备份并返回错误（文案附「已回滚安装脚本」），`@latest` 行脚本未改动、直接返回错误；成功时记录「安装脚本已按 <spec> 重新安装」（`@latest` 行记录「安装脚本已装入 <包名>（<latest>）」）与「重启 dsh-gui 后新版本插件生效；不需要重新构建」。
+6. 命令只写目标安装脚本这一个文件（`@latest` 行不写文件），不执行 `git clean`；它与检测、顶层更新共用外壳的更新锁，串行执行。
 
 ### 批量执行
 
@@ -128,13 +131,14 @@ npm 插件行的提示词去掉「更新子模块」相关内容，说明包名�
 
 ## 已知限制
 
-- npm 行的解析依赖安装脚本以 `<包名>@<精确三段版本>` 字面量写 pin：从其他文件读取版本、用拼接构造 spec、写成版本范围 / `latest` / 带 build metadata / 非三段版本的脚本都不产生行（写法约定见 `plugins/README.md` 的安装方式段）。
+- npm 行的解析依赖安装脚本把安装目标写成字面量：精确三段版本（可带 prerelease）或 `latest` tag。从其他文件读取版本、用拼接构造 spec、写成版本范围、带 build metadata 或非三段版本的脚本都不产生行（写法约定见 `plugins/README.md` 的安装方式段）。
+- `@latest` 行的当前版本来自当前 profile 的 `node_modules`：包尚未安装（或被 `DSH_PLUGIN_SKIP` 屏蔽）时行显示「未安装」，并按可更新处理。
 - 同一包被两个安装脚本 pin 时行 id 重复（`npm:<packageName>`），更新只落扫描顺序第一个脚本；当前仓库没有这种情况。
 - 同一 wrapper 安装多个包时，逐行执行「更新」会各执行一次该安装脚本；外壳的批量执行不按脚本合并（desktop 插件在批量更新时按脚本合并）。
 - 安装脚本超时（10 分钟）只终止直接 node 子进程；wrapper 内部再 spawn 的 pnpm/dsh 孙进程可能残留。
 - npm 行的更新日志依赖 GitHub Release 与可解析 semver：包未声明 GitHub 仓库、仓库不在 GitHub、tag 解析不出版本或区间内没有 Release 时只给提示；正文取自 Release 说明，不由 npm 元数据推导。
 - npm 行的「更新」不经过 `.staging` 验证，与 git 行就地更新的定位一致；需要完整验证时走「AI 更新」。
-- 更新会改写仓库安装脚本，属于仓库文件写操作，不可用 git 回滚；执行前备份原文，脚本失败或超时时写回；与检测、顶层更新共用更新锁，串行执行。
+- 精确 pin 行的更新会改写仓库安装脚本，属于仓库文件写操作，不可用 git 回滚；执行前备份原文，脚本失败或超时时写回；`@latest` 行不改写文件。两类行都与检测、顶层更新共用更新锁，串行执行。
 - npm 行的 `releaseUrl` 来自 registry 响应的 `repository` 字段，包未声明仓库或仓库不在 GitHub 时行名没有外链。
 - 更新完成后需要重启 dsh-gui 才会加载新的插件版本；npm 行不需要重新构建，git 行需要 `npm run build`。
 - 分离式更新器只处理 git 行：`pending-updates.json` 不包含 npm 行，调用 `start_update` 请求 npm 行 id 会被拒绝。

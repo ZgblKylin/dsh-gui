@@ -9,12 +9,14 @@
  * gesture at the head of the draft.
  *
  * Rows come in two kinds: git checkout rows (the repository root and its
- * non-`plugins/` submodules), whose update moves revisions, and npm plugin rows,
- * whose version is the exact npm pin inside a repository install script. A git
- * row keeps the original wording; an npm row names the package, its install
- * script, the current pin and the registry target, and requires the script
- * itself to be updated (only then does the new version survive the next build
- * and a fresh deployment). Batch prompts list the two kinds in groups.
+ * non-`plugins/` submodules), whose update moves revisions, and npm plugin
+ * rows, whose version is either the exact npm pin inside a repository install
+ * script or the profile-installed version behind a `<package>@latest` wrapper.
+ * A git row keeps the original wording; an npm row names the package, its
+ * install script, the current version and the registry target, and requires
+ * either the script's pin to be raised or the tracking wrapper to be re-run
+ * (only then does the new version survive the next build and a fresh
+ * deployment). Batch prompts list the two kinds in groups.
  *
  * The one systematic difference is the desktop context:
  *
@@ -60,13 +62,33 @@ export type UpdateMode = 'tag' | 'commit'
 export const HARNESS_MODULE_NOTE = '说明：deepseek-harness 是本工程的基座，不是插件——它位于仓库根目录 deepseek-harness/（不在 plugins/ 下），没有 plugins/<id>/install.mjs 安装脚本，文档在 deepseek-harness/docs/ 与仓库根 AGENTS.md。按仓库约定它是 pinned 上游子模块，只用于查证规范：不要编辑其中的任何文件，也不要从该目录向插件源码复制代码。'
 
 /**
- * Closing requirement of an npm plugin prompt. An npm plugin row's version
- * lives in the repository's install script, not in a checkout: updating only the
- * installed package (or only the current profile) would be reverted by the next
- * build and would leave a fresh deployment on the old pin, so the script's
- * exact `packageSpec` is the single source of truth.
+ * Closing requirement of an npm plugin prompt whose script pins an exact
+ * version. An npm plugin row's version lives in the repository's install
+ * script, not in a checkout: updating only the installed package (or only the
+ * current profile) would be reverted by the next build and would leave a fresh
+ * deployment on the old pin, so the script's exact `packageSpec` is the single
+ * source of truth.
  */
 export const NPM_UPDATE_REQUIREMENT = '更新安装脚本中的 packageSpec 精确版本，并保证当前 profile 与重新部署的新设备都会安装到新版本；改完重新构建验证。'
+
+/**
+ * Closing requirement of an npm plugin prompt whose script tracks npm latest.
+ * `<package>@latest` is already the single source of truth, so the update only
+ * re-runs the wrapper; writing a version into the script would defeat the
+ * tracking.
+ */
+export const NPM_LATEST_REQUIREMENT = '安装脚本以 `<包名>@latest` 跟踪 npm 最新版本：重新执行该安装脚本装入最新版并完成验证，不要改写安装脚本中的版本号（它不携带精确版本）。'
+
+/**
+ * The requirement line for one batch's npm plugin rows: tracking wrappers carry
+ * no version to rewrite, exact pins do.
+ */
+function npmRequirementFor(projects: readonly UpdateProject[]): string {
+  const tracking = projects.filter(project => project.tracksLatest === true).length
+  if (tracking === 0) return NPM_UPDATE_REQUIREMENT
+  if (tracking === projects.length) return NPM_LATEST_REQUIREMENT
+  return '按行处理：跟踪 latest 的安装脚本直接重新执行，固定精确版本的安装脚本把 packageSpec 改到目标版本再重新执行；改完重新构建验证。'
+}
 
 /**
  * Closing facts shared by every AI-update prompt: the paths are relative to the
@@ -168,7 +190,7 @@ function aiNpmPackageName(project: UpdateProject): string {
     : project.name
 }
 
-/** The install script that carries an npm plugin row's pin, relative to the repo root. */
+/** The install script that carries an npm plugin row's version, relative to the repo root. */
 function aiNpmInstallScript(project: UpdateProject): string {
   return project.installScript !== undefined && project.installScript !== ''
     ? project.installScript
@@ -180,19 +202,27 @@ function aiNpmLatestText(project: UpdateProject): string {
   return project.latest !== '' ? project.latest : '（请用 npm view 确认）'
 }
 
-/** One npm plugin row of a batch prompt: install script, current pin, target. */
-function aiNpmPluginRow(project: UpdateProject): string {
+/**
+ * The current version label of an npm plugin row: the installed version behind
+ * a tracking wrapper, the exact pin otherwise.
+ */
+function aiNpmCurrentText(project: UpdateProject): string {
   const current = project.current !== '' ? project.current : 'unknown'
-  return `- 插件 ${aiNpmPackageName(project)}（安装脚本 ${aiNpmInstallScript(project)}，当前 pin ${current}，更新到 npm 最新版本 ${aiNpmLatestText(project)}）`
+  return project.tracksLatest === true ? `当前已安装 ${current}` : `当前 pin ${current}`
+}
+
+/** One npm plugin row of a batch prompt: install script, current version, target. */
+function aiNpmPluginRow(project: UpdateProject): string {
+  return `- 插件 ${aiNpmPackageName(project)}（安装脚本 ${aiNpmInstallScript(project)}，${aiNpmCurrentText(project)}，更新到 npm 最新版本 ${aiNpmLatestText(project)}）`
 }
 
 /**
- * Prompt for one npm plugin row: the package is pinned by a repository install
- * script, so the update edits that script and re-runs it — there is no
- * submodule checkout to move and no tag/commit target to choose.
+ * Prompt for one npm plugin row: the package is installed by a repository
+ * install script, so the update either raises the script's exact pin or
+ * re-runs a latest-tracking wrapper — there is no submodule checkout to move
+ * and no tag/commit target to choose.
  */
 function buildNpmPluginPrompt(project: UpdateProject): string {
-  const current = project.current !== '' ? project.current : 'unknown'
   return [
     AI_UPDATE_SKILL,
     '',
@@ -200,8 +230,8 @@ function buildNpmPluginPrompt(project: UpdateProject): string {
     '',
     `- 插件：${aiNpmPackageName(project)}`,
     `- 安装脚本：${aiNpmInstallScript(project)}`,
-    `- 当前 pin：${current}；更新目标：npm 最新版本 ${aiNpmLatestText(project)}`,
-    `- 要求：${NPM_UPDATE_REQUIREMENT}`,
+    `- ${aiNpmCurrentText(project)}；更新目标：npm 最新版本 ${aiNpmLatestText(project)}`,
+    `- 要求：${npmRequirementFor([project])}`,
     '',
     AI_UPDATE_WORKSPACE_NOTE,
     '',
@@ -230,14 +260,14 @@ function appendBatchRows(
   if (gitRows.length > 0 && npmRows.length > 0) {
     lines.push('仓库模块（git 子模块）：')
     for (const project of gitRows) lines.push(aiModuleRow(project, modeOf(project.id)))
-    lines.push('', 'npm 插件（更新安装脚本中的版本 pin 并重新安装）：')
+    lines.push('', 'npm 插件（重新安装以装入 npm 最新版本）：')
     for (const project of npmRows) lines.push(aiNpmPluginRow(project))
-    lines.push(`- 要求：${NPM_UPDATE_REQUIREMENT}`)
+    lines.push(`- 要求：${npmRequirementFor(npmRows)}`)
     return
   }
   for (const project of gitRows) lines.push(aiModuleRow(project, modeOf(project.id)))
   for (const project of npmRows) lines.push(aiNpmPluginRow(project))
-  if (npmRows.length > 0) lines.push(`- 要求：${NPM_UPDATE_REQUIREMENT}`)
+  if (npmRows.length > 0) lines.push(`- 要求：${npmRequirementFor(npmRows)}`)
 }
 
 /** Prompt for deepseek-harness alone: the engineering base, not a plugin. */
@@ -285,9 +315,9 @@ function buildHarnessMergedPrompt(
   lines.push(aiModuleRow(harness, modeOf(harness.id)))
   for (const project of gitRows) lines.push(aiModuleRow(project, modeOf(project.id)))
   if (npmRows.length > 0) {
-    lines.push('', 'npm 插件（更新安装脚本中的版本 pin 并重新安装）：')
+    lines.push('', 'npm 插件（重新安装以装入 npm 最新版本）：')
     for (const project of npmRows) lines.push(aiNpmPluginRow(project))
-    lines.push(`- 要求：${NPM_UPDATE_REQUIREMENT}`)
+    lines.push(`- 要求：${npmRequirementFor(npmRows)}`)
   }
   lines.push('', HARNESS_MODULE_NOTE, '', AI_UPDATE_WORKSPACE_NOTE, '', AI_UPDATE_GATE_NOTE)
   return lines.join('\n')

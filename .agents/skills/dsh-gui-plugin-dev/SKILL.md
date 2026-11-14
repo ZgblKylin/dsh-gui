@@ -6,7 +6,7 @@ whenToUse: 在 dsh-gui 仓库 `plugins/` 下新增、迁移、构建、调试、
 
 # dsh-gui 插件开发
 
-本 skill 只负责 dsh-gui 这一层：插件如何放进 `plugins/`、如何以 npm 精确 pin 的发布包或内嵌源码接入、如何写
+本 skill 只负责 dsh-gui 这一层：插件如何放进 `plugins/`、如何以 npm 发布包（跟踪 registry latest）或内嵌源码接入、如何写
 `install.mjs`、如何挂载到 web profile。插件本体怎么写，以 `deepseek-harness/`
 子模块中的官方文档与示例工程为准（见下方「阅读地图」）。
 
@@ -61,9 +61,9 @@ npm 型 wrapper 只有 `install.mjs`：包从 registry 安装，仓库内不保�
 | `remote`、`ai-update`、`opencode-session` | in-tree 源码（`<id>/<package>`） | 有 `build` 脚本；`dsh.bundle.patch` 自挂载（patch 行 id 与 `dsh.gui.mountId` 一致） |
 | `mcp-on-demand` | in-tree 源码 | 无 `build` 脚本，包按发布形态直接 `link:`；`dsh.bundle.patch` 自挂载 |
 | `auto-update`、`desktop-tabs` | in-tree 源码 | 只装 desktop profile：`DSH_PLUGIN_PROFILE` 不是 `desktop` 时跳过 |
-| `better-sidebar`、`deep-whale`、`dsh-web-ui` | npm 发布包（一个 wrapper 多个包） | 每包一个精确 pin；`dsh.bundle.patch` 自挂载 |
+| `better-sidebar`、`deep-whale`、`dsh-web-ui` | npm 发布包（一个 wrapper 多个包） | 每包一个 `<包名>@latest` 安装目标；`dsh.bundle.patch` 自挂载 |
 | `plugin-market`、`dsh-pet`、`skill-mcp-center` | npm 发布包（单包） | `dsh.bundle.patch` 自挂载；`dsh-pet` 装后另注入用户配置 |
-| `commandcode-provider` | npm 发布包（单包） | pin 的 dsh 依赖区间不接纳当前 runtime，wrapper 用 `exempt` 授予精确版本例外 |
+| `commandcode-provider` | npm 发布包（单包） | `engines.dsh` 区间接纳当前 runtime，不需要 `exempt` |
 | `harness` | 官方 `@deepseek-ai/dsh-*` npm 包组 | 平铺的 `browser-use.mjs` 与 `computer-use.mjs` 各装两个包；包不声明 bundle patch，由显式 `mount` 写 insert 行 |
 
 靠提示词与现有工具完成的用户级指令（例如 `/review`）做成 skill，不要建 wrapper：
@@ -73,8 +73,9 @@ npm 型 wrapper 只有 `install.mjs`：包从 registry 安装，仓库内不保�
 ### 1.2 两种来源
 
 **npm 发布包（本仓库当前多数插件）**：插件在独立仓库维护并发布到 npm，wrapper 只写
-`install.mjs`，用 `installNpmPlugin` 安装精确 pin 的版本；仓库内不保留源码 checkout。
-升级时改 `packageSpec` 并重跑 wrapper（见 skill `dsh-gui-update`）。
+`install.mjs`，用 `installNpmPlugin` 以 `<包名>@latest` 跟踪上游；安装时共享流水线把该
+tag 解析成 registry 当前的精确版本再交给 pnpm，已装同一版本时跳过。仓库内不保留源码
+checkout，上游发新版本后重跑 wrapper（或下一次构建）即升级（见 skill `dsh-gui-update`）。
 
 **内嵌（in-tree）**：插件源码直接随 dsh-gui 仓库提交，适合 dsh-gui 自有插件；wrapper
 用 `installPlugin` 构建并以 `link:` 安装。
@@ -95,9 +96,9 @@ npm 型：
 ```js
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
-installNpmPlugin({
+await installNpmPlugin({
   id: 'my-plugin',                       // = plugins/<id> 目录名
-  packageSpec: 'dsh-my-plugin@1.2.3',    // 精确 pin；更新面板按该字面量检测与改写
+  packageSpec: 'dsh-my-plugin@latest',   // 跟踪 registry latest；更新面板按该字面量识别插件行
 })
 ```
 
@@ -121,10 +122,10 @@ installPlugin({
 | 选项 | 含义 |
 |---|---|
 | `id` | wrapper 目录名，也是安装日志与定位 id |
-| `packageSpec` | `<包名>@<精确版本>` 的 npm spec，必须以字符串字面量出现在脚本里 |
+| `packageSpec` | `<包名>@latest`（跟踪上游，本仓库约定）或 `<包名>@<精确版本>` 的 npm spec，必须以字符串字面量出现在脚本里 |
 | `mount` | 显式 mount 行；仅用于不声明 `dsh.bundle.patch` 的包（当前 `harness` 官方插件组用它写带 `config` 的 insert 行） |
 | `skip` | wrapper 声明的默认跳过：`true` 或原因字符串；`DSH_PLUGIN_FORCE_INSTALL=1` 强制安装，`DSH_PLUGIN_SKIP` 追加跳过 |
-| `exempt` | 精确版本兼容例外的原因；pin 声明的 dsh 依赖区间不接纳当前 runtime 时使用 |
+| `exempt` | 精确版本兼容例外的原因；安装目标声明的 dsh 依赖区间不接纳当前 runtime 时使用 |
 
 `installPlugin` 的选项：
 
@@ -156,9 +157,11 @@ installPlugin({
    脚本的包按已发布形态直接使用（预构建 `lib/` 或纯配置包）。随后执行
    `dsh plugin --profile <profile> add link:<packageDir>`；`link:` 使下一次启动直接看到
    包目录里的改动。
-4. **npm 包**：执行 `dsh plugin --profile <profile> add <packageSpec>` 从 registry 安装，
-   并把包名记录到 `.dsh/gui/npm-installs.json`。精确 pin 已安装且挂载状态完好时跳过整次
-   安装；`npm run rebuild`（`DSH_PLUGIN_REBUILD=1`）强制重装。
+4. **npm 包**：把 `<包名>@latest` 解析成 registry 当前的精确版本，执行
+   `dsh plugin --profile <profile> add <packageSpec>` 从 registry 安装，并把包名记录到
+   `.dsh/gui/npm-installs.json`。已装该版本且挂载状态完好时跳过整次安装；registry 答案
+   缓存在 `.dsh/gui/npm-latest.json`（成功 5 分钟、失败 1 分钟），`npm run rebuild`
+   （`DSH_PLUGIN_REBUILD=1`）强制重装。
 5. **挂载 entry**：
    - 若包 `package.json` 的 `dsh.bundle.patch` 有值：`dsh plugin add` 会把它 reconcile 进
      `dsh.profile.bundles`，其 bundle 层自己插入 entry，安装脚本**不写**
@@ -175,12 +178,14 @@ installPlugin({
 
 - 安装脚本必须幂等，重复执行结果一致（共享流水线按 entry id 去重）。
 - 只写 `DSH_HOME`（缺省 `<runtime-root>/.dsh`），不写系统全局位置。
-- npm 型 wrapper 的 `packageSpec` 必须是 `<包名>@<精确版本>` 字符串字面量：本仓库的
-  更新面板（外壳与 desktop 插件两个入口）按字面量生成插件行并就地改写版本，从文件
-  读取或用拼接构造的 spec 不会被检测与更新；脚本还必须能按改写后的 pin 原样重跑
-  （更新面板改完字面量后直接重跑 wrapper），见 `plugins/README.md` 的安装方式约定。
-- 版本 pin 只有一个事实源：不要在注释或 README 里维护第二份版本号——更新只改写脚本
-  中的字面量，脚本注释里的同文会被一并替换，但文档里的旧版本不会自动更新。
+- npm 型 wrapper 的 `packageSpec` 必须是 `<包名>@latest` 或 `<包名>@<精确版本>` 字符串
+  字面量：本仓库的更新面板（外壳与 desktop 插件两个入口）按字面量生成插件行，`@latest`
+  行以 profile 里已装版本对比 registry 最新版本并重跑 wrapper，精确 pin 行就地改写版本
+  后重跑；从文件读取或用拼接构造的 spec 不会被检测与更新，见 `plugins/README.md` 的安装
+  方式约定。
+- 安装目标只有一个事实源：跟踪 latest 时不写版本号，固定精确版本时不要在注释或 README
+  里维护第二份版本号——更新只改写脚本中的字面量；`@latest` 行在 profile 里的已装版本
+  才是当前版本。
 - 准入闸门读取包声明的 dsh 版本要求（`engines.dsh`，没有时比对 `@deepseek-ai/dsh*`
   peer 区间）：区间不接纳当前 runtime 时 `dsh plugin add` 拒绝安装，只有
   `installNpmPlugin` 的 `exempt` 能授予精确版本例外，例外按包版本与 runtime 版本精确
@@ -295,8 +300,9 @@ wrapper 约定误当成 harness 插件模型。
    `--patch` 在临时 profile 里加载；需要 GUI 时用 harness 自己的 `dsh web`。
 2. **再决定是否需要 dsh-gui 例外**：不需要就到此为止，后续只加 wrapper 分发；
    需要就在文档里写明理由并控制耦合面。
-3. **加 dsh-gui wrapper**：按第 1、2 节创建 `plugins/<id>/install.mjs`——npm 型只写精确
-   pin，in-tree 型再建包目录并交给 `installPlugin`；不要为安装而改 harness 本体。
+3. **加 dsh-gui wrapper**：按第 1、2 节创建 `plugins/<id>/install.mjs`——npm 型用
+   `<包名>@latest` 跟踪上游，in-tree 型再建包目录并交给 `installPlugin`；不要为安装而改
+   harness 本体。
 4. **构建验证**：先保证 harness 已构建（首次 `npm run setup`），再跑
    `npm run install:plugins`；之后查看每个 wrapper 输出的
    `installed plugin '<id>'`，并核对 profile 的 `cordis.patch.yml`
@@ -307,10 +313,10 @@ wrapper 约定误当成 harness 插件模型。
 ## 4. 文档与提交
 
 - in-tree 插件同步维护 `plugins/<id>/<package>/docs/`；npm 型 wrapper 在
-  `plugins/<id>/README.md` 说明来源包、pin 版本与升级方式，上游文档以发布包内的
-  `README.md` 与 `docs/` 为准。
-- wrapper 的 `install.mjs` 顶部注释应说明：包来源（npm 包名 / in-tree）、pin 版本与升级
+  `plugins/<id>/README.md` 说明来源包、安装目标（`@latest` 或固定版本）与升级方式，上游
+  文档以发布包内的 `README.md` 与 `docs/` 为准。
+- wrapper 的 `install.mjs` 顶部注释应说明：包来源（npm 包名 / in-tree）、安装目标与升级
   方式、是否预构建、mount 来源（bundle patch 自挂载 / 显式 `mount` / manifest 派生）、
   `DSH_HOME` 约束。
-- 提交遵循 Conventional Commits；安装脚本与 pin 变更一起提交，不提交 `.dsh/`、
+- 提交遵循 Conventional Commits；安装脚本与适配变更一起提交，不提交 `.dsh/`、
   `.toolchain/`、`.pnpm-store/` 等运行期/缓存目录。

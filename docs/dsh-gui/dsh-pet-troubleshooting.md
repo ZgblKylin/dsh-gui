@@ -147,7 +147,7 @@ $f = '.dsh\dsh-pet\main-config.jsonc'; if (-not (Test-Path $f)) { $f = '.dsh\dsh
 
 ## 6. 相关文件速查
 
-- wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；安装目标是 npm 发布包 `dsh-pet@0.4.6`（wrapper 精确 pin，仓库内没有本地源码 checkout）
+- wrapper：`plugins/dsh-pet/{install.mjs,inject-config.mjs,README.md}`；安装目标是 npm 发布包 `dsh-pet`（wrapper 以 `dsh-pet@latest` 跟踪 registry latest，安装时解析成精确版本；仓库内没有本地源码 checkout）
 - 安装实现（wrapper 内）：`plugins/dsh-pet/install.mjs` 的 `installNpmPlugin` 调用（精确版本，不传 `skip`）；登记与通用机制：`scripts/plugin-install.mjs`（`recordNpmInstall`、`skipInstall`）
 - 更新检查：`docs/dsh-gui/update-check.md`、`src-tauri/src/update.rs`
 - 上游：`https://github.com/PC2005-cloud/dsh-pet`（issue [#16](https://github.com/PC2005-cloud/dsh-pet/issues/16) = 路由冲突，已修）

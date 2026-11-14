@@ -354,7 +354,10 @@ fn prepare_npm(root: &Path, package: &str) -> Result<Prepared, String> {
     let Some(row) = rows.into_iter().find(|row| row.package_name == package) else {
         // The install script may have been edited or removed since the list
         // was checked; the dialog asks for a fresh check in that case.
-        return Err(format!("安装脚本中找不到该 npm 插件的 pin：{package}"));
+        return Err(format!("安装脚本中找不到该 npm 插件的安装目标：{package}"));
+    };
+    let Some(current) = crate::update::current_npm_row_version(root, &row) else {
+        return Err(format!("插件「{package}」尚未安装，无法生成更新日志"));
     };
     let answers = npm_latest_answers(root, &[package.to_string()])?;
     let Some(answer) = answers.into_iter().next() else {
@@ -366,14 +369,13 @@ fn prepare_npm(root: &Path, package: &str) -> Result<Prepared, String> {
     let Some(latest) = answer.latest else {
         return Err("npm registry 未返回版本号".to_string());
     };
-    let current = row.pinned_version.clone();
     let releases_url = github_releases_url(answer.repository_url.as_deref());
 
     if current == latest {
         return Ok(Prepared::Done(UpdateChangelog {
             subtitle: "当前已是最新版本，没有需要展示的变更".to_string(),
             text: format!(
-                "安装脚本已 pin 到 npm 最新版本（{latest}），没有需要展示的 GitHub Release。"
+                "已安装 npm 最新版本（{latest}），没有需要展示的 GitHub Release。"
             ),
             release_url: releases_url,
         }));

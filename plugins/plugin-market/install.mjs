@@ -2,26 +2,18 @@
 /**
  * install.mjs — install the `dshmarket` plugin into the web profile.
  *
- * ⚠️ Installed from npm pinned to an exact version (`1.73.15`), not `@latest` —
- * exact pins bypass pnpm 11's 24h `minimumReleaseAge` gate (which silently
- * falls back to an older version for `@latest`/ranges) and keep the installed
- * body identical to the selected published release (per plugins/README.md's
- * 安装方式 section: the package is not marked as a source install). The
- * package declares `dsh.bundle.patch`, so `dsh plugin add` reconciles it into
- * `dsh.profile.bundles` and its own bundle layer mounts the entry; no manual
- * insert is written (that would double-mount it).
+ * 来源：npm 发布包 `dshmarket`，spec 为 `dshmarket@latest`：安装时由共享流水线
+ * 查询 registry 的 latest 精确版本并安装该版本，已装同一版本时跳过，因此上游发布
+ * 新版本后重跑本脚本即可升级，仓库内不维护版本号。包声明 `dsh.bundle.patch`，
+ * `dsh plugin add` 会把它 reconcile 进 `dsh.profile.bundles` 并由 bundle 层自行
+ * 挂载，因此本脚本不写手工 insert（那会 double-mount）。
  *
- * The dshmarket version is a hard floor, not a preference: the harness
- * dsh-v0.2.2-rc.3 admission gate reads a package's declared dsh requirements
- * (`engines.dsh` when present, else its `@deepseek-ai/dsh` /
- * `@deepseek-ai/dsh-*` peers) against the running version, so the
- * `@deepseek-ai/dsh-settings` peer must carry a 0.2-line branch. 1.66.4 is the
- * first release that admits the 0.2 line through `^0.2.0-rc.1`, which covers
- * 0.2.2-rc.3; below it the install preflight exits 1 and `npm run build`
- * fails. 1.70.x extends that peer with `^0.2.1-alpha.3 || ^0.2.1-rc.1` and runs
- * its own peer check with `includePrerelease`, admitting prerelease host lines
- * instead of reporting them unmet; 1.73.x keeps the same disjunction and this
- * wrapper pins 1.73.15.
+ * 准入：harness dsh-v0.2.2-rc.3 的闸门按包声明的 dsh 依赖判定——有 `engines.dsh`
+ * 时只看它，否则看 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer。
+ * `dshmarket` 的 `@deepseek-ai/dsh-settings` peer 自 1.66.4 起带 0.2 线分支
+ * （`^0.2.0-rc.1`），1.70.x 起改为 `^0.2.1-alpha.3 || ^0.2.1-rc.1` 并把自己的
+ * peer 检查按 includePrerelease 执行，0.2.2-rc.3 因此被接纳；低于这两个下限的
+ * 发布会被安装前置检查拒绝。
  *
  * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`
  * by the desktop shell; this script honors an explicit `DSH_HOME` override
@@ -30,7 +22,7 @@
 
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
-installNpmPlugin({
+await installNpmPlugin({
   id: 'plugin-market',
-  packageSpec: 'dshmarket@1.73.15',
+  packageSpec: 'dshmarket@latest',
 })

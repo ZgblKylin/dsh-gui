@@ -1,12 +1,12 @@
 ---
 name: dsh-gui-update
-description: 'Use when updating a dsh-gui module to a newer upstream revision — the deepseek-harness engineering base, the src-tauri/whale-icon submodule, or an npm-pinned plugin under plugins/ — and when validating that upgrade before it reaches the working repository. Covers the in-repo validation worktree (.staging/dsh-gui, a git worktree on branch staging/verify maintained by scripts/staging.mjs, with .staging/ as its runtime root), the staging-first two-phase flow, the phase-one acceptance gate (the worktree WebUI must actually load; a harness update additionally gets a computer-use check that the GUI starts and runs), adaptation commits on the work branch that need no user approval, the user approval still required to merge the work branch back into the main branch, git submodule pin updates for deepseek-harness and src-tauri/whale-icon, npm plugin pin updates in plugins/<id>/install.mjs followed by a wrapper reinstall, the ban on building or installing inside the running checkout, plugin masking, the post-upgrade install-script audit, the npm publish state of the dsh runtime, reporting and commit-message drafting, and the sandbox rule (workspace writes and work-branch commits need no elevation; builds, cargo and sh.exe-backed git operations do; DSH_HOME must be pinned to .staging/.dsh).'
-whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin 插件升级到更新的上游修订（最新 tag / 最新提交 / registry 最新版本）、需要在实装前先验证、需要在验证 worktree 的工作分支上直接提交适配改动、需要在实装阶段避免改动正在运行的 dsh 实例、或更新对话框的「AI 更新」把升级提示词预填到会话后落地该流程时使用。
+description: 'Use when updating a dsh-gui module to a newer upstream revision — the deepseek-harness engineering base, the src-tauri/whale-icon submodule, or an npm plugin wrapper under plugins/ — and when validating that upgrade before it reaches the working repository. Covers the in-repo validation worktree (.staging/dsh-gui, a git worktree on branch staging/verify maintained by scripts/staging.mjs, with .staging/ as its runtime root), the staging-first two-phase flow, the phase-one acceptance gate (the worktree WebUI must actually load; a harness update additionally gets a computer-use check that the GUI starts and runs), adaptation commits on the work branch that need no user approval, the user approval still required to merge the work branch back into the main branch, git submodule pin updates for deepseek-harness and src-tauri/whale-icon, npm plugin updates by re-running the wrapper (a tracking wrapper installs the registry latest; an exact pin is raised first), the ban on building or installing inside the running checkout, plugin masking, the post-upgrade install-script audit, the npm publish state of the dsh runtime, reporting and commit-message drafting, and the sandbox rule (workspace writes and work-branch commits need no elevation; builds, cargo and sh.exe-backed git operations do; DSH_HOME must be pinned to .staging/.dsh).'
+whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm 插件 wrapper 升级到更新的上游修订（最新 tag / 最新提交 / registry 最新版本）、需要在实装前先验证、需要在验证 worktree 的工作分支上直接提交适配改动、需要在实装阶段避免改动正在运行的 dsh 实例、或更新对话框的「AI 更新」把升级提示词预填到会话后落地该流程时使用。
 ---
 
 # dsh-gui 模块更新
 
-本 skill 把本仓库依赖的模块升级到更新的上游修订：工程基座 `deepseek-harness`、`src-tauri/whale-icon` 两个 git 子模块，以及 `plugins/<id>/` 下以 npm 精确 pin 安装的插件。两类模块的推进方式不同：子模块移动指针，npm 插件改写安装脚本里的 `packageSpec` 并重跑 wrapper。升级分两个阶段执行：阶段一在仓库内的验证 worktree 中验证，阶段二把验证通过的工作分支合并回主分支实装。
+本 skill 把本仓库依赖的模块升级到更新的上游修订：工程基座 `deepseek-harness`、`src-tauri/whale-icon` 两个 git 子模块，以及 `plugins/<id>/` 下以 npm 发布包安装的插件。两类模块的推进方式不同：子模块移动指针；npm 插件重跑 wrapper 由安装流水线装入 registry 最新版（wrapper 以 `<包名>@latest` 跟踪上游），固定精确 pin 的行先改写 `packageSpec` 再重跑。升级分两个阶段执行：阶段一在仓库内的验证 worktree 中验证，阶段二把验证通过的工作分支合并回主分支实装。
 
 ## 0. 铁律：先验证，后实装
 
@@ -24,14 +24,14 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
 | 来源 | 内容 |
 | --- | --- |
 | [`src-tauri/ui/app.js`](../../../src-tauri/ui/app.js) | 外壳更新对话框预填的提示词：`AI_UPDATE_SKILL`（手势常量 `/dsh-gui-update`）、`buildHarnessUpdatePrompt`（仅 harness）、`buildHarnessMergedPrompt`（harness 与插件批量）、`buildAiUpdatePrompt`（单模块与批量）、`buildNpmPluginPrompt`（npm 插件单行）。提示词只给出模块名、路径、当前版本、更新目标，以及 skill 无法从对话框得知的验收门槛 `AI_UPDATE_GATE_NOTE`（worktree 的 WebUI 必须能正确加载；含 harness 时另用 computer use 验证 GUI；适配改动提交到工作分支；报告并经用户审批后才合并回主分支）；分步流程由本 skill 承载 |
-| [`plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts`](../../../plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts) | desktop 应用内更新对话框的提示词：git 行沿用外壳文案；npm 插件行由 `buildNpmPluginPrompt` 给出包名、安装脚本、当前 pin 与 registry 目标版本，并要求改安装脚本里的 `packageSpec` 精确版本；构建入口统一写成 `npm run build:desktop` |
+| [`plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts`](../../../plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts) | desktop 应用内更新对话框的提示词：git 行沿用外壳文案；npm 插件行由 `buildNpmPluginPrompt` 给出包名、安装脚本、当前版本（精确 pin 或当前 profile 的已装版本）与 registry 目标版本，并要求按安装目标分别处理（见第 2 节）；构建入口统一写成 `npm run build:desktop` |
 | [`docs/dsh-gui/desktop-auto-update.md`](../../../docs/dsh-gui/desktop-auto-update.md) | desktop 更新插件与外壳更新对话框并存时的边界、git 行与 npm 插件行的检测与更新执行 |
 | [`docs/dsh-gui/upgrade-staging-workspace.md`](../../../docs/dsh-gui/upgrade-staging-workspace.md) | 验证 worktree 的路径与运行时根、维护命令、工作分支与合并政策、构建与验收命令 |
 | [`scripts/staging.mjs`](../../../scripts/staging.mjs) | `ensure`、`sync`、`status`、`clean` 的实现与帮助文本；`npm run staging -- help` 是选项的权威列表 |
 | [`harness.json`](../../../harness.json) 与 [`docs/dsh-gui/harness-runtime.md`](../../../docs/dsh-gui/harness-runtime.md) | dsh 运行时的选择与版本来源；harness 升级后由 build 按子模块 `apps/cli/package.json` 的版本安装 CLI |
 | [`docs/dsh-gui/update-check.md`](../../../docs/dsh-gui/update-check.md) | 外壳侧更新检查的判定规则、npm 发布状态与提示词接线 |
 | [`AGENTS.md`](../../../AGENTS.md) | 开发约定、插件开发规范、插件市场约束、bundle 加载注意事项、提交规范 |
-| [`plugins/README.md`](../../../plugins/README.md) | 各 wrapper 的安装方式与 npm pin 标注 |
+| [`plugins/README.md`](../../../plugins/README.md) | 各 wrapper 的安装方式与安装目标标注 |
 
 更新对话框的「AI 更新」预填的草稿以 `/dsh-gui-update` 开头：host 侧的 `dsh-tool-skill` 会把本 skill 的内容注入会话，因此本 skill 就是升级流程的权威步骤。手势名称定义在两个常量中：外壳的 `src-tauri/ui/app.js` 与 desktop 更新插件的 `plugins/auto-update/dsh-auto-update/src/client/ai-prompt.ts` 各有一个 `AI_UPDATE_SKILL`；重命名本 skill 时必须在同一改动中同步这两个常量。
 
@@ -50,7 +50,7 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
 
   - **提交目标**：远端默认分支的最新提交。子模块用 `git -C .staging\dsh-gui submodule update --remote <path>`，或在该模块目录内 `fetch origin` 后检出 `origin/<默认分支>`。
   - **跳过**：模块当前正好检出于某个 tag，而远端只有更新的提交、没有更新的 tag 时，保持其 tag 版本，不要把它更新到非 tag 提交，并在报告中说明原因。产品内该状态对应 `announce === false`（[`src-tauri/src/update.rs`](../../../src-tauri/src/update.rs) 的 `check_project`）。
-- **npm 插件行**（`plugins/<id>/install.mjs` 里 `installNpmPlugin` 的精确 pin）：更新目标是 registry 最新版本，对话框行给出 `latest`；行内没有该值（例如提示词只给了包名）时用 `npm view <包名> version` 确认。在 worktree 中把该脚本的 `packageSpec` 改成 `<包名>@<新版本>`（保留完整的三段 semver，带 prerelease 时写全），再重跑该 wrapper 完成安装。一个 wrapper 安装多个包时逐行处理，只改目标包。
+- **npm 插件行**（`plugins/<id>/install.mjs` 里 `installNpmPlugin` 的安装目标）：更新目标是 registry 最新版本，对话框行给出 `latest`；行内没有该值（例如提示词只给了包名）时用 `npm view <包名> version` 确认。在 worktree 中重跑该 wrapper（`node plugins/<id>/install.mjs`）即可：脚本以 `<包名>@latest` 跟踪上游时，流水线在安装前把 tag 解析成精确版本并装入；脚本固定精确 pin 时，先把 `packageSpec` 改成 `<包名>@<最新版本>`（保留完整三段 semver，带 prerelease 时写全）再重跑。一个 wrapper 安装多个包时，跟踪 latest 的脚本重跑一次会把该脚本跟踪的所有包装到各自的 latest；精确 pin 的脚本逐行处理，只改目标包。`plugins/harness/` 的官方包不适用：它们固定在当前 harness 版本，随 harness 升级整批改写。
 - **顶层仓库本体**不进入本流程：更新对话框对顶层行直接执行 git 层更新（顶层 `git reset --hard` 到更新目标加子模块递归同步），随后由用户执行 `npm run build` 重建。worktree 与主仓库共享 object 库与 refs，顶层不需要 fetch，`sync` 会把工作分支对齐到本仓库当前 HEAD。
 
 ## 3. 阶段一：worktree 内验证（不碰主分支）
@@ -67,9 +67,9 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
    - 动手前确认基线一致：`git -C .staging/dsh-gui rev-parse HEAD` 与本仓库 `git rev-parse HEAD` 相同，`git -C .staging/dsh-gui status --porcelain` 为空。`sync` 只重置顶层工作分支并重新钉住子模块，不清理未跟踪文件与子模块工作区里的改动：有未跟踪残留时用 `git -C .staging/dsh-gui clean -fd` 删除，子模块工作区有改动时用 `git -C .staging/dsh-gui submodule update --init --recursive --force` 拉回。
    - 在仓库根执行这些命令：脚本检测到当前路径位于 `.staging` 内时会拒绝运行，防止嵌套创建。
    - worktree 内的每条 `node` / `dsh` / `install.mjs` 调用前都显式设置 `DSH_HOME`，原因与取值见第 7 节。
-2. 在 worktree 中把目标模块推进到目标状态：git 子模块按第 2 节检出 tag 或提交；npm 插件行改 `plugins/<id>/install.mjs` 的 `packageSpec` 后由第 4 步的构建重跑该 wrapper 完成安装。需要单独执行 wrapper 时用 `node plugins/<id>/install.mjs`，`DSH_HOME` 按第 7 节钉到 worktree 的运行时根，目标 profile 用 `DSH_PLUGIN_PROFILE` 指定（desktop 更新对话框的流程用 `desktop`，外壳与普通构建用默认的 `web`）。
+2. 在 worktree 中把目标模块推进到目标状态：git 子模块按第 2 节检出 tag 或提交；npm 插件行由构建（或单独执行 wrapper）重跑安装脚本完成安装——跟踪 latest 的脚本直接装入 registry 最新版，精确 pin 行先按第 2 节改写 `packageSpec`。需要单独执行 wrapper 时用 `node plugins/<id>/install.mjs`，`DSH_HOME` 按第 7 节钉到 worktree 的运行时根，目标 profile 用 `DSH_PLUGIN_PROFILE` 指定（desktop 更新对话框的流程用 `desktop`，外壳与普通构建用默认的 `web`）。
 3. 分析该版本的影响：新增、变更或移除的功能、配置与依赖，以及本仓库插件需要跟进适配的点（组合方式、插件 API、bundle 契约）。以 `AGENTS.md` 与 [`docs/official/`](../../../docs/official) 为依据。
-   - **npm 插件行**还要读该版本的 Release 与包内 README，核对声明的 dsh 依赖要求（`engines.dsh`，没有时看 `@deepseek-ai/dsh*` peer 区间）是否接纳本仓库 pinned 的 harness。接纳时只改 pin；不接纳时停止本次更新并向用户报告，可选做法是由 wrapper 的 `exempt` 授予精确版本例外并记录接受的风险，或把该插件屏蔽出本次验证。
+   - **npm 插件行**还要读该版本的 Release 与包内 README，核对声明的 dsh 依赖要求（`engines.dsh`，没有时看 `@deepseek-ai/dsh*` peer 区间）是否接纳本仓库 pinned 的 harness。接纳时只需重跑 wrapper（或改写精确 pin 后重跑）；不接纳时停止本次更新并向用户报告，可选做法是由 wrapper 的 `exempt` 授予精确版本例外并记录接受的风险，或把该插件屏蔽出本次验证。
    - **核对 `docs/official` 的每条链接仍可穿透**：目录链接要能列出子项，文件链接要能读到内容。子模块换代会让官方目录树移动或撤除（顶层 `examples/` 已被撤除，内容分散到 `apps/cli/config/examples/`、`docs/user/` 与各包 `tests/fixtures/`），悬空链接要改指当前修订的等价位置，没有等价位置的删除；`AGENTS.md` 的 `docs/official` 条目与目录内容逐项对齐。
    - 失效并不总是「目标不存在」：目标是目录却被写成**文件型重解析点**时，`Test-Path` 仍返回真，但 shell 报 `Not a directory`、目录列举为空、子路径全部读不到。用 `(Get-Item <链接>).PSIsContainer` 判定：目标为目录却得到 `False` 的就是这种链接。
    - 重建用 `New-Item -ItemType SymbolicLink -Path <链接> -Target <相对目标>`，目标按仓库约定写成正斜杠相对路径。不要用 .NET 的 `Directory.CreateSymbolicLink`：它对本仓库的相对目标写出的重解析点在 Windows 上不解析，子项无法访问。
@@ -84,7 +84,7 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
    git -c commit.gpgsign=false commit -m "chore: adapt <module> to <revision>"
    ```
 
-   - 适配改动在本仓库顶层提交（安装脚本与 npm pin、`docs/official` 链接、配置与文档）；`deepseek-harness/` 与 `src-tauri/whale-icon` 是 pinned 子模块，禁止编辑其中文件。
+   - 适配改动在本仓库顶层提交（安装脚本与适配代码、`docs/official` 链接、配置与文档）；`deepseek-harness/` 与 `src-tauri/whale-icon` 是 pinned 子模块，禁止编辑其中文件。
    - 提交后构建验证。先跑 `--skip-exe` 全绿；本次更新包含 `deepseek-harness` 时再跑不带该标记的那条，一并构建第 7 步验证的入口 exe：
 
      ```powershell
@@ -130,7 +130,7 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
 
 ## 4. 阶段二：合并工作分支实装（阶段一验收通过并经用户审批后）
 
-本阶段把工作分支合并回主分支。合并带入顶层树（安装脚本与 npm pin、适配代码，以及 `deepseek-harness` / `src-tauri/whale-icon` 的子模块指针）；本流程不在子模块内产生本地提交。本阶段不执行构建或安装，重新构建由用户完成。
+本阶段把工作分支合并回主分支。合并带入顶层树（安装脚本与适配代码，以及 `deepseek-harness` / `src-tauri/whale-icon` 的子模块指针）；本流程不在子模块内产生本地提交。本阶段不执行构建或安装，重新构建由用户完成。
 
 0. 先确认两件事都已发生：阶段一验收全部通过，且用户已明确审批本次实装。把验证结论、改动清单与风险报告给用户后等待其答复；用户未批准（或尚未答复）时停在这里，不要合并。
 1. 主分支在验证期间前进过时，先在工作分支上同步到本仓库当前 HEAD，解决冲突后重跑受影响的验收步骤：
@@ -158,7 +158,7 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
    主工程与 worktree 的子模块是相互独立的 git 仓库，但本流程只在其中 checkout 上游修订、不产生本地提交，因此不需要搬运提交。
 
 4. 汇报并通知用户重新构建，列出：
-   - 本次合并的提交、涉及的模块与 npm pin 变更、子模块指针；
+   - 本次合并的提交、涉及的模块与 npm 插件版本变化、子模块指针；
    - 被屏蔽插件在主工程的卸载动作：移除 profile 的挂载与依赖条目并删除对应 node_modules 链接，避免后续 Loader 组合重新加载它（卸载流程见 skill `dsh-plugin-uninstall`）；
    - 重新构建命令 `npm run build`（desktop 更新对话框的流程为 `npm run build:desktop`）：入口 exe 被运行中的 dsh-gui 占用时可以加 `--skip-exe`，但构建与卸载都由用户在停止运行中的实例后执行。
 
@@ -169,7 +169,7 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
 | 核对要点 | 期望状态 |
 | --- | --- |
 | 安装方式 | 与 `plugins/README.md` 的安装方式标注一致：in-tree 源码插件经 `installPlugin` 构建后以 `link:` 引入，npm 插件经 `installNpmPlugin` 以精确 spec 安装 |
-| 版本 pin | npm 型 wrapper 的 `packageSpec` 是 `<包名>@<精确版本>` 字符串字面量，版本与上游 npm 最新发布及登记的兼容区间一致 |
+| 安装目标 | npm 型 wrapper 的 `packageSpec` 是 `<包名>@latest`（跟踪上游）或 `<包名>@<精确版本>` 字符串字面量；本仓库第三方 wrapper 跟踪 `latest`，`plugins/harness/` 固定当前 harness 版本 |
 | 挂载方式 | 声明 `dsh.bundle.patch` 的包经自身 bundle 层挂载，不手工插入 `cordis.patch.yml` |
 | 市场约束 | 精确稳定的 SemVer 版本；无 `preinstall`、`install`、`postinstall`、`prepare` 生命周期脚本；`engines.node` 接受 Node LTS；`files` 白名单只含必要产物 |
 | 流水线 | 经 `scripts/plugin-install.mjs` 共享流水线安装，无越出仓库、绕过流水线或改动无关配置的步骤 |
@@ -188,12 +188,12 @@ whenToUse: 需要把 deepseek-harness、src-tauri/whale-icon 或某个 npm pin �
 - 验证过的适配改动已提交到工作分支 `staging/verify`，工作区没有未提交改动；
 - **用户已明确审批阶段二合并**；
 - 不兼容插件已屏蔽，原因与恢复条件已记录；
-- npm 插件行：安装脚本的 `packageSpec` 已改到目标版本，worktree 构建后 profile 中安装的是该版本，插件加载无报错；
+- npm 插件行：profile 中安装的是 registry 最新版本（跟踪 latest 的 wrapper 已重跑；精确 pin 行已改到目标版本），插件加载无报错；
 - dsh 运行时的 npm 发布状态已核对（判据见 `docs/dsh-gui/update-check.md`）；
 - 主分支已合并工作分支；本次更新包含 `deepseek-harness` 或 `src-tauri/whale-icon` 时，主工程子模块已 checkout 到合并带入的指针；
 - 已通知用户重新构建，构建结果与重建后各插件、agent preset 的安装由用户确认。
 
-阶段一验收未全部通过、或用户尚未审批时，不得进入阶段二。验证失败时先在 worktree 中修正重试：继续在工作分支提交，或用 `git -c commit.gpgsign=false commit --amend` 修订最近一次提交；不要带着失败的升级改动合并回主分支。需要丢弃工作分支上的验证提交并重建 worktree 时用 `npm run staging -- clean --yes --branch`。主工程需要回滚时，git 子模块检回旧修订、npm 插件把 `packageSpec` 改回旧版本并重跑 wrapper，然后同样通知用户重新构建：
+阶段一验收未全部通过、或用户尚未审批时，不得进入阶段二。验证失败时先在 worktree 中修正重试：继续在工作分支提交，或用 `git -c commit.gpgsign=false commit --amend` 修订最近一次提交；不要带着失败的升级改动合并回主分支。需要丢弃工作分支上的验证提交并重建 worktree 时用 `npm run staging -- clean --yes --branch`。主工程需要回滚时，git 子模块检回旧修订、精确 pin 的 npm 插件把 `packageSpec` 改回旧版本并重跑 wrapper（跟踪 latest 的 wrapper 没有脚本回滚点，重跑会再次装到最新版，需要旧版本时临时固定精确 spec），然后同样通知用户重新构建：
 
 ```powershell
 git -C deepseek-harness checkout <旧修订>
@@ -241,8 +241,8 @@ $env:DSH_HOME = 'E:\Git\dsh-gui-home\dsh-gui\.staging\.dsh'
 
 - **`source` 运行时下 harness 子模块的残留构建产物**：升级后旧的 `lib/` 与 `node_modules/` 会被 tsdown 的 workspace glob 当成构建目标，报 `MISSING_EXPORT` 并中止构建。验证 worktree 从干净检出安装，能提前暴露该问题；本工程的修复见事故复盘。
 - **子模块指针漂移**：记录的修订与子模块工作区 HEAD 不一致时，`git status` 显示 ` M <path>`，仓库处于半升级状态。worktree 内的修法是让工作分支提交记录的子模块指针与子模块实际 HEAD 一致；实装后主工程用 `git submodule update --init --recursive` 把子模块 checkout 到合并带入的指针。
-- **改了 pin 却没有重跑安装**：npm 插件的版本由安装脚本的 `packageSpec` 决定，只改脚本不重跑 wrapper，profile 里仍是旧版本；只改 profile 里的包版本而不改脚本，下次构建又会被精确 pin 装回旧版，新设备也按旧 pin 安装。
-- **npm 插件行的 pin 必须是字面量**：本仓库的更新面板（外壳与 desktop 插件两个入口）扫描 `plugins/**/*.mjs` 中 `installNpmPlugin(` 附近的 `<包名>@<版本>` 字面量；从文件读取版本或用字符串拼接构造 spec 的 wrapper 不产生插件行，也不会被就地更新（约定见 `plugins/README.md` 的安装方式）。
+- **改了精确 pin 却没有重跑安装**：固定精确 pin 的 npm 插件，版本由安装脚本的 `packageSpec` 决定，只改脚本不重跑 wrapper，profile 里仍是旧版本；只改 profile 里的包版本而不改脚本，下次构建又会被精确 pin 装回旧版，新设备也按旧 pin 安装。跟踪 latest 的 wrapper 不需要改脚本，重跑（或下一次构建）即装入 registry 最新版。
+- **npm 插件行的安装目标必须是字面量**：本仓库的更新面板（外壳与 desktop 插件两个入口）扫描 `plugins/**/*.mjs` 中 `installNpmPlugin(` 附近的 `<包名>@<精确版本>` 或 `<包名>@latest` 字面量；从文件读取版本或用字符串拼接构造 spec 的 wrapper 不产生插件行，也不会被就地/批量更新（约定见 `plugins/README.md` 的安装方式）。
 - **npm 运行时换代后主工程的 `.harness` 可能残留混合版本树**：验证 worktree 与主工程的运行时根相互独立，worktree 侧从干净的 `.staging/.harness` 安装、必然一致，冒烟验不出；主工程是就地升级，`pnpm add` 调和既有 lockfile 时可能把顶层 `@deepseek-ai/dsh` 升到新版本、兄弟包（`dsh-sandbox`、`dsh-attachment` 等）留在旧版本。症状是启动时 `harness.log` 报 `does not provide an export named '...'`。build 的 npm 运行时分支会自动兜底：家族不一致触发干净重装（删 `.harness/node_modules` + `pnpm-lock.yaml` 后 `pnpm add`），重装后仍不一致则构建报错；`--force-harness` 也是干净重装。手动恢复：`Remove-Item .harness\node_modules, .harness\pnpm-lock.yaml -Recurse -Force` 后重跑 build。详见 `docs/dsh-gui/harness-runtime.md` 的「故障排查」。
 - **`DSH_HOME` 会从会话环境继承，指向正在运行的实例**：dsh 会话自身导出了 `DSH_HOME=E:\Git\dsh-gui-home\.dsh`，worktree 里跑的每条 `node` / `dsh` / `install.mjs` 命令都会继承它，于是「worktree 内验证」实际写进了主工程的 profile。典型症状是 pnpm 报 `ERR_PNPM_UNEXPECTED_STORE`（worktree 的 store 与主工程 profile 记录的 store 不同），或主工程 `.dsh/` 冒出新的文件。worktree 内的每条命令都显式带上 `$env:DSH_HOME="E:\Git\dsh-gui-home\dsh-gui\.staging\.dsh"`。若已经写进去，按主工程 `.dsh` 的改动清单逐项复原，至少核对 `profiles/web/pnpm-workspace.yaml` 的 `storeDir`、`gui/npm-installs.json` 与 `profiles/web/package.json` 的依赖与 `dsh.profile.bundles`。
 - **强杀 worktree 构建会遗留陈旧的 atomic-write 锁**：在 `dsh plugin add` 写 `package.json` 期间用 `Stop-Process -Force` 终止 worktree 的构建，会留下陈旧的 `.staging/.dsh/profiles/web/package.json.lock`（内容是刚被杀进程的 PID）。之后每次 `dsh plugin add` 都等待该锁直到超时，报 `atomic-write: timed out waiting for the writer lock at ...package.json.lock`，整体表现为构建长时间静默挂起。清理：删除该锁文件后重跑 build。

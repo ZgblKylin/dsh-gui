@@ -28,7 +28,7 @@
  * fetch strategy is the contract's single recursive fetch.
  */
 
-import { isDirectory, listProjects, type ProjectRef } from './paths.ts'
+import { installedPackageVersion, isDirectory, listProjects, type ProjectRef } from './paths.ts'
 import {
   gitFailure,
   gitFetch,
@@ -96,10 +96,16 @@ export interface ProjectUpdate {
    * like a fresh one (the client treats a missing value as `'git'`).
    */
   kind?: 'git' | 'npm'
-  /** npm rows: the package the install script pins. */
+  /** npm rows: the package the install script installs. */
   packageName?: string
   /** npm rows: the install script, relative to the repository root (POSIX). */
   installScript?: string
+  /**
+   * npm rows: true when the install script tracks `<package>@latest`. `current`
+   * is then the version installed in the plugin profile, and updating re-runs
+   * the wrapper instead of rewriting a pin.
+   */
+  tracksLatest?: boolean
 }
 
 /** The complete status response. */
@@ -265,15 +271,26 @@ async function localPreview(project: ProjectRef): Promise<ProjectUpdate> {
 }
 
 /**
- * Local-only preview of one npm plugin row: the install script's pin is known
- * offline, the registry answer is not.
+ * The version the current deployment installs for one npm row: the exact pin,
+ * or the version the plugin profile holds behind a `<package>@latest` wrapper.
+ * @returns the version, or `undefined` when a tracking wrapper's package is not
+ *   installed (a fresh deployment would install it).
+ */
+function installedRowVersion(plugin: PluginNpmRow): string | undefined {
+  return plugin.pinnedVersion ?? installedPackageVersion(plugin.packageName)
+}
+
+/**
+ * Local-only preview of one npm plugin row: the current version is known
+ * offline (the exact pin, or the profile's installed version), the registry
+ * answer is not.
  */
 function localPluginPreview(plugin: PluginNpmRow): ProjectUpdate {
   return {
     id: plugin.id,
     name: plugin.packageName,
     path: plugin.installScript,
-    current: plugin.pinnedVersion,
+    current: installedRowVersion(plugin) ?? '未安装',
     latest: '检查中…',
     latestTagStale: false,
     announce: true,
@@ -282,6 +299,7 @@ function localPluginPreview(plugin: PluginNpmRow): ProjectUpdate {
     kind: 'npm',
     packageName: plugin.packageName,
     installScript: plugin.installScript,
+    tracksLatest: plugin.tracksLatest,
   }
 }
 
@@ -299,13 +317,14 @@ async function checkPluginRows(root: string): Promise<ProjectUpdate[]> {
 
 /** Fold one registry answer into its npm plugin row. */
 function pluginRow(plugin: PluginNpmRow, answer: PackageLatestInfo): ProjectUpdate {
+  const installed = installedRowVersion(plugin)
   const row: ProjectUpdate = {
     id: plugin.id,
     name: plugin.packageName,
     path: plugin.installScript,
-    // The pin is what the current deployment installs; the registry answer is
-    // what a fresh deployment would get.
-    current: plugin.pinnedVersion,
+    // The installed version is what this deployment runs; the registry answer
+    // is what a fresh install would get.
+    current: installed ?? '未安装',
     latest: answer.latest ?? '—',
     latestTagStale: false,
     announce: false,
@@ -314,10 +333,12 @@ function pluginRow(plugin: PluginNpmRow, answer: PackageLatestInfo): ProjectUpda
     kind: 'npm',
     packageName: plugin.packageName,
     installScript: plugin.installScript,
+    tracksLatest: plugin.tracksLatest,
   }
   if (answer.error !== undefined) {
-    // The pin is still readable: the row says which version is installed and
-    // why the newest one could not be read. It is not an update, not announced.
+    // The current version is still readable: the row says which version is
+    // installed and why the newest one could not be read. It is not an update,
+    // not announced.
     row.error = `npm 版本查询失败：${answer.error}`
     return row
   }
@@ -325,7 +346,9 @@ function pluginRow(plugin: PluginNpmRow, answer: PackageLatestInfo): ProjectUpda
     row.error = 'npm registry 未返回版本号'
     return row
   }
-  row.behind = isNewerVersion(answer.latest, plugin.pinnedVersion)
+  // An absent tracking package is offered for install; every other row moves
+  // only when the registry publishes something newer than what is installed.
+  row.behind = installed === undefined || isNewerVersion(answer.latest, installed)
   row.announce = row.behind
   const releaseUrl = githubReleasesUrl(answer.repositoryUrl)
   if (releaseUrl !== undefined) row.releaseUrl = releaseUrl

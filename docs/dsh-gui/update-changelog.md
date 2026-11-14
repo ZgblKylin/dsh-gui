@@ -34,9 +34,9 @@ Agent/Session），不可用时回退到一次性 headless 运行（会话存储
 
 ## npm 插件行
 
-npm 插件行的「更新日志」不用 git 提交区间，也不调用 AI：`prepare` 按 `npm:` 前缀分流到 `prepare_npm`，从安装脚本读出当前 pin，再向 registry 的 `/<pkg>/latest` 查询最新版本与 `repository`，抓取该包 GitHub 仓库的 Release 列表（`/releases?per_page=100`，最多 3 页），筛出满足 `pin < version <= latest` 的版本（含最新版本、不含当前 pin），按 `published_at` 时间逆序渲染，节格式与 git 行的多 Release 相同。版本号从 Release tag 提取：去掉 `v` / `V` 前缀后整段可解析为 semver 时直接使用，否则取 tag 里最后一个 semver 子串，提取不出的 tag 跳过；`latest` 没有对应 Release 时也不报错。`releaseUrl` 取该包仓库的 Releases 列表页，正文与标题链接都不依赖 git origin。npm 行的更新日志不经过 harness，`update_changelog` 对 `npm:` 前缀的行不检查 harness 就绪状态。
+npm 插件行的「更新日志」不用 git 提交区间，也不调用 AI：`prepare` 按 `npm:` 前缀分流到 `prepare_npm`，读出当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已装版本；未安装时给出可读错误），再向 registry 的 `/<pkg>/latest` 查询最新版本与 `repository`，抓取该包 GitHub 仓库的 Release 列表（`/releases?per_page=100`，最多 3 页），筛出满足 `current < version <= latest` 的版本（含最新版本、不含当前版本），按 `published_at` 时间逆序渲染，节格式与 git 行的多 Release 相同。版本号从 Release tag 提取：去掉 `v` / `V` 前缀后整段可解析为 semver 时直接使用，否则取 tag 里最后一个 semver 子串，提取不出的 tag 跳过；`latest` 没有对应 Release 时也不报错。`releaseUrl` 取该包仓库的 Releases 列表页，正文与标题链接都不依赖 git origin。npm 行的更新日志不经过 harness，`update_changelog` 对 `npm:` 前缀的行不检查 harness 就绪状态。
 
-以下情况只渲染提示而不报错：版本区间内没有任何 Release（文案附 Releases 列表页）、包未声明 GitHub 仓库或仓库不在 GitHub（提示无法获取 Release 说明）、当前 pin 已经是最新版本。弹窗加载文案对应地不提示 AI 汇总：「正在获取插件更新日志…（读取 npm registry 版本与 GitHub Release 说明）」，15 秒后改为「正在读取 GitHub Release 说明，可能需要稍等…」。
+以下情况只渲染提示而不报错：版本区间内没有任何 Release（文案附 Releases 列表页）、包未声明 GitHub 仓库或仓库不在 GitHub（提示无法获取 Release 说明）、当前版本已经是最新版本、`@latest` 包尚未安装。弹窗加载文案对应地不提示 AI 汇总：「正在获取插件更新日志…（读取 npm registry 版本与 GitHub Release 说明）」，15 秒后改为「正在读取 GitHub Release 说明，可能需要稍等…」。
 
 ## 标题里的 Release 页链接
 

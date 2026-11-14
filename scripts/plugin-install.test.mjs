@@ -1,6 +1,6 @@
 /**
- * Unit tests for the plugin-install up-to-date fast path and the reinstall
- * switches. Run with `npm run test:scripts`.
+ * Unit tests for the plugin-install up-to-date fast path, the latest-tag
+ * resolution and the reinstall switches. Run with `npm run test:scripts`.
  *
  * The fast path decides whether `npm run build` spawns `dsh plugin add` for a
  * plugin, so every branch that must NOT skip is covered here: a changed pin, a
@@ -8,15 +8,28 @@
  * `node_modules`, a missing bundle entry, and a legacy install the install path
  * would drop. The link (`link:`) predicate is covered too, including the moved
  * checkout case where the recorded link no longer resolves to the package.
+ *
+ * The latest resolution is exercised against a stub registry: a wrapper's
+ * `<package>@latest` spec must become an exact version before the install, a
+ * failed answer must fall back to the tag, and the answer cache must survive
+ * repeated lookups without masking a changed registry.
  */
 
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { linkDependencyUpToDate, npmPluginUpToDate, reinstallRequested } from './plugin-install.mjs'
+import {
+  fetchLatestVersion,
+  linkDependencyUpToDate,
+  npmPluginUpToDate,
+  parseNpmrc,
+  reinstallRequested,
+  resolveLatestSpec,
+} from './plugin-install.mjs'
 
 /** Name/version pair used by most cases. */
 const NAME = 'dsh-demo'
@@ -180,4 +193,139 @@ test('reinstall switches disable the fast path', (t) => {
 
   process.env.DSH_PLUGIN_FORCE_INSTALL = '1'
   assert.equal(reinstallRequested(), true)
+})
+
+/**
+ * Start a stub npm registry that answers `/<name>/latest`.
+ *
+ * @param {import('node:test').TestContext} t - test context (server cleanup).
+ * @param {Record<string, { status?: number, body: string, contentType?: string }>} routes -
+ *   keyed by decoded request path without the leading slash.
+ * @returns {Promise<{ base: string, requests: string[] }>} registry base URL and
+ *   the raw request paths it received.
+ */
+async function startRegistry(t, routes) {
+  const requests = []
+  const server = createServer((request, response) => {
+    requests.push(request.url ?? '')
+    const path = decodeURIComponent((request.url ?? '').replace(/^\//, ''))
+    const route = routes[path]
+    if (route === undefined) {
+      response.writeHead(404, { 'content-type': 'application/json' })
+      response.end('{"error":"not found"}')
+      return
+    }
+    response.writeHead(route.status ?? 200, { 'content-type': route.contentType ?? 'application/json' })
+    response.end(route.body)
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('stub registry has no address')
+  return { base: `http://127.0.0.1:${address.port}`, requests }
+}
+
+/** Point the pipeline at a stub registry for one test. */
+function overrideRegistryEnv(t, base) {
+  const previous = process.env.DSH_PLUGIN_NPM_REGISTRY_BASE
+  t.after(() => {
+    if (previous === undefined) delete process.env.DSH_PLUGIN_NPM_REGISTRY_BASE
+    else process.env.DSH_PLUGIN_NPM_REGISTRY_BASE = previous
+  })
+  process.env.DSH_PLUGIN_NPM_REGISTRY_BASE = base
+}
+
+test('npmrc parsing keeps registry keys and drops comments, quotes and blanks', () => {
+  const config = parseNpmrc([
+    '; line comment',
+    '# another comment',
+    'registry=https://registry.example/',
+    '@scope:registry = "https://scoped.example"',
+    "shell-quoted='https://quoted.example'",
+    'malformed',
+    'empty=',
+  ].join('\r\n'))
+  assert.equal(config.registry, 'https://registry.example/')
+  assert.equal(config['@scope:registry'], 'https://scoped.example')
+  assert.equal(config['shell-quoted'], 'https://quoted.example')
+  assert.equal(config.malformed, undefined)
+  assert.equal(config.empty, undefined)
+})
+
+test('a latest spec resolves to the exact registry version', async (t) => {
+  const registry = await startRegistry(t, {
+    'dsh-demo/latest': { body: JSON.stringify({ version: '1.4.2' }) },
+    '@scope/dsh-demo/latest': { body: JSON.stringify({ version: '0.9.0' }) },
+  })
+
+  assert.deepEqual(
+    await resolveLatestSpec('dsh-demo@latest', { registryBase: registry.base }),
+    { name: 'dsh-demo', spec: 'dsh-demo@1.4.2', version: '1.4.2' },
+  )
+  assert.equal((await resolveLatestSpec('@scope/dsh-demo@latest', { registryBase: registry.base })).spec, '@scope/dsh-demo@0.9.0')
+  assert.ok(registry.requests.includes('/dsh-demo/latest'))
+  assert.ok(registry.requests.includes('/%40scope%2Fdsh-demo/latest'))
+})
+
+test('an unusable registry answer keeps the tag spec', async (t) => {
+  const registry = await startRegistry(t, {
+    'http-error/latest': { status: 500, body: '{}' },
+    'not-json/latest': { body: '<html></html>', contentType: 'text/html' },
+    'no-version/latest': { body: JSON.stringify({ name: 'no-version' }) },
+  })
+
+  for (const name of ['http-error', 'not-json', 'no-version']) {
+    const resolved = await resolveLatestSpec(`${name}@latest`, { registryBase: registry.base })
+    assert.equal(resolved.spec, `${name}@latest`)
+    assert.equal(typeof resolved.error, 'string')
+    assert.equal(resolved.version, undefined)
+  }
+})
+
+test('a registry answer is cached per harness home and reused', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-gui-npm-cache-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const registry = await startRegistry(t, {
+    'dsh-demo/latest': { body: JSON.stringify({ version: '2.0.0' }) },
+  })
+  overrideRegistryEnv(t, registry.base)
+
+  assert.deepEqual(await fetchLatestVersion('dsh-demo', { dshHome: home }), { version: '2.0.0' })
+  assert.deepEqual(await fetchLatestVersion('dsh-demo', { dshHome: home }), { version: '2.0.0' })
+  assert.equal(registry.requests.length, 1)
+
+  const cache = JSON.parse(readFileSync(join(home, 'gui', 'npm-latest.json'), 'utf8'))
+  assert.equal(cache.registry, registry.base)
+  assert.equal(cache.answers['dsh-demo'].version, '2.0.0')
+})
+
+test('an expired answer is looked up again', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-gui-npm-cache-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const registry = await startRegistry(t, {
+    'dsh-demo/latest': { body: JSON.stringify({ version: '2.0.0' }) },
+  })
+  overrideRegistryEnv(t, registry.base)
+
+  await fetchLatestVersion('dsh-demo', { dshHome: home })
+  const cachePath = join(home, 'gui', 'npm-latest.json')
+  const cache = JSON.parse(readFileSync(cachePath, 'utf8'))
+  cache.answers['dsh-demo'].at = Date.now() - 6 * 60_000
+  writeFileSync(cachePath, JSON.stringify(cache))
+
+  await fetchLatestVersion('dsh-demo', { dshHome: home })
+  assert.equal(registry.requests.length, 2)
+})
+
+test('a failed lookup is cached briefly', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-gui-npm-cache-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  const registry = await startRegistry(t, {
+    'dsh-demo/latest': { status: 500, body: '{}' },
+  })
+  overrideRegistryEnv(t, registry.base)
+
+  assert.equal(typeof (await fetchLatestVersion('dsh-demo', { dshHome: home })).error, 'string')
+  assert.equal(typeof (await fetchLatestVersion('dsh-demo', { dshHome: home })).error, 'string')
+  assert.equal(registry.requests.length, 1)
 })

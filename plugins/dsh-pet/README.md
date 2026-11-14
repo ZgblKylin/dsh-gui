@@ -7,20 +7,20 @@
 
 ```text
 plugins/dsh-pet/
-├─ install.mjs                   # npm 安装 dsh-pet@0.4.6 + 注入桌面屏蔽配置
+├─ install.mjs                   # npm 安装 dsh-pet（registry latest）+ 注入桌面屏蔽配置
 ├─ inject-config.mjs             # 用户配置注入（纯函数，可单测）
 └─ README.md                     # 本说明
 ```
 
 来源形态：**npm 发布包** `dsh-pet`（上游 PC2005-cloud/dsh-pet 仓库内 `dsh-pet/`
-子目录发布），安装走 **npm** 受管安装器（`installNpmPlugin`，精确版本
-`dsh-pet@0.4.6`；0.4.6 于 2026-11-08 发布，本次 pin 取 registry 的 `latest`）。
+子目录发布），安装走 **npm** 受管安装器（`installNpmPlugin`，spec 为
+`dsh-pet@latest`：安装时解析 registry 的 latest 精确版本，已装同一版本时跳过）。
 
 ## 兼容性状态
 
-`dsh-pet` 0.4.6 在本仓库 pin 的 harness（dsh `0.2.2-rc.3`）下**可正常安装运行**：
+`dsh-pet` 在本仓库 pin 的 harness（dsh `0.2.2-rc.3`）下**可正常安装运行**：
 
-- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.2-rc.3`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；包内 `dsh.compatibility.dshReleases` 记录到 `0.2.2-rc.1`（仅作「验证于」展示，不参与准入判定）；
+- 9 条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.1`，覆盖 `0.2.2-rc.3`；安装期的准入预检与启动期的 bundle 层挂载都通过，因此不需要精确版本例外；包内 `dsh.compatibility.dshReleases` 仅作「验证于」展示，不参与准入判定；
 - host 半 `inject: ['webServer', 'agentDefaultModel', 'credentials', 'llm', 'commands', 'connection']`：`agentDefaultModel` 服务由 base bundle 的 `@deepseek-ai/dsh-agent-default-model` 提供，`connection` 供桌面模式的「打开 AI 设置」取已鉴权站点 URL，其余服务随 base 与 web-app bundle 挂载，host 半可正常激活；
 - 浏览器半在 `src/client/app.ts` 声明本地 inject
   `['slots', 'locale', 'connection', 'remote', 'remote.commands', 'commandUi']`：
@@ -91,10 +91,11 @@ node plugins/dsh-pet/install.mjs
 
 ## 更新
 
-- 审阅上游变更后，把 `install.mjs` 的 `PACKAGE_SPEC` 改为上游新发布的精确版本；
-- 重跑本脚本（`node plugins/dsh-pet/install.mjs`）；新版本的 `@deepseek-ai/dsh*`
-  peer 若不覆盖当前 harness，还需恢复 `installNpmPlugin` 的 `exempt` 并写明接受
-  该风险的理由。
+- 重跑本脚本（`node plugins/dsh-pet/install.mjs`）或执行下一次构建：安装时解析
+  registry 的 latest 精确版本，与已装版本不同才重新安装；
+- 新版本的 `@deepseek-ai/dsh*` peer 若不覆盖当前 harness，准入闸门会拒绝安装并让
+  构建以包名失败；此时临时固定一个兼容版本，或按 `plugins/README.md` 的例外流程
+  给 `installNpmPlugin` 传 `exempt` 并写明接受该风险的理由。
 
 ## 验证
 

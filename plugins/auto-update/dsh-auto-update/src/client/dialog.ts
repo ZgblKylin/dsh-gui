@@ -8,7 +8,8 @@
  *
  * Rows mirror the shell's update dialog (`src-tauri/ui/app.js`
  * `renderUpdateDialog` / `updateRow`): module name (linked to its GitHub
- * Releases list when the host reported one), `当前 → 最新`, a tag/commit target
+ * Releases list when the host reported one), `当前 → 最新` (`未安装 → 最新` before a
+ * tracking wrapper's first install), a tag/commit target
  * selector, the row's error or status, and 「更新」「更新日志」「AI 更新」. A tag
  * target that is not strictly newer than the local HEAD is disabled and the row
  * falls back to the newest commit. 「更新」 streams the host's NDJSON progress
@@ -125,13 +126,14 @@ const FOOTER_ATTR = 'data-dsh-auto-update-footer'
  * 「更新」 and 「全部更新」 start immediately (no second confirmation). A git row
  * is `git reset --hard` onto the target revision: whatever is uncommitted in
  * that checkout is discarded (untracked files survive, hence the parenthetical).
- * An npm plugin row instead rewrites the exact version pin inside the
- * repository's install script and re-runs that wrapper, so both the current
- * profile and a fresh deployment follow the new pin. The resident dialog
+ * An npm plugin row instead re-runs the repository's install script — raising an
+ * exact version pin first when the wrapper pins one, or just installing the
+ * registry's latest behind a `<package>@latest` wrapper — so both the current
+ * profile and a fresh deployment follow the same target. The resident dialog
  * warning states both; each row's 「更新」 title repeats only its own kind.
  */
 const GIT_UPDATE_WARNING = '更新以 git reset --hard 检出目标版本：所选工程中未提交的改动会被丢弃（未跟踪文件保留）。'
-const NPM_UPDATE_WARNING = '插件更新会修改安装脚本中的版本 pin 并重新安装该插件（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。'
+const NPM_UPDATE_WARNING = '插件更新会重新执行安装脚本并重装该插件（固定精确版本的脚本会先把 pin 改到目标版本；当前 profile 就地生效，新设备重新部署也会装到同一版本）。'
 const UPDATE_WARNING = `${GIT_UPDATE_WARNING}${NPM_UPDATE_WARNING}`
 
 /**
@@ -591,12 +593,19 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
 
     const versions = document.createElement('div')
     versions.setAttribute(ROW_VERSIONS_ATTR, '')
-    versions.append(
-      document.createTextNode('当前 '),
-      code(project.current !== '' ? project.current : 'unknown'),
-      document.createTextNode(' → 最新 '),
-      code(project.latest !== '' ? project.latest : '—'),
-    )
+    if (project.current === '未安装') {
+      versions.append(
+        document.createTextNode('未安装 → 最新 '),
+        code(project.latest !== '' ? project.latest : '—'),
+      )
+    } else {
+      versions.append(
+        document.createTextNode('当前 '),
+        code(project.current !== '' ? project.current : 'unknown'),
+        document.createTextNode(' → 最新 '),
+        code(project.latest !== '' ? project.latest : '—'),
+      )
+    }
     info.append(name, versions)
 
     const action = document.createElement('div')
@@ -643,10 +652,14 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
       : project.path
     const target = project.latest !== '' ? project.latest : '最新版本'
     const changelogButton = button('更新日志', LOG_ATTR)
-    changelogButton.title = '查看本次更新会带来的变更：读取安装脚本当前 pin 到 npm 最新版本之间的 GitHub Release 说明'
+    changelogButton.title = project.tracksLatest === true
+      ? '查看本次更新会带来的变更：读取当前已安装版本到 npm 最新版本之间的 GitHub Release 说明'
+      : '查看本次更新会带来的变更：读取安装脚本当前 pin 到 npm 最新版本之间的 GitHub Release 说明'
     const runButton = button('更新', RUN_ATTR)
     runButton.setAttribute(PRIMARY_ATTR, '')
-    runButton.title = `把安装脚本 ${script !== '' ? script : '（未知路径）'} 中的版本 pin 改到 ${target} 并重新执行该脚本，完成本行插件的重新安装（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。完成后按底部提示重新构建。`
+    runButton.title = project.tracksLatest === true
+      ? `重新执行安装脚本 ${script !== '' ? script : '（未知路径）'}，按 npm latest 装入 ${target}（当前 profile 就地生效；新设备重新部署时同样装 latest）。完成后按底部提示重新构建。`
+      : `把安装脚本 ${script !== '' ? script : '（未知路径）'} 中的版本 pin 改到 ${target} 并重新执行该脚本，完成本行插件的重新安装（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。完成后按底部提示重新构建。`
 
     const aiButton = button('AI 更新', AI_ATTR)
     aiButton.title = `回到项目首页选中 dsh-gui 目录，自动选中「创造模式」预设并预填 ${AI_UPDATE_SKILL} 提示词（发送前可再改）`
@@ -807,8 +820,8 @@ export function createUpdateDialog(options: UpdateDialogOptions): UpdateDialog {
     appendProgress(gitOnly
       ? `开始更新 ${targets.map(target => target.id).join('、')}（仓库与子模块：按所选目标检出）…`
       : npmOnly
-        ? `开始更新 ${targets.map(target => target.id).join('、')}（插件：改写安装脚本中的 pin 并重新安装）…`
-        : `开始更新 ${targets.map(target => target.id).join('、')}（仓库与子模块按所选目标检出；插件改写安装脚本中的 pin 并重新安装）…`)
+        ? `开始更新 ${targets.map(target => target.id).join('、')}（插件：重新执行安装脚本，精确 pin 行先把 pin 改到目标版本）…`
+        : `开始更新 ${targets.map(target => target.id).join('、')}（仓库与子模块按所选目标检出；插件重新执行安装脚本，精确 pin 行先把 pin 改到目标版本）…`)
     try {
       const result = await streamUpdate(targets, (entry) => {
         if (disposed) return

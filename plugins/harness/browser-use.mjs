@@ -19,11 +19,13 @@
  *
  * The versions are pinned to the harness revision this repository builds
  * against: the two packages declare exact `0.2.2-rc.3` peers, matching the
- * pinned `dsh-v0.2.2-rc.3` runtime. The pin MUST move in lockstep with the
- * harness: the admission gate compares every `@deepseek-ai/dsh*` peer against
- * the running version, so packages pinned to the previous `0.2.2-rc.1`
- * release are rejected under 0.2.2-rc.3. The four packages of this group all
- * declare exact `0.2.2-rc.3` peers, so all four specs stay on that version.
+ * pinned `dsh-v0.2.2-rc.3` runtime. This group is the one npm wrapper set that
+ * keeps explicit versions instead of tracking npm `latest`: the specs move in
+ * lockstep with the harness and are rewritten by the harness upgrade flow. The
+ * admission gate compares every `@deepseek-ai/dsh*` peer against the running
+ * version, so packages pinned to the previous `0.2.2-rc.1` release are rejected
+ * under 0.2.2-rc.3. The four packages of this group all declare exact
+ * `0.2.2-rc.3` peers, so all four specs stay on that version.
  * The packages are prereleases, which is why the Community Market cannot carry
  * them. The family was not renamed or merged in this release: the new
  * `@deepseek-ai/dsh-cua` / `dsh-cua-bundle` packages are additive and
@@ -109,13 +111,13 @@ if (executablePath !== undefined) {
 }
 
 // The core service first: the provider injects `browserUse`.
-installNpmPlugin({
+await installNpmPlugin({
   id: ID,
   packageSpec: BROWSER_USE_SPEC,
   mount: { id: 'browser-use', name: '@deepseek-ai/dsh-browser-use' },
 })
 
-installNpmPlugin({
+await installNpmPlugin({
   id: `${ID}-playwright-mcp`,
   packageSpec: PLAYWRIGHT_MCP_SPEC,
   mount: {

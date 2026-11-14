@@ -27,6 +27,13 @@
  * write (its build still runs). `npm run rebuild` (or `DSH_PLUGIN_REBUILD=1`)
  * disables both fast paths for a full reinstall.
  *
+ * An npm wrapper may pass `<package>@latest` instead of an exact pin, which
+ * makes it track the registry's current release. The install resolves that
+ * dist-tag to an exact version before touching the profile (see
+ * resolveLatestSpec), so the fast path still compares versions and pnpm installs
+ * one version for the whole run. When the registry cannot answer, an installed
+ * package is left at its current version; otherwise pnpm resolves the tag.
+ *
  * `DSH_PLUGIN_PROFILE` selects the profile (default `web`), and
  * `DSH_PLUGIN_DSH_CLI` replaces the repository's own CLI with a carrier that
  * owns a reserved profile — the desktop app's CLI, which refuses the
@@ -36,6 +43,7 @@
 
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { requireHarnessRuntime, submoduleVersion } from './harness-runtime.mjs'
 import {
@@ -667,6 +675,17 @@ function packageNameFromSpec(spec) {
   return at > 0 ? spec.slice(0, at) : spec
 }
 
+/**
+ * The tag or range part of an npm install spec: `name@latest` -> `latest`,
+ * `name@^1.2.0` -> `^1.2.0`, bare `name` -> empty string.
+ * @param {string} spec - the npm package spec.
+ * @returns {string}
+ */
+function specTag(spec) {
+  const name = packageNameFromSpec(spec)
+  return spec.startsWith(`${name}@`) ? spec.slice(name.length + 1) : ''
+}
+
 /** Read and parse a JSON file; null when it is missing or unparsable. */
 function readJsonFile(path) {
   try {
@@ -690,6 +709,242 @@ function exactSpecVersion(spec) {
   if (!spec.startsWith(`${name}@`)) return null
   const version = spec.slice(name.length + 1)
   return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) ? version : null
+}
+
+/** Registry the latest lookups fall back to when no npm config names one. */
+const DEFAULT_NPM_REGISTRY_BASE = 'https://registry.npmjs.org'
+
+/** Per-lookup budget; the cache bounds how often a build pays it. */
+const NPM_LATEST_TIMEOUT_MS = 15_000
+
+/** How long one registry answer stays usable; a release inside the window lands on a later build. */
+const NPM_LATEST_TTL_MS = 5 * 60_000
+
+/** How long a failed lookup stays cached, so an offline build pays one timeout. */
+const NPM_LATEST_FAILURE_TTL_MS = 60_000
+
+/** Dist-tag that marks a wrapper's spec as tracking the current registry release. */
+const LATEST_TAG = 'latest'
+
+/**
+ * Parse one `.npmrc` into its key/value pairs.
+ *
+ * Comments (`#`/`;`), blank lines and malformed lines are dropped, surrounding
+ * quotes are stripped, and `${VAR}` references expand from the environment the
+ * way npm resolves them. Auth lines (`//host/:_authToken=…`) are kept as
+ * written but never read by this module.
+ * @param {string} text - the file content.
+ * @returns {Record<string, string>}
+ */
+export function parseNpmrc(text) {
+  const config = {}
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('#') || line.startsWith(';')) continue
+    const separator = line.indexOf('=')
+    if (separator <= 0) continue
+    const key = line.slice(0, separator).trim()
+    let value = line.slice(separator + 1).trim()
+    const quote = value[0]
+    if (value.length >= 2 && (quote === '"' || quote === "'") && value.endsWith(quote)) {
+      value = value.slice(1, -1)
+    }
+    value = value.replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] ?? '')
+    if (key === '' || value === '') continue
+    config[key] = value
+  }
+  return config
+}
+
+/** Read one `.npmrc`; an absent or unreadable file contributes no settings. */
+function readNpmrc(path) {
+  try {
+    return parseNpmrc(readFileSync(path, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+/** Strip a registry URL's trailing slash. */
+function trimSlash(url) {
+  return url.endsWith('/') ? url.slice(0, -1) : url
+}
+
+/**
+ * The registry one package installs from, resolved like pnpm resolves it.
+ *
+ * `dsh plugin add` runs pnpm inside the profile, so the settings come from the
+ * profile's `.npmrc`, then the user's `~/.npmrc` (or `npm_config_userconfig`),
+ * with `npm_config_registry` overriding the default key; a scope's
+ * `@scope:registry` outranks the default key whatever source set it.
+ * `DSH_PLUGIN_NPM_REGISTRY_BASE` overrides all of them, for fixtures and
+ * private mirrors.
+ * @param {string} packageName - npm package name, scoped names included.
+ * @param {string} [profileDir] - profile directory whose `.npmrc` applies.
+ * @returns {string} base URL without a trailing slash.
+ */
+export function registryFor(packageName, profileDir = '') {
+  const explicit = (process.env.DSH_PLUGIN_NPM_REGISTRY_BASE ?? '').trim()
+  if (explicit !== '') return trimSlash(explicit)
+  const userConfig = (process.env.npm_config_userconfig ?? '').trim() || join(homedir(), '.npmrc')
+  const config = {
+    ...readNpmrc(userConfig),
+    ...(profileDir === '' ? {} : readNpmrc(join(profileDir, '.npmrc'))),
+  }
+  if (packageName.startsWith('@')) {
+    const scopeEnd = packageName.indexOf('/')
+    const scope = scopeEnd === -1 ? packageName.slice(1) : packageName.slice(1, scopeEnd)
+    const scoped = config[`@${scope}:registry`]
+    if (scoped !== undefined) return trimSlash(scoped)
+  }
+  const envRegistry = (process.env.npm_config_registry ?? process.env.NPM_CONFIG_REGISTRY ?? '').trim()
+  if (envRegistry !== '') return trimSlash(envRegistry)
+  return trimSlash(config.registry ?? DEFAULT_NPM_REGISTRY_BASE)
+}
+
+/** Transport failure of this process's first lookup; later lookups fail fast. */
+let registryFailure = null
+
+/** Path of the registry-answer cache under one harness home. */
+function latestCachePath(dshHome) {
+  return join(dshHome, 'gui', 'npm-latest.json')
+}
+
+/**
+ * Read one package's cached registry answer.
+ *
+ * The cache is keyed by the registry that answered, so switching mirrors
+ * discards every entry. A successful answer lives {@link NPM_LATEST_TTL_MS}, a
+ * failure {@link NPM_LATEST_FAILURE_TTL_MS}: one unreachable registry then
+ * costs a build a single timeout instead of one per tracked package.
+ * @param {string} dshHome - harness home whose `gui/` holds the cache.
+ * @param {string} registry - registry base URL the lookup targets.
+ * @param {string} packageName - npm package name.
+ * @returns {{ version: string } | { error: string } | null} the cached answer,
+ *   or null when there is none for this registry.
+ */
+function cachedLatestAnswer(dshHome, registry, packageName) {
+  const document = readJsonFile(latestCachePath(dshHome))
+  if (document === null || typeof document !== 'object') return null
+  if (document.registry !== registry) return null
+  const answers = document.answers
+  if (answers === null || typeof answers !== 'object') return null
+  const entry = answers[packageName]
+  if (entry === null || typeof entry !== 'object' || typeof entry.at !== 'number') return null
+  const ttl = typeof entry.version === 'string' ? NPM_LATEST_TTL_MS : NPM_LATEST_FAILURE_TTL_MS
+  if (Date.now() - entry.at > ttl) return null
+  if (typeof entry.version === 'string' && entry.version !== '') return { version: entry.version }
+  if (typeof entry.error === 'string' && entry.error !== '') return { error: entry.error }
+  return null
+}
+
+/** Record one registry answer, best-effort: the cache is a build accelerator. */
+function cacheLatestAnswer(dshHome, registry, packageName, answer) {
+  try {
+    const path = latestCachePath(dshHome)
+    const previous = readJsonFile(path)
+    const answers = previous !== null && typeof previous === 'object' && previous.registry === registry
+      && previous.answers !== null && typeof previous.answers === 'object'
+      ? previous.answers
+      : {}
+    answers[packageName] = 'version' in answer
+      ? { version: answer.version, at: Date.now() }
+      : { error: answer.error, at: Date.now() }
+    mkdirSync(join(dshHome, 'gui'), { recursive: true })
+    writeFileSync(path, JSON.stringify({ registry, answers }, null, 2) + '\n')
+  } catch {
+    // A cache the install cannot write only costs the next lookup its round trip.
+  }
+}
+
+/**
+ * The version the registry publishes as `latest` for one package.
+ *
+ * Queries the package's `/<name>/latest` document — the endpoint the desktop
+ * update checker also uses — and reads its `version`, which is the exact install
+ * target behind a `<package>@latest` wrapper spec. Answers go through the
+ * per-home cache; a caller that injects `fetchImpl` or `registryBase` bypasses
+ * it.
+ * @param {string} packageName - npm package name, scoped names included.
+ * @param {{ fetchImpl?: typeof fetch, registryBase?: string, profileDir?: string,
+ *   dshHome?: string }} [options] - overrides for tests and fixture registries;
+ *   `profileDir` selects the profile's `.npmrc` and `dshHome` locates the cache.
+ * @returns {Promise<{ version: string } | { error: string }>}
+ */
+export async function fetchLatestVersion(packageName, options = {}) {
+  const injected = options.fetchImpl
+  const fetchImpl = injected ?? globalThis.fetch
+  const fixture = injected !== undefined || options.registryBase !== undefined
+  const base = options.registryBase ?? registryFor(packageName, options.profileDir ?? '')
+  const dshHome = options.dshHome ?? process.env.DSH_HOME ?? WEB_HOME
+  if (!fixture) {
+    const cached = cachedLatestAnswer(dshHome, base, packageName)
+    if (cached !== null) return cached
+  }
+  // One unreachable registry costs one attempt per install process, not one per
+  // tracked package.
+  if (injected === undefined && registryFailure !== null) return { error: registryFailure }
+  let answer
+  try {
+    const response = await fetchImpl(`${base}/${encodeURIComponent(packageName)}/latest`, {
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'dsh-gui-plugin-install',
+      },
+      signal: AbortSignal.timeout(NPM_LATEST_TIMEOUT_MS),
+    })
+    if (!response.ok) {
+      await discardBody(response)
+      answer = { error: `HTTP ${response.status}` }
+    } else {
+      let document
+      try {
+        document = await response.json()
+      } catch {
+        document = null
+      }
+      const version = document !== null && typeof document === 'object' && typeof document.version === 'string'
+        ? document.version.trim()
+        : ''
+      answer = version === '' ? { error: 'the response carries no version' } : { version }
+    }
+  } catch (error) {
+    answer = { error: error instanceof Error ? error.message : String(error) }
+    if (injected === undefined) registryFailure = answer.error
+  }
+  if (!fixture) cacheLatestAnswer(dshHome, base, packageName, answer)
+  return answer
+}
+
+/** Release a response body that is not going to be read. */
+async function discardBody(response) {
+  try {
+    await response.body?.cancel()
+  } catch {
+    // An already consumed or locked body needs no release.
+  }
+}
+
+/**
+ * Resolve a wrapper's `<package>@latest` spec to the exact version the registry
+ * publishes now.
+ *
+ * The install path never hands the tag to pnpm: an exact version keeps the
+ * profile fast path meaningful, and pnpm's supply-chain release-age gate can
+ * otherwise answer a dist-tag with an older release.
+ * @param {string} packageSpec - the wrapper's spec, e.g. `dsh-pet@latest`.
+ * @param {{ fetchImpl?: typeof fetch, registryBase?: string, profileDir?: string }}
+ *   [options] - overrides for tests and fixture registries; `profileDir` picks
+ *   the profile's `.npmrc` when no `registryBase` is given.
+ * @returns {Promise<{ name: string, spec: string, version: string }
+ *   | { name: string, spec: string, error: string }>} the exact spec, or the
+ *   original spec plus the lookup failure.
+ */
+export async function resolveLatestSpec(packageSpec, options = {}) {
+  const name = packageNameFromSpec(packageSpec)
+  const answer = await fetchLatestVersion(name, options)
+  if ('version' in answer) return { name, spec: `${name}@${answer.version}`, version: answer.version }
+  return { name, spec: packageSpec, error: answer.error }
 }
 
 /**
@@ -817,6 +1072,27 @@ export function npmPluginUpToDate(profileDir, spec, mount = null) {
 }
 
 /**
+ * Whether the profile already holds this package at any version, with its mount
+ * state intact.
+ *
+ * The fallback when the registry cannot name the current release: an installed
+ * package keeps the version it has instead of re-resolving the profile graph,
+ * while a missing or unmounted package still goes through `dsh plugin add`.
+ * @param {string} profileDir - absolute path to the profile directory.
+ * @param {string} packageName - the npm package name.
+ * @param {{ id?: string, name?: string } | null} mount - explicit mount override.
+ * @returns {boolean}
+ */
+function installedAnyVersion(profileDir, packageName, mount) {
+  const profile = readJsonFile(join(profileDir, 'package.json'))
+  const packageDir = join(profileDir, 'node_modules', ...packageName.split('/'))
+  const installed = readJsonFile(join(packageDir, 'package.json'))
+  if (installed === null) return false
+  if (existsSync(join(packageDir, 'node_modules'))) return false
+  return mountStateCurrent(profileDir, profile, packageName, installed, mount)
+}
+
+/**
  * Whether the profile already records `link:<packageDir>` for this package and
  * the link resolves to that directory, so the `dsh plugin add` step would change
  * nothing. The package itself is still built by installPlugin: its sources are
@@ -917,7 +1193,12 @@ function removeForeignNestedNodeModules(profileDir, packageName) {
  * Without a bundle patch the entry is appended like installPlugin does
  * (explicit `mount` when given, else derived from the installed manifest).
  *
- * When the exact pinned version is already installed and mounted, the whole
+ * A `<package>@latest` spec is resolved to the registry's current version
+ * before anything is written (see resolveLatestSpec), and that exact version is
+ * what gets installed. When the lookup fails, an installed package keeps its
+ * version and an absent one falls back to the tag, which pnpm resolves itself.
+ *
+ * When the resulting exact version is already installed and mounted, the whole
  * `dsh plugin add` is skipped: pnpm would re-resolve the profile graph for
  * nothing, which is what makes `npm run build` slow on an unchanged checkout.
  * `npm run rebuild` (`DSH_PLUGIN_REBUILD=1`) disables the fast path; so does
@@ -928,7 +1209,9 @@ function removeForeignNestedNodeModules(profileDir, packageName) {
  *   skip?: boolean | string | null,
  *   exempt?: string | null }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
- *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@0.19.1`.
+ *   - packageSpec: the npm install spec, e.g. `dsh-better-sidebar@1.2.0` for a
+ *     fixed version or `dsh-better-sidebar@latest` to track the current
+ *     registry release.
  *   - mount: explicit mount entry for packages without a bundle patch;
  *     `config` becomes the row's `config:` block (e.g. a browser-use
  *     provider's per-row settings).
@@ -936,15 +1219,16 @@ function removeForeignNestedNodeModules(profileDir, packageName) {
  *     package. When given, its exact-version exemption is granted in the
  *     profile before the install (see grantVersionExemption), which is what
  *     lets the admission gate accept a package whose declared dsh requirement
- *     excludes the pinned runtime; the reason is echoed in the log.
+ *     excludes the running runtime; the reason is echoed in the log.
  *   - skip: wrapper-declared default skip — `true` (unversioned skip) or a
  *     string reason. The wrapper owns WHAT is being skipped and WHY (e.g. a
  *     version incompatible with the pinned harness); the shared pipeline only
  *     enforces the mechanism: it still records the package for the update
  *     checker, honors `DSH_PLUGIN_SKIP` additions, and lets
  *     `DSH_PLUGIN_FORCE_INSTALL=1` override. See skipInstall().
+ * @returns {Promise<void>}
  */
-export function installNpmPlugin({ id, packageSpec, mount = null, skip = null, exempt = null }) {
+export async function installNpmPlugin({ id, packageSpec, mount = null, skip = null, exempt = null }) {
   const dshHome = process.env.DSH_HOME ?? WEB_HOME
   const name = packageNameFromSpec(packageSpec)
   // Record before the skip check: even a currently skipped package belongs to
@@ -957,21 +1241,37 @@ export function installNpmPlugin({ id, packageSpec, mount = null, skip = null, e
     return
   }
   const profileDir = pluginProfileDir(dshHome)
-  if (exempt !== null) grantVersionExemption(dshHome, profileDir, packageSpec, exempt)
+
+  let installSpec = packageSpec
+  if (specTag(packageSpec) === LATEST_TAG) {
+    const resolved = await resolveLatestSpec(packageSpec, { profileDir })
+    if (resolved.error !== undefined) {
+      if (installedAnyVersion(profileDir, name, mount)) {
+        console.log(`\n==> plugin '${id}' (${name}) — latest lookup failed (${resolved.error}); keeping the installed version`)
+        return
+      }
+      console.log(`  latest lookup for ${name} failed (${resolved.error}); letting pnpm resolve ${packageSpec}`)
+    } else {
+      installSpec = resolved.spec
+      console.log(`  ${name}: the registry's latest tag is ${resolved.version}`)
+    }
+  }
+
+  if (exempt !== null) grantVersionExemption(dshHome, profileDir, installSpec, exempt)
   // Up-to-date fast path: `dsh plugin add` re-resolves the whole profile graph
   // (its own node + pnpm spawn) even when the exact version is already there, so
   // a `npm run build` over an unchanged profile pays tens of seconds for nothing.
-  if (!reinstallRequested() && npmPluginUpToDate(profileDir, packageSpec, mount)) {
-    console.log(`\n==> plugin '${id}' (${packageSpec}) is already installed at this version — skipping install`)
+  if (!reinstallRequested() && npmPluginUpToDate(profileDir, installSpec, mount)) {
+    console.log(`\n==> plugin '${id}' (${installSpec}) is already installed at this version — skipping install`)
     console.log('  reinstall every plugin with "npm run rebuild" (or DSH_PLUGIN_REBUILD=1)')
     // Still (re)pin the store: the profile state itself is reused as-is.
     pinProfileStore(profileDir)
     return
   }
-  console.log(`\n==> install plugin '${id}' (${packageSpec} from npm)`)
+  console.log(`\n==> install plugin '${id}' (${installSpec} from npm)`)
   bootstrapPnpm()
   pinProfileStore(profileDir)
-  runPluginCommand(dshHome, ['plugin', '--profile', profileName, 'add', packageSpec])
+  runPluginCommand(dshHome, ['plugin', '--profile', profileName, 'add', installSpec])
   removeForeignNestedNodeModules(profileDir, name)
 
   const manifestPath = join(profileDir, 'node_modules', ...name.split('/'), 'package.json')

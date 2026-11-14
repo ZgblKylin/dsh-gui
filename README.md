@@ -99,12 +99,14 @@ browser.
   and then asks for `npm run build` and a restart; selected submodule rows go
   through a detached launcher that exits the app, runs the updates in a
   console window, rebuilds, and restarts the shell. **npm plugin rows** are
-  the npm packages pinned by the `plugins/**/*.mjs` install scripts
-  (`installNpmPlugin` with an exact `name@version` literal); each row
-  compares that pin with the registry's latest version, and its **更新**
-  button rewrites the pin in the install script and re-runs that wrapper in
-  place — the app keeps running and the reinstalled plugin takes effect after
-  a restart, with no rebuild needed. npm plugin rows have no tag/commit
+  the npm packages installed by a `plugins/**/*.mjs` install script (an exact
+  `name@version` pin or a `name@latest` tracker); each row compares the current
+  version with the registry's latest — the script's pin, or the version
+  installed in the profile for a tracking wrapper — and its **更新** button
+  rewrites an exact pin (when there is one) and re-runs that wrapper in place —
+  the app keeps running and the reinstalled plugin takes effect after a
+  restart, with no rebuild needed. A tracking wrapper therefore needs no edit:
+  re-running it installs whatever the registry publishes as latest. npm plugin rows have no tag/commit
   target and no **更新日志** button (a GitHub release cannot be mapped
   reliably onto an npm version). A batch that mixes both kinds updates the
   npm rows in place first, then restarts through the detached git flow, and a
@@ -122,8 +124,8 @@ browser.
   **AI 更新** button that returns to the project home screen, selects the
   dsh-gui directory there, selects the 「创造模式」(cordis) preset, and
   prefills a prompt that asks the agent to sync the submodule(s) to the chosen
-  target — for an npm plugin row, to raise the exact `packageSpec` in its
-  install script and reinstall the package — and verify the result in the
+  target — for an npm plugin row, to raise an exact `packageSpec` or to re-run
+  a latest-tracking wrapper — and verify the result in the
   `.staging/dsh-gui` validation worktree — a git
   worktree of this checkout on the `staging/verify` branch whose runtime root
   is `<repository root>/.staging`, so the whole copy lives inside the session
@@ -335,11 +337,12 @@ This is idempotent and writes only under the runtime root:
   elsewhere).
 - Runs every plugin install script under `plugins/` — each
   `plugins/<id>/install.mjs` installs and mounts its plugin packages into the
-  web profile: npm wrappers add their exact-pinned registry packages through
-  `installNpmPlugin`, and in-tree wrappers build and link their own package
-  directory (see [Adding plugins](#adding-plugins-at-runtime)). A plugin the
-  profile already holds at its exact pinned version — installed, mounted, with
-  its bundle row in `dsh.profile.bundles` — is **skipped**: `dsh plugin add`
+  web profile: npm wrappers add their registry packages through
+  `installNpmPlugin`, which resolves each `<package>@latest` spec to the
+  registry's current `latest` version, and in-tree wrappers build and link their
+  own package directory (see [Adding plugins](#adding-plugins-at-runtime)). A
+  plugin the profile already holds at its resolved version — installed, mounted,
+  with its bundle row in `dsh.profile.bundles` — is **skipped**: `dsh plugin add`
   would re-resolve the whole profile graph for nothing. `link:` installs skip
   only that dependency write; the package itself is still built.
 - Runs every agent-preset install script under `presets/` — since harness
@@ -496,14 +499,15 @@ plugins/<id>/install.mjs     # npm wrapper: installs the exact-pinned npm packag
 plugins/<id>/<package>/      # the in-tree package (absent for npm wrappers)
 ```
 
-A minimal npm wrapper delegates the shared pipeline and pins its package:
+A minimal npm wrapper delegates the shared pipeline and tracks its package's
+registry latest:
 
 ```js
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 
-installNpmPlugin({
+await installNpmPlugin({
   id: 'my-plugin',
-  packageSpec: 'dsh-my-plugin@1.2.3',
+  packageSpec: 'dsh-my-plugin@latest',
 })
 ```
 
@@ -540,12 +544,13 @@ An in-tree wrapper's script:
    the plugin's `dsh.gui.mountId` declaration in its `package.json`, defaulting
    to the package name without a leading `dsh-`.
 
-An npm wrapper's script skips the local build: `installNpmPlugin` runs
-`dsh plugin --profile web add <package>` against the npm registry at the pinned
-version, and the package's own `dsh.bundle.patch` (when declared) reconciles it
-into `dsh.profile.bundles`. To upgrade an npm plugin, raise the `packageSpec`
-pin in its wrapper and run the wrapper again
-(`node plugins/<id>/install.mjs`).
+An npm wrapper's script skips the local build: `installNpmPlugin` resolves the
+wrapper's `@latest` spec to the registry's current version, runs
+`dsh plugin --profile web add <package>@<version>` against the npm registry, and
+the package's own `dsh.bundle.patch` (when declared) reconciles it into
+`dsh.profile.bundles`. Upgrading an npm plugin therefore needs no script edit:
+the next build installs whatever the registry publishes as latest, and
+re-running the wrapper (`node plugins/<id>/install.mjs`) does the same on demand.
 
 A plugin that declares `dsh.bundle.patch` (its own `cordis.patch.yml` bundle
 layer, e.g. `dsh-ai-update`) mounts itself: `dsh plugin add` reconciles it
@@ -556,12 +561,13 @@ shared installer removes its matching legacy insert during reinstall to avoid a
 duplicate Loader entry.
 
 `plugins/better-sidebar`, `plugins/deep-whale` and `plugins/dsh-web-ui` install
-several npm packages each: `better-sidebar` installs `dsh-better-sidebar@0.30.1`
-then `dsh-sidebar-qa@1.2.2`, `deep-whale` the persistent skin manager and the
-two mutually exclusive skins, and `dsh-web-ui` three bundles of its
-distribution repo — `@linxin666/dsh-client-ui-web-ui-settings` (ordered first),
-`@linxin666/dsh-client-ui-skill-explorer` and `@linxin666/dsh-usage`, pinned to
-`0.4.16`. Every one of those packages declares `dsh.bundle.patch`, so
+several npm packages each, every one at its own registry `latest`:
+`better-sidebar` installs `dsh-better-sidebar` then `dsh-sidebar-qa`,
+`deep-whale` the persistent skin manager and the two mutually exclusive skins,
+and `dsh-web-ui` three bundles of its distribution repo —
+`@linxin666/dsh-client-ui-web-ui-settings` (ordered first),
+`@linxin666/dsh-client-ui-skill-explorer` and `@linxin666/dsh-usage`. Every one
+of those packages declares `dsh.bundle.patch`, so
 `dsh plugin add` reconciles each into `dsh.profile.bundles` (no manual cordis
 insert) and none of them is compiled locally. The settings bridge is installed
 first because dsh-host-apiproxy's hard-coded settings allowlist does not expose
@@ -569,14 +575,16 @@ third-party namespaces, so without it a `webUiSettings`-dependent plugin's
 configuration form is read-only. Model capabilities, the plugin-manager tab,
 the task board and the session-archive manager of `dsh-web-ui` are not
 installed (see `dsh-web-ui/README.md`). The 安装方式 list in
-`plugins/README.md` holds every exact pin and its compatibility notes.
+`plugins/README.md` holds every wrapper's install target and its compatibility
+notes.
 
 `plugins/skill-mcp-center` is npm-only as well: its `install.mjs` installs
-`@max-null/dsh-skill-mcp-center@0.7.0` through `installNpmPlugin`, and the
-package's own `dsh.bundle.patch` reconciles it into `dsh.profile.bundles`.
+`@max-null/dsh-skill-mcp-center` at its registry `latest` through
+`installNpmPlugin`, and the package's own `dsh.bundle.patch` reconciles it into
+`dsh.profile.bundles`.
 
-`plugins/dsh-pause` is npm-only too: its `install.mjs` installs
-`dsh-pause@0.1.8` through `installNpmPlugin`, and the package's own
+`plugins/dsh-pause` is npm-only too: its `install.mjs` installs `dsh-pause` at
+its registry `latest` through `installNpmPlugin`, and the package's own
 `dsh.bundle.patch` reconciles it into `dsh.profile.bundles`.
 
 Restart `dsh-gui` (or the harness) afterwards — plugin-set changes take effect

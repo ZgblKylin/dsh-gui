@@ -2,7 +2,7 @@
 
 ## 用途与边界
 
-`dsh-auto-update` 把外壳（Tauri）原有的「检查更新 / 更新 / 更新日志 / AI 更新」搬到 desktop 应用内，检测两类行：dsh-gui 仓库本体与不在 `plugins/` 下的 submodule 相对远端默认分支的落后情况（git 行），以及 `plugins/` 安装脚本中每个 npm 插件的精确 pin 与 registry 最新版本（npm 行）。client 半在标题栏画入口按钮与对话框，并可就地执行更新：git 行检出目标 revision，npm 行改写安装脚本的 pin 并重新安装该插件。
+`dsh-auto-update` 把外壳（Tauri）原有的「检查更新 / 更新 / 更新日志 / AI 更新」搬到 desktop 应用内，检测两类行：dsh-gui 仓库本体与不在 `plugins/` 下的 submodule 相对远端默认分支的落后情况（git 行），以及 `plugins/` 安装脚本中每个 npm 插件的当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已装版本）与 registry 最新版本（npm 行）。client 半在标题栏画入口按钮与对话框，并可就地执行更新：git 行检出目标 revision，npm 行重新执行安装脚本（精确 pin 行先把 pin 改到目标版本）并重装该插件。
 
 它只装在 desktop profile（`plugins/auto-update/install.mjs` 在 `DSH_PLUGIN_PROFILE !== 'desktop'` 时只打印 skip 并退出 0），web profile 的组合与外壳的更新对话框都不受影响；两套更新 UI 在此期间并存，外壳侧同样按两类行检测与更新，行为见 [update-check.md](update-check.md) 与 [update-changelog.md](update-changelog.md)。
 
@@ -21,7 +21,7 @@ client 半只在 `window.dshDesktop?.protocolVersion === 1` 存在时挂载，`d
 ## 行来源
 
 - **git 行**：仓库根，以及 `.gitmodules` 中的子模块（当前为 `deepseek-harness`、`src-tauri/whale-icon` 与 `global_template.agents/docs/awesome-design-md`）。
-- **npm 行**：扫描 `plugins/**/*.mjs`，只处理调用了 `installNpmPlugin(` 的安装脚本；先剥离注释，再提取 `<包名>@<三段版本>` 字符串字面量。每个包一行，id 为 `npm:<packageName>`，`current` 为脚本中的精确 pin，`latest` 为 registry 最新版本。`@deepseek-ai/dsh*` 官方包不产生行（随 deepseek-harness 行整体升级），构造不出字面量 spec 的 wrapper 不产生行（写法约定见 `plugins/README.md`）。
+- **npm 行**：扫描 `plugins/**/*.mjs`，只处理调用了 `installNpmPlugin(` 的安装脚本；先剥离注释，再提取 `<包名>@<三段版本>` 精确 pin 或 `<包名>@latest` 跟踪目标。每个包一行，id 为 `npm:<packageName>`：精确 pin 行的 `current` 为脚本中的 pin，`@latest` 行的 `current` 为当前 profile（`<DSH_HOME>/profiles/<DSH_PROFILE，缺省 desktop>`）的 `node_modules/<包名>/package.json` 里的已装版本，未安装为「未安装」；`latest` 为 registry 最新版本。`@deepseek-ai/dsh*` 官方包不产生行（随 deepseek-harness 行整体升级），构造不出字面量 spec 的 wrapper 不产生行（写法约定见 `plugins/README.md`）。
 - 行顺序：git 行在前（根行最前），npm 行按安装脚本路径、包名排序。
 
 ## 对话框
@@ -34,11 +34,11 @@ client 半只在 `window.dshDesktop?.protocolVersion === 1` 存在时挂载，`d
 
 git 行展示模块名（有 `releaseUrl` 时为外链，指向 GitHub Releases 列表页）、`当前 → 最新`、tag/commit 目标选择（`latestTagStale` 时 tag 项禁用并回退最新提交）、状态与错误，以及行内「更新」「更新日志」「AI 更新」。行内的 npm 提示与外壳逐字一致：该行 `npm.error` 存在时显示 `npm 版本核对失败：{error}（不影响 git 更新检测）`；否则当 `npm.complete !== true` 时显示 `⚠ 上游 npm 尚未发布 {latestTag 或「新 tag」} 对应版本：{missing 以「、」连接，空则「部分包」}（{npm 最新 <latest 去重后以 " / " 连接>}，无 latest 值时为「npm 状态未知」）。本行更新只移动源码 checkout，已安装插件需等 npm 发布后重新执行插件安装。`
 
-npm 行展示包名（有 `releaseUrl` 时为外链，指向该包 GitHub Releases 列表页）、`当前 pin → 最新`、状态与错误；不渲染 tag/commit 目标选择（没有 revision 可移动）。落后时动作是「更新日志」「更新」（改写安装脚本的 pin 并重新执行该脚本）与「AI 更新」；更新日志按安装脚本 pin 与 registry 最新版本筛选 GitHub Release 说明（见下文「更新日志」），不走 AI。已是最新时显示「已是最新」与禁用的更新按钮，检查失败的行显示行内错误与「不可检查」。
+npm 行展示包名（有 `releaseUrl` 时为外链，指向该包 GitHub Releases 列表页）、`当前 → 最新`（精确 pin 行为脚本 pin，`@latest` 行为已装版本，未安装时显示 `未安装 → 最新`）、状态与错误；不渲染 tag/commit 目标选择（没有 revision 可移动）。落后时动作是「更新日志」「更新」（重新执行安装脚本；精确 pin 行先把 pin 改到目标版本）与「AI 更新」；更新日志按当前版本与 registry 最新版本筛选 GitHub Release 说明（见下文「更新日志」），不走 AI。已是最新时显示「已是最新」与禁用的更新按钮，检查失败的行显示行内错误与「不可检查」。
 
 「更新」逐行追加 host 的 NDJSON 日志到卡片内的日志区，结束时刷新状态，全过程禁用重复提交；所有网络失败（路由 404/500、断网）在对话框内以可读文案呈现，不抛未捕获异常。
 
-对话框内常驻一条警示，同时说明两类更新：`git 行更新以 git reset --hard 检出目标版本：所选工程中未提交的改动会被丢弃（未跟踪文件保留）。npm 插件行更新会修改安装脚本中的版本 pin 并重新安装该插件（当前 profile 就地生效；新设备重新部署也会按新的 pin 安装）。` 它位于可滚动行区之外、构建提示之上，始终可见；行内「更新」与顶部「全部更新」的 tooltip 按行类型带对应提示。
+对话框内常驻一条警示，同时说明两类更新：`git 行更新以 git reset --hard 检出目标版本：所选工程中未提交的改动会被丢弃（未跟踪文件保留）。插件更新会重新执行安装脚本并重装该插件（固定精确版本的脚本会先把 pin 改到目标版本；当前 profile 就地生效，新设备重新部署也会装到同一版本）。` 它位于可滚动行区之外、构建提示之上，始终可见；行内「更新」与顶部「全部更新」的 tooltip 按行类型带对应提示。
 
 ## Host 路由
 
@@ -68,7 +68,7 @@ git 行的 `npm` 发布状态（对齐外壳的 `NpmUpdateInfo`）：字段为 `
 
 该阶段带传输层熔断与整体预算：首个**传输层**失败（连接/超时/DNS）立即熔断，其余尚未完成的探测不再等待并统一复用该错误文案；非 2xx（`HTTP <status>`）与不可解析 body 是 registry 的答复，不熔断。整个 npm 阶段预算 10s，超时按 `npm.error` 记录（`npm 版本核对超时（10 秒预算）`），被预算中止的探测也记该文案。npm 的任何结果只写进 `npm.error`，不使该行失败，也不影响 git 行状态与 `allChecked`。
 
-npm 行的 registry 探测是独立阶段（`src/npm.ts` 的 `npmPackageLatest`）：每个包请求 `<registry>/<name>/latest`，`accept: application/json`——该端点不接受 abbreviated 类型（会返回 406），完整响应同时给出 `version` 与 `repository`；`repository` 解析成 GitHub 仓库后拼出该行的 `releaseUrl`。同样有界并发（≤8）、首个探测先单独发起、首个传输层失败熔断、整体 10s 预算与 15s 单请求超时；非 2xx 与不可解析 body 只记该包错误。行的 `behind = semver.gt(latest, current)`，版本比较由 `src/version.ts` 完成（release 高于其 prerelease，非法版本不报更新）。失败行只写 `error`（`latest: "—"`、`behind: false`），不阻塞 git 行。
+npm 行的 registry 探测是独立阶段（`src/npm.ts` 的 `npmPackageLatest`）：每个包请求 `<registry>/<name>/latest`，`accept: application/json`——该端点不接受 abbreviated 类型（会返回 406），完整响应同时给出 `version` 与 `repository`；`repository` 解析成 GitHub 仓库后拼出该行的 `releaseUrl`。同样有界并发（≤8）、首个探测先单独发起、首个传输层失败熔断、整体 10s 预算与 15s 单请求超时；非 2xx 与不可解析 body 只记该包错误。行的 `behind = semver.gt(latest, current)`，`current` 为脚本 pin 或 `@latest` 行在当前 profile 的已装版本，未安装时按可更新处理；版本比较由 `src/version.ts` 完成（release 高于其 prerelease，非法版本不报更新）。失败行只写 `error`（`latest: "—"`、`behind: false`），不阻塞 git 行。
 
 desktop 侧由 host 半的 Node 直接 `fetch` registry（`src/npm.ts`），不再像外壳那样写出一次性 node 脚本再以文件重定向 stdio 启动；git 行的包集合、请求参数与判定语义与外壳一致，差异只在实现载体。
 
@@ -78,7 +78,7 @@ desktop 侧由 host 半的 Node 直接 `fetch` registry（`src/npm.ts`），不�
 
 `begin` 按请求顺序列出全部 id；执行按单元进行：每个 git 行一个单元，`kind === 'npm'` 的行按 `installScript` 合并为一个单元，单元按首个 target 在请求中的位置排序。同一脚本的 `target` 事件在组完成后按组内请求顺序相邻发出，因此请求把 git 行夹在同一脚本的两行之间时，流里会出现组内相邻（client 按追加方式消费日志，顺序只影响可读性）。
 
-npm 行忽略 `mode`（client 固定传 `commit`）。组内流程：重新扫描安装脚本确认每行仍在（包消失或脚本变化 → 该行单独失败并提示重新打开对话框）；对组内每行查询 registry 最新版（失败只标记该行）；已是最新的行单独返回「已是最新」、不参与改写；其余行一次性改写 pin（读一次原文作备份，任一 pin 无法替换则整组不写盘），只 spawn 一次安装脚本（`node <script>`，cwd 为仓库根，继承 `DSH_HOME`，设 `DSH_PLUGIN_PROFILE=<当前 profile>` 与 `DSH_PLUGIN_MIN_AGE=0`），stdout/stderr 逐行作为 `log` 事件回显。成功 → 组内每个已更新行各自 `target ok`；脚本失败或超时（10 分钟）→ 写回备份，组内这些行各自返回同一失败原因。npm 行只写目标安装脚本这一个文件，`git clean` 从不执行。
+npm 行忽略 `mode`（client 固定传 `commit`）。组内流程：重新扫描安装脚本确认每行仍在（包消失或脚本变化 → 该行单独失败并提示重新打开对话框）；对组内每行查询 registry 最新版（失败只标记该行）；当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已装版本）已是最新的行单独返回「已是最新」、不参与更新；其余行里，精确 pin 行一次性改写 pin（读一次原文作备份，任一 pin 无法替换则整组不写盘），`@latest` 行不改写脚本，然后只 spawn 一次安装脚本（`node <script>`，cwd 为仓库根，继承 `DSH_HOME`，设 `DSH_PLUGIN_PROFILE=<当前 profile>` 与 `DSH_PLUGIN_MIN_AGE=0`），stdout/stderr 逐行作为 `log` 事件回显。成功 → 组内每个已更新行各自 `target ok`；脚本失败或超时（10 分钟）→ 改写过的脚本写回备份，组内这些行各自返回同一失败原因。npm 行最多只写目标安装脚本这一个文件，`git clean` 从不执行。
 
 单行失败只写 `{"type":"target","id":…,"ok":false,"error":"…"}` 并继续下一行；请求体非法 400、无可用目标 409、无法解析仓库根 500，这三类在开始流式输出之前返回 JSON 错误 `{ "error": string }`。
 
@@ -88,7 +88,7 @@ git 行与 npm 插件行都使用。查询参数 `id=<projectId>` 与 `mode=<tag
 
 提交列表来自 `git log --no-merges --date=short --pretty=%h%x09%s%x09%an%x09%ad from..to`，上限 400 条、单条 subject 200 字符；`count` 来自 `git rev-list --count from..to`（含 merge 提交、不受 400 条上限约束，无可用更新时为 0），`diffstat` 是 `git diff --stat --no-color from..to` 的原文（上限 3000 字符**含**截断标记 `…（已截断）`，无可用更新时为空串）；两者供 client 的 AI 摘要使用。无可用更新（远端与本地相同、或该行有 error）时返回 200 且 `commits: []`、`count: 0`、`diffstat: ""`，由 client 显示「无可展示的更新日志」。
 
-npm 插件行（`id` 为 `npm:<packageName>`）不读 git：host 重新扫描安装脚本得到 pin，向 registry 查询最新版本与仓库，抓取该包 GitHub 仓库的 Release 列表（`/repos/<owner>/<repo>/releases?per_page=100&page=<n>`，最多 3 页，单请求 45s 超时），筛出 `(pin, latest]` 版本、按发布时间倒序。200 响应的 `kind` 为 `npm`、`from` 为 pin、`to` 为 registry 最新版、`targetKind` 为 `npm`，附 `releases`（`tag` / `name` / `url` / `publishedAt` / `body`）与 `releaseUrl`（Releases 列表页），`commits` 为空、`count` 为 0、`diffstat` 为空串。区间内没有 Release、包未声明 GitHub 仓库、仓库不在 GitHub 或抓取失败时仍返回 200，并在 `error` 里给可读提示；client 不调用 AI 汇总。
+npm 插件行（`id` 为 `npm:<packageName>`）不读 git：host 重新扫描安装脚本得到当前版本（精确 pin，或 `@latest` 行在当前 profile 的已装版本；未安装时返回可读错误），向 registry 查询最新版本与仓库，抓取该包 GitHub 仓库的 Release 列表（`/repos/<owner>/<repo>/releases?per_page=100&page=<n>`，最多 3 页，单请求 45s 超时），筛出 `(current, latest]` 版本、按发布时间倒序。200 响应的 `kind` 为 `npm`、`from` 为当前版本、`to` 为 registry 最新版、`targetKind` 为 `npm`，附 `releases`（`tag` / `name` / `url` / `publishedAt` / `body`）与 `releaseUrl`（Releases 列表页），`commits` 为空、`count` 为 0、`diffstat` 为空串。区间内没有 Release、包未声明 GitHub 仓库、仓库不在 GitHub、包尚未安装或抓取失败时仍返回 200，并在 `error` 里给可读提示；client 不调用 AI 汇总。
 
 ## 检测耗时（实测背景）
 
@@ -142,7 +142,7 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 
 可发起 AI 更新的行：顶层 `dsh-gui` 行不进入 AI 流程（行内按钮灰显，批量时也被过滤，顶层只走就地 git 更新）；git 行中当前正好停留在某个 tag、而远端只有更新的提交没有更新的 tag（`behind && announce === false`）的行同样灰显，提示改用「更新」；npm 行只要 `behind` 且无错误即可进入 AI 流程（它没有 tag 目标，tag 保留规则不适用）。
 
-目标工作区选择与「创造模式」预设由 `dsh-ai-update` 承担（该插件已在 desktop profile 中，见 [update-check.md](update-check.md) 的「AI 更新的提示词与预设」）；提示词由 client 半的 `ai-prompt.ts` 生成，`/dsh-gui-update` skill 手势与验收门槛（先在验证 worktree `.staging/dsh-gui` 中验证——本仓库的 git worktree，检出工作分支 `staging/verify`，适配改动直接提交在该分支、无需审批；含 harness 时用 computer use 验证 GUI；报告并取得用户审批后再把工作分支合并回主分支实装）保留，构建命令统一写成 `npm run build:desktop`。git 行保持原提示词（含 harness 专用与合并提示词）；npm 行的提示词说明包名、安装脚本、当前 pin 与 registry 目标，并要求更新安装脚本中的 `packageSpec` 精确版本、保证当前 profile 与重新部署的新设备都安装到新版本；批量提示词按行类型分组。
+目标工作区选择与「创造模式」预设由 `dsh-ai-update` 承担（该插件已在 desktop profile 中，见 [update-check.md](update-check.md) 的「AI 更新的提示词与预设」）；提示词由 client 半的 `ai-prompt.ts` 生成，`/dsh-gui-update` skill 手势与验收门槛（先在验证 worktree `.staging/dsh-gui` 中验证——本仓库的 git worktree，检出工作分支 `staging/verify`，适配改动直接提交在该分支、无需审批；含 harness 时用 computer use 验证 GUI；报告并取得用户审批后再把工作分支合并回主分支实装）保留，构建命令统一写成 `npm run build:desktop`。git 行保持原提示词（含 harness 专用与合并提示词）；npm 行的提示词说明包名、安装脚本、当前版本与 registry 目标，精确 pin 行要求把安装脚本中的 `packageSpec` 改到目标版本，`@latest` 行要求重新执行安装脚本装入最新版、不改写版本号；两类都保证当前 profile 与重新部署的新设备装到同一版本。批量提示词按行类型分组。
 
 ## 明确不做的项
 
@@ -156,8 +156,9 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 
 - 只装在 desktop profile；普通 `dsh web` 页面与 Tauri 外壳都不加载该插件，外壳侧更新入口仍是外壳自己的对话框，它同样检测两类行并对齐就地更新的语义（见 [update-check.md](update-check.md)）。
 - git 行更新执行是 `reset --hard` 语义：所选工程未提交的改动会被丢弃（未跟踪文件保留），对话框不提供二次确认或暂存，仅以常驻警示与「更新」/「全部更新」的 tooltip 提示。
-- npm 行更新会改写仓库安装脚本，属于仓库文件写操作，不可用 git 回滚；执行前备份、脚本失败或超时写回原文，单飞执行避免并发。
-- npm 行只解析安装脚本中的 `<包名>@<版本>` 字面量：从其他文件读取版本或用拼接构造 spec 的 wrapper 不产生行（写法约定见 `plugins/README.md`）。
+- 精确 pin 行的更新会改写仓库安装脚本，属于仓库文件写操作，不可用 git 回滚；执行前备份、脚本失败或超时写回原文，单飞执行避免并发。`@latest` 行不改写脚本。
+- npm 行只解析安装脚本中的 `<包名>@<版本>` 与 `<包名>@latest` 字面量：从其他文件读取版本或用拼接构造 spec 的 wrapper 不产生行（写法约定见 `plugins/README.md`）。
+- `@latest` 行的当前版本取自当前 profile 的 `node_modules`：包尚未安装（或被 `DSH_PLUGIN_SKIP` 屏蔽）时行显示「未安装」并按可更新处理。
 - 同一包被两个安装脚本 pin 时行 id 重复，更新只落扫描顺序第一个脚本（当前仓库无此情况）。
 - 安装脚本超时（10 分钟）只终止直接 node 子进程；wrapper 内部再 spawn 的 pnpm/dsh 孙进程可能残留。
 - npm 行的「更新」不经过 `.staging` 验证，与 git 行就地更新的定位一致；需要完整验证时走「AI 更新」。

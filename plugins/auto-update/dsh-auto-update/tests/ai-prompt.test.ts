@@ -58,6 +58,21 @@ test('an npm row prompt names the package, script, pin and target', () => {
   }
 })
 
+test('a tracking npm row prompt asks for a re-run, not a pin edit', () => {
+  const prompt = buildAiUpdatePrompt([npmRow({ tracksLatest: true })], () => 'commit')
+  for (const fragment of [
+    '@max-null/dsh-skill-mcp-center',
+    'plugins/skill-mcp-center/install.mjs',
+    '当前已安装 0.7.0',
+    '0.7.1',
+    '<包名>@latest',
+    '重新执行',
+  ]) {
+    assert.ok(prompt.includes(fragment), `prompt is missing ${fragment}`)
+  }
+  assert.ok(!prompt.includes('更新安装脚本中的 packageSpec 精确版本'), 'a tracking row must not ask for a pin rewrite')
+})
+
 test('npm rows are AI-eligible without the tag rules', () => {
   const eligible = aiEligibleProjects([npmRow({ announce: false })])
   assert.deepEqual(eligible.map((row) => row.id), ['npm:@max-null/dsh-skill-mcp-center'])
