@@ -109,7 +109,9 @@ registry 的 `dist-tags.latest`，`missing` 为 `versions` 中缺少目标版本
   - 精确 pin 行一次性改写为新 spec（读一次原文作备份，任一 pin 无法替换则整组不写盘）；
     `@latest` 行不改写脚本；然后只 spawn 一次安装脚本（`node <script>`，cwd 为仓库根，
     环境继承 `DSH_HOME`，并设 `DSH_PLUGIN_PROFILE=<当前 profile>` 与
-    `DSH_PLUGIN_MIN_AGE=0`）；
+    `DSH_PLUGIN_MIN_AGE=0`）；desktop 是桌面应用的保留 profile，host 半从应用自带的 CLI
+    （`<应用>/resources/runtime/cli/bin/dsh[.cmd]`）解析载体并以 `DSH_PLUGIN_DSH_CLI` 传给
+    安装脚本；解析不到该 CLI 时该行直接失败，并提示设置该变量；
   - 成功 → 组内每个已更新行各自 `target ok`；脚本失败或超时（10 分钟）→ 改写过的脚本写回
     备份，组内这些行各自返回同一失败原因。
 - 事件契约：`begin` 按请求顺序列出全部 id，之后每个 id 恰好一条 `target`，最后 `end`；
@@ -188,6 +190,9 @@ Host 进程运行在解包的 desktop 应用里，检出不等于 `process.cwd()
 - 同一包被两个安装脚本 pin 时行 id 重复，更新只落扫描顺序第一个脚本（当前仓库无此情况）。
 - 安装脚本超时（10 分钟）只终止直接 node 子进程；wrapper 内部再 spawn 的 pnpm/dsh 孙进程
   可能残留。
+- desktop profile 的 npm 行更新需要载体 CLI：host 半从应用自带的 CLI
+  （`<应用>/resources/runtime/cli/bin/dsh[.cmd]`）解析，解析不到时该行失败并提示设置
+  `DSH_PLUGIN_DSH_CLI`，无法完成重装。
 - npm 行的解析依赖安装脚本把安装目标写成 `pkg@version` 或 `pkg@latest` 字面量（见
   `plugins/README.md`）；从其他文件读取版本或用拼接构造 spec 的写法不产生行。
 - `@latest` 行的当前版本取自当前 profile 的 `node_modules`：包尚未安装（或被

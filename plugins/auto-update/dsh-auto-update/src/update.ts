@@ -44,7 +44,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { installedPackageVersion, isDirectory, listProjects, type ProjectRef } from './paths.ts'
+import { desktopCliPath, installedPackageVersion, isDirectory, listProjects, type ProjectRef } from './paths.ts'
 import {
   gitFailure,
   gitFetch,
@@ -570,23 +570,82 @@ export function replacePinnedVersion(text: string, oldSpec: string, newSpec: str
   return updated
 }
 
+/** Profile owned by the desktop application; only its bundled CLI may write it. */
+const RESERVED_DESKTOP_PROFILE = 'desktop'
+
+/**
+ * Compose the environment for one wrapper re-run.
+ *
+ * The environment is built here rather than inline in
+ * {@link runInstallScript} so a test can assert the variables without starting
+ * an installer. `DSH_HOME` is not composed: it is inherited from `env` (the
+ * host's own `process.env`), so the reinstall lands in the home the host was
+ * built against.
+ *
+ * A reserved profile also needs its carrier CLI. `desktop` belongs to the
+ * desktop application, the repository's own dsh CLI refuses it, and a wrapper
+ * only reaches the application's CLI through `DSH_PLUGIN_DSH_CLI`
+ * (`scripts/plugin-install.mjs` reads it as the carrier for its `plugin`
+ * commands). Without it the wrapper starts and then fails inside the CLI, after
+ * the install script has already been rewritten and with a message that does not
+ * name the missing variable; resolving it up front turns that into a row error.
+ *
+ * @param profile - the profile the wrapper must install into.
+ * @param env - the environment to inherit and extend.
+ * @param execPath - the executable whose directory is the application root; the
+ *   host's Electron Node-mode child reports the application exe here.
+ * @returns the child environment.
+ * @throws {Error} when the reserved profile's carrier CLI cannot be located; the
+ *   message names `DSH_PLUGIN_DSH_CLI` as the override.
+ */
+export function installScriptEnv(
+  profile: string,
+  env: NodeJS.ProcessEnv = process.env,
+  execPath?: string,
+): NodeJS.ProcessEnv {
+  const childEnv: NodeJS.ProcessEnv = {
+    ...env,
+    DSH_PLUGIN_PROFILE: profile,
+    DSH_PLUGIN_MIN_AGE: '0',
+  }
+  if (profile.trim().toLowerCase() !== RESERVED_DESKTOP_PROFILE) return childEnv
+  const carrier = desktopCliPath(execPath, env)
+  if (carrier === undefined) {
+    throw new Error(
+      '无法定位 Desktop 应用自带的 dsh CLI：desktop profile 只能由该 CLI 管理，'
+        + '未能从应用目录解析出它；请设置环境变量 DSH_PLUGIN_DSH_CLI 指向该 CLI',
+    )
+  }
+  childEnv.DSH_PLUGIN_DSH_CLI = carrier
+  return childEnv
+}
+
 /**
  * Re-run one wrapper installer and stream its output as log lines.
  *
- * The profile is selected with `DSH_PLUGIN_PROFILE` exactly like the desktop
- * build does (`DSH_PROFILE` names the profile this host runs in, `desktop` is
- * the default because the auto-update plugin itself is desktop-only).
- * `DSH_PLUGIN_MIN_AGE=0` bypasses pnpm's release-age gate for the freshly
- * published version, mirroring the wrapper convention. `DSH_HOME` is inherited
- * from `process.env` untouched, so the reinstall lands in the same home the host
- * was built against. The installer is killed after
- * {@link UPDATE_INSTALL_TIMEOUT_MS}; the caller sees the timeout as a regular
- * failure and rolls the install script back.
+ * The environment comes from {@link installScriptEnv}: the profile is selected
+ * with `DSH_PLUGIN_PROFILE` exactly like the desktop build does (`DSH_PROFILE`
+ * names the profile this host runs in, `desktop` is the default because the
+ * auto-update plugin itself is desktop-only), `DSH_PLUGIN_MIN_AGE=0` bypasses
+ * pnpm's release-age gate for the freshly published version, and a reserved
+ * profile additionally carries the application's CLI as `DSH_PLUGIN_DSH_CLI`.
+ * `DSH_HOME` is inherited from `process.env` untouched. The installer is killed
+ * after {@link UPDATE_INSTALL_TIMEOUT_MS}; the caller sees the timeout as a
+ * regular failure and rolls the install script back.
  *
- * @throws {Error} on a non-zero exit, a spawn failure, or the install timeout.
+ * @throws {Error} on a non-zero exit, a spawn failure, the install timeout, or
+ *   when the reserved profile's carrier CLI cannot be located.
  */
 function runInstallScript(root: string, scriptPath: string, log: (line: string) => void): Promise<void> {
   const profile = process.env.DSH_PROFILE?.trim() || 'desktop'
+  let env: NodeJS.ProcessEnv
+  try {
+    env = installScriptEnv(profile)
+  } catch (error: unknown) {
+    // The carrier is missing, not the installer: the caller shows this message
+    // as the row's error, so it must not be wrapped as a spawn failure.
+    return Promise.reject(error)
+  }
   return new Promise<void>((resolve, reject) => {
     let child: ReturnType<typeof spawn>
     try {
@@ -594,11 +653,7 @@ function runInstallScript(root: string, scriptPath: string, log: (line: string) 
         cwd: root,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: {
-          ...process.env,
-          DSH_PLUGIN_PROFILE: profile,
-          DSH_PLUGIN_MIN_AGE: '0',
-        },
+        env,
       })
     } catch (error: unknown) {
       // spawn can throw synchronously (policy/permission denial, malformed

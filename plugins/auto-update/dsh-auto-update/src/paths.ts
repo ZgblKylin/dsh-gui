@@ -22,6 +22,10 @@
  * The submodule list is read from the checkout's own `.gitmodules` — the same
  * authority `git submodule status` uses — because the dialog needs a row for a
  * submodule that has not been initialized yet, where git cannot answer.
+ *
+ * One location lies outside the checkout: {@link desktopCliPath} resolves the
+ * dsh CLI shipped with the desktop application, which is the only carrier
+ * allowed to write the application's reserved `desktop` profile.
  */
 
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -101,6 +105,49 @@ export function resolveGuiRoot(env: NodeJS.ProcessEnv = process.env): string {
 export function dshHomeDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const raw = env.DSH_HOME?.trim() ?? ''
   return raw === '' ? undefined : resolve(raw)
+}
+
+/** Directories of the bundled dsh CLI, relative to the application layout root. */
+const DESKTOP_CLI_DIRS: ReadonlyArray<readonly string[]> = [
+  // Windows and Linux place `resources/` next to the executable.
+  ['resources', 'runtime', 'cli', 'bin'],
+  // macOS keeps the executable in Contents/MacOS and the payload in Contents.
+  ['..', 'Resources', 'runtime', 'cli', 'bin'],
+]
+
+/**
+ * Resolve the dsh CLI that the desktop application ships.
+ *
+ * `desktop` is the application's reserved profile: the repository's own dsh CLI
+ * rejects it outright (`rejectElectronProfile` in the CLI's argument parsing),
+ * because only the CLI bundled with the installed application knows how to
+ * write that profile. A plugin wrapper reaches that CLI through
+ * `DSH_PLUGIN_DSH_CLI`, the carrier `scripts/plugin-install.mjs` uses for its
+ * `plugin` commands, so the update path has to name it as well.
+ *
+ * The executable is the anchor because the host runs as an Electron Node-mode
+ * child (`ELECTRON_RUN_AS_NODE=1`): `process.execPath` is the application exe,
+ * not a Node binary, so its directory is the application root. The override is
+ * returned without a resolution or an existence check: the caller owns that
+ * choice, and such a check would second-guess a carrier the wrapper may resolve
+ * itself.
+ *
+ * @param execPath - the application executable; defaults to `process.execPath`.
+ * @param env - process environment to read `DSH_PLUGIN_DSH_CLI` from.
+ * @returns the carrier CLI path, or `undefined` when no candidate exists.
+ */
+export function desktopCliPath(execPath?: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const override = env.DSH_PLUGIN_DSH_CLI?.trim() ?? ''
+  if (override !== '') return override
+  const root = dirname(execPath ?? process.execPath)
+  const names = process.platform === 'win32' ? ['dsh.cmd', 'dsh'] : ['dsh', 'dsh.cmd']
+  for (const dir of DESKTOP_CLI_DIRS) {
+    for (const name of names) {
+      const candidate = join(root, ...dir, name)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return undefined
 }
 
 /** Profile the desktop host installs plugins into when `DSH_PROFILE` is unset. */

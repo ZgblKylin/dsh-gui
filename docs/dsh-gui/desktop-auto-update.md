@@ -78,7 +78,7 @@ desktop 侧由 host 半的 Node 直接 `fetch` registry（`src/npm.ts`），不�
 
 `begin` 按请求顺序列出全部 id；执行按单元进行：每个 git 行一个单元，`kind === 'npm'` 的行按 `installScript` 合并为一个单元，单元按首个 target 在请求中的位置排序。同一脚本的 `target` 事件在组完成后按组内请求顺序相邻发出，因此请求把 git 行夹在同一脚本的两行之间时，流里会出现组内相邻（client 按追加方式消费日志，顺序只影响可读性）。
 
-npm 行忽略 `mode`（client 固定传 `commit`）。组内流程：重新扫描安装脚本确认每行仍在（包消失或脚本变化 → 该行单独失败并提示重新打开对话框）；对组内每行查询 registry 最新版（失败只标记该行）；当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已装版本）已是最新的行单独返回「已是最新」、不参与更新；其余行里，精确 pin 行一次性改写 pin（读一次原文作备份，任一 pin 无法替换则整组不写盘），`@latest` 行不改写脚本，然后只 spawn 一次安装脚本（`node <script>`，cwd 为仓库根，继承 `DSH_HOME`，设 `DSH_PLUGIN_PROFILE=<当前 profile>` 与 `DSH_PLUGIN_MIN_AGE=0`），stdout/stderr 逐行作为 `log` 事件回显。成功 → 组内每个已更新行各自 `target ok`；脚本失败或超时（10 分钟）→ 改写过的脚本写回备份，组内这些行各自返回同一失败原因。npm 行最多只写目标安装脚本这一个文件，`git clean` 从不执行。
+npm 行忽略 `mode`（client 固定传 `commit`）。组内流程：重新扫描安装脚本确认每行仍在（包消失或脚本变化 → 该行单独失败并提示重新打开对话框）；对组内每行查询 registry 最新版（失败只标记该行）；当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已装版本）已是最新的行单独返回「已是最新」、不参与更新；其余行里，精确 pin 行一次性改写 pin（读一次原文作备份，任一 pin 无法替换则整组不写盘），`@latest` 行不改写脚本，然后只 spawn 一次安装脚本（`node <script>`，cwd 为仓库根，继承 `DSH_HOME`，设 `DSH_PLUGIN_PROFILE=<当前 profile>` 与 `DSH_PLUGIN_MIN_AGE=0`），stdout/stderr 逐行作为 `log` 事件回显。desktop 是桌面应用的保留 profile，host 半从应用自带的 CLI（`<应用>/resources/runtime/cli/bin/dsh[.cmd]`）解析载体并以 `DSH_PLUGIN_DSH_CLI` 传给安装脚本，解析不到该 CLI 时该行失败并提示设置该变量。成功 → 组内每个已更新行各自 `target ok`；脚本失败或超时（10 分钟）→ 改写过的脚本写回备份，组内这些行各自返回同一失败原因。npm 行最多只写目标安装脚本这一个文件，`git clean` 从不执行。
 
 单行失败只写 `{"type":"target","id":…,"ok":false,"error":"…"}` 并继续下一行；请求体非法 400、无可用目标 409、无法解析仓库根 500，这三类在开始流式输出之前返回 JSON 错误 `{ "error": string }`。
 
@@ -161,6 +161,7 @@ AI 汇总成功时副标题为 `由 dsh AI 汇总 · N 条提交 · {from} → {
 - `@latest` 行的当前版本取自当前 profile 的 `node_modules`：包尚未安装（或被 `DSH_PLUGIN_SKIP` 屏蔽）时行显示「未安装」并按可更新处理。
 - 同一包被两个安装脚本 pin 时行 id 重复，更新只落扫描顺序第一个脚本（当前仓库无此情况）。
 - 安装脚本超时（10 分钟）只终止直接 node 子进程；wrapper 内部再 spawn 的 pnpm/dsh 孙进程可能残留。
+- desktop profile 的 npm 行更新需要载体 CLI：host 半从应用自带的 CLI（`<应用>/resources/runtime/cli/bin/dsh[.cmd]`）解析，解析不到时该行失败并提示设置 `DSH_PLUGIN_DSH_CLI`，无法完成重装。
 - npm 行的「更新」不经过 `.staging` 验证，与 git 行就地更新的定位一致；需要完整验证时走「AI 更新」。
 - npm 行的更新日志依赖 Release tag 可解析为 semver，且要求版本区间内存在对应 Release；解析不出或没有 Release 时只给提示。
 - 更新完成后需要重启 Desktop 应用才会加载新的插件版本；git 行另需重新构建，npm 行不需要重建应用产物。
