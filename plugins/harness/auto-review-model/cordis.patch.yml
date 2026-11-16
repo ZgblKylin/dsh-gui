@@ -1,0 +1,17 @@
+# dsh-auto-review-model bundle layer：注册 auto-review-model 改派行。
+#
+# config.provider 与 config.model 是本机示例路由，与当前主模型一致，因此装上后
+# 默认行为不变；改成自己的 provider 与 model 即生效。
+#
+# config.enabled 缺省为 true。插件页的「自动审查模型」卡片会改写同一组 volatile
+# 字段，写入 profile 的 Cordis patch，优先级高于这里的默认值；关闭开关等于写
+# enabled: false，审查回到沿用 agent 当前模型。
+#
+# enabled: false 或未配置 provider 与 model 时插件直接放行，Auto review 继续使用
+# agent 当前模型。字段是 volatile 引用，插件信息页保存后由下一次审查读取新值。
+- insert:
+    - id: auto-review-model
+      name: 'dsh-auto-review-model'
+      config:
+        provider: opencode-go
+        model: deepseek-v4.1-flash

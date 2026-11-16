@@ -12,6 +12,10 @@ Playwright MCP browser provider (the exclusive `dsh-browser-use` registration
 service + the experimental provider — see `harness/README.md`), and
 `computer-use.mjs` installs the Cua Driver native desktop provider (the
 exclusive `dsh-computer-use` registration service + the native SDK provider).
+`auto-review-model.mjs` installs the in-tree package
+`harness/auto-review-model/`, a model-override layer of this repository (not an
+official npm package) that redirects Auto review reviewer requests to a
+configured route.
 The Auto review bundle the plugin page switches on is a runtime
 dependency of the dsh installation and is not installed by any wrapper here;
 Agent Teams ships inside the `dsh-web-app` bundle (its old optional bundle is
@@ -22,7 +26,9 @@ plugins/
 ├─ harness/
 │  ├─ install.mjs        # entry: loads each plugins/harness/*.mjs installer in order
 │  ├─ browser-use.mjs    # Browser Use: exclus. service + Playwright MCP provider
-│  └─ computer-use.mjs   # Computer Use: exclus. service + Cua Driver native provider
+│  ├─ computer-use.mjs   # Computer Use: exclus. service + Cua Driver native provider
+│  ├─ auto-review-model.mjs  # Auto review model override: installs the in-tree package
+│  └─ auto-review-model/ # in-tree package: reviewer provider/model redirect layer
 ├─ <id>/
 │  ├─ install.mjs        # npm wrapper: installs the npm package(s) at registry latest
 │  │                     # in-tree wrapper: builds, links and mounts its package
@@ -35,9 +41,11 @@ plugins/
 The harness installs plugins into a *profile* (for the web surface, the `web`
 profile). `npm run install:plugins` (alias `npm run plugins`) runs every
 `plugins/*/install.mjs` in directory-name order. The `harness` wrapper owns no
-install of its own: its `install.mjs` only loads the flat sibling installers
-(`browser-use.mjs`, `computer-use.mjs`), each of which also
-runs standalone, so the group stays one directory with no nesting. Plugin
+install of its own: its `install.mjs` only loads the sibling installers
+(`browser-use.mjs`, `computer-use.mjs`, `auto-review-model.mjs`), each of which
+also runs standalone. Installers stay flat in that directory; `skills/` (WSL
+skill templates) and `auto-review-model/` (the in-tree override package) are its
+only subdirectories. Plugin
 wrappers delegate the shared pipeline to `scripts/plugin-install.mjs` and
 only own their id, package directory, and optional mount entry:
 
@@ -182,6 +190,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
 - harness（dsh 工程官方插件组，平铺脚本见 [harness/README.md](harness/README.md)）：
   - Agent Teams（已内置）：`dsh-v0.2.2-rc.3` 的 web-app bundle 内置 `ui-agent-team` 行（`@deepseek-ai/dsh-client-ui-agent-team`）；旧的 `@deepseek-ai/dsh-experimental-agent-team-profile` 已列入 harness 的 `RETIRED_BUNDLES`（`dsh-v0.2.2-rc.1` 时即如此），profile 里若还保留该条目，启动时会被跳过并打印告警，可直接删除；本 wrapper 既不安装它也不派生 preset。
   - Auto review（无本地包，官方可选 bundle）：`@deepseek-ai/dsh-experimental-auto-review` 随 dsh 安装提供并列入 harness 的 `OPTIONAL_BUNDLES`，由插件页「自动授权审查」开关写入 `dsh.profile.bundles`，本 wrapper 不安装它
+  - Auto review 模型覆盖（in-tree 包）：`dsh-auto-review-model` 位于 `plugins/harness/auto-review-model/`，在 `llm/stream` waterfall 上把 `purpose: 'auto-review'` 的审查请求改派到配置的 provider/model；与「自动授权审查」开关独立，`enabled: false` 或未配置路由时不注册监听；客户端半在插件信息页提供开关与 provider/model 下拉，保存即时写入 profile 的 Cordis patch。依赖 harness 内部约定，升级后按包 README 的「Harness 升级检查清单」复核
   - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.2.2-rc.3`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.3`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
   - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.2-rc.3`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.3`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（跟踪 `dsh-pet@latest`；9 条 `@deepseek-ai/dsh*` peer 为 `^0.2.0-rc.1`，覆盖 0.2.2-rc.3 的准入闸门，无需精确版本例外；包内 `dsh.compatibility.dshReleases` 列表仅作「验证于」展示、不参与准入判定），默认安装：host 半 inject 为 `webServer / agentDefaultModel / credentials / llm / commands / connection`，`agentDefaultModel` 由 base bundle 提供，`connection` 供桌面模式的「打开 AI 设置」使用；client 半的本地 inject（`src/client/app.ts`）为 `slots / locale / connection / remote / remote.commands / commandUi`，其中 `commandUi`（官方 dsh-client-ui-commands 的「/」命令服务，随 web-app bundle 挂载）就绪后 `/pet` 选择框才注册；声明层 `dsh.client.inject` 只列 `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载）；系统通知走 host 转发通道（host 半监听 `session/event` / `agent/error`，把帧落在 `/dsh-pet-7340/notify`，浏览器半每秒轮询该路由）。0.4.x 新增语音播报（`@andresaya/edge-tts`）、睡觉/说梦话、待办提醒、点击音效与系统托盘等，默认配置键由包内 `assets/config.jsonc` 提供；用户层配置为 `$DSH_HOME/dsh-pet/main-config.jsonc`（旧 `main-config.json` 仍被读取并迁移），安装后自动注入 `display:"web"` 屏蔽桌面 Electron 模式（见 [dsh-pet/README.md](dsh-pet/README.md)）
@@ -427,10 +436,12 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   native WebRTC dependency (pnpm skips it when unavailable). Independent of
   the in-repo `dsh-remote` local-backend/Docker mode; both can be
   installed. See the upstream repository and https://dsh.r2049.cn/app.
-- `harness` — a single flat wrapper at `harness/` that owns the official
-  dsh-family plugins it installs: `install.mjs` only loads the sibling installers
-  `browser-use.mjs` and `computer-use.mjs`, so the group stays
-  one directory with no nesting. Auto review is not installed here:
+- `harness` — a single flat wrapper at `harness/` that owns the plugins it
+  installs: `install.mjs` only loads the sibling installers
+  `browser-use.mjs`, `computer-use.mjs` and `auto-review-model.mjs`. Installers
+  stay flat in that directory; `skills/` (WSL skill templates) and
+  `auto-review-model/` (an in-tree override package of this repository) are its
+  only subdirectories. Auto review itself is not installed here:
   `@deepseek-ai/dsh-experimental-auto-review` is a dsh runtime dependency listed
   in the harness's `OPTIONAL_BUNDLES`, and the plugin page (插件 → 自动授权审查)
   switches it into `dsh.profile.bundles`. Agent Teams is built into the
@@ -439,6 +450,20 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   that still lists it skips it with a warning). The wrapper derives no preset
   declaration from either.
   See `harness/README.md`.
+  - `auto-review-model` — `harness/auto-review-model.mjs` installs the in-tree
+    package `harness/auto-review-model/` as a `link:` dependency. Its Host half
+    is plain ESM over a schemastery `Config` peer and declares
+    `dsh.bundle.patch`, so it mounts through its own bundle layer (entry
+    `auto-review-model`) with no manual insert. It prepends a `llm/stream`
+    listener that redirects requests tagged `purpose: 'auto-review'` to the
+    configured provider/model; with `enabled: false` or no route it registers
+    nothing and the reviewer keeps the agent's own model. Its browser half
+    (`src/client/`, built to `lib/client.js`) contributes the
+    `plugins.bundle.config` card on the package's detail page: a switch plus
+    provider/model pickers that save straight into the profile patch. It neither
+    enables Auto review nor changes the review policy, and it depends on harness
+    internals — re-check the package README's Harness upgrade checklist after an
+    upgrade. See `harness/README.md`.
   - `browser-use` — `harness/browser-use.mjs` installs the Playwright MCP
     browser provider from npm as two plain (non-bundle) packages:
     `@deepseek-ai/dsh-browser-use@0.2.2-rc.3` (the exclusive browser-use

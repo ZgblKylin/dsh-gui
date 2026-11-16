@@ -1,18 +1,14 @@
 # plugins/harness
 
-dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在一个 wrapper 里
-管理。installer 平铺，没有二级子目录；`install.mjs` 是流水线入口，按顺序加载目录里的
-各插件 installer。`skills/` 子目录存放 WSL 专用 skill 模板，由 `wsl-workarounds.mjs`
-安装。本 wrapper 只安装 Browser Use（Playwright MCP）与
-Computer Use（Cua Driver native）两组包；Agent Teams 已内置在 web-app 组合中（旧的
-可选 bundle 已退役），Auto review 仍是随 dsh 安装提供的官方可选 bundle，由插件页
-开关直接管理；本 wrapper 两者都不安装，也不派生任何 preset。
+dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在一个 wrapper 里管理。installer 平铺；`skills/` 与 `auto-review-model/` 包目录是仅有的子目录。`install.mjs` 是流水线入口，按顺序加载目录里的各插件 installer，`skills/` 存放 WSL 专用 skill 模板、由 `wsl-workarounds.mjs` 安装。本 wrapper 安装 Browser Use（Playwright MCP）、Computer Use（Cua Driver native）与 Auto review 模型覆盖（本仓库自研的 in-tree 包）三组插件。Agent Teams 已内置在 web-app 组合中，旧的可选 bundle 已退役；Auto review 本体仍是随 dsh 安装提供的官方可选 bundle，由插件页开关直接管理，本 wrapper 不安装它。本 wrapper 不派生任何 preset。
 
 | 文件 | 插件 | 说明 |
 | --- | --- | --- |
 | `install.mjs` | — | 流水线入口，依次加载所有平铺 installer |
 | `browser-use.mjs` | Browser Use (Playwright MCP) | 独占浏览器提供方注册服务 + Playwright MCP 提供方 |
 | `computer-use.mjs` | Computer Use (Cua Driver native) | 独占桌面提供方注册服务 + Cua Driver 原生提供方 |
+| `auto-review-model.mjs` | Auto review 模型覆盖 | in-tree 包 `auto-review-model/` 的安装入口，把审查请求改派到配置的 provider/model |
+| `auto-review-model/` | Auto review 模型覆盖 | 零依赖 ESM Host 半（`index.js`，含 Schemastery `Config`）、`src/client/` 插件信息页卡片、构建产物 `lib/client.js`、README 与 `tests/` |
 | `wsl-workarounds.mjs` | — | WSL 专用 skill 与 AGENTS.md 小节的安装逻辑，由 `scripts/dsh-gui.mjs` 在全局模板安装后调用 |
 | `skills/` | — | WSL skill 模板：`wsl-edge-browser-use`、`wsl-computer-use`，以及一次性安装 skill `wsl-xvfb-service` |
 
@@ -56,6 +52,25 @@ Full access 执行（复用未改变的 `danger-full-access + never` 旋钮）�
 详细机制见官方包源码
 `deepseek-harness/packages/experimental/auto-review/README.zh.md` 与设计文档
 `deepseek-harness/.agents/notes/implemented/feature/2026-08-28-auto-review.zh.md`。
+
+## Auto review 模型覆盖
+
+`auto-review-model` 是可选覆盖层，区别于「Auto review 开关」：开关决定是否启用逐调用审查，本插件决定审查请求由哪个 provider/model 执行。两者独立装卸，单独装本插件不会启用审查。
+
+Auto review 本体从被审 agent 的最新请求头取 provider 与 model，没有 reviewer 模型配置项。本插件在 `llm/stream` waterfall 的链首识别 `purpose: 'auto-review'` 的请求，构造替换请求重新派发，因此只影响审查调用。
+
+- 安装：`auto-review-model.mjs` 把 in-tree 包 `auto-review-model/` 以 `link:` 装进 profile。包声明 `dsh.bundle.patch`，由 bundle 层自挂载 entry `auto-review-model`，不写手工 insert。Desktop 应用用的是 `desktop` profile，而该 profile 由 Electron 应用独占管理：只能关闭应用后用应用自带的 CLI 安装，或走 `npm run build:desktop`；不要手动设 `DSH_PLUGIN_PROFILE=desktop` 运行 installer（会被拒绝，并在失败前改写该 profile 的 pnpm `storeDir`）。
+- 配置：包内 `cordis.patch.yml` 的 `config` 块给出 `enabled`、`provider`、`model` 与可选的 `reasoningEffort`；`provider` 与 `model` 必须成对。未配置或 `enabled: false` 时直接放行，审查沿用 agent 当前模型；监听始终注册，字段是 volatile 引用，界面保存由下一次审查读取新值。
+- 界面：重启后在插件页打开该包详情，`plugins.bundle.config` 卡片提供开关与 provider/model 下拉，保存即时生效并写入 profile 的 Cordis patch；包内置的 client 半由 `pnpm --dir plugins/harness/auto-review-model run build` 产出 `lib/client.js`。
+- 用法、成本与边界见 [auto-review-model/README.md](auto-review-model/README.md)。
+
+本插件依赖三条 harness 内部约定，升级 harness 后必须复核：
+
+1. auto-review 仍以 `purpose: 'auto-review'` 标记审查请求。
+2. `llm/stream` 仍是 waterfall，listener 不调用 `next()` 即短路整条链。
+3. provider 解析仍发生在 waterfall 之后。
+
+可执行命令与判据见 [auto-review-model/README.md 的「Harness 升级检查清单」](auto-review-model/README.md#harness-升级检查清单)，其中第 4 条给出上游补齐 reviewer 模型配置后的退役判据。
 
 ## Browser Use (Playwright MCP)
 
@@ -226,6 +241,11 @@ npm run install:plugins        # 或 npm run build
   角标的 `Auto review`，在确认对话框中勾选「我已了解这些风险，并愿意继续」后点
   「启用 Auto review」；直接键入 `/permission auto` 也构成明确同意。通用设置行与新
   会话默认值都不提供 Auto。
+- **Auto review 模型覆盖**：安装后即随组合挂载（无二次开关）。推荐在
+  `$DSH_HOME/profiles/<profile>/cordis.patch.yml` 用顶层 `- id: auto-review-model`
+  覆盖 `config`，不动仓库源码；也可直接改包内
+  `plugins/harness/auto-review-model/cordis.patch.yml` 的 `config`，bundle patch 在
+  下次启动读取。未配置 `provider` 与 `model` 时它不介入，审查仍用 agent 当前模型。
 - **Browser Use (Playwright MCP)**：安装后即随组合挂载（无二次开关），重启后工具以
   `mcp__playwright-mcp__<tool>` 出现；是否对模型可见还取决于工具目录装配与模型
   路由是否支持图片输入。
@@ -244,12 +264,22 @@ npm run install:plugins        # 或 npm run build
   额外产生一次模型请求并增加延迟，模型分类可能误放行或误拒绝；不提供豁免、缓存
   grant、人工 fallback、可配置策略或重试。关闭开关并重启后，存活的 Auto 会话被迁移
   到 Full access；重新开启只恢复选项，不把存活会话切回 Auto。
+- **Auto review 模型覆盖依赖 harness 内部约定**：审查请求的 purpose 标签、`llm/stream`
+  waterfall 的短路语义，以及 provider 在 waterfall 之后解析。升级 harness 后按
+  [auto-review-model/README.md](auto-review-model/README.md#harness-升级检查清单)
+  复核；改动任一约定都会让改派失效或静默退回 agent 自身模型。
 
 ## 卸载
 
 在插件页关闭「自动授权审查」开关：开关把该 bundle 从 profile 的
 `dsh.profile.bundles` 移除，该层在下次启动时不再加载。Agent Teams 没有开关（已内置）；
 profile 里若还留着退役的 `@deepseek-ai/dsh-experimental-agent-team-profile` 条目，直接从 `dsh.profile.bundles` 删除即可。本 wrapper 不向 patch 层写入 preset 声明，因此没有额外的清理步骤。
+
+Auto review 模型覆盖是 in-tree 包，从 profile 卸载后 bundle 层随之消失：
+
+```powershell
+dsh plugin --profile web remove dsh-auto-review-model
+```
 
 Browser Use 与 Computer Use 从 profile 卸载：
 
@@ -274,12 +304,5 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
 - 幂等：重复执行结果一致（npm 安装由 `dsh plugin add` 去重）；profile 已按精确版本
   装好且挂载完整时，`installNpmPlugin` 直接跳过该包的安装，`npm run rebuild` /
   `DSH_PLUGIN_REBUILD=1` 可强制重装。
-- 依赖 `scripts/plugin-install.mjs` 的共享流水线；各包经 `installNpmPlugin`
-  安装，每个 installer 也可单独运行。Browser Use 与 Computer Use 是仅有的两个用显式
-  `mount` 的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），
-  各自写入两行 insert（Browser Use 提供方行带 `config`）。Auto review 不经过共享
-  流水线：它是 dsh 安装随附的官方可选 bundle，只由插件页开关写入 `dsh.profile.bundles`；
-  Agent Teams 已由 web-app 组合内置，不需要安装。`DSH_PLUGIN_SKIP=<wrapper id>` 因此
-  只对 browser-use 与 computer-use 生效；`DSH_PLUGIN_FORCE_INSTALL=1` 反过来强制安装。
-- 本 wrapper 安装的四个包都不传 `exempt`：它们的 peer 已被 0.2.2-rc.3 的准入闸门
-  接受，不需要版本例外（例外只用于上游尚未适配 0.2 的包，见 `plugins/README.md`）。
+- 依赖 `scripts/plugin-install.mjs` 的共享流水线：Browser Use 与 Computer Use 的 npm 包经 `installNpmPlugin` 安装，`auto-review-model` 走 `installPlugin`（in-tree 包、无 build 脚本），每个 installer 也可单独运行。Browser Use 与 Computer Use 是仅有的两个用显式 `mount` 的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），各自写入两行 insert（Browser Use 提供方行带 `config`）。`auto-review-model` 声明 `dsh.bundle.patch`，由 bundle 层自挂载，不写手工 insert。Auto review 本体不经过共享流水线：它是 dsh 安装随附的官方可选 bundle，只由插件页开关写入 `dsh.profile.bundles`；Agent Teams 已由 web-app 组合内置，不需要安装。`DSH_PLUGIN_SKIP=<wrapper id>` 因此只对 browser-use 与 computer-use 生效；`DSH_PLUGIN_FORCE_INSTALL=1` 反过来强制安装。
+- Browser Use 与 Computer Use 的四个 npm 包都不传 `exempt`：它们的 peer 已被 0.2.2-rc.3 的准入闸门接受，不需要版本例外（例外只用于上游尚未适配 0.2 的包，见 `plugins/README.md`）。`auto-review-model` 是 in-tree 包，没有 peer 声明，不进入准入闸门。

@@ -11,3 +11,4 @@
 
 import './browser-use.mjs'
 import './computer-use.mjs'
+import './auto-review-model.mjs'
