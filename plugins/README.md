@@ -198,6 +198,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
 - [dsh-pause](https://github.com/better-er/dsh-pause) npm包（跟踪 `dsh-pause@latest`；「DSH·暂停」：host 半在 `agent/pre-step` waterfall 上卡出暂停点（每个 turn 的首次请求不停、不打断在途调用），browser 半经 `conversation.input.right` slot 在 composer 工具行渲染开关与放行控件，会话开关默认关闭（Config `defaultEnabled`）；另有键盘 Pause 键切换，以及模型空闲且输入为空时连按两次回车的「强制继续」（经 `agent.followup` 送一条内容为空的唤醒消息，不产生用户消息）；RPC 走插件向 webServer 自注册的 `/dsh-pause` 前缀路由。manifest 无 `engines.dsh`，六条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.2`，覆盖 0.2.2-rc.3 的准入闸门、无需例外（另有非 dsh 的 `@deepseek-ai/schemastery >=3.18.0` peer，不进准入闸门）；`engines.node` 声明 `>=26.3.1` 高于 harness 的 `>=24.9.0`，profile 未开 `engine-strict` 故只告警。包声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-pause`）
 - [dsh-skill-mcp-center](https://github.com/Max-Null/dsh-skill-mcp-center) npm包（跟踪 `@max-null/dsh-skill-mcp-center@latest`；仓库侧只有 wrapper 的 `install.mjs`，包以发布形态提供预构建 `dist/` 与 `client.js`，无构建步骤。host 半 inject 为 `loader` / `tools` 并从 `ctx.skills` 读取技能目录；client 半在设置页新增「Skill & MCP」分区，`dsh-better-sidebar` 存在时另在右侧栏提供 MCP 实时状态面板（可选 peer，本工程已安装）。manifest 无 `engines.dsh`，准入闸门按 `@deepseek-ai/dsh*` peer（`>=0.1.1-rc.1 <0.3.0`）放行 0.2.2-rc.3；声明 `dsh.bundle.patch`，entry id `skill-mcp-center`）
 - [ds-harness-remote](https://github.com/liguobao/ds-harness-remote) npm包（跟踪 `ds-harness-remote@latest`；DSH Remote：低延迟 P2P 端到端加密的远程访问插件，PC / 移动端 / Remote Web 可远程继续本机 Harness 会话与工作区，不开放公网监听端口、无需路由端口转发；host 半向官方 `tools` service 注册 `remote_*` 工具组（列出在线机器与工作区、读写 / 创建会话、收发消息、上下传文件），client 半在设置页提供 Remote 面板。开发基线为 `dsh-v0.2.2-rc.1`；manifest 无 `engines.dsh`，`@deepseek-ai/dsh*` peer 均为 `>=0.2.2-0 <0.2.3-0` 等多段区间，按 `includePrerelease` 覆盖 pinned 的 0.2.2-rc.3、无需精确版本例外；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `ds-harness-remote`，bundle 层只插这一行、不含 dsh-TUI 条件行（上游注明「dsh-TUI 集成推迟到后续版本」，本版本只出 Desktop / Web Host 面），不写手工 insert；`@roamhq/wrtc` 是可选原生 WebRTC 依赖（安装失败按 optional 跳过）。与内建 `dsh-remote` 的本机后端 / Docker 连接方案相互独立，可同时安装）
+- [dsh-you-should-know](https://github.com/lolipop-1x1/dsh-you-should-know) npm包（跟踪 `dsh-you-should-know@latest`；「You Should Know」任务提醒插件：host 半在主会话模型请求扩展点捕获完整请求快照，按步长后台用独立观察者模型（默认跟随主会话模型）判断值得理解的重要事实、方案取舍与背景知识，browser 半在输入框上方以可收起的浮层展示提醒，支持按需解释、标记已了解、带回主会话继续讨论与独立设置（语言 / 观察模型 / 步长 / 每轮上限）。manifest 无 `engines.dsh`，五条 `@deepseek-ai/dsh*` peer（`dsh-agent` / `dsh-client-connection` / `dsh-llm` / `dsh-session` / `dsh-storage-domain`）均为 `>=0.2.0-rc.2 <0.3.0-0`，按 `includePrerelease` 覆盖 pinned 的 0.2.2-rc.3、无需精确版本例外；另有非 dsh 的 `@deepseek-ai/cordis ^4.0.4 || ^4.0.5-alpha.1` peer（闸门不评估，运行时 cordis 4.x 线满足 `^4.0.4`）；`engines.node >=22.19.0` 无碍；发布包含预构建 `dist/`、无本地构建步骤；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-you-should-know`，不写手工 insert）
 
 ## Current plugins
 
@@ -416,6 +417,25 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   `dsh plugin add` reconciles it into `dsh.profile.bundles` and it mounts
   through its own bundle layer (entry id `dsh-pause`). See
   `dsh-pause/README.md`.
+- `dsh-you-should-know` — npm-only wrapper installing `dsh-you-should-know` at
+  its registry `latest` (`install.mjs` is the wrapper's only script). The plugin
+  observes the running session's model requests in the background and surfaces
+  important facts, trade-offs and background knowledge as a collapsible floating
+  panel above the input; reminders support on-demand explanations, marking a
+  topic as understood, continuing the discussion in the main session, and
+  independent settings (language, observer model, check step, per-turn cap).
+  Its host half captures the full request snapshot at the session's model-request
+  extension point and runs a background observer (defaulting to the main session
+  model) on a configured step, while the browser half mounts the floating panel.
+  No `engines.dsh` is declared; its five `@deepseek-ai/dsh*` peers
+  (`dsh-agent`, `dsh-client-connection`, `dsh-llm`, `dsh-session`,
+  `dsh-storage-domain`, all `>=0.2.0-rc.2 <0.3.0-0`) admit the pinned
+  0.2.2-rc.3 runtime under `includePrerelease` without an exemption, and its
+  non-dsh `@deepseek-ai/cordis ^4.0.4 || ^4.0.5-alpha.1` peer is not part of the
+  gate (the runtime's 4.x cordis satisfies `^4.0.4`), so no `exempt` is passed.
+  The package declares `dsh.bundle.patch` and mounts through its own bundle
+  layer (entry id `dsh-you-should-know`). See `dsh-you-should-know/README.md`
+  and the upstream repository.
 - `ds-harness-remote` — npm-only wrapper installing `ds-harness-remote` at
   its registry `latest` (`install.mjs` is the wrapper's only file). DSH Remote continues
   the running Harness from another device over a low-latency, end-to-end
