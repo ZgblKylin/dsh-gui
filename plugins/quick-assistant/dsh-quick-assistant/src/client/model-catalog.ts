@@ -85,43 +85,44 @@ function mainModelPair(catalog: ModelCatalog): { provider: string; model: string
 /**
  * Turn the main-model fallback off: keep the configured pair while the catalog
  * still lists it, otherwise start from the main model, then from the first
- * advertised pair.
+ * advertised pair. The reasoning effort is independent of this switch and is
+ * preserved.
  * @param catalog - the loaded catalog, or `null` while it is unavailable.
  * @param current - the mode's current override.
  * @returns the override to store.
  */
 export function activateOverride(catalog: ModelCatalog | null, current: ModeModelOverride): ModeModelOverride {
+  const effort = current.reasoningEffort === undefined ? {} : { reasoningEffort: current.reasoningEffort }
   if (catalog === null) return { ...current, useDefault: false }
   const provider = findProvider(catalog, current.provider)
   const model = findModel(provider, current.model)
   if (provider !== undefined && model !== undefined) {
-    const effort = model.efforts.some(effort => effort.id === current.reasoningEffort)
-      ? { reasoningEffort: current.reasoningEffort }
-      : {}
     return { useDefault: false, provider: provider.id, model: model.id, ...effort }
   }
   const pair = mainModelPair(catalog) ?? firstAdvertisedPair(catalog)
-  if (pair === undefined) return { useDefault: false }
-  return { useDefault: false, ...pair }
+  if (pair === undefined) return { useDefault: false, ...effort }
+  return { useDefault: false, ...pair, ...effort }
 }
 
 /**
- * Switch a mode to another provider: its first model becomes the selection and
- * the reasoning effort returns to the model default.
+ * Switch a mode to another provider: its first model becomes the selection.
+ * The reasoning effort stays configured; the Host applies it only on routes that
+ * advertise it.
  * @param catalog - the loaded catalog.
  * @param providerId - provider the user picked.
  * @returns the override to store.
  */
-export function selectProvider(catalog: ModelCatalog, providerId: string): ModeModelOverride {
+export function selectProvider(catalog: ModelCatalog, providerId: string, current: ModeModelOverride): ModeModelOverride {
+  const effort = current.reasoningEffort === undefined ? {} : { reasoningEffort: current.reasoningEffort }
   const provider = findProvider(catalog, providerId)
   const model = provider?.models[0]
-  if (model === undefined) return { useDefault: false, provider: providerId }
-  return { useDefault: false, provider: providerId, model: model.id }
+  if (model === undefined) return { useDefault: false, provider: providerId, ...effort }
+  return { useDefault: false, provider: providerId, model: model.id, ...effort }
 }
 
 /**
- * Switch a mode to another model of the same provider; the reasoning effort
- * returns to the model default.
+ * Switch a mode to another model of the same provider, keeping the reasoning
+ * effort.
  * @param current - the mode's current override.
  * @param modelId - model the user picked.
  * @returns the override to store.
@@ -130,18 +131,36 @@ export function selectModel(current: ModeModelOverride, modelId: string): ModeMo
   const next: ModeModelOverride = { useDefault: false }
   if (current.provider !== undefined) next.provider = current.provider
   next.model = modelId
+  if (current.reasoningEffort !== undefined) next.reasoningEffort = current.reasoningEffort
   return next
 }
 
 /**
- * Set the reasoning effort of a mode, or clear it to follow the model default.
+ * Set the reasoning effort of a mode without changing which route it uses.
  * @param current - the mode's current override.
- * @param effortId - the picked effort id; `undefined` follows the model default.
+ * @param effortId - the picked effort id; `''` follows the model default.
  * @returns the override to store.
  */
-export function withEffort(current: ModeModelOverride, effortId: string | undefined): ModeModelOverride {
-  const next: ModeModelOverride = { ...current, useDefault: false }
-  if (effortId === undefined) delete next.reasoningEffort
-  else next.reasoningEffort = effortId
-  return next
+export function withEffort(current: ModeModelOverride, effortId: string): ModeModelOverride {
+  return { ...current, reasoningEffort: effortId }
+}
+
+/**
+ * Effort choices for a route, including the follow-default entry.
+ * @param catalog - the loaded catalog, or `null` while it is unavailable.
+ * @param providerId - provider id of the route.
+ * @param modelId - model id of the route.
+ * @param followLabel - localized label of the follow-default entry.
+ * @returns the dropdown options; empty when the route is unknown.
+ */
+export function effortOptions(
+  catalog: ModelCatalog | null,
+  providerId: string | undefined,
+  modelId: string | undefined,
+  followLabel: string,
+): { id: string; label: string }[] {
+  const provider = findProvider(catalog, providerId)
+  const model = findModel(provider, modelId)
+  const efforts = model?.efforts ?? []
+  return [{ id: '', label: followLabel }, ...efforts.map(effort => ({ id: effort.id, label: effort.name }))]
 }

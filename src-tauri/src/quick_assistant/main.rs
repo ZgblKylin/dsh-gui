@@ -120,7 +120,12 @@ fn show_overlay(app: &tauri::AppHandle) {
     let _ = window.show();
     #[cfg(windows)]
     force_foreground(&window);
+    // `WebviewWindow::set_focus` activates the top-level window; the webview
+    // control needs its own focus call after a hide/show cycle, otherwise the
+    // keystrokes stop at the frame and the page never receives them.
     let _ = window.set_focus();
+    let webview: &tauri::Webview = window.as_ref();
+    let _ = webview.set_focus();
     let _ = window.emit("qa-shown", ());
 }
 
@@ -182,16 +187,14 @@ fn hide_overlay(app: &tauri::AppHandle) {
     let _ = window.emit("qa-hidden", ());
 }
 
-/// Hotkey toggle: hide a focused panel, otherwise show and focus it.
+/// Hotkey toggle: hide a visible panel, otherwise show and focus it.
 fn toggle_overlay(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window(WINDOW_LABEL) else { return };
-    let visible = window.is_visible().unwrap_or(false);
-    let focused = window.is_focused().unwrap_or(false);
-    if visible && focused {
+    if window.is_visible().unwrap_or(false) {
         hide_overlay(app);
-    } else {
-        show_overlay(app);
+        return;
     }
+    show_overlay(app);
 }
 
 #[tauri::command]

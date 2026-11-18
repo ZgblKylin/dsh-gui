@@ -13,12 +13,13 @@ export type ModeId = (typeof MODE_IDS)[number]
 
 /**
  * Model override of one mode. `useDefault: true` makes the mode follow the main
- * model and makes the remaining fields irrelevant.
+ * model's route; the reasoning effort applies to whichever route the mode uses.
  */
 export interface ModeModelOverride {
   useDefault: boolean
   provider?: string
   model?: string
+  /** Effort id applied to the active route; `''` or absent follows the model default. */
   reasoningEffort?: string
 }
 

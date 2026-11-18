@@ -177,10 +177,36 @@ async function firstAvailableSelection(llm: LlmCatalogService): Promise<ModelSel
 }
 
 /**
+ * Whether a model advertises one reasoning effort. A model whose metadata cannot
+ * be read keeps the configured effort, so the adapter remains the authority.
+ * @param llm - LLM service catalog reads.
+ * @param provider - provider route id.
+ * @param model - model id.
+ * @param effort - effort id from the mode settings.
+ * @returns `true` when the effort is advertised or unverifiable.
+ */
+async function supportsEffort(
+  llm: LlmCatalogService,
+  provider: string,
+  model: string,
+  effort: string,
+): Promise<boolean> {
+  try {
+    const info = await llm.resolveModelInfo(provider, model)
+    return (info.reasoning?.efforts ?? []).some(entry => entry.id === effort)
+  } catch {
+    return true
+  }
+}
+
+/**
  * Resolve the provider/model one request uses.
  *
  * Order: a complete per-mode override, then the main model
  * (`ctx.agentDefaultModel`), then the first provider/model the catalog offers.
+ * The mode's reasoning effort applies to whichever route wins; an effort the
+ * winning model does not advertise is dropped instead of rejected, because the
+ * four modes share one preference across models with different level sets.
  * @param llm - LLM service catalog reads.
  * @param modeOverride - the mode's model settings.
  * @param defaultSelection - main model selection, or `undefined` when the
@@ -193,23 +219,24 @@ export async function resolveRequestSelection(
   modeOverride: { useDefault: boolean; provider?: string; model?: string; reasoningEffort?: string },
   defaultSelection: ModelSelection | undefined,
 ): Promise<ModelSelection> {
-  if (!modeOverride.useDefault) {
-    const provider = modeOverride.provider
-    const model = modeOverride.model
-    if (provider !== undefined && provider !== '' && model !== undefined && model !== '') {
-      return {
-        provider,
-        model,
-        ...modeOverride.reasoningEffort === undefined || modeOverride.reasoningEffort === ''
-          ? {}
-          : { reasoningEffort: modeOverride.reasoningEffort },
-      }
-    }
+  let selection: ModelSelection
+  const provider = modeOverride.provider
+  const model = modeOverride.model
+  if (!modeOverride.useDefault && provider !== undefined && provider !== '' && model !== undefined && model !== '') {
+    selection = { provider, model }
+  } else if (isUsableSelection(defaultSelection)) {
+    selection = { ...defaultSelection }
+  } else {
+    const fallback = await firstAvailableSelection(llm)
+    if (fallback === undefined) throw new NoModelError()
+    selection = fallback
   }
-  if (isUsableSelection(defaultSelection)) return { ...defaultSelection }
-  const fallback = await firstAvailableSelection(llm)
-  if (fallback === undefined) throw new NoModelError()
-  return fallback
+  const effort = modeOverride.reasoningEffort
+  if (effort === undefined || effort === '') return selection
+  if (!await supportsEffort(llm, selection.provider, selection.model, effort)) {
+    return { provider: selection.provider, model: selection.model }
+  }
+  return { provider: selection.provider, model: selection.model, reasoningEffort: effort }
 }
 
 /**

@@ -1,7 +1,9 @@
 /**
- * One mode card: its model override switch and, while the override is on, the
- * provider → model → reasoning-effort pickers.
+ * One mode card: its model-route switch, the provider → model pickers, and the
+ * reasoning-effort picker.
  *
+ * The reasoning effort is independent of the route switch: it applies to the
+ * main model while the mode follows it, and to the dedicated route otherwise.
  * Every transition is computed with `model-catalog.ts` helpers, so the card
  * itself only renders and reports the next override.
  */
@@ -9,7 +11,7 @@
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QuickAssistantTranslate } from '../locales.ts'
 import {
-  activateOverride, defaultRouteLabel, findModel, findProvider, selectModel, selectProvider, withEffort,
+  activateOverride, defaultRouteLabel, effortOptions, findModel, findProvider, selectModel, selectProvider, withEffort,
 } from '../model-catalog.ts'
 import type { ModeModelOverride, ModelCatalog } from '../types.ts'
 import { Dropdown } from './Dropdown.tsx'
@@ -49,9 +51,16 @@ export function ModeCard({
   const selectedModel = findModel(provider, model.model)
   const providers = catalog?.providers ?? []
   const models = provider?.models ?? []
-  const efforts = selectedModel?.efforts ?? []
   const route = defaultRouteLabel(catalog)
   const followText = route === undefined ? t('modeFollowDefault') : t('modeFollowDefaultDetail', { route })
+  // While following the main model the effort applies to that route, so its
+  // levels are the ones to offer.
+  const effortRoute = model.useDefault
+    ? { provider: catalog?.default.provider, model: catalog?.default.model }
+    : { provider: model.provider, model: model.model }
+  const efforts = effortOptions(catalog, effortRoute.provider, effortRoute.model, t('effortFollowDefault'))
+  const hasEfforts = efforts.length > 1
+  const showCatalogFailure = !model.useDefault && catalogStatus === 'error'
 
   return (
     <Card>
@@ -71,23 +80,26 @@ export function ModeCard({
           />
         </div>
       </div>
-      {model.useDefault
-        ? <p style={styles.notice}>{followText}</p>
-        : (
-          <>
-            {catalogStatus === 'loading' ? <p style={styles.notice} role="status">{t('catalogLoading')}</p> : null}
-            {catalogStatus === 'error'
-              ? (
-                <div style={styles.inlineRow} role="alert">
-                  <p style={styles.error}>{t('catalogFailed')}</p>
-                  <Button size="sm" variant="ghost" onClick={onRetryCatalog}>{t('catalogRetry')}</Button>
-                </div>
-              )
-              : null}
-            {catalog !== null && catalogStatus === 'ready' && catalog.providers.length === 0
-              ? <p style={styles.notice}>{t('catalogEmpty')}</p>
-              : null}
-            <div style={styles.fieldRow}>
+      {catalogStatus === 'loading' && !model.useDefault
+        ? <p style={styles.notice} role="status">{t('catalogLoading')}</p>
+        : null}
+      {showCatalogFailure
+        ? (
+          <div style={styles.inlineRow} role="alert">
+            <p style={styles.error}>{t('catalogFailed')}</p>
+            <Button size="sm" variant="ghost" onClick={onRetryCatalog}>{t('catalogRetry')}</Button>
+          </div>
+        )
+        : null}
+      {!model.useDefault && catalog !== null && catalogStatus === 'ready' && catalog.providers.length === 0
+        ? <p style={styles.notice}>{t('catalogEmpty')}</p>
+        : null}
+      {model.useDefault ? <p style={styles.notice}>{followText}</p> : null}
+      <div style={styles.fieldRow}>
+        {model.useDefault
+          ? null
+          : (
+            <>
               <Field label={t('provider')}>
                 <Dropdown
                   label={t('provider')}
@@ -97,7 +109,7 @@ export function ModeCard({
                   disabled={providers.length === 0}
                   onChange={(id) => {
                     if (catalog === null) return
-                    onChange(selectProvider(catalog, id))
+                    onChange(selectProvider(catalog, id, model))
                   }}
                 />
               </Field>
@@ -111,24 +123,22 @@ export function ModeCard({
                   onChange={(id) => { onChange(selectModel(model, id)) }}
                 />
               </Field>
-              <Field label={t('reasoningEffort')}>
-                {efforts.length === 0
-                  ? <div style={styles.fieldPlaceholder}>{selectedModel === undefined ? '—' : t('effortNone')}</div>
-                  : (
-                    <Dropdown
-                      label={t('reasoningEffort')}
-                      value={model.reasoningEffort ?? ''}
-                      options={[
-                        { id: '', label: t('effortFollowDefault') },
-                        ...efforts.map(effort => ({ id: effort.id, label: effort.name })),
-                      ]}
-                      onChange={(id) => { onChange(withEffort(model, id === '' ? undefined : id)) }}
-                    />
-                  )}
-              </Field>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        <Field label={t('reasoningEffort')}>
+          {hasEfforts
+            ? (
+              <Dropdown
+                label={t('reasoningEffort')}
+                value={model.reasoningEffort ?? ''}
+                options={efforts}
+                placeholder={t('effortFollowDefault')}
+                onChange={(id) => { onChange(withEffort(model, id)) }}
+              />
+            )
+            : <div style={styles.fieldPlaceholder}>{catalogStatus === 'ready' ? t('effortNone') : '—'}</div>}
+        </Field>
+      </div>
     </Card>
   )
 }

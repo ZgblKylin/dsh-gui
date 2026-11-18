@@ -22,7 +22,18 @@ export const DEFAULT_SHORTCUT = 'Ctrl+Alt+Space'
 /** The settings file schema version this host writes. */
 export const SETTINGS_VERSION = 1
 
-/** Per-mode model override; `useDefault: true` ignores the remaining fields. */
+/**
+ * Default reasoning effort per mode: answering questions benefits from a low
+ * effort, while translation, summarizing, and explaining run without thinking.
+ */
+export const DEFAULT_REASONING_EFFORT: Readonly<Record<AssistantMode, string>> = Object.freeze({
+  ask: 'low',
+  translate: 'off',
+  summary: 'off',
+  explain: 'off',
+})
+
+/** Per-mode model override. */
 export interface ModeModel {
   /** Follow `agentDefaultModel` instead of a pinned provider/model. */
   useDefault: boolean
@@ -30,7 +41,10 @@ export interface ModeModel {
   provider?: string
   /** Model id when pinned. */
   model?: string
-  /** Adapter-owned reasoning effort when pinned; omitted follows the model default. */
+  /**
+   * Adapter-owned reasoning effort applied to whichever route the mode uses;
+   * omitted follows the model default.
+   */
   reasoningEffort?: string
 }
 
@@ -78,7 +92,10 @@ export function cloneSettings(settings: AssistantSettings): AssistantSettings {
 export function defaultSettings(): AssistantSettings {
   const modes = {} as Record<AssistantMode, ModeSettings>
   for (const mode of ASSISTANT_MODES) {
-    modes[mode] = { model: { useDefault: true }, prompt: DEFAULT_PROMPTS[mode] }
+    modes[mode] = {
+      model: { useDefault: true, reasoningEffort: DEFAULT_REASONING_EFFORT[mode] },
+      prompt: DEFAULT_PROMPTS[mode],
+    }
   }
   return {
     version: SETTINGS_VERSION,
@@ -103,24 +120,24 @@ function text(value: unknown): string | undefined {
 
 /**
  * Normalize one stored model override.
+ *
+ * A model object without a `reasoningEffort` field takes the mode default; an
+ * explicit empty string means "follow the model default" and stays empty.
  * @param raw - stored value.
  * @param fallback - default for the mode.
  * @returns a valid override; incomplete overrides fall back to following the default model.
  */
 function normalizeModeModel(raw: unknown, fallback: ModeModel): ModeModel {
   if (!isRecord(raw)) return { ...fallback }
-  const useDefault = raw['useDefault'] !== false
-  if (useDefault) return { useDefault: true }
+  const storedEffort = typeof raw['reasoningEffort'] === 'string'
+    ? String(raw['reasoningEffort'])
+    : fallback.reasoningEffort ?? ''
+  const effort = { reasoningEffort: storedEffort }
+  if (raw['useDefault'] !== false) return { useDefault: true, ...effort }
   const provider = text(raw['provider'])
   const model = text(raw['model'])
-  const reasoningEffort = text(raw['reasoningEffort'])
-  if (provider === undefined || model === undefined) return { useDefault: true }
-  return {
-    useDefault: false,
-    provider,
-    model,
-    ...reasoningEffort === undefined ? {} : { reasoningEffort },
-  }
+  if (provider === undefined || model === undefined) return { useDefault: true, ...effort }
+  return { useDefault: false, provider, model, ...effort }
 }
 
 /** Normalize one mode's settings, preserving unknown fields on the mode object. */
