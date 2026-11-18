@@ -1,0 +1,7 @@
+# Build-time pnpm settings for this package.
+#
+# The `@deepseek-ai/*` packages in `peerDependencies` resolve only inside the
+# installed DSH profile at runtime (the profile links this directory); asking
+# pnpm to install peers would query the npm registry for versions that do not
+# exist there. Peer auto-install therefore stays off.
+autoInstallPeers: false

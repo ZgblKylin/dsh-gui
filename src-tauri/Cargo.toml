@@ -8,6 +8,19 @@ rust-version = "1.77"
 
 # Repo-internal run only (no installer/bundling): the "entry exe" is the debug
 # binary this crate produces at target/debug/dsh-gui.exe.
+#
+# The second binary is the quick-assistant overlay host
+# (`plugins/quick-assistant`), which owns its own window and global shortcut.
+# It lives under `src/quick_assistant/` rather than Cargo's `src/bin/` default
+# because a global gitignore hides every `bin/` directory from version control.
+
+[[bin]]
+name = "dsh-gui"
+path = "src/main.rs"
+
+[[bin]]
+name = "dsh-quick-assistant"
+path = "src/quick_assistant/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -31,6 +44,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

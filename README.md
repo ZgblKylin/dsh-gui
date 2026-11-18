@@ -199,6 +199,17 @@ served by `dsh-desktop-tabs` (below) and share their configuration and remote
   carried along as a steering message. No in-flight call is interrupted and
   the model does not notice the pause; the per-session switch is off by
   default.
+- **`dsh-quick-assistant`** — 快捷助手：a global shortcut (default
+  `Ctrl+Alt+Space`) opens a frameless floating panel anywhere in the system with
+  four actions — 回答此问题（多轮对话）、文本翻译（双栏对照，源/目标语言可切换，默认自动）、
+  内容总结、解释说明. The panel hides on focus loss, keeps its last view when
+  reopened, and a pin button keeps it visible. Answers stream from the DSH LLM
+  service without creating a session. A settings section (快捷键、四模式模型、
+  提示词模板、自动翻译语言) is added to the settings panel. The shortcut and the
+  window live in the separate native host `dsh-quick-assistant[.exe]`, so both
+  the Tauri shell and the Electron desktop share one implementation; the plugin
+  is installed only for those desktop surfaces (the Tauri shell loads it from
+  `<DSH_HOME>/gui/shell-overlays/`), and a plain browser page never sees it.
 
 - **`dsh-desktop-tabs`** — the remote-connection backend shared by the two
   shells: `<DSH_HOME>/gui/desktop-tabs.json` holds saved SSH connections and the
@@ -334,7 +345,10 @@ This is idempotent and writes only under the runtime root:
   `<runtime-root>/.pnpm-store/` — not in a global store.
 - Compiles the entry exe with `cargo build --release` (**release by default**)
   and copies it to the runtime root (`dsh-gui.exe` on Windows, `dsh-gui`
-  elsewhere).
+  elsewhere). The same crate builds the quick-assistant overlay host
+  (`dsh-quick-assistant[.exe]`), which the build also lands at the runtime root
+  beside the entry exe; the plugin's host half starts it when the plugin is
+  installed.
 - Runs every plugin install script under `plugins/` — each
   `plugins/<id>/install.mjs` installs and mounts its plugin packages into the
   web profile: npm wrappers add their registry packages through

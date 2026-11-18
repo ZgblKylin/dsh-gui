@@ -52,6 +52,13 @@ fn main() {
         "page_theme",
         "tab_title",
         "ai_update_result",
+        // Quick-assistant overlay (`src/quick_assistant/main.rs`): its page
+        // runs on the loopback harness origin and drives the helper window.
+        "qa_set_pinned",
+        "qa_hide",
+        "qa_set_height",
+        "qa_set_shortcut",
+        "qa_log",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("tauri_build failed");
