@@ -44,7 +44,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { requireHarnessRuntime, submoduleVersion } from './harness-runtime.mjs'
 import {
   bootstrapPnpm,
@@ -539,16 +539,41 @@ function yamlObjectLines(object, indent) {
  */
 function mountEntry(profileDir, mount) {
   mkdirSync(profileDir, { recursive: true })
-  const patchPath = join(profileDir, 'cordis.patch.yml')
+  return mountEntryAt(join(profileDir, 'cordis.patch.yml'), mount, [
+    '# Your patch layer for this dsh profile, applied after every bundle layer:',
+    '# a top-level YAML array of loader patch entries (id-targeted config',
+    '# overrides, disables, and insert lists; `!!js` expressions allowed).',
+    '[]',
+    '',
+  ].join('\n'))
+}
+
+/**
+ * Path of the shell-only overlay layer a plugin wrapper may mount into instead
+ * of the profile patch: the desktop shell applies every `*.patch.yml` under
+ * `<DSH_HOME>/gui/shell-overlays/` as an extra `--patch` argument when it spawns
+ * `dsh web`, so a plugin mounted there never loads in a plain browser page.
+ * @param {string} name - the overlay file name without the extension.
+ * @param {string} [dshHome] - harness home; defaults to `$DSH_HOME`/`WEB_HOME`.
+ * @returns {string} absolute path of the overlay patch file.
+ */
+export function shellOverlayPatchPath(name, dshHome = process.env.DSH_HOME ?? WEB_HOME) {
+  return join(dshHome, 'gui', 'shell-overlays', `${name}.patch.yml`)
+}
+
+/**
+ * Append an idempotent insert row to one patch file, creating it from `template`
+ * when absent.
+ * @param {string} patchPath - absolute path of the patch file.
+ * @param {{ id: string, name: string, config?: object | null }} mount - the loader
+ *   entry to insert.
+ * @param {string} template - file content used when the patch file does not exist.
+ * @returns {boolean} whether the insert was newly written.
+ */
+function mountEntryAt(patchPath, mount, template) {
+  mkdirSync(dirname(patchPath), { recursive: true })
   if (!existsSync(patchPath)) {
-    // Mirror the harness's profile patch template.
-    writeFileSync(patchPath, [
-      '# Your patch layer for this dsh profile, applied after every bundle layer:',
-      '# a top-level YAML array of loader patch entries (id-targeted config',
-      '# overrides, disables, and insert lists; `!!js` expressions allowed).',
-      '[]',
-      '',
-    ].join('\n'))
+    writeFileSync(patchPath, template)
   }
   const text = readFileSync(patchPath, 'utf8')
   // Match by id, not by the block's exact bytes: a second row with the same
@@ -596,7 +621,7 @@ function mountEntry(profileDir, mount) {
  *
  * @param {{ id: string, packageDir: string, sourceHint?: string | null,
  *   mount?: { id: string, name: string, config?: object | null } | null,
- *   build?: boolean }} options
+ *   mountFile?: string | null, build?: boolean }} options
  *   - id: the plugin id (the `plugins/<id>/` wrapper directory name).
  *   - packageDir: absolute path to the plugin package (second-level directory,
  *     or one level deeper for a multi-package distribution-repo submodule).
@@ -605,11 +630,16 @@ function mountEntry(profileDir, mount) {
  *     derived from the manifest (usually owned by the wrapper's own
  *     cordis.patch.yml mount recipe). `config` becomes the row's `config:`
  *     block (e.g. a browser-use provider's per-row settings).
+ *   - mountFile: mount the row into this patch file instead of the profile
+ *     patch. Used for shell-only layers (`shellOverlayPatchPath`) that the
+ *     desktop shell applies as an extra `--patch` argument, so the plugin stays
+ *     unmounted in a plain browser page. Rejected for packages that declare
+ *     `dsh.bundle.patch`.
  *   - build: whether the shared build pipeline may run (default true). Set
  *     false for packages that ship prebuilt output but still declare a
  *     `build` script for upstream development.
  */
-export function installPlugin({ id, packageDir, sourceHint = null, mount = null, build = true }) {
+export function installPlugin({ id, packageDir, sourceHint = null, mount = null, mountFile = null, build = true }) {
   const manifestPath = join(packageDir, 'package.json')
   if (!existsSync(manifestPath)) {
     const hint = sourceHint === null ? '' : ` — initialize it with: ${sourceHint}`
@@ -638,13 +668,32 @@ export function installPlugin({ id, packageDir, sourceHint = null, mount = null,
   // The package is built above either way: a `link:` install has no version to
   // compare, so only the build proves its sources current. What can be skipped
   // is the profile dependency write, which pnpm would re-resolve for nothing.
-  if (!reinstallRequested() && linkDependencyUpToDate(profileDir, packageDir, packageName, manifest, mount)) {
+  if (!reinstallRequested() && linkDependencyUpToDate(profileDir, packageDir, packageName, manifest, mount, mountFile)) {
     console.log(`  profile already links ${packageName} at this directory — skipping "dsh plugin add"`)
     console.log('  reinstall every plugin with "npm run rebuild" (or DSH_PLUGIN_REBUILD=1)')
     console.log(`installed plugin '${id}' into ${profileDir}`)
     return
   }
   addDependency(dshHome, packageDir)
+
+  if (mountFile !== null) {
+    if (manifest.dsh?.bundle?.patch !== undefined) {
+      throw new Error(
+        `${id}: mountFile cannot mount ${packageName} — a package that declares dsh.bundle.patch mounts through its own bundle layer`,
+      )
+    }
+    const mountId = String(mount?.id ?? manifest.dsh?.gui?.mountId ?? packageName.replace(/^dsh-/, ''))
+    const mountName = String(mount?.name ?? packageName)
+    mountEntryAt(mountFile, { id: mountId, name: mountName, config: mount?.config ?? null }, [
+      '# Shell-only plugin layers for the dsh-gui window: the desktop shell applies',
+      '# every *.patch.yml here as an extra `--patch` layer when it starts `dsh web`,',
+      '# so the plugins mounted in this file never load in a plain browser page.',
+      '[]',
+      '',
+    ].join('\n'))
+    console.log(`installed plugin '${id}' into ${profileDir} (mounted in shell overlay ${mountFile})`)
+    return
+  }
 
   if (manifest.dsh?.bundle?.patch !== undefined) {
     // A bundle patch plugin mounts itself: `dsh plugin add` reconciles it into
@@ -1022,9 +1071,15 @@ export function reinstallRequested() {
  * @param {{ id?: string, name?: string } | null} mount - explicit mount override.
  * @returns {boolean}
  */
-function mountStateCurrent(profileDir, profile, installedName, manifest, mount) {
+function mountStateCurrent(profileDir, profile, installedName, manifest, mount, mountFile = null) {
   const mountId = String(mount?.id ?? manifest?.dsh?.gui?.mountId ?? installedName.replace(/^dsh-/, ''))
   const mountName = String(mount?.name ?? manifest?.name ?? installedName)
+  if (mountFile !== null) {
+    // A wrapper that mounts through a shell-only overlay keeps the profile patch
+    // untouched, so its row is the state the install path maintains.
+    const overlayText = existsSync(mountFile) ? readFileSync(mountFile, 'utf8') : ''
+    return parseInsertRows(overlayText).some((row) => row.id === mountId)
+  }
   const patchPath = join(profileDir, 'cordis.patch.yml')
   const text = existsSync(patchPath) ? readFileSync(patchPath, 'utf8') : ''
   if (manifest?.dsh?.bundle?.patch !== undefined) {
@@ -1107,13 +1162,13 @@ function installedAnyVersion(profileDir, packageName, mount) {
  * @param {{ id?: string, name?: string } | null} mount - explicit mount override.
  * @returns {boolean}
  */
-export function linkDependencyUpToDate(profileDir, packageDir, packageName, manifest, mount) {
+export function linkDependencyUpToDate(profileDir, packageDir, packageName, manifest, mount, mountFile = null) {
   const profile = readJsonFile(join(profileDir, 'package.json'))
   if (profile?.dependencies?.[packageName] !== `link:${packageDir}`) return false
   // A checkout that moved leaves the previous location in the link: the resolve
   // check keeps `dsh plugin add` running until the link points here.
   if (!sameDirectory(join(profileDir, 'node_modules', ...packageName.split('/')), packageDir)) return false
-  return mountStateCurrent(profileDir, profile, packageName, manifest, mount)
+  return mountStateCurrent(profileDir, profile, packageName, manifest, mount, mountFile)
 }
 
 /**

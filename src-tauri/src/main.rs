@@ -445,10 +445,33 @@ struct HarnessAuth {
     cookie: Option<String>,
 }
 
+/// Overlay patches this shell applies on top of the web profile, in file-name
+/// order. A plugin wrapper that must reach the desktop shell but not a browser
+/// page writes its mount row into `<DSH_HOME>/gui/shell-overlays/*.patch.yml`
+/// instead of the profile's own patch list; the harness then boots those layers
+/// only when this shell spawns it.
+fn shell_overlay_patches(home: &Path) -> Vec<PathBuf> {
+    let directory = home.join("gui").join("shell-overlays");
+    let entries = match fs::read_dir(&directory) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+    let mut patches: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|extension| extension == "yml"))
+        .collect();
+    patches.sort();
+    patches
+}
+
 /// Spawn `node <resolved dsh CLI> web --port <port> --no-open` with `DSH_HOME`
 /// pinned to `<runtime root>/.dsh`; `harness.json` decides whether that CLI is the
-/// registry-installed package or the built submodule. The CLI's stdout is
-/// captured (the launch URL line carries its one-time token) and mirrored to
+/// registry-installed package or the built submodule. Shell overlay files (see
+/// [`shell_overlay_patches`]) turn that into the launcher form
+/// `--profile web --patch <overlay>… --port <port> --no-open`, because the
+/// launcher's options must precede the booted app's arguments. The CLI's stdout
+/// is captured (the launch URL line carries its one-time token) and mirrored to
 /// `.dsh\gui\harness.log`; stderr goes to the same log file. `--no-open` stops
 /// the web bundle from handing the page to the default browser: the shell opens
 /// its own window, and dsh runs embedded in it.
@@ -481,9 +504,22 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
     // `.dsh\gui\harness.log`, so the spawn must not allocate a console window
     // (see `console::hidden_command`).
     let mut command = console::hidden_command("node");
+    command.arg(&bin);
+    // Shell-only plugin layers: plugins a wrapper installs but keeps out of the
+    // browser web-ui composition add one overlay file here, and this shell
+    // applies it as the last profile layer. An unpatched `dsh web` run never
+    // loads them. The launcher's options must precede the booted app's
+    // arguments, and naming the profile explicitly starts that option list.
+    let overlays = shell_overlay_patches(&home);
+    if overlays.is_empty() {
+        command.arg("web");
+    } else {
+        command.arg("--profile").arg("web");
+        for overlay in &overlays {
+            command.arg("--patch").arg(overlay);
+        }
+    }
     command
-        .arg(&bin)
-        .arg("web")
         .arg("--port")
         .arg(port.to_string())
         .arg("--no-open")
@@ -492,6 +528,15 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
         .env("DSH_GUI_ROOT", root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if overlays.is_empty() {
+        log_status(root, "shell overlays: none");
+    } else {
+        let names: Vec<String> = overlays
+            .iter()
+            .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+            .collect();
+        log_status(root, &format!("shell overlays: {}", names.join(", ")));
+    }
     let mut child = command
         .spawn()
         .map_err(|e| format!("failed to spawn harness (is `node` on PATH?): {e}"))?;

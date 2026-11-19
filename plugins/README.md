@@ -202,6 +202,19 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
 
 ## Current plugins
 
+- `quick-assistant` — in-tree plugin at
+  `quick-assistant/dsh-quick-assistant`: the global-shortcut overlay
+  (回答此问题 / 文本翻译 / 内容总结 / 解释说明) with its settings section, and the
+  native overlay host `dsh-quick-assistant[.exe]` built from `src-tauri`'s
+  second binary. It calls `ctx.llm.stream` with `purpose: 'quick-assistant'`, so
+  no session is recorded. Installation is desktop-only and differs by profile:
+  the `desktop` profile (Electron desktop) mounts it like any other plugin,
+  while the `web` profile only installs the dependency and writes the loader row
+  to `<DSH_HOME>/gui/shell-overlays/quick-assistant.patch.yml`; the Tauri shell
+  applies those overlay files with `--patch` when it spawns `dsh web`, so a
+  plain browser page never loads it. See
+  `quick-assistant/dsh-quick-assistant/README.md` and
+  `docs/dsh-gui/shell-overlays.md`.
 - `remote` — in-tree plugin at `remote/dsh-remote`: the local-backend and
   Docker connection modes for the web GUI (connection tabs, new-connection
   page, local `dsh web` backend spawn, Docker `exec` connect). SSH remote

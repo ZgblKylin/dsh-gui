@@ -102,6 +102,14 @@ import { buildDesktop, runDesktop } from './desktop.mjs'
 import { installWslWorkarounds } from '../plugins/harness/wsl-workarounds.mjs'
 
 const SRC_TAURI = join(ROOT, 'src-tauri')
+/**
+ * Native host of the Quick Assistant overlay (`plugins/quick-assistant`): a
+ * second binary of the Tauri crate that registers the global shortcut, owns the
+ * frameless panel window and is started by the plugin's host half.
+ */
+const QUICK_ASSISTANT_BIN_NAME = IS_WINDOWS ? 'dsh-quick-assistant.exe' : 'dsh-quick-assistant'
+/** Where the overlay host lands: the runtime root, beside the entry exe. */
+const QUICK_ASSISTANT_EXE = join(RUNTIME_ROOT, QUICK_ASSISTANT_BIN_NAME)
 /** Repository-root template deployed to `<DSH_HOME>/AGENTS.md` when missing. */
 const AGENTS_FILE_TEMPLATE = join(ROOT, 'AGENTS.global_template.md')
 
@@ -428,6 +436,18 @@ function buildExe(debug) {
       copyFileSync(built, ENTRY_EXE)
     } catch (error) {
       throw new Error(`could not copy ${built} to the runtime root (is dsh-gui running? close it first): ${error.message}`)
+    }
+  })
+  // `cargo build` compiles every binary target of the crate, so the overlay host
+  // is already built; it only has to land beside the entry exe for both desktop
+  // shells to find it.
+  const builtHelper = join(SRC_TAURI, 'target', profile, QUICK_ASSISTANT_BIN_NAME)
+  if (!existsSync(builtHelper)) throw new Error(`build did not produce ${builtHelper}`)
+  step('Copy the quick-assistant overlay host to the runtime root', () => {
+    try {
+      copyFileSync(builtHelper, QUICK_ASSISTANT_EXE)
+    } catch (error) {
+      throw new Error(`could not copy ${builtHelper} to the runtime root (is it running? close it first): ${error.message}`)
     }
   })
 }

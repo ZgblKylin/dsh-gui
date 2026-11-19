@@ -1,0 +1,21 @@
+{
+  "identifier": "quick-assistant",
+  "description": "Capability of the quick-assistant overlay window. Its page is served by the DSH plugin's host half on a loopback harness origin, hence the remote URL pattern; the page drives the helper window through app-defined commands (pin, hide, height, shortcut).",
+  "windows": [
+    "quick-assistant"
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:*",
+      "http://localhost:*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "allow-qa-set-pinned",
+    "allow-qa-hide",
+    "allow-qa-set-height",
+    "allow-qa-set-shortcut",
+    "allow-qa-log"
+  ]
+}

@@ -96,6 +96,14 @@ const SHIM_EXE = join(RUNTIME_ROOT, 'dsh-gui-desktop.exe')
 const DESKTOP_CLI = join(LANDING, 'resources', 'runtime', 'cli', 'bin', IS_WINDOWS ? 'dsh.cmd' : 'dsh')
 /** The desktop harness home the app creates when it starts for the first time. */
 const DESKTOP_PROFILE = join(WEB_HOME, 'profiles', 'desktop')
+/** Tauri crate root; it also builds the quick-assistant overlay host binary. */
+const SRC_TAURI = join(ROOT, 'src-tauri')
+/** Cargo binary name of the quick-assistant overlay host. */
+const QUICK_ASSISTANT_BIN = 'dsh-quick-assistant'
+/** Landed file name of the overlay host (`dsh-quick-assistant.exe` on Windows). */
+const QUICK_ASSISTANT_FILE = IS_WINDOWS ? `${QUICK_ASSISTANT_BIN}.exe` : QUICK_ASSISTANT_BIN
+/** Where the overlay host lands: the runtime root, beside the entry exe. */
+const QUICK_ASSISTANT_EXE = join(RUNTIME_ROOT, QUICK_ASSISTANT_FILE)
 /** How long the first app start may take to write the profile, in milliseconds. */
 const PROFILE_INIT_TIMEOUT_MS = 120_000
 
@@ -994,6 +1002,50 @@ function installDesktopPlugins(options) {
 }
 
 /**
+ * Build the quick-assistant overlay host and land it at the runtime root.
+ *
+ * The Tauri crate's second binary owns the global shortcut and the frameless
+ * panel window; the plugin's host half starts it. A desktop build is the only
+ * step that puts the plugin into the desktop profile, so it is also the step
+ * that has to provide the binary — a fresh `build:desktop` on a machine without
+ * the Tauri crate built yet compiles it here.
+ * @param {{ skipShim?: boolean }} options - accepted for symmetry with the shim step.
+ * @returns {{ quickAssistant: string, quickAssistantBytes: number|null }} the
+ *   landed path and its size, or null bytes when the binary could not be built.
+ */
+function buildQuickAssistantHost(options = {}) {
+  const source = join(SRC_TAURI, 'src', 'quick_assistant', 'main.rs')
+  return step('Build the quick-assistant overlay host', () => {
+    if (!existsSync(source)) {
+      console.log(`skipped: ${source} is absent in this checkout`)
+      return { quickAssistant: QUICK_ASSISTANT_EXE, quickAssistantBytes: null }
+    }
+    const cargoBinary = resolveCargo()
+    if (cargoBinary === null) {
+      console.warn(
+        'cargo not found: the quick-assistant overlay host cannot be compiled here. '
+        + 'Run "npm run build" on a machine with Rust, or the plugin will report a missing helper in its settings page.',
+      )
+      return { quickAssistant: QUICK_ASSISTANT_EXE, quickAssistantBytes: null }
+    }
+    const env = { ...process.env, ...cargoToolchainEnv(cargoBinary) }
+    run(cargoBinary, ['build', '--release', '--bin', QUICK_ASSISTANT_BIN], { cwd: SRC_TAURI, env })
+    const artifact = join(SRC_TAURI, 'target', 'release', QUICK_ASSISTANT_FILE)
+    if (!existsSync(artifact)) {
+      throw new Error(`cargo did not produce ${artifact} (--skip-shim was ${options.skipShim === true ? 'set' : 'not set'})`)
+    }
+    try {
+      copyFileSync(artifact, QUICK_ASSISTANT_EXE)
+    } catch (error) {
+      throw new Error(`could not copy ${artifact} to ${QUICK_ASSISTANT_EXE} (is the overlay host running? close it first): ${error.message}`)
+    }
+    const bytes = statSync(QUICK_ASSISTANT_EXE).size
+    console.log(`${QUICK_ASSISTANT_EXE} (${formatBytes(bytes)})`)
+    return { quickAssistant: QUICK_ASSISTANT_EXE, quickAssistantBytes: bytes }
+  })
+}
+
+/**
  * Build the Electron desktop app from the pinned harness checkout and land the
  * unpacked result at `<runtime-root>/desktop`, plus the shortcut shim at
  * `<runtime-root>/dsh-gui-desktop.exe`, then install the plugin set into the
@@ -1006,7 +1058,8 @@ function installDesktopPlugins(options) {
  *   already landed app and nothing else.
  * @returns {{ workspace: string, source: string, revision: string, version: string|null,
  *   output: string, exe: string, files: number, bytes: number, exeBytes: number,
- *   shim: string, shimBytes: number|null, profile: string, pluginScripts: number,
+ *   shim: string, shimBytes: number|null, quickAssistant: string,
+ *   quickAssistantBytes: number|null, profile: string, pluginScripts: number,
  *   bundlesReconciled: number }}
  */
 export function buildDesktop(options = {}) {
@@ -1055,6 +1108,7 @@ export function buildDesktop(options = {}) {
   }
   const landed = landUnpacked()
   const shim = buildShim(options)
+  const quickAssistant = buildQuickAssistantHost(options)
   const plugins = installDesktopPlugins(options)
   const result = {
     workspace: DESKTOP_ROOT,
@@ -1067,6 +1121,7 @@ export function buildDesktop(options = {}) {
     bundlesReconciled: plugins.reconciled,
     ...landed,
     ...shim,
+    ...quickAssistant,
   }
   console.log('\ndesktop build complete:')
   console.log(`  workspace : ${result.workspace}`)
@@ -1074,6 +1129,7 @@ export function buildDesktop(options = {}) {
   console.log(`  output    : ${result.output} (${result.files} files, ${formatBytes(result.bytes)})`)
   console.log(`  entry     : ${result.exe} (${formatBytes(result.exeBytes)})`)
   console.log(`  shim      : ${result.shim}${result.shimBytes === null ? ' (skipped)' : ` (${formatBytes(result.shimBytes)})`}`)
+  console.log(`  overlay   : ${result.quickAssistant}${result.quickAssistantBytes === null ? ' (not built)' : ` (${formatBytes(result.quickAssistantBytes)})`}`)
   console.log(`  plugins   : ${result.pluginScripts} script(s) -> ${result.profile}${result.pluginScripts === 0 ? ' (skipped)' : ''}`)
   console.log(`  bundles   : ${result.bundlesReconciled} re-registered`)
   console.log('\nrun it with: npm run desktop')
