@@ -135,6 +135,22 @@ export async function downConnection(id: string): Promise<void> {
 }
 
 /**
+ * Restart one connection's remote backend: the host stops the remote dsh
+ * process and launches it again.
+ * @param id - the connection (and tab) id.
+ * @returns the URL of the fresh backend to load in a guest.
+ */
+export async function restartConnection(id: string): Promise<string> {
+  const path = `${CONNECTIONS_PATH}/${encodeURIComponent(id)}/restart`
+  const response = await fetch(path, { method: 'POST' })
+  if (!response.ok) throw new Error(await failure(response))
+  const payload: unknown = await response.json().catch(() => undefined)
+  const url = isRecord(payload) && typeof payload.url === 'string' ? payload.url : ''
+  if (url === '') throw new Error(`${path} did not return a url`)
+  return url
+}
+
+/**
  * Forget one saved remote-tab connection: the host half stops the child Harness,
  * revokes its client device, and removes its home directory.
  * @param id - the connection (and tab) id.

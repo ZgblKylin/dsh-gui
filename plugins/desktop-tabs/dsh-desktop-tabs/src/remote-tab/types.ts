@@ -161,6 +161,8 @@ export interface RemoteTabBridge {
   up(request: RemoteTabRequest): Promise<{ url: string }>
   /** Stop the child backend; the child home and identity are kept. */
   down(id: string): Promise<void>
+  /** Stop the child backend and launch a fresh one; answers its loadable URL. */
+  restart(id: string): Promise<{ url: string }>
   /** Stop the child, revoke its device, and remove its home. */
   forget(id: string): Promise<void>
   /** Stop every child; homes and identities are kept. */

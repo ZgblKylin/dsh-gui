@@ -102,11 +102,12 @@ function fakeSupervisor(): {
   setStatus(next: unknown[]): void
   up(request: unknown): Promise<{ url: string }>
   down(id: string): Promise<void>
+  restart(request: unknown): Promise<{ url: string }>
   forget(id: string): Promise<void>
   dispose(): Promise<void>
-  readonly calls: { up: unknown[]; down: string[]; forget: string[]; disposed: number }
+  readonly calls: { up: unknown[]; down: string[]; restart: unknown[]; forget: string[]; disposed: number }
 } {
-  const calls = { up: [] as unknown[], down: [] as string[], forget: [] as string[], disposed: 0 }
+  const calls = { up: [] as unknown[], down: [] as string[], restart: [] as unknown[], forget: [] as string[], disposed: 0 }
   let statuses: unknown[] = []
   return {
     calls,
@@ -117,6 +118,10 @@ function fakeSupervisor(): {
       return { url: 'http://127.0.0.1:45678/?token=ChildToken' }
     },
     async down(id: string) { calls.down.push(id) },
+    async restart(request: unknown) {
+      calls.restart.push(request)
+      return { url: 'http://127.0.0.1:45679/?token=RestartedChildToken' }
+    },
     async forget(id: string) { calls.forget.push(id) },
     async dispose() { calls.disposed += 1 },
   }
@@ -290,6 +295,15 @@ function fakeSupervisor(): {
     supervisor: fakeSupervisor(),
   })
   assert.equal(tabOnly.connectionFor('remote-tab-1')?.remote.workspacePath, '/w', 'a remote tab row also resolves')
+
+  // Restart resolves the row and dispatches one restart to the supervisor.
+  const restartHarness = fakeSupervisor()
+  const restartBridge = mod.createRemoteTabBridge({ readTabs: makeReadTabs(), supervisor: restartHarness })
+  const restarted = await restartBridge.restart('remote-1')
+  assert.equal(restarted.url, 'http://127.0.0.1:45679/?token=RestartedChildToken', 'the bridge answers the fresh child URL')
+  assert.deepEqual(restartHarness.calls.restart.map((request: { id: string }) => request.id), ['remote-1'], 'restart resolves the saved row')
+  await assert.rejects(() => restartBridge.restart('local'), /not a saved remote connection/u, 'a non-remote id cannot restart')
+  assert.equal(restartHarness.calls.restart.length, 1, 'an unknown id reaches no supervisor action')
 }
 
 // ---------------------------------------------------------------- connection dispatch
@@ -316,6 +330,12 @@ function fakeSupervisor(): {
   assert.equal(JSON.parse(up.body).url, 'http://127.0.0.1:45678/?token=ChildToken', 'up dispatches to the remote-tab supervisor')
   assert.equal(supervisor.calls.up.length, 1)
   assert.equal(supervisor.calls.up[0].id, 'remote-1')
+
+  const restart = fakeResponse()
+  await actionRoute.handler(fakeRequest({ method: 'POST', url: `${mod.CONNECTIONS_ROUTE_PREFIX}/remote-1/restart` }), restart)
+  assert.equal(restart.status, 200)
+  assert.equal(JSON.parse(restart.body).url, 'http://127.0.0.1:45679/?token=RestartedChildToken', 'restart dispatches to the remote-tab supervisor')
+  assert.deepEqual(supervisor.calls.restart.map((request: { id: string }) => request.id), ['remote-1'])
 
   const down = fakeResponse()
   await actionRoute.handler(fakeRequest({ method: 'POST', url: `${mod.CONNECTIONS_ROUTE_PREFIX}/remote-1/down` }), down)

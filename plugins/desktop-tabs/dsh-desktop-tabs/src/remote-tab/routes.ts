@@ -118,6 +118,15 @@ function createBridge(options: {
   readonly supervisor: RemoteTabSupervisor
 }): RemoteTabBridge {
   const supervisor = options.supervisor
+  /** @returns the remote request behind a tab or saved connection id, if any. */
+  const connectionFor = (id: string): RemoteTabRequest | undefined => {
+    const stored = options.readTabs()
+    const connection = stored.connections.find((row) => row.id === id && row.remote !== undefined)
+    const tab = stored.tabs.find((row) => row.id === id && row.remote !== undefined)
+    const remote = connection?.remote ?? tab?.remote
+    if (remote === undefined) return undefined
+    return { id, title: connection?.title ?? tab?.title ?? id, remote }
+  }
   return {
     status(): RemoteConnectionStatus[] {
       const rows = new Map<string, RemoteConnectionStatus>()
@@ -139,19 +148,17 @@ function createBridge(options: {
       }
       return [...rows.values()]
     },
-    connectionFor(id: string): RemoteTabRequest | undefined {
-      const stored = options.readTabs()
-      const connection = stored.connections.find((row) => row.id === id && row.remote !== undefined)
-      const tab = stored.tabs.find((row) => row.id === id && row.remote !== undefined)
-      const remote = connection?.remote ?? tab?.remote
-      if (remote === undefined) return undefined
-      return { id, title: connection?.title ?? tab?.title ?? id, remote }
-    },
+    connectionFor,
     up(request: RemoteTabRequest): Promise<{ url: string }> {
       return supervisor.up(request)
     },
     async down(id: string): Promise<void> {
       await supervisor.down(id)
+    },
+    async restart(id: string): Promise<{ url: string }> {
+      const request = connectionFor(id)
+      if (request === undefined) throw new Error(`'${id}' is not a saved remote connection`)
+      return await supervisor.restart(request)
     },
     async forget(id: string): Promise<void> {
       await supervisor.forget(id)

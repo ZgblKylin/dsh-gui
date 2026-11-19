@@ -196,6 +196,94 @@ disposeRoutes()
 assert.equal(registered.length, 0, 'the disposer removes every route')
 rmSync(routeHome, { recursive: true, force: true })
 
+// ---------------------------------------------------------------- restart
+// `restart` is the one action allowed to send a remote stop command: it tears
+// the local side down, kills the shared tmux session, and only then runs the
+// normal `up` flow. The order is asserted through the manager's own methods so
+// the test never spawns ssh/wsl; the remote-tab bridge dispatch is asserted
+// through the action route with a fake bridge.
+{
+  const restartHome = mkdtempSync(join(tmpdir(), 'dsh-desktop-tabs-restart-'))
+  const calls = []
+  const manager = mod.createRemoteConnections({ dshHome: restartHome, tabs: async () => [] })
+  manager.targetFor = async (id) => ({ id, channel: { kind: 'ssh', host: 'peer' } })
+  manager.teardownLocal = (id) => { calls.push(['down', id]) }
+  manager.runTracked = async (id, channel, command) => {
+    calls.push(['kill', id, command])
+    return ''
+  }
+  manager.establish = async (id) => {
+    calls.push(['up', id])
+    return { url: 'http://127.0.0.1:45678/?token=RestartedToken' }
+  }
+  const restarted = await manager.restart('peer')
+  assert.deepEqual(calls.map((entry) => entry[0]), ['down', 'kill', 'up'], 'restart tears down locally, kills the remote session, then reconnects')
+  assert.equal(calls[1][1], 'peer', 'the kill targets the advertised tab')
+  assert.ok(calls[1][2].includes(`tmux kill-session -t ${mod.TMUX_SESSION}`), 'restart kills the shared tmux session')
+  assert.equal(restarted.url, 'http://127.0.0.1:45678/?token=RestartedToken', 'restart answers the fresh URL')
+  manager.dispose()
+
+  // Route dispatch: a saved remote-tab id goes through the bridge's restart,
+  // an unknown id stays with the SSH/WSL manager and fails without spawning.
+  const restartWebServer = {
+    host: '127.0.0.1',
+    routes: [],
+    register(route) {
+      this.routes.push(route)
+      return () => {
+        const at = this.routes.indexOf(route)
+        if (at !== -1) this.routes.splice(at, 1)
+      }
+    },
+  }
+  const remoteCalls = []
+  const fakeRemote = {
+    status: () => [],
+    connectionFor: (id) => (id === 'remote-1'
+      ? { id, title: '远程', remote: { targetDeviceId: 'device-1', workspacePath: '/w' } }
+      : undefined),
+    up: async () => { throw new Error('up must not be used by the restart test') },
+    down: async (id) => { remoteCalls.push(['down', id]) },
+    restart: async (id) => {
+      remoteCalls.push(['restart', id])
+      return { url: 'http://127.0.0.1:45679/?token=ChildToken' }
+    },
+    forget: async () => {},
+    dispose: () => {},
+  }
+  const disposeRestartRoutes = mod.registerRemoteConnections({}, restartWebServer, {
+    dshHome: restartHome,
+    tabs: async () => [],
+    remote: fakeRemote,
+  })
+  const actionRoute = restartWebServer.routes.find((route) => route.path === mod.CONNECTIONS_ROUTE_PREFIX && route.kind === 'prefix')
+
+  const restartResponse = fakeResponse()
+  await actionRoute.handler({
+    method: 'POST',
+    url: `${mod.CONNECTIONS_ROUTE_PREFIX}/remote-1/restart`,
+    headers: { host: '127.0.0.1:1' },
+    resume() {},
+  }, restartResponse)
+  assert.equal(restartResponse.status, 200, 'POST /restart is routed')
+  assert.deepEqual(JSON.parse(restartResponse.body), { id: 'remote-1', url: 'http://127.0.0.1:45679/?token=ChildToken' }, 'restart answers the fresh URL')
+  assert.deepEqual(remoteCalls, [['restart', 'remote-1']], 'a remote-tab id dispatches to the bridge restart')
+
+  const unknownResponse = fakeResponse()
+  await actionRoute.handler({
+    method: 'POST',
+    url: `${mod.CONNECTIONS_ROUTE_PREFIX}/not-remote/restart`,
+    headers: { host: '127.0.0.1:1' },
+    resume() {},
+  }, unknownResponse)
+  assert.equal(unknownResponse.status, 502, 'an unknown id is refused instead of spawning a connection')
+  assert.match(JSON.parse(unknownResponse.body).error, /not a configured remote target/u)
+  assert.deepEqual(remoteCalls, [['restart', 'remote-1']], 'the fake bridge is left alone for an unknown id')
+
+  disposeRestartRoutes()
+  rmSync(restartHome, { recursive: true, force: true })
+}
+
 // ---------------------------------------------------------------- local-only teardown
 // `down`/`dispose` must stay local-only: disconnecting a tab with no established
 // connection completes without running any remote/WSL command. The manager has

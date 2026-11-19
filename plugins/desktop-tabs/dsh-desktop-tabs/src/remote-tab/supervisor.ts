@@ -336,6 +336,20 @@ export class RemoteTabSupervisor {
   }
 
   /**
+   * Stop the child backend and launch a fresh one. The child home and identity
+   * stay, so the new child reuses the same device.
+   * @param request - the saved row's id/title plus its `remote` descriptor.
+   * @returns the fresh child's loadable tokenized URL.
+   */
+  async restart(request: RemoteTabRequest): Promise<{ url: string }> {
+    const id = request.id.trim()
+    if (id === '') throw new Error('a remote tab id is required')
+    if (this.disposed) throw new Error('remote-tab supervisor is disposed')
+    await this.down(id)
+    return await this.up(request)
+  }
+
+  /**
    * Stop the child backend of one tab. The child home and identity stay, so the
    * next `up` reuses the same device.
    * @param rawId - the saved connection id.

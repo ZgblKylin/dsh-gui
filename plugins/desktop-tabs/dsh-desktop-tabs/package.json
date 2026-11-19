@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop-tabs",
-  "description": "Desktop-shell prototype: a host tab strip anchored to the Windows caption menu, where each remote tab keeps one leased <webview> alive for as long as the tab is open (switching only hides it) and the active tab offers a refresh control beside its close button",
-  "version": "0.4.0",
+  "description": "Desktop-shell prototype: a host tab strip anchored to the Windows caption menu, where each remote tab keeps one leased <webview> alive for as long as the tab is open (switching only hides it) and each tab carries a refresh/restart/disconnect menu beside its close button, pinned on the active tab and revealed on hover otherwise",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -30,7 +30,7 @@
   "scripts": {
     "build": "tsdown",
     "watch": "tsdown --watch",
-    "test": "node tests/remote.test.mjs && node tests/wsl.test.mjs && node tests/panel.spec.ts && node tests/remote-tab-client.spec.ts && node tests/remote-tab-profile.spec.ts && node tests/remote-tab-provider.spec.ts && node tests/remote-tab-runtime.spec.ts && node tests/remote-tab-loader.spec.ts && node tests/remote-tab-supervisor.spec.ts && node tests/remote-tab-routes.spec.ts && node tests/remote-tab-targets.spec.ts && node tests/shared-ui.spec.ts && node tests/view-retention.spec.ts && node tests/window-title.spec.ts && node tests/clipboard-relay.spec.ts && node tests/notify-relay.spec.ts && node tests/image-menu.spec.ts"
+    "test": "node tests/remote.test.mjs && node tests/wsl.test.mjs && node tests/panel.spec.ts && node tests/remote-tab-client.spec.ts && node tests/remote-tab-profile.spec.ts && node tests/remote-tab-provider.spec.ts && node tests/remote-tab-runtime.spec.ts && node tests/remote-tab-loader.spec.ts && node tests/remote-tab-supervisor.spec.ts && node tests/remote-tab-routes.spec.ts && node tests/remote-tab-targets.spec.ts && node tests/shared-ui.spec.ts && node tests/tab-menu.spec.ts && node tests/view-retention.spec.ts && node tests/window-title.spec.ts && node tests/clipboard-relay.spec.ts && node tests/notify-relay.spec.ts && node tests/image-menu.spec.ts"
   },
   "license": "Unlicense",
   "peerDependencies": {

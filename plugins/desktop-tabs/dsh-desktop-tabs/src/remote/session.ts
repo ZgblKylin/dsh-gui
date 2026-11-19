@@ -119,7 +119,7 @@ const TOKEN_READ_TIMEOUT_MS = 20_000
 /** Budget of one token-file write. */
 const TOKEN_WRITE_TIMEOUT_MS = 20_000
 
-/** Budget of one session-cleanup command on a failed attempt. */
+/** Budget of one session-cleanup or restart-kill command. */
 const CLEANUP_TIMEOUT_MS = 20_000
 
 /** How long the health wait may last for a session this attempt just started. */
@@ -235,15 +235,76 @@ export class RemoteConnectionManager implements RemoteConnections {
     const inFlight = this.pending.get(id)
     // An aborted attempt reports its own failure; `down` only has to outlast it.
     if (inFlight !== undefined) await inFlight.catch(() => undefined)
+    this.teardownLocal(id)
+    // 只断开本地隧道与本地 wsl.exe，不发任何远端/WSL 内命令；后端继续在 tmux 会话中
+    // 运行，下次 `up` 复用。
+    this.log('info', `[dsh-desktop-tabs] remote '${id}' is down`)
+  }
+
+  /** @inheritdoc */
+  async restart(tabId: string): Promise<{ url: string }> {
+    if (this.disposed) throw new Error('remote connections are disposed')
+    const id = tabId.trim()
+    if (id === '') throw new Error('a tab id is required')
+    // A restart supersedes an in-flight connect: let it settle first (its child
+    // commands are still owned by this manager), then replace its result.
+    const inFlight = this.pending.get(id)
+    if (inFlight !== undefined) await inFlight.catch(() => undefined)
+    // Register the restart like `up` before any await inside it, so a concurrent
+    // `up` waits for the restart instead of racing a session it will kill, and an
+    // unknown tab fails through the same pending slot without tearing anything down.
+    const attempt = this.restartFlow(id)
+    this.pending.set(id, attempt)
+    try {
+      return await attempt
+    } finally {
+      this.pending.delete(id)
+    }
+  }
+
+  /** Resolve the target, then replace the tab's backend. */
+  private async restartFlow(id: string): Promise<{ url: string }> {
+    // Resolve before touching anything: an unknown or unconfigured tab must not
+    // tear down a working connection.
+    const target = await this.targetFor(id)
+    return await this.restartAttempt(id, target)
+  }
+
+  /**
+   * Replace one tab's backend: stop the local side, kill the remote session, and
+   * establish a fresh connection.
+   * @param target - the target resolved before any teardown.
+   */
+  private async restartAttempt(id: string, target: RemoteTarget): Promise<{ url: string }> {
+    this.teardownLocal(id)
+    // Start the progress log before the kill, so the placeholder reports what is
+    // happening while the remote command runs; `establish` continues that log.
+    const restartRecord = this.record(id)
+    restartRecord.state = 'connecting'
+    restartRecord.log.length = 0
+    this.note(id, `正在重启：关闭远端 tmux 会话 ${TMUX_SESSION}`)
+    try {
+      // A failed kill is fatal: reconnecting without a proven stop would reuse
+      // the backend the user asked to replace.
+      await this.runTracked(id, target.channel, killSessionScript(), CLEANUP_TIMEOUT_MS)
+    } catch (error: unknown) {
+      const reason = redactToken(message(error))
+      restartRecord.state = 'error'
+      restartRecord.error = reason
+      this.note(id, `重启失败：${reason}`, 'warn')
+      throw new Error(reason)
+    }
+    return await this.establish(id, true)
+  }
+
+  /** Drop one tab's local transport and runtime records; the remote side is untouched. */
+  private teardownLocal(id: string): void {
     const established = this.active.get(id)
     if (established !== undefined) {
       this.active.delete(id)
       terminate(established.tunnel?.child)
     }
-    // 只断开本地隧道与本地 wsl.exe，不发任何远端/WSL 内命令；后端继续在 tmux 会话中
-    // 运行，下次 `up` 复用。
     this.records.delete(id)
-    this.log('info', `[dsh-desktop-tabs] remote '${id}' is down`)
   }
 
   /** @inheritdoc */
@@ -261,14 +322,17 @@ export class RemoteConnectionManager implements RemoteConnections {
     this.portProbeUnknownNoted.clear()
   }
 
-  /** Run one attempt and record its outcome; teardown runs on every failure path. */
-  private async establish(id: string): Promise<{ url: string }> {
+  /**
+   * Run one attempt and record its outcome; teardown runs on every failure path.
+   * @param restarting - continue the restart log instead of starting a new one.
+   */
+  private async establish(id: string, restarting = false): Promise<{ url: string }> {
     const record = this.record(id)
     record.state = 'connecting'
-    record.log.length = 0
+    if (!restarting) record.log.length = 0
     delete record.url
     delete record.error
-    this.note(id, `开始连接 ${id}`)
+    this.note(id, restarting ? '远端 dsh 已关闭，重新拉起' : `开始连接 ${id}`)
     const attempt: AttemptState = { startedHere: false }
     let target: RemoteTarget | undefined
     try {

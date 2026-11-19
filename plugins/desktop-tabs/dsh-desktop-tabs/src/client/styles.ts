@@ -58,8 +58,8 @@ const CSS = `
   outline-offset: -2px;
 }
 /* One tab row reads as one control: the slot paints the whole row, so the label,
-   the refresh control, and the ✕ sit on the same background. The inner buttons
-   never paint. */
+   the action menu trigger, and the ✕ sit on the same background. The inner
+   buttons never paint. */
 [data-dsh-desktop-tabs] [data-dsh-desktop-tab-slot] {
   display: inline-flex;
   align-items: center;
@@ -77,13 +77,27 @@ const CSS = `
 [data-dsh-desktop-tabs] [data-dsh-desktop-tab-slot] > button[data-dsh-desktop-tab] {
   min-width: 0;
 }
-[data-dsh-desktop-tabs] [data-dsh-desktop-tab-refresh] {
+/* The action group is pinned only on the active row; a background row reveals
+   it on hover or keyboard focus. Visibility keeps the group out of the tab
+   order while hidden and avoids reflowing the row when it appears. */
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-actions] {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  visibility: hidden;
+}
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-slot][data-dsh-desktop-tab-active] [data-dsh-desktop-tab-actions],
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-slot]:hover [data-dsh-desktop-tab-actions],
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-slot]:focus-within [data-dsh-desktop-tab-actions],
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-slot][data-dsh-desktop-tab-menu-open] [data-dsh-desktop-tab-actions] {
+  visibility: visible;
+}
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-menu] {
   padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
 }
-[data-dsh-desktop-tabs] [data-dsh-desktop-tab-refresh][hidden] {
-  display: none;
-}
-[data-dsh-desktop-tabs] [data-dsh-desktop-tab-refresh]:hover {
+[data-dsh-desktop-tabs] [data-dsh-desktop-tab-menu]:hover {
   background: transparent;
   color: var(--dsw-alias-label-primary);
 }
@@ -94,7 +108,7 @@ const CSS = `
   background: transparent;
   color: var(--dsw-alias-label-primary);
 }
-/* The `+` is the strip's only standalone button; it keeps the row look. */
+/* The '+' is the strip's only standalone button; it keeps the row look. */
 [data-dsh-desktop-tabs] > button:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
@@ -465,6 +479,48 @@ html[data-dsh-desktop-tabs-cover] body { background: var(--dsw-alias-bg-base, #1
   outline-offset: -2px;
 }
 [data-dsh-desktop-tabs-image-menu] button:disabled {
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+}
+/* The per-tab action menu (tab-menu.ts). It hangs below its trigger in viewport
+   coordinates and is appended to the application document, not the strip, so it
+   carries its own button treatment; it sits one step above the view layer. */
+[data-dsh-desktop-tabs-tab-menu] {
+  position: fixed;
+  min-width: 112px;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-overlay);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+  font-family: var(--dsw-font-family);
+  -webkit-app-region: no-drag;
+  z-index: 2147483002;
+}
+[data-dsh-desktop-tabs-tab-menu] button {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+[data-dsh-desktop-tabs-tab-menu] button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+[data-dsh-desktop-tabs-tab-menu] button:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: -2px;
+}
+[data-dsh-desktop-tabs-tab-menu] button:disabled {
   color: var(--dsw-alias-label-secondary);
   background: transparent;
 }

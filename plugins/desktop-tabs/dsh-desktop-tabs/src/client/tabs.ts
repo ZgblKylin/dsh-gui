@@ -37,9 +37,13 @@
  * Refreshing replaces the active tab's guest and re-establishes its connection:
  * the guest is unloaded, the connection is brought down, and the normal connect
  * flow runs again (persisting nothing, since the tab and connection already
- * exist). Only the active tab offers the refresh control, beside its close
- * button; an addressed (`url`) tab has no connection behind it, so refreshing it
- * just unloads the guest and loads the address again.
+ * exist). Restarting goes one step further: the host stops the remote dsh
+ * process and launches it again, then the fresh guest loads the new URL. Both
+ * controls sit behind one `⋯` menu on the tab row; the active row pins the menu
+ * trigger and the close button, while a background row reveals its actions on
+ * hover or keyboard focus. An addressed (`url`) tab has no host-managed backend,
+ * so its refresh unloads and reloads the address and its restart entry is
+ * disabled.
  *
  * Editing: tabs stay open independently of the saved connections that produced
  * them, so closing a tab never forgets a connection. Every change is persisted
@@ -61,9 +65,11 @@ import {
   fetchWslHosts,
   forgetConnection,
   putTabs,
+  restartConnection,
   upConnection,
 } from './api.ts'
 import type { DesktopBrowserBridge } from './bridge.ts'
+import { createTabActionMenu, type TabMenuAction, type TabMenuEntry } from './tab-menu.ts'
 import { installStyles, removeStyles } from './styles.ts'
 import {
   hostOfSsh,
@@ -106,6 +112,12 @@ const STRIP_ATTR = 'data-dsh-desktop-tabs'
 const TAB_SLOT_ATTR = 'data-dsh-desktop-tab-slot'
 /** Marks the tab row that is currently active. */
 const TAB_ACTIVE_ATTR = 'data-dsh-desktop-tab-active'
+/** Marks a tab row's action group: the menu trigger and the close button. */
+const TAB_ACTIONS_ATTR = 'data-dsh-desktop-tab-actions'
+/** Marks the action-menu trigger of one tab. */
+const TAB_MENU_TRIGGER_ATTR = 'data-dsh-desktop-tab-menu'
+/** Marks the row whose action menu is open, so its hover-only actions stay visible. */
+const TAB_MENU_OPEN_ATTR = 'data-dsh-desktop-tab-menu-open'
 /** Marks the `+` button. */
 const ADD_ATTR = 'data-dsh-desktop-tabs-add'
 /** The shell's caption menu host (light DOM, fixed, `z-index: 1100`). */
@@ -118,9 +130,10 @@ const LOCAL_TAB: DesktopTab = { id: 'local', title: '本机' }
 const STRIP_LABEL = '主机标签'
 /** `+` button label. */
 const ADD_LABEL = '新增标签'
-/** The active tab's refresh control: glyph and Chinese label for `title`/`aria-label`. */
-const REFRESH_GLYPH = '⟳'
-const REFRESH_LABEL = '刷新'
+/** Trigger glyph of the per-tab action menu. */
+const MENU_GLYPH = '⋯'
+/** Accessible name of the per-tab action menu. */
+const MENU_LABEL = '标签操作'
 /** How often a connecting tab asks for its progress log. */
 const LOG_POLL_MS = 500
 /** Gap between the `+` panel and the settings panel beside it. */
@@ -143,6 +156,14 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   strip.setAttribute('aria-label', STRIP_LABEL)
   strip.hidden = true
   const view: RemoteView = createRemoteView(bridge)
+  /** The row whose action menu is open, so its actions stay visible. */
+  let menuOpenRow: HTMLElement | undefined
+  const tabMenu = createTabActionMenu({
+    closed: (): void => {
+      menuOpenRow?.removeAttribute(TAB_MENU_OPEN_ATTR)
+      menuOpenRow = undefined
+    },
+  })
   const panel = createConnectionList({
     onOpen: openConnection,
     onEdit: editConnection,
@@ -222,6 +243,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     const hidden = menu === undefined || tabs.length === 0
     strip.hidden = hidden
     if (hidden) {
+      tabMenu.close()
       panel.close()
       config.close()
       view.hide()
@@ -236,6 +258,9 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
    * it is loaded (mount, or the remote group's refresh).
    */
   const render = (): void => {
+    // The menu hangs from a row that is about to be replaced; close it while its
+    // trigger still exists so the row attribute is cleared.
+    tabMenu.close()
     strip.replaceChildren(...tabs.map(createTabEntry), createAddButton())
     panel.setConnections(connections)
     panel.setSshHosts(hosts)
@@ -249,16 +274,12 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     for (const button of buttons()) {
       button.setAttribute('aria-pressed', String(button.dataset.dshDesktopTab === activeId))
     }
-    // The row background belongs to the slot, so the label, the refresh control,
-    // and the `×` share it.
+    // The row background belongs to the slot, so the label, the action menu
+    // trigger, and the `×` share it. CSS pins the action group on the active row
+    // and reveals it on hover/focus for the others.
     for (const slot of strip.querySelectorAll<HTMLElement>(`[${TAB_SLOT_ATTR}]`)) {
       if (slot.dataset.dshDesktopTabSlot === activeId) slot.setAttribute(TAB_ACTIVE_ATTR, '')
       else slot.removeAttribute(TAB_ACTIVE_ATTR)
-    }
-    // Only the active tab reloads itself, so its refresh control is the only one
-    // rendered; `hidden` keeps the inactive ones out of the tab order as well.
-    for (const refreshButton of strip.querySelectorAll<HTMLButtonElement>('[data-dsh-desktop-tab-refresh]')) {
-      refreshButton.hidden = refreshButton.dataset.dshDesktopTabRefresh !== activeId
     }
   }
 
@@ -283,18 +304,23 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     label.addEventListener('click', () => { guard(activate(tab.id), 'switch') })
     slot.append(label)
     if (!isLocalTab(tab)) {
-      // The active tab reloads its content and connection; the control sits next
-      // to `×` and is revealed for the active tab only (see `markActive`).
-      const refreshButton = document.createElement('button')
-      refreshButton.type = 'button'
-      refreshButton.textContent = REFRESH_GLYPH
-      refreshButton.title = `${REFRESH_LABEL} ${tab.title}`
-      refreshButton.setAttribute('aria-label', `${REFRESH_LABEL} ${tab.title}`)
-      refreshButton.dataset.dshDesktopTabRefresh = tab.id
-      refreshButton.hidden = tab.id !== activeId
-      refreshButton.addEventListener('click', (event) => {
+      // The refresh/restart/close controls live behind one menu trigger. Their
+      // visibility is CSS-owned: the active row pins them, a background row
+      // reveals them on hover or focus (see styles.ts).
+      const actions = document.createElement('div')
+      actions.setAttribute(TAB_ACTIONS_ATTR, '')
+      const menuTrigger = document.createElement('button')
+      menuTrigger.type = 'button'
+      menuTrigger.textContent = MENU_GLYPH
+      menuTrigger.title = `${MENU_LABEL} ${tab.title}`
+      menuTrigger.setAttribute('aria-label', `${MENU_LABEL} ${tab.title}`)
+      menuTrigger.setAttribute('aria-haspopup', 'menu')
+      menuTrigger.setAttribute('aria-expanded', 'false')
+      menuTrigger.setAttribute(TAB_MENU_TRIGGER_ATTR, '')
+      menuTrigger.dataset.dshDesktopTabMenu = tab.id
+      menuTrigger.addEventListener('click', (event) => {
         event.stopPropagation()
-        guard(refreshTab(tab.id), 'refresh')
+        toggleTabMenu(slot, menuTrigger, tab)
       })
       const closeButton = document.createElement('button')
       closeButton.type = 'button'
@@ -306,9 +332,62 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
         event.stopPropagation()
         guard(closeTab(tab.id), 'close')
       })
-      slot.append(refreshButton, closeButton)
+      actions.append(menuTrigger, closeButton)
+      slot.append(actions)
     }
     return slot
+  }
+
+  /**
+   * The entries one tab's action menu offers.
+   *
+   * An addressed tab (`url`) has no host-managed backend, so "重启" is shown
+   * disabled instead of disappearing: the menu keeps the same shape on every
+   * remote tab.
+   */
+  const menuEntries = (tab: DesktopTab): TabMenuEntry[] => {
+    const busy = refreshing.has(tab.id) || connecting.has(tab.id)
+    const managed = tab.url === undefined
+    return [
+      { action: 'refresh', label: '刷新', disabled: busy },
+      {
+        action: 'restart',
+        label: '重启',
+        disabled: busy || !managed,
+        ...(managed ? {} : { title: '该标签指向固定地址，没有由本应用管理的远端 dsh 进程' }),
+      },
+      { action: 'disconnect', label: '断开', title: `关闭 ${tab.title} 标签页（断开连接）` },
+    ]
+  }
+
+  /** Run one menu item against the tab the menu was opened for. */
+  const runMenuAction = (tab: DesktopTab, action: TabMenuAction): void => {
+    if (action === 'refresh') {
+      guard(refreshTab(tab.id), 'refresh')
+      return
+    }
+    if (action === 'restart') {
+      guard(restartTab(tab.id), 'restart')
+      return
+    }
+    guard(closeTab(tab.id), 'close')
+  }
+
+  /** Open the menu on one row, or close it when its trigger is clicked again. */
+  const toggleTabMenu = (slot: HTMLElement, trigger: HTMLButtonElement, tab: DesktopTab): void => {
+    if (menuOpenRow === slot && tabMenu.element !== undefined) {
+      tabMenu.close()
+      return
+    }
+    tabMenu.open({
+      anchor: trigger,
+      label: `${MENU_LABEL} ${tab.title}`,
+      entries: menuEntries(tab),
+      select: (action) => { runMenuAction(tab, action) },
+    })
+    if (tabMenu.element === undefined) return
+    menuOpenRow = slot
+    slot.setAttribute(TAB_MENU_OPEN_ATTR, '')
   }
 
   const createAddButton = (): HTMLButtonElement => {
@@ -421,6 +500,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
   async function activate(id: string | undefined): Promise<void> {
     const tab = tabs.find((candidate) => candidate.id === id)
     if (tab === undefined) return
+    tabMenu.close()
     activeId = tab.id
     markActive()
     if (isLocalTab(tab)) {
@@ -497,6 +577,56 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
       }
       await connectTab(tab, true)
     } finally {
+      refreshing.delete(id)
+    }
+  }
+
+  /**
+   * Restart one tab's remote backend: ask the host to stop the dsh process it
+   * manages and launch it again, then load the fresh URL in a new guest.
+   *
+   * The host owns the remote stop/start order (SSH/WSL kill the shared tmux
+   * session; a remote-tab connection stops and respawns its child). The client
+   * first tears the local side down, exactly like a refresh, so the log poller
+   * cannot mistake the old settled `up` record for this attempt; it then shows
+   * the progress placeholder and the polled connection log while the request is
+   * pending.
+   */
+  async function restartTab(id: string): Promise<void> {
+    const tab = tabs.find((candidate) => candidate.id === id)
+    if (tab === undefined || isLocalTab(tab)) return
+    // An addressed tab has no host-managed backend; its menu entry is disabled,
+    // and reloading the address is the closest equivalent if it is ever called.
+    if (tab.url !== undefined) return await refreshTab(id)
+    if (refreshing.has(id) || connecting.has(id)) return
+    refreshing.add(id)
+    const run = beginAttempt(id)
+    connecting.add(id)
+    view.open(id, tab.title)
+    let stopLog: () => void = () => {}
+    try {
+      clearTabError(id)
+      await downConnection(id).catch((error: unknown) => {
+        // The remote restart below still tears down its own side; a failed
+        // local down must not block it.
+        console.warn(`[dsh-desktop-tabs] could not bring connection '${id}' down before restarting:`, error)
+      })
+      if (attempts.get(id) !== run) return
+      stopLog = pollConnectionLog(id, run)
+      const url = await restartConnection(id)
+      if (attempts.get(id) !== run) return
+      stopLog()
+      clearTabError(id)
+      view.show(id, targetOf(tab, url))
+    } catch (error: unknown) {
+      if (attempts.get(id) !== run) return
+      const text = message(error)
+      stopLog()
+      failTab(id, text)
+      view.fail(id, `${tab.title} 重启失败：${text}`)
+      reapLog(id, run)
+    } finally {
+      if (attempts.get(id) === run) connecting.delete(id)
       refreshing.delete(id)
     }
   }
@@ -785,6 +915,7 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     document.removeEventListener('pointerdown', onPointerDownOutside, true)
     document.removeEventListener('keydown', onEscapeKey, true)
     window.removeEventListener('resize', measure)
+    tabMenu.dispose()
     config.dispose()
     panel.dispose()
     view.dispose()

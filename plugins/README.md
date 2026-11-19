@@ -226,9 +226,10 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
 - `desktop-tabs` — in-tree plugin at `desktop-tabs/dsh-desktop-tabs`, installed
   into the `web` and `desktop` profiles. Its host half is the single SSH
   remote-connection backend: it owns `<DSH_HOME>/gui/desktop-tabs.json` and the
-  `/desktop-tabs/api/*` routes (saved connections, `up`/`down`, `~/.ssh/config`
-  imports), starting or reusing a remote `dsh web` in a `dsh-gui` tmux session
-  and forwarding its loopback port. It also carries the **remote-host tab**
+  `/desktop-tabs/api/*` routes (saved connections, `up`/`down`/`restart`,
+  `~/.ssh/config` imports), starting or reusing a remote `dsh web` in a `dsh-gui`
+  tmux session and forwarding its loopback port. It also carries the
+  **remote-host tab**
   supervisor: one `remote` saved connection per ds-harness-remote host/workspace
   starts an isolated child `dsh web` under `<DSH_HOME>/gui/remote-tabs/…` (one
   owned client device, a generated `remote-tab` profile, `hostControl` off) and

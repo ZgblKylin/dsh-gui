@@ -89,6 +89,14 @@ export interface RemoteConnections {
    * @param tabId - tab to disconnect; an unknown or idle tab is a no-op.
    */
   down(tabId: string): Promise<void>
+  /**
+   * Restart the tab's remote backend: tear the local side down, kill the shared
+   * tmux session so the remote dsh process stops, then run the normal `up`
+   * flow to launch a fresh backend.
+   * @param tabId - id of a tab whose descriptor carries `ssh` or `wsl`.
+   * @returns the loadable URL of the fresh backend.
+   */
+  restart(tabId: string): Promise<{ url: string }>
   /** One row per configured remote tab, plus every tab with recorded state. */
   status(): RemoteConnectionStatus[]
   /** Tear every local connection down; remote backends keep running in tmux. */

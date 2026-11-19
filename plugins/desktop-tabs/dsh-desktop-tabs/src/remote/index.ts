@@ -19,6 +19,7 @@
  * - `GET  /desktop-tabs/api/connections` — state and connection log of every remote tab
  * - `POST /desktop-tabs/api/connections/<id>/up` — connect, answer `{ url }`
  * - `POST /desktop-tabs/api/connections/<id>/down` — disconnect the local side only
+ * - `POST /desktop-tabs/api/connections/<id>/restart` — stop the remote dsh and relaunch it
  * - `POST /desktop-tabs/api/connections/<id>/forget` — stop the child, revoke it, remove its home
  * - `GET  /desktop-tabs/api/ssh-hosts` — importable `~/.ssh/config` destinations
  * - `GET  /desktop-tabs/api/wsl-hosts` — installed WSL distributions
@@ -124,7 +125,7 @@ export const SSH_HOSTS_PATH = '/desktop-tabs/api/ssh-hosts'
 export const WSL_HOSTS_PATH = '/desktop-tabs/api/wsl-hosts'
 
 /** `/<tabId>/<action>` below the connection prefix. */
-const ACTION_PATTERN = /^\/([^/]+)\/(up|down|forget)$/
+const ACTION_PATTERN = /^\/([^/]+)\/(up|down|restart|forget)$/
 
 /**
  * Create the in-process connection manager.
@@ -217,7 +218,7 @@ function respondStatus(
   writeJson(res, 200, { connections: [...rows.values()] }, head)
 }
 
-/** Answer `POST /desktop-tabs/api/connections/<id>/up|down|forget`. */
+/** Answer `POST /desktop-tabs/api/connections/<id>/up|down|restart|forget`. */
 async function respondAction(
   req: IncomingMessage,
   res: ServerResponse,
@@ -277,6 +278,19 @@ async function respondAction(
     } catch (error) {
       const reason = redactToken(message(error))
       logger?.warn(`[dsh-desktop-tabs] remote '${id}' failed to connect: ${reason}`)
+      writeJson(res, 502, { id, error: reason }, false)
+    }
+    return
+  }
+  if (action === 'restart') {
+    try {
+      const { url } = remoteTab === undefined || remote === undefined
+        ? await connections.restart(id)
+        : await remote.restart(id)
+      writeJson(res, 200, { id, url }, false)
+    } catch (error) {
+      const reason = redactToken(message(error))
+      logger?.warn(`[dsh-desktop-tabs] remote '${id}' failed to restart: ${reason}`)
       writeJson(res, 502, { id, error: reason }, false)
     }
     return

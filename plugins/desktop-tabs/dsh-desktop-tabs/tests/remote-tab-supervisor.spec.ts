@@ -299,6 +299,24 @@ async function tick(ms = 30): Promise<void> {
   assert.equal(harness.children[0].signalCode, null)
 }
 
+// ---------------------------------------------------------------- restart
+{
+  const harness = makeHarness('ready')
+  const request = requestFor('remote-restart')
+  const first = await harness.supervisor.up(request)
+  assert.equal(first.url, CHILD_URL)
+  const firstChild = harness.children[0]
+  const restarted = await harness.supervisor.restart(request)
+  assert.equal(restarted.url, CHILD_URL, 'restart answers the fresh child URL')
+  assert.equal(harness.plans.length, 2, 'restart spawns a fresh child')
+  assert.notEqual(harness.children[1], firstChild, 'restart does not reuse the stopped child')
+  assert.equal(firstChild.exitCode, 0, 'restart stops the previous child')
+  const status = harness.supervisor.status()
+  assert.equal(status[0].state, 'up', 'restart leaves the tab up on the new child')
+  assert.equal(status[0].url, CHILD_URL)
+  await harness.supervisor.down(request.id)
+}
+
 // ---------------------------------------------------------------- default selection path
 {
   // No profile seam: the supervisor selects `<runtimeRoot>/.harness` and a real

@@ -3,7 +3,10 @@
 desktop 端多 host 标签页原型：在 Windows 标题栏菜单右侧画一条标签条，每个远端标签各自
 持有一个 `dshDesktop.browser` 租约下的 `<webview>`，**切走只隐藏、不卸载**：旧标签的
 文档状态、滚动位置、连接与在页任务都保留，切回时直接露出；本机标签隐藏整个 webview 层，
-露出原生界面。**活跃标签的关闭按钮旁有 `⟳` 刷新**：卸载该标签的内容并重新建立连接。
+露出原生界面。每个远端标签行尾有一个 `⋯` **标签操作菜单**：**刷新**（卸载该标签的内容并
+重新建立连接）、**重启**（关闭由本应用管理的 dsh 进程后重新拉起）、**断开**（关闭该
+标签页，只断开本地侧）。只有前台标签固定显示 `⋯` 与 `✕`，非前台标签在悬停或键盘聚焦时
+才显示这两个按钮。
 `+` 面板管理**已保存连接**、`~/.ssh/config` 的 SSH 主机与 `wsl.exe -l -v` 的 WSL 发行版：
 搜索筛选、分组折叠、悬停编辑/删除、右侧启动参数面板（账号、工作路径、启动命令）；连接分
 **SSH**（`ssh -L` 隧道）与 **WSL**（WSL2 localhost 转发直连，无隧道）两种方式。激活一个需要
@@ -42,7 +45,8 @@ Tauri 壳（`web` profile）的 SSH 远程连接不再有自己的 `ssh2` 实现
 | host 半 | `src/remote/**` | 远程连接路由与连接管理器（经 `registerRemoteConnections` 挂载；远端 dsh 在 `dsh-gui` tmux 会话中长期存活，SSH 与 WSL 共用该会话，见「远程连接生命周期」） |
 | host 半 | `src/remote/wsl.ts` | `wsl.exe` 传输层（`-d <发行版>` / `-u <账号>`、脚本走 stdin 的 `bash -l -s`、`WSL_UTF8` 与 UTF-16LE 兜底解码）、发行版列表解析、端口探测脚本、启动失败分类 |
 | client 半 | `src/client/index.ts` | 探测 `window.dshDesktop.browser`（protocol version 1）；缺失则完全惰性 |
-| client 半 | `src/client/tabs.ts` | 标签条几何、标签与连接状态、切换与增删改、持久化、连接日志轮询 |
+| client 半 | `src/client/tabs.ts` | 标签条几何、标签与连接状态、切换与增删改、持久化、连接日志轮询、标签操作菜单的接线 |
+| client 半 | `src/client/tab-menu.ts` | 标签操作下拉菜单：刷新/重启/断开三项、定位与视口夹取、键盘导航、失焦/滚动/Esc 关闭 |
 | 双壳共享 | `src/client/ui/connection-list.js` | `+` 面板：搜索框、可折叠的「已配置」「SSH 主机」「WSL 主机」三组、行内编辑/删除（无 import 纯 DOM 工厂） |
 | 双壳共享 | `src/client/ui/connection-settings.js` | 右侧启动参数面板：账号、工作路径、启动命令、两个内置预设、确认/取消（无 import 纯 DOM 工厂） |
 | client 半 | `src/client/api.ts` | 宿主 API 客户端（读写 `{ tabs, connections }`、连接状态、`up`/`down`、SSH 与 WSL 主机） |
@@ -101,7 +105,8 @@ Tauri 壳（`web` profile）的 SSH 远程连接不再有自己的 `ssh2` 实现
 | `GET`/`HEAD` | `/desktop-tabs/api/tabs` | 返回 `{ tabs, connections }` |
 | `PUT` | `/desktop-tabs/api/tabs` | 以 `{ tabs, connections }` 原子替换配置文件，成功返回新列表 |
 | `POST` | `/desktop-tabs/api/connections/<id>/up` | 建立该连接，返回 `{ url }` |
-| `POST` | `/desktop-tabs/api/connections/<id>/down` | 断开并回收该连接 |
+| `POST` | `/desktop-tabs/api/connections/<id>/down` | 断开并回收该连接（只断本地侧） |
+| `POST` | `/desktop-tabs/api/connections/<id>/restart` | 关闭由本应用管理的 dsh 进程后重新拉起，返回 `{ url }` |
 | `GET` | `/desktop-tabs/api/connections` | 各连接的 `state`/`url`/`error` 与 `log` |
 | `GET` | `/desktop-tabs/api/ssh-hosts` | `~/.ssh/config` 中可导入的 Host |
 | `GET` | `/desktop-tabs/api/wsl-hosts` | `wsl.exe -l -v` 报告的 WSL 发行版（`{ hosts: [{ name, state?, version?, default? }] }`）；WSL 不可用时仍返回 200 + 空列表 + `error` |
@@ -118,10 +123,19 @@ Tauri 壳（`web` profile）的 SSH 远程连接不再有自己的 `ssh2` 实现
 ## 交互
 
 - 标签行是**一个控件**：外层容器承担整行的 hover/激活背景（`--dsw-alias-interactive-bg-hover`
-  等与标题栏菜单一致的 token），内部的文本按钮、`⟳` 与 `✕` 都没有自己的背景（`⟳`/`✕` 只在
-  自身 hover 时改颜色）。文本按钮保留 `aria-pressed` 与 `aria-label` 语义、`⟳`/`✕` 带
-  `aria-label`，键盘仍可分别聚焦；点文本激活标签，点 `⟳` 刷新该标签，点 `✕` 关闭该标签
+  等与标题栏菜单一致的 token），内部的文本按钮、`⋯` 与 `✕` 都没有自己的背景（`⋯`/`✕` 只在
+  自身 hover 时改颜色）。文本按钮保留 `aria-pressed` 与 `aria-label` 语义、`⋯`/`✕` 带
+  `aria-label`，键盘仍可分别聚焦；点文本激活标签，点 `⋯` 打开标签操作菜单，点 `✕` 关闭该标签
   （`stopPropagation`，不触发激活）。
+- **标签操作菜单**：`⋯` 在行尾弹出「刷新 / 重启 / 断开」三项。**刷新**卸载该标签当前内容并
+  重新建立连接；**重启**关闭由本应用管理的 dsh 进程后重新拉起；**断开**关闭该标签页
+  （与 `✕` 相同，只断本地侧）。菜单是应用文档里的 fixed 弹层，优先贴在触发器下方，空间不足时
+  翻到上方，并在视口内夹取；`Esc`、菜单外按下指针、窗口 `blur`/`resize`/`scroll` 都关闭，
+  `↑`/`↓`、`Home`/`End` 在可用项间移动焦点，关闭后 `Esc` 把焦点交还触发器。`url` 标签没有
+  由本应用管理的进程，「重启」显示为禁用并说明原因。
+- **只有前台标签固定显示 `⋯` 与 `✕`**；非前台标签在悬停或键盘聚焦（`focus-within`）时显示，
+  菜单打开期间该行也保持显示。按钮组用 `visibility` 隐藏而不是 `display: none`，所以出现时
+  标签宽度不跳变，隐藏时也不进入 tab 序。
 - 切换标签只切换可见的 surface：旧标签的 webview **不销毁、不重新导航**，切回时原样露出，
   文档状态、滚动位置与在页任务都保留；关闭标签（`✕`）才卸载它的 guest 并 `down` 它的连接。
   本机标签隐藏整层，其他标签的 guest 仍在后台运行。
@@ -130,12 +144,14 @@ Tauri 壳（`web` profile）的 SSH 远程连接不再有自己的 `ssh2` 实现
   的页面标题不会影响主文档，所以由视图层接管。首个远程标题到达时采样当时的本机标题并开始
   监听主文档标题改动，再把窗口标题写成远程标题；接管期间 harness 改写本机标题会被**记录为
   最新本机标题并立即写回远程标题**。切到本机标签、切到一个还没上报标题的标签（连接中/失败）、
-  刷新/关闭活跃标签、隐藏或 dispose 时恢复最新本机标题。空/纯空白标题视为本机标题，不接管。
-- 只有**活跃标签**带 `⟳` 刷新（紧邻 `✕`；非活跃标签上该按钮带 `hidden`，不占位也不进
-  tab 序）：点击后卸载该标签当前内容并重新建立连接。`ssh`/`wsl` 标签先 `down`（只断开本机隧道
-  与 `wsl.exe`，远端 tmux 里的后端不动）再走一次正常的 `up` 流程，占位页与连接日志照常显示；
-  `url` 标签没有连接，卸载后重新加载同一地址即可。连接正在进行中的标签忽略刷新，以免中断刚
-  建立的会话；刷新不写配置，标签与连接条目保持不变。
+  刷新/重启/关闭活跃标签、隐藏或 dispose 时恢复最新本机标题。空/纯空白标题视为本机标题，不接管。
+- **刷新**（`ssh`/`wsl` 标签）先 `down`（只断开本机隧道与 `wsl.exe`，远端 tmux 里的后端不动）
+  再走一次正常的 `up` 流程，占位页与连接日志照常显示；`remote` 标签先停本机子后端再重新启动；
+  `url` 标签没有连接，卸载后重新加载同一地址即可。**重启**（`ssh`/`wsl` 标签）在本地清理后
+  对远端执行 `tmux kill-session -t dsh-gui`，再走正常 `up` 拉起新进程；`remote` 标签停止
+  本机子后端后重新 spawn。`down`/`dispose` 只断本地侧，重启是唯一会向远端发送停止命令的动作。
+  连接正在进行中的标签忽略刷新/重启，以免中断刚建立的会话；两者都不写配置，标签与连接条目
+  保持不变。
 - 标签条右侧的 `+` 打开面板：**搜索框**对「已配置」「SSH 主机」「WSL 主机」三组做大小写
   不敏感的模糊筛选（子序列匹配连接的类型前缀/`title`/`id`/`ssh.host`/`wsl.distro`/`account`，
   SSH 主机的 `alias`/`HostName`/`User`，以及 WSL 发行版的名称/状态/版本），每次输入即刷新；
@@ -258,11 +274,16 @@ Electron 不为 `<webview>` guest 提供默认右键菜单（desktop 主进程�
   启动期 `EADDRINUSE` 兜底判定端口占用。
 - WSL 连接要求发行版内有 `tmux`（与 SSH 远端相同）：缺失时错误文案给出安装提示；同一发行版
   的不同账号因 tmux 会话按用户隔离，各自维护自己的 `dsh-gui` 后端。
+- 「重启」关闭的是共享的 `dsh-gui` tmux 会话：同一远端主机/发行版上的其他标签（以及同时使用
+  该后端的 Tauri 外壳或 `dsh-remote`）都会失去后端，需要各自刷新/重启才能接上新进程。重启
+  不修改标签或连接配置。
+- `url`/`port` 标签只指向一个固定地址，没有由本插件管理的远端进程，菜单里的「重启」禁用；
+  「刷新」只重新加载该地址。
 - WSL 的 `<webview>` 地址是 `127.0.0.1:<端口>`，与桌面应用自身 Host 端口相同时会被外壳当作
   应用自身 authority 拒绝；端口扫描会跳过 Windows 本机已占用的端口，实际不会选中它。
 - SSH 主机列表只解析 `Host`/`HostName`/`User`/`Port`，不跟随 `Include`，不展开通配符与取反
   模式；WSL 主机列表只解析 `wsl.exe -l -v` 的表格（旧版 wsl.exe 回退到 `-l -q`，此时没有
-  状态/版本/默认标记）。`up` 失败后标签保留错误标记，直到下一次成功激活或刷新。
+  状态/版本/默认标记）。`up` 失败后标签保留错误标记，直到下一次成功激活、刷新或重启。
 - 常驻标签有成本：每个打开的远端标签都保留一个 guest（连同它的页面进程），内存与渲染开销
   随标签数增加，关闭标签才释放。切走的标签只是隐藏，其滚动位置、草稿等客户端视图状态保留
   （远端 dsh 与其任务一直不受影响，见「远程连接生命周期」）。
@@ -316,6 +337,12 @@ ALIVE 时直接复用、不重启。存活判定读远端磁盘 token 文件（t
 把该连接移出活动表，**不发任何远端停止命令**。远端 dsh 与其承载的任务在 tmux 会话里继续
 运行，下次打开同一连接直接复用；应用被强退或崩溃也不会留下孤儿进程，因此不存在也不会维护
 `desktop-tabs-remote.json` 一类的进程记录。
+
+**重启**（`POST .../restart`）是唯一例外：它先做 `down` 的本地清理，再对远端执行
+`tmux kill-session -t dsh-gui` 杀掉共享会话里的 dsh 进程，随后走正常的 `up` 流程重新拉起
+并返回新的 URL。`remote` 标签没有远端 tmux 会话，重启由 supervisor 停止本机子后端后重新
+spawn。重启不写配置；它影响共享同一 `dsh-gui` 会话的其他标签/外壳，那些页面需要再刷新或
+重启才能接上新进程（见「已知限制」）。
 
 远端启动因端口被占失败（`EADDRINUSE`）时，SSH 路径的错误文案会附带提示：默认启动命令会走
 `--port 0`，或先结束远端旧实例；WSL 路径由端口扫描与失败分类处理（见下节）。
@@ -396,7 +423,7 @@ WSL 主机列表来自 `wsl.exe -l -v`（`{ name, state?, version?, default? }`�
   `[remote-tab-boot] ready <deviceId> <workspacePath>` 才算成功（90 s 超时）；日志
   token 一律脱敏。bootstrap 在子进程里调用
   `dshRemoteClient.openRemoteWorkspace(deviceId, path)`，失败时子进程保留日志、父端
-  tab 显示错误，`⟳` 可重试。
+  tab 显示错误，菜单里的「刷新 / 重启」可重试。
 
 **前提**：desktop 应用（Electron）或任何能提供 provider 的 dsh 宿主；ds-harness-remote
 已登录并启用「允许控制本机」（host 授权用于 mint client 设备）；`dsh-remote-tab-boot`
@@ -480,10 +507,11 @@ npm run build:desktop -- --plugins-only   # 装进 <runtime-root>/.dsh/profiles/
 包内直接构建：`pnpm install && pnpm run build`（产出 `lib/index.js` 与 `lib/client.js`）。
 
 行为测试直接以 Node 运行 `tests/` 下的脚本（`pnpm run test` 依次执行）：`remote.test.mjs`
-（host 半的会话脚本与路由）、`wsl.test.mjs`（WSL 传输层：输出解码、发行版列表解析、端口探测
+（host 半的会话脚本、重启顺序与路由）、`wsl.test.mjs`（WSL 传输层：输出解码、发行版列表解析、端口探测
 脚本、启动失败分类、错误码诊断、脚本通道清洗）、`panel.spec.ts`（双壳共用控件：`+` 面板三组、
 连接方式前缀、WSL 主机行、搜索筛选与折叠、行内编辑/删除、配置面板账号字段与 draft、预设与
-确认取消、失败文案在面板内可见）、`view-retention.spec.ts`（切换保留、刷新卸载、租约与轮询
+确认取消、失败文案在面板内可见）、`tab-menu.spec.ts`（标签操作菜单：三项、禁用项、选中/关闭、
+定位夹取、键盘导航与 Esc 焦点归还）、`view-retention.spec.ts`（切换保留、刷新卸载、租约与轮询
 释放、窗口标题跟随活跃标签与恢复）、`window-title.spec.ts`（窗口标题状态机：采样、接管期间
 写回、远程切换不重采样、恢复与 dispose）、`clipboard-relay.spec.ts`、`notify-relay.spec.ts`
 与 `image-menu.spec.ts`（远端图片右键菜单：取图脚本、菜单定位与关闭、复制、失败文案、视图层
