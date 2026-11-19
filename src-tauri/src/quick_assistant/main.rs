@@ -30,8 +30,12 @@ const DEFAULT_WIDTH: f64 = 720.0;
 const DEFAULT_HEIGHT: f64 = 460.0;
 const MIN_HEIGHT: f64 = 220.0;
 const MAX_HEIGHT: f64 = 900.0;
-/// Vertical placement of the panel as a fraction of the monitor height.
-const TOP_FRACTION: f64 = 0.14;
+/// Upward bias of the vertically centered panel, as a fraction of the monitor
+/// height. The panel grows downward, so a slightly above-center top edge leaves
+/// the grown panel visually centered.
+const CENTER_BIAS: f64 = 0.05;
+/// Smallest gap kept between the panel and the monitor edges.
+const EDGE_MARGIN: f64 = 8.0;
 /// Poll interval for the plugin's native-state endpoint.
 const POLL_INTERVAL: Duration = Duration::from_secs(3);
 /// Consecutive failed polls tolerated before the process gives up (the DSH
@@ -167,15 +171,33 @@ fn force_foreground(window: &tauri::WebviewWindow) {
 fn place_overlay(window: &tauri::WebviewWindow) {
     let Ok(Some(monitor)) = window.primary_monitor() else { return };
     let scale = monitor.scale_factor();
-    let origin = monitor.position();
-    let screen = monitor.size().to_logical::<f64>(scale);
     let size = window
         .outer_size()
         .map(|size| size.to_logical::<f64>(scale))
         .unwrap_or_else(|_| tauri::LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT));
-    let x = origin.x as f64 / scale + (screen.width - size.width) / 2.0;
-    let y = origin.y as f64 / scale + (screen.height * TOP_FRACTION).round();
-    let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+    let origin = monitor.position();
+    let screen = monitor.size();
+    let position = overlay_position(scale, origin.x, origin.y, screen.width, screen.height, size);
+    let _ = window.set_position(position);
+}
+
+/// Position a panel of the given logical size horizontally centered on a monitor
+/// and slightly above its vertical center.
+fn overlay_position(
+    scale: f64,
+    monitor_x: i32,
+    monitor_y: i32,
+    monitor_width: u32,
+    monitor_height: u32,
+    size: tauri::LogicalSize<f64>,
+) -> tauri::LogicalPosition<f64> {
+    let screen_width = monitor_width as f64 / scale;
+    let screen_height = monitor_height as f64 / scale;
+    let x = monitor_x as f64 / scale + (screen_width - size.width) / 2.0;
+    let centered = (screen_height - size.height) / 2.0;
+    let lift = screen_height * CENTER_BIAS;
+    let y = monitor_y as f64 / scale + (centered - lift).max(EDGE_MARGIN);
+    tauri::LogicalPosition::new(x, y)
 }
 
 fn hide_overlay(app: &tauri::AppHandle) {
@@ -214,7 +236,18 @@ fn qa_hide(window: tauri::WebviewWindow) {
 #[tauri::command]
 fn qa_set_height(window: tauri::WebviewWindow, height: f64) {
     let height = height.clamp(MIN_HEIGHT, MAX_HEIGHT);
-    let _ = window.set_size(tauri::LogicalSize::new(DEFAULT_WIDTH, height));
+    let size = tauri::LogicalSize::new(DEFAULT_WIDTH, height);
+    let _ = window.set_size(size);
+    // Re-center after resizing: the top edge moves up by half of the growth, so
+    // a panel whose content grows stays visually centered.
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        let scale = monitor.scale_factor();
+        let origin = monitor.position();
+        let screen = monitor.size();
+        let _ = window.set_position(overlay_position(
+            scale, origin.x, origin.y, screen.width, screen.height, size,
+        ));
+    }
 }
 
 #[tauri::command]
