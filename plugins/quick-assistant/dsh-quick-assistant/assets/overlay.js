@@ -336,7 +336,33 @@
     // Leaving a sub-panel drops the request it started: the answer is no longer
     // visible, and the model call must not keep occupying the provider.
     abortJob()
+    clearSubPanel(runtime.view)
+    clearError()
     showView('home')
+    persist()
+  }
+
+  /**
+   * Drop one sub-panel's reply content when it is left, so a later visit starts
+   * from scratch. Settings-like state — the translation language pair and the
+   * source text — stays: only answers are reset.
+   * @param {string} view - the panel being left.
+   */
+  function clearSubPanel(view) {
+    if (view === 'ask') {
+      runtime.messages = []
+      renderMessages()
+      return
+    }
+    if (view === 'translate') {
+      runtime.translation.target = ''
+      renderTranslation()
+      return
+    }
+    if (view === 'summary' || view === 'explain') {
+      runtime.results[view] = ''
+      renderResult(view)
+    }
   }
 
   // ------------------------------------------------------- answer rendering
