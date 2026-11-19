@@ -23,6 +23,7 @@ import type { HelperStatus } from './helper.ts'
 import { isValidAccelerator, defaultSettings, type AssistantSettings, type SettingsStore } from './settings.ts'
 import { LANGUAGES } from './languages.ts'
 import { isAssistantMode, renderPrompt, type AssistantMode } from './prompts.ts'
+import { systemLanguageName } from './system-language.ts'
 import { openSse, streamChat, messageOf, type LlmMessage, type LlmStreamService } from './stream.ts'
 import { readAsset, readOverlayPage } from './overlay.ts'
 
@@ -354,6 +355,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, deps: RouteDe
       const modeSettings = settings.modes[request.mode]
       const prompt = renderPrompt(request.mode, modeSettings.prompt, {
         text: request.text,
+        systemLanguage: systemLanguageName(),
         ...request.sourceLanguage === undefined ? {} : { sourceLanguage: request.sourceLanguage },
         ...request.targetLanguage === undefined ? {} : { targetLanguage: request.targetLanguage },
         primaryLanguage: settings.translation.primaryLanguage,

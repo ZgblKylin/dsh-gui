@@ -290,11 +290,6 @@
     scheduleSize()
   }
 
-  function goBack() {
-    closeAllSelects()
-    showView('home')
-  }
-
   function hidePanel() {
     closeAllSelects()
     flushPersist()
@@ -336,6 +331,73 @@
     autoGrow()
   }
 
+  function goBack() {
+    closeAllSelects()
+    // Leaving a sub-panel drops the request it started: the answer is no longer
+    // visible, and the model call must not keep occupying the provider.
+    abortJob()
+    showView('home')
+  }
+
+  // ------------------------------------------------------- answer rendering
+
+  /** Render markdown into a host element that already exists. */
+  function paintMarkdown(host, text) {
+    if (window.qaMarkdown && typeof window.qaMarkdown.renderInto === 'function') {
+      window.qaMarkdown.renderInto(host, text)
+      return
+    }
+    host.textContent = text
+  }
+
+  /** Replace a host's content with markdown text, or clear it when empty. */
+  function renderMarkdown(contentHost, text) {
+    contentHost.textContent = ''
+    if (!text) return
+    const body = document.createElement('div')
+    body.className = 'markdown'
+    paintMarkdown(body, text)
+    contentHost.appendChild(body)
+  }
+
+  /** Return the markdown body of a streaming host, creating it on first use. */
+  function ensureMarkdownBody(contentHost) {
+    let body = contentHost.querySelector('.markdown')
+    if (!body) {
+      body = document.createElement('div')
+      body.className = 'markdown'
+      contentHost.appendChild(body)
+    }
+    return body
+  }
+
+  /**
+   * Add the one-line thinking indicator streaming reasoning into a host. The
+   * row keeps the newest text visible and is removed when the answer starts.
+   */
+  function createThinkingLine(contentHost) {
+    const line = document.createElement('div')
+    line.className = 'thinking-line'
+    const label = document.createElement('span')
+    label.className = 'thinking-label'
+    label.textContent = '思考中'
+    const text = document.createElement('span')
+    text.className = 'thinking-text'
+    line.appendChild(label)
+    line.appendChild(text)
+    contentHost.insertBefore(line, contentHost.firstChild)
+    return {
+      push(chunk) {
+        text.textContent += chunk
+        // One line only: keep the tail in view as the text outgrows the row.
+        text.scrollLeft = text.scrollWidth
+      },
+      hide() {
+        if (line.parentNode) line.parentNode.removeChild(line)
+      },
+    }
+  }
+
   // ------------------------------------------------------------------- ask
 
   function submitAskInput() {
@@ -375,16 +437,22 @@
     if (index < 0) return
     const bubble = dom.messageBubbles[index]
     if (!bubble) return
+    const body = ensureMarkdownBody(bubble)
+    const thinking = createThinkingLine(bubble)
     const writer = createWriter((text) => {
       assistant.content += text
-      bubble.textContent = assistant.content
+      paintMarkdown(body, assistant.content)
       scrollIfStuck(dom.messages)
     })
     startJob({
       mode: 'ask',
       payload,
       retry: () => retryAskTurn(payload, assistant),
+      onReasoning(text) {
+        thinking.push(text)
+      },
       onDelta(text) {
+        thinking.hide()
         if (assistant.pending) {
           assistant.pending = false
           bubble.classList.remove('is-pending')
@@ -394,16 +462,19 @@
       },
       onDone() {
         writer.flush()
+        thinking.hide()
         finishAssistant(assistant, bubble)
         persist()
       },
       onAbort() {
         writer.flush()
+        thinking.hide()
         finishAssistant(assistant, bubble)
         persist()
       },
       onError() {
         writer.flush()
+        thinking.hide()
         finishAssistant(assistant, bubble)
       },
     })
@@ -431,7 +502,14 @@
       const bubble = document.createElement('div')
       bubble.className = 'bubble'
       if (message.pending) bubble.classList.add('is-pending')
-      bubble.textContent = message.content
+      if (message.role === 'assistant') {
+        const body = document.createElement('div')
+        body.className = 'markdown'
+        if (message.content) paintMarkdown(body, message.content)
+        bubble.appendChild(body)
+      } else {
+        bubble.textContent = message.content
+      }
       row.appendChild(bubble)
       dom.messages.appendChild(row)
       dom.messageBubbles.push(bubble)
@@ -503,31 +581,42 @@
     const element = dom.results[mode]
     element.textContent = ''
     element.classList.add('is-waiting', 'is-streaming')
+    const body = document.createElement('div')
+    body.className = 'markdown'
+    element.appendChild(body)
+    const thinking = createThinkingLine(element)
     const writer = createWriter((text) => {
       runtime.results[mode] += text
-      element.textContent = runtime.results[mode]
+      paintMarkdown(body, runtime.results[mode])
       scrollIfStuck(element)
     })
     startJob({
       mode,
       payload: { mode, text: runtime.input.trim() },
       retry: () => runResult(mode),
+      onReasoning(text) {
+        thinking.push(text)
+      },
       onDelta(text) {
         element.classList.remove('is-waiting')
+        thinking.hide()
         writer.write(text)
       },
       onDone() {
         writer.flush()
+        thinking.hide()
         element.classList.remove('is-waiting', 'is-streaming')
         persist()
       },
       onAbort() {
         writer.flush()
+        thinking.hide()
         element.classList.remove('is-waiting', 'is-streaming')
         persist()
       },
       onError() {
         writer.flush()
+        thinking.hide()
         element.classList.remove('is-waiting', 'is-streaming')
       },
     })
@@ -535,8 +624,8 @@
 
   function renderResult(mode) {
     const element = dom.results[mode]
-    element.textContent = runtime.results[mode]
     element.classList.remove('is-waiting', 'is-streaming')
+    renderMarkdown(element, runtime.results[mode])
   }
 
   function renderTranslation() {
@@ -555,6 +644,10 @@
       delta(text) {
         if (activeJob !== entry) return
         job.onDelta(text)
+      },
+      reasoning(text) {
+        if (activeJob !== entry) return
+        if (typeof job.onReasoning === 'function') job.onReasoning(text)
       },
       done(usage) {
         entry.usage = usage
@@ -652,6 +745,9 @@
     if (event === 'delta') {
       const text = parsed && typeof parsed.text === 'string' ? parsed.text : ''
       if (text) handlers.delta(text)
+    } else if (event === 'reasoning') {
+      const text = parsed && typeof parsed.text === 'string' ? parsed.text : ''
+      if (text && typeof handlers.reasoning === 'function') handlers.reasoning(text)
     } else if (event === 'done') {
       handlers.done(parsed && typeof parsed === 'object' ? parsed : {})
     } else if (event === 'error') {

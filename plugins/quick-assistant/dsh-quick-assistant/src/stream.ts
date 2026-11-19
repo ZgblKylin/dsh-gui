@@ -62,6 +62,8 @@ export interface SseConnection {
   meta(payload: { mode: string; provider: string; model: string }): void
   /** Append visible text. */
   delta(text: string): void
+  /** Append model reasoning text (the thinking stream). */
+  reasoning(text: string): void
   /** Terminal event for a completed run. */
   done(usage?: DoneUsage): void
   /** Terminal event for a failed run. */
@@ -110,6 +112,10 @@ export function openSse(res: ServerResponse): SseConnection {
     delta(text) {
       if (finished || text === '') return
       writeEvent(res, 'delta', { text })
+    },
+    reasoning(text) {
+      if (finished || text === '') return
+      writeEvent(res, 'reasoning', { text })
     },
     done(usage) {
       if (finished) return
@@ -208,6 +214,9 @@ export async function streamChat(options: StreamChatOptions): Promise<void> {
       switch (chunk.type) {
         case 'text-delta':
           sse.delta(chunk.text)
+          break
+        case 'reasoning-delta':
+          sse.reasoning(chunk.text)
           break
         case 'usage':
           usage = doneUsage(chunk.usage)

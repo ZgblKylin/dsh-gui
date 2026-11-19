@@ -11,7 +11,8 @@
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QuickAssistantTranslate } from '../locales.ts'
 import {
-  activateOverride, defaultRouteLabel, effortOptions, findModel, findProvider, selectModel, selectProvider, withEffort,
+  activateOverride, defaultRouteLabel, effortOptions, findModel, findProvider, routeSupportsEffort, selectModel,
+  selectProvider, withEffort,
 } from '../model-catalog.ts'
 import type { ModeModelOverride, ModelCatalog } from '../types.ts'
 import { Dropdown } from './Dropdown.tsx'
@@ -58,8 +59,13 @@ export function ModeCard({
   const effortRoute = model.useDefault
     ? { provider: catalog?.default.provider, model: catalog?.default.model }
     : { provider: model.provider, model: model.model }
-  const efforts = effortOptions(catalog, effortRoute.provider, effortRoute.model, t('effortFollowDefault'))
+  const efforts = effortOptions(
+    catalog, effortRoute.provider, effortRoute.model, t('effortFollowDefault'), t('effortOff'),
+  )
   const hasEfforts = efforts.length > 1
+  const effortValue = model.reasoningEffort ?? ''
+  const effortUnsupported = effortValue !== ''
+    && !routeSupportsEffort(catalog, effortRoute.provider, effortRoute.model, effortValue)
   const showCatalogFailure = !model.useDefault && catalogStatus === 'error'
 
   return (
@@ -130,7 +136,7 @@ export function ModeCard({
             ? (
               <Dropdown
                 label={t('reasoningEffort')}
-                value={model.reasoningEffort ?? ''}
+                value={effortValue}
                 options={efforts}
                 placeholder={t('effortFollowDefault')}
                 onChange={(id) => { onChange(withEffort(model, id)) }}
@@ -139,6 +145,7 @@ export function ModeCard({
             : <div style={styles.fieldPlaceholder}>{catalogStatus === 'ready' ? t('effortNone') : '—'}</div>}
         </Field>
       </div>
+      {effortUnsupported ? <p style={styles.notice}>{t('effortUnsupported')}</p> : null}
     </Card>
   )
 }

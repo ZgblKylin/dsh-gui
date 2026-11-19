@@ -39,18 +39,40 @@ const TRANSLATE_PROMPT = [
   '将上面 <translate_input> 中的文本翻译成{{targetLanguage}}，输出中不要包含 <translate_input> 标签。',
 ].join('\n')
 
+/** Default ask template: answer the question in the system language. */
+const ASK_PROMPT = 'You are a helpful assistant, reply in {{systemLanguage}}: {{text}}'
+
+/** Default summary template: summarize in the system language. */
+const SUMMARY_PROMPT = 'Summarize the following text in {{systemLanguage}}:\n\n{{text}}'
+
+/** Default explain template: explain in the system language. */
+const EXPLAIN_PROMPT = 'Explain the following text in {{systemLanguage}}:\n\n{{text}}'
+
 /** Default prompt template per mode. */
 export const DEFAULT_PROMPTS: Readonly<Record<AssistantMode, string>> = Object.freeze({
+  ask: ASK_PROMPT,
+  translate: TRANSLATE_PROMPT,
+  summary: SUMMARY_PROMPT,
+  explain: EXPLAIN_PROMPT,
+})
+
+/**
+ * Defaults written by settings version 1, kept so the loader can swap an
+ * untouched template for the current default without touching edited ones.
+ */
+export const LEGACY_DEFAULT_PROMPTS: Readonly<Record<AssistantMode, string>> = Object.freeze({
   ask: '{{text}}',
   translate: TRANSLATE_PROMPT,
   summary: '帮我总结一下这段话\n\n{{text}}',
   explain: '帮我解释一下这个概念\n\n{{text}}',
 })
 
-/** Placeholder values available to a translate template. */
+/** Placeholder values available to a template. */
 export interface PromptInput {
   /** Text the user submitted; always required. */
   text: string
+  /** Name of the language the answer should be written in. */
+  systemLanguage: string
   /** Source language code, or `auto`. Defaults to `auto`. */
   sourceLanguage?: string
   /** Target language code, or `auto`. Defaults to `auto`. */
@@ -94,6 +116,7 @@ function languageVariables(input: PromptInput): Record<string, string> {
       : `从 ${primary} 和 ${secondary} 中选择一种与源语言（${sourceLanguage}）不同的语言`
   return {
     text: input.text,
+    systemLanguage: input.systemLanguage,
     sourceLanguage,
     targetLanguage,
     primaryLanguage: primary,
@@ -105,10 +128,10 @@ function languageVariables(input: PromptInput): Record<string, string> {
  * Render one mode's prompt for one request.
  * @param mode - assistant mode selecting the substitution set.
  * @param template - the mode's template from settings.
- * @param input - request text and, for translate, the language codes.
+ * @param input - request text, reply language, and for translate the language codes.
  * @returns the prompt text sent to the model.
  */
 export function renderPrompt(mode: AssistantMode, template: string, input: PromptInput): string {
   if (mode === 'translate') return renderTemplate(template, languageVariables(input))
-  return renderTemplate(template, { text: input.text })
+  return renderTemplate(template, { text: input.text, systemLanguage: input.systemLanguage })
 }

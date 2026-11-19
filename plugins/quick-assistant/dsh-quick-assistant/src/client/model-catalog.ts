@@ -146,21 +146,47 @@ export function withEffort(current: ModeModelOverride, effortId: string): ModeMo
 }
 
 /**
- * Effort choices for a route, including the follow-default entry.
+ * Whether a route advertises one reasoning effort. `off` is always accepted here
+ * because the settings page offers it even when the model hides it; the Host
+ * drops the level again when the model does not list it.
+ * @param catalog - the loaded catalog, or `null` while it is unavailable.
+ * @param providerId - provider id of the route.
+ * @param modelId - model id of the route.
+ * @param effortId - effort id to check.
+ * @returns `true` when the model lists the effort, or when it cannot be checked.
+ */
+export function routeSupportsEffort(
+  catalog: ModelCatalog | null,
+  providerId: string | undefined,
+  modelId: string | undefined,
+  effortId: string,
+): boolean {
+  const provider = findProvider(catalog, providerId)
+  const model = findModel(provider, modelId)
+  return model === undefined || model.efforts.some(effort => effort.id === effortId)
+}
+
+/**
+ * Effort choices for a route, including the follow-default entry and an `off`
+ * entry the model may not list itself.
  * @param catalog - the loaded catalog, or `null` while it is unavailable.
  * @param providerId - provider id of the route.
  * @param modelId - model id of the route.
  * @param followLabel - localized label of the follow-default entry.
- * @returns the dropdown options; empty when the route is unknown.
+ * @param offLabel - localized label of the `off` entry.
+ * @returns the dropdown options; only the follow-default entry when the route is unknown.
  */
 export function effortOptions(
   catalog: ModelCatalog | null,
   providerId: string | undefined,
   modelId: string | undefined,
   followLabel: string,
+  offLabel: string,
 ): { id: string; label: string }[] {
   const provider = findProvider(catalog, providerId)
   const model = findModel(provider, modelId)
   const efforts = model?.efforts ?? []
-  return [{ id: '', label: followLabel }, ...efforts.map(effort => ({ id: effort.id, label: effort.name }))]
+  const options = [{ id: '', label: followLabel }, ...efforts.map(effort => ({ id: effort.id, label: effort.name }))]
+  if (!efforts.some(effort => effort.id === 'off')) options.push({ id: 'off', label: offLabel })
+  return options
 }

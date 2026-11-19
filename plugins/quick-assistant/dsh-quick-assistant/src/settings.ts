@@ -14,13 +14,13 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 
 import { DEFAULT_PRIMARY_LANGUAGE, DEFAULT_SECONDARY_LANGUAGE, isKnownLanguage } from './languages.ts'
-import { ASSISTANT_MODES, DEFAULT_PROMPTS, type AssistantMode } from './prompts.ts'
+import { ASSISTANT_MODES, DEFAULT_PROMPTS, LEGACY_DEFAULT_PROMPTS, type AssistantMode } from './prompts.ts'
 
 /** Default global shortcut recorded by the settings page. */
 export const DEFAULT_SHORTCUT = 'Ctrl+Alt+Space'
 
 /** The settings file schema version this host writes. */
-export const SETTINGS_VERSION = 1
+export const SETTINGS_VERSION = 2
 
 /**
  * Default reasoning effort per mode: answering questions benefits from a low
@@ -171,19 +171,34 @@ function normalizeTranslation(raw: unknown, fallback: TranslationSettings): Tran
 export function normalizeSettings(raw: unknown, base: AssistantSettings = defaultSettings()): AssistantSettings {
   const defaults = defaultSettings()
   const record = isRecord(raw) ? raw : {}
+  const storedVersion = typeof record['version'] === 'number' ? record['version'] : SETTINGS_VERSION
   const rawModes = isRecord(record['modes']) ? record['modes'] : {}
   const modes = {} as Record<AssistantMode, ModeSettings>
   for (const mode of ASSISTANT_MODES) {
-    modes[mode] = normalizeMode(rawModes[mode], base.modes[mode] ?? defaults.modes[mode])
+    modes[mode] = normalizeMode(migrateMode(rawModes[mode], mode, storedVersion), base.modes[mode] ?? defaults.modes[mode])
   }
   return {
     ...base,
     ...record,
-    version: typeof record['version'] === 'number' ? record['version'] : SETTINGS_VERSION,
+    version: SETTINGS_VERSION,
     shortcut: text(record['shortcut']) ?? text(base.shortcut) ?? DEFAULT_SHORTCUT,
     modes,
     translation: normalizeTranslation(record['translation'], base.translation ?? defaults.translation),
   }
+}
+
+/**
+ * Replace a stored prompt that still equals the version-1 default with the
+ * current default, so a schema bump reaches settings the user never edited.
+ * @param raw - stored mode value.
+ * @param mode - mode the value belongs to.
+ * @param storedVersion - version recorded by the stored document.
+ * @returns the mode value to normalize.
+ */
+function migrateMode(raw: unknown, mode: AssistantMode, storedVersion: number): unknown {
+  if (storedVersion >= 2 || !isRecord(raw)) return raw
+  if (raw['prompt'] !== LEGACY_DEFAULT_PROMPTS[mode]) return raw
+  return { ...raw, prompt: DEFAULT_PROMPTS[mode] }
 }
 
 /** Accelerator modifiers understood by the native helper. */

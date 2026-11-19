@@ -33,16 +33,24 @@
 | 项 | 默认值 |
 |---|---|
 | 快捷键 | `Ctrl+Alt+Space` |
-| 回答此问题提示词 | `{{text}}` |
+| 回答此问题提示词 | `You are a helpful assistant, reply in {{systemLanguage}}: {{text}}` |
 | 文本翻译提示词 | 见 `src/prompts.ts` 的默认模板 |
-| 内容总结提示词 | `帮我总结一下这段话\n\n{{text}}` |
-| 解释说明提示词 | `帮我解释一下这个概念\n\n{{text}}` |
+| 内容总结提示词 | `Summarize the following text in {{systemLanguage}}:\n\n{{text}}` |
+| 解释说明提示词 | `Explain the following text in {{systemLanguage}}:\n\n{{text}}` |
 | 自动翻译第一/第二语言 | `zh-cn` / `en-us` |
 | 默认思考等级 | 回答此问题 `low`；文本翻译、内容总结、解释说明 `off` |
 
-提示词占位符：`{{text}}`、`{{sourceLanguage}}`、`{{targetLanguage}}`、`{{primaryLanguage}}`、`{{secondaryLanguage}}`。源语言为「自动」时提示模型自行识别；目标语言为「自动」时提示模型从第一、第二语言中选择与原文不同的一种。
+提示词占位符：`{{text}}`、`{{systemLanguage}}`、`{{sourceLanguage}}`、`{{targetLanguage}}`、`{{primaryLanguage}}`、`{{secondaryLanguage}}`。`{{systemLanguage}}` 是系统语言的英文名（如 `Simplified Chinese`），由宿主进程的 `Intl` 区域设置推出。源语言为「自动」时提示模型自行识别；目标语言为「自动」时提示模型从第一、第二语言中选择与原文不同的一种。
 
-思考等级独立于「单独配置模型」开关：关闭开关时它作用在主模型上，开启时作用在所选 provider/model 上。可选项来自模型自身声明的等级（含 `off`，即关闭思考）；所选等级不被当前模型支持时，请求省略思考等级，由模型自身默认行为决定。
+思考等级独立于「单独配置模型」开关：关闭开关时它作用在主模型上，开启时作用在所选 provider/model 上。可选项来自模型自身声明的等级；模型没有声明 `off` 时设置页仍提供「关闭思考（off）」，此时请求省略思考等级并提示「当前模型不提供该等级」，由模型自身默认行为决定（部分 provider 的模型无法关闭思考）。
+
+设置文档版本为 2：加载版本 1 的 settings.json 时，未被编辑过的默认提示词会替换为新默认值，用户改过的提示词保持不变。
+
+## 回答渲染
+
+- 「回答此问题」「内容总结」「解释说明」的回复按 Markdown 渲染（标题、段落、粗斜体、删除线、行内代码、围栏代码块、有序/无序列表、引用、分隔线、http(s) 链接），由 `assets/markdown.js` 自包含实现，所有文本以 `textContent` 写入，模型输出无法注入 HTML。
+- 模型思考时，回复区域顶部显示一行「思考中」文本，随思维链流式更新并保持最新内容可见；正文第一个字符到达时移除该行。
+- 退出子面板（返回、Esc、切换到其他模式）会立即中断在途的模型请求，不再等待其结束。
 
 ## 运行产物
 
