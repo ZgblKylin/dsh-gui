@@ -498,7 +498,9 @@ html[data-dsh-desktop-tabs-cover] body { background: var(--dsw-alias-bg-base, #1
   z-index: 2147483002;
 }
 [data-dsh-desktop-tabs-tab-menu] button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   height: 28px;
   padding: 0 10px;
@@ -512,6 +514,19 @@ html[data-dsh-desktop-tabs-cover] body { background: var(--dsw-alias-bg-base, #1
   white-space: nowrap;
   cursor: default;
   -webkit-app-region: no-drag;
+}
+[data-dsh-desktop-tabs-tab-menu] [data-dsh-desktop-tabs-tab-menu-icon] {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1;
+}
+[data-dsh-desktop-tabs-tab-menu] [data-dsh-desktop-tabs-tab-menu-label] {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 [data-dsh-desktop-tabs-tab-menu] button:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);

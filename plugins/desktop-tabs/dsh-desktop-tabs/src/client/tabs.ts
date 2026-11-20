@@ -134,6 +134,10 @@ const ADD_LABEL = '新增标签'
 const MENU_GLYPH = '⋯'
 /** Accessible name of the per-tab action menu. */
 const MENU_LABEL = '标签操作'
+/** Item glyphs: the conventional refresh, restart, and close marks. */
+const MENU_ICON_REFRESH = '⟳'
+const MENU_ICON_RESTART = '⟲'
+const MENU_ICON_DISCONNECT = '✕'
 /** How often a connecting tab asks for its progress log. */
 const LOG_POLL_MS = 500
 /** Gap between the `+` panel and the settings panel beside it. */
@@ -349,14 +353,15 @@ export function createDesktopTabs(bridge: DesktopBrowserBridge): () => void {
     const busy = refreshing.has(tab.id) || connecting.has(tab.id)
     const managed = tab.url === undefined
     return [
-      { action: 'refresh', label: '刷新', disabled: busy },
+      { action: 'refresh', label: '刷新', icon: MENU_ICON_REFRESH, disabled: busy },
       {
         action: 'restart',
         label: '重启',
+        icon: MENU_ICON_RESTART,
         disabled: busy || !managed,
         ...(managed ? {} : { title: '该标签指向固定地址，没有由本应用管理的远端 dsh 进程' }),
       },
-      { action: 'disconnect', label: '断开', title: `关闭 ${tab.title} 标签页（断开连接）` },
+      { action: 'disconnect', label: '断开', icon: MENU_ICON_DISCONNECT, title: `关闭 ${tab.title} 标签页（断开连接）` },
     ]
   }
 

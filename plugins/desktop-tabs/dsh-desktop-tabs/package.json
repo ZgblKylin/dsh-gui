@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop-tabs",
   "description": "Desktop-shell prototype: a host tab strip anchored to the Windows caption menu, where each remote tab keeps one leased <webview> alive for as long as the tab is open (switching only hides it) and each tab carries a refresh/restart/disconnect menu beside its close button, pinned on the active tab and revealed on hover otherwise",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",

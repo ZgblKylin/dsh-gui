@@ -16,6 +16,12 @@
 /** Marks the open menu root (styles.ts and tests). */
 export const TAB_MENU_ATTR = 'data-dsh-desktop-tabs-tab-menu'
 
+/** Marks an item's leading glyph. */
+export const TAB_MENU_ICON_ATTR = 'data-dsh-desktop-tabs-tab-menu-icon'
+
+/** Marks an item's text label. */
+export const TAB_MENU_LABEL_ATTR = 'data-dsh-desktop-tabs-tab-menu-label'
+
 /** The actions one tab menu offers. */
 export type TabMenuAction = 'refresh' | 'restart' | 'disconnect'
 
@@ -23,6 +29,8 @@ export type TabMenuAction = 'refresh' | 'restart' | 'disconnect'
 export interface TabMenuEntry {
   readonly action: TabMenuAction
   readonly label: string
+  /** Decorative leading glyph; the accessible name stays {@link label}. */
+  readonly icon?: string
   /** A disabled item is rendered but never activates. */
   readonly disabled?: boolean
   /** Hover description; kept out of the visible item text. */
@@ -212,8 +220,20 @@ export function createTabActionMenu(options: TabActionMenuOptions = {}): TabActi
         const button = document.createElement('button')
         button.type = 'button'
         button.setAttribute('role', 'menuitem')
-        button.textContent = entry.label
         button.setAttribute('aria-label', entry.label)
+        if (entry.icon !== undefined) {
+          const icon = document.createElement('span')
+          icon.setAttribute(TAB_MENU_ICON_ATTR, '')
+          // The glyph duplicates the label's meaning; screen readers keep the
+          // plain accessible name set on the button above.
+          icon.setAttribute('aria-hidden', 'true')
+          icon.textContent = entry.icon
+          button.append(icon)
+        }
+        const label = document.createElement('span')
+        label.setAttribute(TAB_MENU_LABEL_ATTR, '')
+        label.textContent = entry.label
+        button.append(label)
         if (entry.title !== undefined) button.title = entry.title
         button.disabled = entry.disabled === true
         button.addEventListener('click', () => {

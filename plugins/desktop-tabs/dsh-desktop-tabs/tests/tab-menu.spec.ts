@@ -9,7 +9,13 @@
  * Run: `node tests/tab-menu.spec.ts`
  */
 
-import { createTabActionMenu, TAB_MENU_ATTR, type TabMenuAction } from '../src/client/tab-menu.ts'
+import {
+  createTabActionMenu,
+  TAB_MENU_ATTR,
+  TAB_MENU_ICON_ATTR,
+  TAB_MENU_LABEL_ATTR,
+  type TabMenuAction,
+} from '../src/client/tab-menu.ts'
 
 let failures = 0
 /** @returns whether the assertion held; counts a mismatch as a failure. */
@@ -182,15 +188,20 @@ function itemsOf(root: FakeElement | undefined): FakeElement[] {
   return root?.children ?? []
 }
 
+/** The first child carrying one marker attribute. */
+function childWith(element: FakeElement, attr: string): FakeElement | undefined {
+  return element.children.find((child) => child.getAttribute(attr) !== null)
+}
+
 /** A viewport rectangle for a 26px-tall caption-band trigger. */
 function triggerRect(left: number): { left: number; top: number; right: number; bottom: number; width: number; height: number } {
   return { left, top: 8, right: left + 18, bottom: 34, width: 18, height: 26 }
 }
 
 const entries = [
-  { action: 'refresh' as const, label: '刷新' },
-  { action: 'restart' as const, label: '重启', disabled: true, title: '没有可重启的进程' },
-  { action: 'disconnect' as const, label: '断开', title: '关闭标签页' },
+  { action: 'refresh' as const, label: '刷新', icon: '⟳' },
+  { action: 'restart' as const, label: '重启', icon: '⟲', disabled: true, title: '没有可重启的进程' },
+  { action: 'disconnect' as const, label: '断开', icon: '✕', title: '关闭标签页' },
 ]
 
 {
@@ -218,7 +229,13 @@ const entries = [
   check(anchor.getAttribute('aria-expanded') === 'true', 'open: the trigger reports the menu expanded')
   const items = itemsOf(root)
   check(items.length === 3, 'open: three entries are rendered')
-  check(items[0].textContent === '刷新' && items[2].textContent === '断开', 'open: entries keep their labels')
+  check(items[0].getAttribute('aria-label') === '刷新' && items[2].getAttribute('aria-label') === '断开', 'open: entries keep their plain labels')
+  check(childWith(items[0], TAB_MENU_LABEL_ATTR)?.textContent === '刷新', 'open: the first label is rendered beside its icon')
+  check(childWith(items[2], TAB_MENU_LABEL_ATTR)?.textContent === '断开', 'open: the disconnect label is rendered beside its icon')
+  check(childWith(items[0], TAB_MENU_ICON_ATTR)?.textContent === '⟳', 'open: refresh renders the refresh glyph')
+  check(childWith(items[1], TAB_MENU_ICON_ATTR)?.textContent === '⟲', 'open: restart uses its own glyph')
+  check(childWith(items[2], TAB_MENU_ICON_ATTR)?.textContent === '✕', 'open: disconnect renders the close glyph')
+  check(childWith(items[0], TAB_MENU_ICON_ATTR)?.getAttribute('aria-hidden') === 'true', 'open: the decorative glyph is hidden from the accessible name')
   check(items[1].disabled === true, 'open: the disabled entry is disabled')
   check(items[1].getAttribute('aria-label') === '重启', 'open: a disabled entry keeps its plain label')
   check(items[1].title === '没有可重启的进程', 'open: a disabled entry explains itself in its title')
