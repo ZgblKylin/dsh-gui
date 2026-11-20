@@ -88,7 +88,7 @@ with `dsh plugin allow-version <spec> --dsh-version <runtime> --accept-risk`,
 which writes the accepted risk into the profile's `compatibility.json`. The
 exemption is keyed by exact package version and exact runtime version, so the
 next harness change invalidates it instead of carrying the accepted risk
-forward. On the pinned `dsh-v0.2.2-rc.3` runtime every wrapper's current `latest`
+forward. On the pinned `dsh-v0.2.2-rc.5` runtime every wrapper's current `latest`
 is admitted by its own declared range, so no wrapper passes `exempt`; a plugin
 whose newest release drops that admission fails the build with its package name
 — mask it with `DSH_PLUGIN_SKIP` or pin a compatible version until upstream
@@ -158,7 +158,7 @@ tree with `duplicate loader entry id`.
   no longer carries (see `dsh-web-ui/README.md`). The
   plugin-manager tab (`@linxin666/dsh-client-ui-plugin-manager`) is also not
   installed: the official `@deepseek-ai/dsh-web-app` bundle of the pinned
-  harness (dsh-v0.2.2-rc.3) inserts its own `ui-plugin-manager` loader entry
+  harness (dsh-v0.2.2-rc.5) inserts its own `ui-plugin-manager` loader entry
   with the same id. A duplicate id across bundle layers is not a boot failure —
   the loader reuses one Entry per id and the last row wins — but the surviving
   row would be the upstream package's, and shadowing the official row removes
@@ -174,10 +174,10 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
 `plugins/harness/` 是例外：它安装的官方 `@deepseek-ai/dsh*` 包按当前 harness 版本固定精确 spec，随 harness 升级流程整批改写（见 `harness/README.md`）。
 本仓库的更新面板（外壳与 desktop 插件两个入口）扫描这些脚本：精确版本行对比脚本 pin 与 registry 最新版本，`@latest` 行对比**当前 profile 已安装版本**与 registry 最新版本；「更新」对精确版本行改写 pin 后重跑脚本，对 `@latest` 行直接重跑脚本，不需要改代码（行模型见 `docs/dsh-gui/update-check.md`）。
 
-- [dshmarket](https://github.com/dsh-market/dsh-market) npm包（跟踪 `dshmarket@latest`；`@deepseek-ai/dsh-settings` peer 自 1.66.4 起纳入 0.2 线，属硬下限——更早的发布会被 0.2.2-rc.3 的准入闸门拒绝，安装前置检查直接失败；1.70.0 起 peer 检查按 `includePrerelease` 接纳 prerelease 宿主线，1.73.x 沿用同一区间（`^0.2.1-alpha.3 || ^0.2.1-rc.1`））
-- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（跟踪 `dsh-better-sidebar@latest`；0.2.2 线的发布把 14 条 `@deepseek-ai/dsh-*` peer 定为 `^0.2.2-rc.1` 一类区间，与本工程 pinned 的 `dsh-v0.2.2-rc.3` 匹配；host inject 为 `webServer / sessions / connection / tools`，不引用 0.2.1-alpha.1 起已删除的 `webRuntime`），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务；0.30.0 起侧聊模型切换走 `agent.model.select()`。install.mjs 先装本插件再装下方的 dsh-sidebar-qa
-  - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（跟踪 `dsh-sidebar-qa@latest`；host 半用 Config + volatile、按 profile 条目 id 寻址，设置项可持久化；信任围栏读 `webStartup`，LAN/`--trusted-host` 访问 `/sidebarqa/api` 不再恒 403，client 半显示失败原因；manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖 0.2.2-rc.3；自 v1.0.0 起收敛为原生单后端，manifest 层不声明 `dsh-better-sidebar` peer）
-- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) npm包（两套皮肤 maid-atelier、orca-link 与常驻 skin-manager 各自跟踪 `latest`；`@smalltailqwq/dsh-client-ui-skin-*` 三包按上游 INSTALL.md 顺序安装。皮肤的 peer 为 `@deepseek-ai/dsh >=0.2.2-0 <0.2.3-0`（`0.2.2-rc.3` 落在该区间内、满足准入闸门），其 `skin.json` 记 `dshCompatibility`（仅「验证于」展示，不参与准入判定）；manager 的 `>=0.1.7-rc.1` 同样满足，0.2.2-rc.3 的准入闸门全部放行；wrapper 并清理旧 `@dsh-external/*` 占位 scope 的残留键）
+- [dshmarket](https://github.com/dsh-market/dsh-market) npm包（跟踪 `dshmarket@latest`；`@deepseek-ai/dsh-settings` peer 自 1.66.4 起纳入 0.2 线，属硬下限——更早的发布会被 0.2.2-rc.5 的准入闸门拒绝，安装前置检查直接失败；1.70.0 起 peer 检查按 `includePrerelease` 接纳 prerelease 宿主线，1.73.x 沿用同一区间（`^0.2.1-alpha.3 || ^0.2.1-rc.1`））
+- [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（跟踪 `dsh-better-sidebar@latest`；0.2.2 线的发布把 14 条 `@deepseek-ai/dsh-*` peer 定为 `^0.2.2-rc.1` 一类区间，与本工程 pinned 的 `dsh-v0.2.2-rc.5` 匹配；host inject 为 `webServer / sessions / connection / tools`，不引用 0.2.1-alpha.1 起已删除的 `webRuntime`），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务；0.30.0 起侧聊模型切换走 `agent.model.select()`。install.mjs 先装本插件再装下方的 dsh-sidebar-qa
+  - [dsh-sidebar-qa](https://github.com/chenruot/dsh-sidebar-qa) npm包（跟踪 `dsh-sidebar-qa@latest`；host 半用 Config + volatile、按 profile 条目 id 寻址，设置项可持久化；信任围栏读 `webStartup`，LAN/`--trusted-host` 访问 `/sidebarqa/api` 不再恒 403，client 半显示失败原因；manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖 0.2.2-rc.5；自 v1.0.0 起收敛为原生单后端，manifest 层不声明 `dsh-better-sidebar` peer）
+- [dsh-deep-whale](https://github.com/Small-tailqwq/dsh-deep-whale) npm包（两套皮肤 maid-atelier、orca-link 与常驻 skin-manager 各自跟踪 `latest`；`@smalltailqwq/dsh-client-ui-skin-*` 三包按上游 INSTALL.md 顺序安装。皮肤的 peer 为 `@deepseek-ai/dsh >=0.2.2-0 <0.2.3-0`（`0.2.2-rc.5` 落在该区间内、满足准入闸门），其 `skin.json` 记 `dshCompatibility`（仅「验证于」展示，不参与准入判定）；manager 的 `>=0.1.7-rc.1` 同样满足，0.2.2-rc.5 的准入闸门全部放行；wrapper 并清理旧 `@dsh-external/*` 占位 scope 的残留键）
 - [dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui) 安装部分内容，见下方列表（三个包各自跟踪 `latest`）
   - [@linxin666/dsh-client-ui-web-ui-settings](https://www.npmjs.com/package/@linxin666/dsh-client-ui-web-ui-settings) npm包
   - [@linxin666/dsh-client-ui-skill-explorer](https://www.npmjs.com/package/@linxin666/dsh-client-ui-skill-explorer) npm包
@@ -188,17 +188,17 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
     `@linxin666/dsh-client-ui-task-board` 本工程不安装；见
     `dsh-web-ui/README.md`）
 - harness（dsh 工程官方插件组，平铺脚本见 [harness/README.md](harness/README.md)）：
-  - Agent Teams（已内置）：`dsh-v0.2.2-rc.3` 的 web-app bundle 内置 `ui-agent-team` 行（`@deepseek-ai/dsh-client-ui-agent-team`）；旧的 `@deepseek-ai/dsh-experimental-agent-team-profile` 已列入 harness 的 `RETIRED_BUNDLES`（`dsh-v0.2.2-rc.1` 时即如此），profile 里若还保留该条目，启动时会被跳过并打印告警，可直接删除；本 wrapper 既不安装它也不派生 preset。
+  - Agent Teams（已内置）：`dsh-v0.2.2-rc.5` 的 web-app bundle 内置 `ui-agent-team` 行（`@deepseek-ai/dsh-client-ui-agent-team`）；旧的 `@deepseek-ai/dsh-experimental-agent-team-profile` 已列入 harness 的 `RETIRED_BUNDLES`（`dsh-v0.2.2-rc.1` 时即如此），profile 里若还保留该条目，启动时会被跳过并打印告警，可直接删除；本 wrapper 既不安装它也不派生 preset。
   - Auto review（无本地包，官方可选 bundle）：`@deepseek-ai/dsh-experimental-auto-review` 随 dsh 安装提供并列入 harness 的 `OPTIONAL_BUNDLES`，由插件页「自动授权审查」开关写入 `dsh.profile.bundles`，本 wrapper 不安装它
   - Auto review 模型覆盖（in-tree 包）：`dsh-auto-review-model` 位于 `plugins/harness/auto-review-model/`，在 `llm/stream` waterfall 上把 `purpose: 'auto-review'` 的审查请求改派到配置的 provider/model；与「自动授权审查」开关独立，`enabled: false` 或未配置路由时不注册监听；客户端半在插件信息页提供开关与 provider/model 下拉，保存即时写入 profile 的 Cordis patch。依赖 harness 内部约定，升级后按包 README 的「Harness 升级检查清单」复核
-  - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.2.2-rc.3`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.3`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
-  - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.2-rc.3`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.3`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
-- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（跟踪 `dsh-pet@latest`；9 条 `@deepseek-ai/dsh*` peer 为 `^0.2.0-rc.1`，覆盖 0.2.2-rc.3 的准入闸门，无需精确版本例外；包内 `dsh.compatibility.dshReleases` 列表仅作「验证于」展示、不参与准入判定），默认安装：host 半 inject 为 `webServer / agentDefaultModel / credentials / llm / commands / connection`，`agentDefaultModel` 由 base bundle 提供，`connection` 供桌面模式的「打开 AI 设置」使用；client 半的本地 inject（`src/client/app.ts`）为 `slots / locale / connection / remote / remote.commands / commandUi`，其中 `commandUi`（官方 dsh-client-ui-commands 的「/」命令服务，随 web-app bundle 挂载）就绪后 `/pet` 选择框才注册；声明层 `dsh.client.inject` 只列 `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载）；系统通知走 host 转发通道（host 半监听 `session/event` / `agent/error`，把帧落在 `/dsh-pet-7340/notify`，浏览器半每秒轮询该路由）。0.4.x 新增语音播报（`@andresaya/edge-tts`）、睡觉/说梦话、待办提醒、点击音效与系统托盘等，默认配置键由包内 `assets/config.jsonc` 提供；用户层配置为 `$DSH_HOME/dsh-pet/main-config.jsonc`（旧 `main-config.json` 仍被读取并迁移），安装后自动注入 `display:"web"` 屏蔽桌面 Electron 模式（见 [dsh-pet/README.md](dsh-pet/README.md)）
-- [dsh-commandcode-provider](https://github.com/Mars-Sea/dsh-commandcode-provider) npm包（跟踪 `@mars-sea/dsh-commandcode-provider@latest`；`engines.dsh` 为析取区间 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，`0.2.2-rc.3` 落在第二段（`0.2.2-alpha.2 <= 0.2.2-rc.3 < 0.2.3-0`），其 `@deepseek-ai/dsh-*` peer 区间同样覆盖它，准入闸门只按 `engines.dsh` 判定、因此自行接纳，不需要精确版本例外；`dsh.compatibility.dshReleases` 仅作「验证于」展示，不参与准入判定；注意 `engines.node >=24.9`，与本工程 harness 的 Node 下限一致；其 bundle 层插入 entry id `llm-commandcode`）
-- [dsh-pause](https://github.com/better-er/dsh-pause) npm包（跟踪 `dsh-pause@latest`；「DSH·暂停」：host 半在 `agent/pre-step` waterfall 上卡出暂停点（每个 turn 的首次请求不停、不打断在途调用），browser 半经 `conversation.input.right` slot 在 composer 工具行渲染开关与放行控件，会话开关默认关闭（Config `defaultEnabled`）；另有键盘 Pause 键切换，以及模型空闲且输入为空时连按两次回车的「强制继续」（经 `agent.followup` 送一条内容为空的唤醒消息，不产生用户消息）；RPC 走插件向 webServer 自注册的 `/dsh-pause` 前缀路由。manifest 无 `engines.dsh`，六条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.2`，覆盖 0.2.2-rc.3 的准入闸门、无需例外（另有非 dsh 的 `@deepseek-ai/schemastery >=3.18.0` peer，不进准入闸门）；`engines.node` 声明 `>=26.3.1` 高于 harness 的 `>=24.9.0`，profile 未开 `engine-strict` 故只告警。包声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-pause`）
-- [dsh-skill-mcp-center](https://github.com/Max-Null/dsh-skill-mcp-center) npm包（跟踪 `@max-null/dsh-skill-mcp-center@latest`；仓库侧只有 wrapper 的 `install.mjs`，包以发布形态提供预构建 `dist/` 与 `client.js`，无构建步骤。host 半 inject 为 `loader` / `tools` 并从 `ctx.skills` 读取技能目录；client 半在设置页新增「Skill & MCP」分区，`dsh-better-sidebar` 存在时另在右侧栏提供 MCP 实时状态面板（可选 peer，本工程已安装）。manifest 无 `engines.dsh`，准入闸门按 `@deepseek-ai/dsh*` peer（`>=0.1.1-rc.1 <0.3.0`）放行 0.2.2-rc.3；声明 `dsh.bundle.patch`，entry id `skill-mcp-center`）
-- [ds-harness-remote](https://github.com/liguobao/ds-harness-remote) npm包（跟踪 `ds-harness-remote@latest`；DSH Remote：低延迟 P2P 端到端加密的远程访问插件，PC / 移动端 / Remote Web 可远程继续本机 Harness 会话与工作区，不开放公网监听端口、无需路由端口转发；host 半向官方 `tools` service 注册 `remote_*` 工具组（列出在线机器与工作区、读写 / 创建会话、收发消息、上下传文件），client 半在设置页提供 Remote 面板。开发基线为 `dsh-v0.2.2-rc.1`；manifest 无 `engines.dsh`，`@deepseek-ai/dsh*` peer 均为 `>=0.2.2-0 <0.2.3-0` 等多段区间，按 `includePrerelease` 覆盖 pinned 的 0.2.2-rc.3、无需精确版本例外；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `ds-harness-remote`，bundle 层只插这一行、不含 dsh-TUI 条件行（上游注明「dsh-TUI 集成推迟到后续版本」，本版本只出 Desktop / Web Host 面），不写手工 insert；`@roamhq/wrtc` 是可选原生 WebRTC 依赖（安装失败按 optional 跳过）。与内建 `dsh-remote` 的本机后端 / Docker 连接方案相互独立，可同时安装）
-- [dsh-you-should-know](https://github.com/lolipop-1x1/dsh-you-should-know) npm包（跟踪 `dsh-you-should-know@latest`；「You Should Know」任务提醒插件：host 半在主会话模型请求扩展点捕获完整请求快照，按步长后台用独立观察者模型（默认跟随主会话模型）判断值得理解的重要事实、方案取舍与背景知识，browser 半在输入框上方以可收起的浮层展示提醒，支持按需解释、标记已了解、带回主会话继续讨论与独立设置（语言 / 观察模型 / 步长 / 每轮上限）。manifest 无 `engines.dsh`，五条 `@deepseek-ai/dsh*` peer（`dsh-agent` / `dsh-client-connection` / `dsh-llm` / `dsh-session` / `dsh-storage-domain`）均为 `>=0.2.0-rc.2 <0.3.0-0`，按 `includePrerelease` 覆盖 pinned 的 0.2.2-rc.3、无需精确版本例外；另有非 dsh 的 `@deepseek-ai/cordis ^4.0.4 || ^4.0.5-alpha.1` peer（闸门不评估，运行时 cordis 4.x 线满足 `^4.0.4`）；`engines.node >=22.19.0` 无碍；发布包含预构建 `dist/`、无本地构建步骤；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-you-should-know`，不写手工 insert）
+  - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.2.2-rc.5`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.5`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
+  - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.2-rc.5`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.5`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
+- [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（跟踪 `dsh-pet@latest`；9 条 `@deepseek-ai/dsh*` peer 为 `^0.2.0-rc.1`，覆盖 0.2.2-rc.5 的准入闸门，无需精确版本例外；包内 `dsh.compatibility.dshReleases` 列表仅作「验证于」展示、不参与准入判定），默认安装：host 半 inject 为 `webServer / agentDefaultModel / credentials / llm / commands / connection`，`agentDefaultModel` 由 base bundle 提供，`connection` 供桌面模式的「打开 AI 设置」使用；client 半的本地 inject（`src/client/app.ts`）为 `slots / locale / connection / remote / remote.commands / commandUi`，其中 `commandUi`（官方 dsh-client-ui-commands 的「/」命令服务，随 web-app bundle 挂载）就绪后 `/pet` 选择框才注册；声明层 `dsh.client.inject` 只列 `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载）；系统通知走 host 转发通道（host 半监听 `session/event` / `agent/error`，把帧落在 `/dsh-pet-7340/notify`，浏览器半每秒轮询该路由）。0.4.x 新增语音播报（`@andresaya/edge-tts`）、睡觉/说梦话、待办提醒、点击音效与系统托盘等，默认配置键由包内 `assets/config.jsonc` 提供；用户层配置为 `$DSH_HOME/dsh-pet/main-config.jsonc`（旧 `main-config.json` 仍被读取并迁移），安装后自动注入 `display:"web"` 屏蔽桌面 Electron 模式（见 [dsh-pet/README.md](dsh-pet/README.md)）
+- [dsh-commandcode-provider](https://github.com/Mars-Sea/dsh-commandcode-provider) npm包（跟踪 `@mars-sea/dsh-commandcode-provider@latest`；`engines.dsh` 为析取区间 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，`0.2.2-rc.5` 落在第二段（`0.2.2-alpha.2 <= 0.2.2-rc.5 < 0.2.3-0`），其 `@deepseek-ai/dsh-*` peer 区间同样覆盖它，准入闸门只按 `engines.dsh` 判定、因此自行接纳，不需要精确版本例外；`dsh.compatibility.dshReleases` 仅作「验证于」展示，不参与准入判定；注意 `engines.node >=24.9`，与本工程 harness 的 Node 下限一致；其 bundle 层插入 entry id `llm-commandcode`）
+- [dsh-pause](https://github.com/better-er/dsh-pause) npm包（跟踪 `dsh-pause@latest`；「DSH·暂停」：host 半在 `agent/pre-step` waterfall 上卡出暂停点（每个 turn 的首次请求不停、不打断在途调用），browser 半经 `conversation.input.right` slot 在 composer 工具行渲染开关与放行控件，会话开关默认关闭（Config `defaultEnabled`）；另有键盘 Pause 键切换，以及模型空闲且输入为空时连按两次回车的「强制继续」（经 `agent.followup` 送一条内容为空的唤醒消息，不产生用户消息）；RPC 走插件向 webServer 自注册的 `/dsh-pause` 前缀路由。manifest 无 `engines.dsh`，六条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.2`，覆盖 0.2.2-rc.5 的准入闸门、无需例外（另有非 dsh 的 `@deepseek-ai/schemastery >=3.18.0` peer，不进准入闸门）；`engines.node` 声明 `>=26.3.1` 高于 harness 的 `>=24.9.0`，profile 未开 `engine-strict` 故只告警。包声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-pause`）
+- [dsh-skill-mcp-center](https://github.com/Max-Null/dsh-skill-mcp-center) npm包（跟踪 `@max-null/dsh-skill-mcp-center@latest`；仓库侧只有 wrapper 的 `install.mjs`，包以发布形态提供预构建 `dist/` 与 `client.js`，无构建步骤。host 半 inject 为 `loader` / `tools` 并从 `ctx.skills` 读取技能目录；client 半在设置页新增「Skill & MCP」分区，`dsh-better-sidebar` 存在时另在右侧栏提供 MCP 实时状态面板（可选 peer，本工程已安装）。manifest 无 `engines.dsh`，准入闸门按 `@deepseek-ai/dsh*` peer（`>=0.1.1-rc.1 <0.3.0`）放行 0.2.2-rc.5；声明 `dsh.bundle.patch`，entry id `skill-mcp-center`）
+- [ds-harness-remote](https://github.com/liguobao/ds-harness-remote) npm包（跟踪 `ds-harness-remote@latest`；DSH Remote：低延迟 P2P 端到端加密的远程访问插件，PC / 移动端 / Remote Web 可远程继续本机 Harness 会话与工作区，不开放公网监听端口、无需路由端口转发；host 半向官方 `tools` service 注册 `remote_*` 工具组（列出在线机器与工作区、读写 / 创建会话、收发消息、上下传文件），client 半在设置页提供 Remote 面板。开发基线为 `dsh-v0.2.2-rc.1`；manifest 无 `engines.dsh`，`@deepseek-ai/dsh*` peer 均为 `>=0.2.2-0 <0.2.3-0` 等多段区间，按 `includePrerelease` 覆盖 pinned 的 0.2.2-rc.5、无需精确版本例外；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `ds-harness-remote`，bundle 层只插这一行、不含 dsh-TUI 条件行（上游注明「dsh-TUI 集成推迟到后续版本」，本版本只出 Desktop / Web Host 面），不写手工 insert；`@roamhq/wrtc` 是可选原生 WebRTC 依赖（安装失败按 optional 跳过）。与内建 `dsh-remote` 的本机后端 / Docker 连接方案相互独立，可同时安装）
+- [dsh-you-should-know](https://github.com/lolipop-1x1/dsh-you-should-know) npm包（跟踪 `dsh-you-should-know@latest`；「You Should Know」任务提醒插件：host 半在主会话模型请求扩展点捕获完整请求快照，按步长后台用独立观察者模型（默认跟随主会话模型）判断值得理解的重要事实、方案取舍与背景知识，browser 半在输入框上方以可收起的浮层展示提醒，支持按需解释、标记已了解、带回主会话继续讨论与独立设置（语言 / 观察模型 / 步长 / 每轮上限）。manifest 无 `engines.dsh`，五条 `@deepseek-ai/dsh*` peer（`dsh-agent` / `dsh-client-connection` / `dsh-llm` / `dsh-session` / `dsh-storage-domain`）均为 `>=0.2.0-rc.2 <0.3.0-0`，按 `includePrerelease` 覆盖 pinned 的 0.2.2-rc.5、无需精确版本例外；另有非 dsh 的 `@deepseek-ai/cordis ^4.0.4 || ^4.0.5-alpha.1` peer（闸门不评估，运行时 cordis 4.x 线满足 `^4.0.4`）；`engines.node >=22.19.0` 无碍；发布包含预构建 `dist/`、无本地构建步骤；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-you-should-know`，不写手工 insert）
 
 ## Current plugins
 
@@ -253,7 +253,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   packages (`omdsh-dev/DSH-better-sidebar` and `ChenRuoT/dsh-sidebar-qa`) in
   order, each tracking its own registry `latest` — `dsh-better-sidebar` FIRST
   (14 条 peerDeps 为 `^0.2.2-rc.1` 一类 0.2 区间，与本工程 pinned harness 的
-  0.2.2-rc.3 匹配；host inject 为
+  0.2.2-rc.5 匹配；host inject 为
   `webServer / sessions / connection / tools`，不引用 0.2.1-alpha.1 起已删除的
   `webRuntime`；侧聊模型切换走 `agent.model.select()`),
   then `dsh-sidebar-qa`
@@ -287,7 +287,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   one-click install of community plugins), installing `dshmarket` at its
   registry `latest` (per the 安装方式 section). The version is a hard floor on
   admission: 1.66.4 admitted the 0.2 line and 1.65.3's
-  `@deepseek-ai/dsh-settings` peer range is rejected by 0.2.2-rc.3's admission
+  `@deepseek-ai/dsh-settings` peer range is rejected by 0.2.2-rc.5's admission
   gate, which fails the install preflight; 1.70.x admits prerelease host lines
   in the market's own peer check. `install.mjs` is the wrapper's only file. The
   package declares `dsh.bundle.patch`, so `dsh plugin add` mounts it through its
@@ -296,7 +296,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   `@mars-sea/dsh-commandcode-provider` at its registry `latest`. Its
   `engines.dsh` is the disjunction
   `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`, so the pinned
-  0.2.2-rc.3 runtime lands in the second branch; its `@deepseek-ai/dsh-*` peers
+  0.2.2-rc.5 runtime lands in the second branch; its `@deepseek-ai/dsh-*` peers
   carry the same disjunction, so the admission gate admits the package; its
   `dsh.compatibility.dshReleases` is display-only and not part of admission, and
   no exact-version exemption is needed (see the exception section above). Its
@@ -333,7 +333,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   `@smalltailqwq/dsh-client-ui-skin-orca-link`, each MIT for its code and
   CC BY-NC-SA 4.0 for its artwork), each tracking its own registry `latest`.
   The skins
-  carry the peer `@deepseek-ai/dsh >=0.2.2-0 <0.2.3-0` (the pinned `0.2.2-rc.3`
+  carry the peer `@deepseek-ai/dsh >=0.2.2-0 <0.2.3-0` (the pinned `0.2.2-rc.5`
   satisfies that range) and record `dshCompatibility` in `skin.json`
   (a display-only "validated against" label the manager UI shows; the admission
   gate reads the package peers); the manager's `>=0.1.7-rc.1` peer is satisfied,
@@ -369,7 +369,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   desktop pet whose host half runs inside
   DSH and whose optional desktop mode spawns per-pet transparent Electron
   windows. Its nine `@deepseek-ai/dsh*` peers are `^0.2.0-rc.1`, so
-  0.2.2-rc.3's admission
+  0.2.2-rc.5's admission
   gate admits it and no exact-version exemption is granted (its
   `dsh.compatibility.dshReleases` lists `0.2.2-rc.1` and older as validated but is
   display-only, not part of admission); the wrapper then
@@ -401,7 +401,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   reconciles it into `dsh.profile.bundles` and it mounts through its own bundle
   layer (entry id `skill-mcp-center`). No `engines.dsh` is declared; the
   admission gate evaluates its `@deepseek-ai/dsh*` peers
-  (`>=0.1.1-rc.1 <0.3.0`), which admit the pinned 0.2.2-rc.3 runtime without
+  (`>=0.1.1-rc.1 <0.3.0`), which admit the pinned 0.2.2-rc.5 runtime without
   an exemption. See the upstream `README.md`.
 - `dsh-pause` — npm-only wrapper installing `dsh-pause` at its registry
   `latest` (`install.mjs` is the wrapper's only script). The plugin gates the agent
@@ -419,7 +419,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   the `connection` trust check) rather than the removed
   `connection.rpc.handle` API. Per-session switches default off (Config
   `defaultEnabled: false`). Its six `@deepseek-ai/dsh*` peers are
-  `^0.2.0-rc.2`, which admit 0.2.2-rc.3 without an exact-version exemption
+  `^0.2.0-rc.2`, which admit 0.2.2-rc.5 without an exact-version exemption
   (a non-dsh `@deepseek-ai/schemastery >=3.18.0` peer is also declared, which
   the admission gate does not evaluate).
   `engines.node` is declared `>=26.3.1` (above the harness's `>=24.9.0`), but
@@ -444,7 +444,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   No `engines.dsh` is declared; its five `@deepseek-ai/dsh*` peers
   (`dsh-agent`, `dsh-client-connection`, `dsh-llm`, `dsh-session`,
   `dsh-storage-domain`, all `>=0.2.0-rc.2 <0.3.0-0`) admit the pinned
-  0.2.2-rc.3 runtime under `includePrerelease` without an exemption, and its
+  0.2.2-rc.5 runtime under `includePrerelease` without an exemption, and its
   non-dsh `@deepseek-ai/cordis ^4.0.4 || ^4.0.5-alpha.1` peer is not part of the
   gate (the runtime's 4.x cordis satisfies `^4.0.4`), so no `exempt` is passed.
   The package declares `dsh.bundle.patch` and mounts through its own bundle
@@ -465,7 +465,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   to a later release; the published package ships the Desktop / Web Host
   surface only).
   No `engines.dsh` is declared; its `@deepseek-ai/dsh*` peers
-  (`>=0.2.2-0 <0.2.3-0`) admit the pinned 0.2.2-rc.3 runtime under
+  (`>=0.2.2-0 <0.2.3-0`) admit the pinned 0.2.2-rc.5 runtime under
   `includePrerelease` without an exemption. `@roamhq/wrtc` is an optional
   native WebRTC dependency (pnpm skips it when unavailable). Independent of
   the in-repo `dsh-remote` local-backend/Docker mode; both can be
@@ -500,9 +500,9 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
     upgrade. See `harness/README.md`.
   - `browser-use` — `harness/browser-use.mjs` installs the Playwright MCP
     browser provider from npm as two plain (non-bundle) packages:
-    `@deepseek-ai/dsh-browser-use@0.2.2-rc.3` (the exclusive browser-use
+    `@deepseek-ai/dsh-browser-use@0.2.2-rc.5` (the exclusive browser-use
     provider registration service, `ctx.browserUse`) and
-    `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.3`
+    `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.5`
     (per-Session Chromium tools via `@playwright/mcp`, surfaced as
     `mcp__playwright-mcp__<tool>`). Neither declares `dsh.bundle.patch`, so the
     wrapper mounts both plain packages by hand: two
@@ -516,9 +516,9 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
     issue #4573 describes). See `harness/README.md`.
   - `computer-use` — `harness/computer-use.mjs` installs the Cua Driver
     native desktop provider from npm as two plain (non-bundle) packages:
-    `@deepseek-ai/dsh-computer-use@0.2.2-rc.3` (the exclusive computer-use
+    `@deepseek-ai/dsh-computer-use@0.2.2-rc.5` (the exclusive computer-use
     provider registration service, `ctx.computerUse`) and
-    `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.3`
+    `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.5`
     (in-process desktop tools via the Cua Driver native npm SDK
     `@trycua/cua-driver@0.28.0`, surfaced as `cua_driver_native__<tool>`).
     Neither declares `dsh.bundle.patch`, so the wrapper mounts both plain

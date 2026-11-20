@@ -14,7 +14,7 @@
  *
  * 准入：包以 `engines.dsh` 声明
  * `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，本工程 pinned 的
- * harness 0.2.2-rc.3 落在第二段（`0.2.2-alpha.2 <= 0.2.2-rc.3 < 0.2.3-0`）。
+ * harness 0.2.2-rc.5 落在第二段（`0.2.2-alpha.2 <= 0.2.2-rc.5 < 0.2.3-0`）。
  * 闸门只看 engines.dsh，因此该包自行被接纳，不需要 `exempt` 例外；若某次 latest
  * 改成不包含当前 harness 的区间，构建会以该包名失败，处理方式见
  * plugins/README.md。

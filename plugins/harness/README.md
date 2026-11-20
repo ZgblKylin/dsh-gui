@@ -26,7 +26,7 @@ Auto review 是随 dsh 安装提供的官方可选 bundle（`@deepseek-ai/dsh-ex
 
 ## Agent Teams
 
-Agent Teams 在 `dsh-v0.2.2-rc.3` 由 web-app 组合内置：`deepseek-harness/packages/bundle/web-app/cordis.patch.yml` 的 `ui-agent-team` 行挂载 `@deepseek-ai/dsh-client-ui-agent-team`，不需要安装或开关。旧的 `@deepseek-ai/dsh-experimental-agent-team-profile` 已列入 harness 的 `RETIRED_BUNDLES`（`deepseek-harness/packages/util/official-bundles/src/bundles.ts`，`dsh-v0.2.2-rc.1` 时即如此），不在 `OPTIONAL_BUNDLES` 中；profile 的 `dsh.profile.bundles` 若仍保留该包名，启动时会被跳过并打印一条告警（`packages/boot/app-boot/src/profile.ts` 的 `reportSkippedBundles`），可以直接删除该条目。本仓库不安装它，也不派生 preset。
+Agent Teams 由 web-app 组合内置（自 `dsh-v0.2.2-rc.3` 起）：`deepseek-harness/packages/bundle/web-app/cordis.patch.yml` 的 `ui-agent-team` 行挂载 `@deepseek-ai/dsh-client-ui-agent-team`，不需要安装或开关。旧的 `@deepseek-ai/dsh-experimental-agent-team-profile` 已列入 harness 的 `RETIRED_BUNDLES`（`deepseek-harness/packages/util/official-bundles/src/bundles.ts`，`dsh-v0.2.2-rc.1` 时即如此），不在 `OPTIONAL_BUNDLES` 中；profile 的 `dsh.profile.bundles` 若仍保留该包名，启动时会被跳过并打印一条告警（`packages/boot/app-boot/src/profile.ts` 的 `reportSkippedBundles`），可以直接删除该条目。本仓库不安装它，也不派生 preset。
 
 ### 当前状态
 
@@ -87,13 +87,13 @@ Auto review 本体从被审 agent 的最新请求头取 provider 与 model，没
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-browser-use@0.2.2-rc.3` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.3` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
+| `@deepseek-ai/dsh-browser-use@0.2.2-rc.5` | web profile | 独占具名浏览器提供方注册服务（`ctx.browserUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.5` | web profile | 通过 `@playwright/mcp` 的逐 Session Chromium 浏览器工具（工具名 `mcp__playwright-mcp__<tool>`） |
 
-两个包都精确 pin `0.2.2-rc.3`，与本仓库 pinned 的 `dsh-v0.2.2-rc.3` 运行时
-配套（peerDependencies 精确指向 `0.2.2-rc.3`）。**这个 pin 必须随 harness
+两个包都精确 pin `0.2.2-rc.5`，与本仓库 pinned 的 `dsh-v0.2.2-rc.5` 运行时
+配套（peerDependencies 精确指向 `0.2.2-rc.5`）。**这个 pin 必须随 harness
 同批移动**：准入闸门拿运行中的 dsh 版本逐条比对每个 `@deepseek-ai/dsh*` peer，
-留在 `0.2.2-rc.1` 的包会被 0.2.2-rc.3 拒绝。dsh 家族实验包的 npm `latest`
+留在 `0.2.2-rc.3` 的包会被 0.2.2-rc.5 拒绝。dsh 家族实验包的 npm `latest`
 dist-tag 落后于已发布的 prerelease，不能通过 `@latest` 或范围解析。均为
 prerelease，进不了 Community Market。核心服务先装：提供方 inject `browserUse`。
 
@@ -174,13 +174,13 @@ npm run install:plugins        # 或 npm run build
 
 | 项 | 位置 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-computer-use@0.2.2-rc.3` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.3` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
+| `@deepseek-ai/dsh-computer-use@0.2.2-rc.5` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
+| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.2-rc.5` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
 
-两个包都精确 pin `0.2.2-rc.3`，与本仓库 pinned 的 `dsh-v0.2.2-rc.3` 运行时
-配套（peerDependencies 全部指向 `0.2.2-rc.3`）。**这个 pin 必须随 harness
+两个包都精确 pin `0.2.2-rc.5`，与本仓库 pinned 的 `dsh-v0.2.2-rc.5` 运行时
+配套（peerDependencies 全部指向 `0.2.2-rc.5`）。**这个 pin 必须随 harness
 同批移动**：准入闸门拿运行中的 dsh 版本逐条比对每个 `@deepseek-ai/dsh*` peer，
-留在 `0.2.2-rc.1` 的包会被 0.2.2-rc.3 拒绝。均为 prerelease，进不了
+留在 `0.2.2-rc.3` 的包会被 0.2.2-rc.5 拒绝。均为 prerelease，进不了
 Community Market。核心服务先装：提供方 inject `computerUse`。
 
 ### 挂载与配置
@@ -305,4 +305,4 @@ insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删�
   装好且挂载完整时，`installNpmPlugin` 直接跳过该包的安装，`npm run rebuild` /
   `DSH_PLUGIN_REBUILD=1` 可强制重装。
 - 依赖 `scripts/plugin-install.mjs` 的共享流水线：Browser Use 与 Computer Use 的 npm 包经 `installNpmPlugin` 安装，`auto-review-model` 走 `installPlugin`（in-tree 包、无 build 脚本），每个 installer 也可单独运行。Browser Use 与 Computer Use 是仅有的两个用显式 `mount` 的 wrapper（服务/提供方均为普通 npm 依赖、不声明 `dsh.bundle.patch`），各自写入两行 insert（Browser Use 提供方行带 `config`）。`auto-review-model` 声明 `dsh.bundle.patch`，由 bundle 层自挂载，不写手工 insert。Auto review 本体不经过共享流水线：它是 dsh 安装随附的官方可选 bundle，只由插件页开关写入 `dsh.profile.bundles`；Agent Teams 已由 web-app 组合内置，不需要安装。`DSH_PLUGIN_SKIP=<wrapper id>` 因此只对 browser-use 与 computer-use 生效；`DSH_PLUGIN_FORCE_INSTALL=1` 反过来强制安装。
-- Browser Use 与 Computer Use 的四个 npm 包都不传 `exempt`：它们的 peer 已被 0.2.2-rc.3 的准入闸门接受，不需要版本例外（例外只用于上游尚未适配 0.2 的包，见 `plugins/README.md`）。`auto-review-model` 是 in-tree 包，没有 peer 声明，不进入准入闸门。
+- Browser Use 与 Computer Use 的四个 npm 包都不传 `exempt`：它们的 peer 已被 0.2.2-rc.5 的准入闸门接受，不需要版本例外（例外只用于上游尚未适配 0.2 的包，见 `plugins/README.md`）。`auto-review-model` 是 in-tree 包，没有 peer 声明，不进入准入闸门。
