@@ -56,6 +56,11 @@
     { code: 'uk-ua', label: '乌克兰文' },
   ]
 
+  // ------------------------------------------------------------------ copy
+
+  const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>'
+  const COPIED_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7" /></svg>'
+
   const runtime = {
     view: 'home',
     lastMode: 'ask',
@@ -81,6 +86,8 @@
   let sizeFrame = 0
   let lastRequestedHeight = 0
   let persistTimer = 0
+  const paneCopy = { summary: null, explain: null }
+  let translateCopy = null
 
   init()
 
@@ -92,6 +99,7 @@
     selects.source = createLanguageSelect(dom.sourceLangHost, 'source')
     selects.target = createLanguageSelect(dom.targetLangHost, 'target')
     refreshLanguageSelects()
+    installCopyButtons()
     bindEvents()
     renderMessages()
     renderTranslation()
@@ -426,6 +434,89 @@
     }
   }
 
+  // ------------------------------------------------------------------ copy
+
+  /** Copy helper shared by every reply block; falls back to a hidden textarea. */
+  async function copyText(text) {
+    if (!text) return false
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text)
+        return true
+      }
+    } catch {
+      // Permission-less or non-secure contexts fall through to the textarea path.
+    }
+    try {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.setAttribute('readonly', '')
+      area.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0'
+      document.body.appendChild(area)
+      area.select()
+      const copied = document.execCommand('copy')
+      document.body.removeChild(area)
+      return copied
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Build one copy button. `getText` is read on click so a streaming block is
+   * copied as it stands, and the icon flips to a check mark for a moment.
+   * @param {() => string} getText - text of the block the button belongs to.
+   * @param {string} [extraClass] - additional class names.
+   * @returns {HTMLButtonElement} the button.
+   */
+  function createCopyButton(getText, extraClass) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = extraClass ? 'copy-btn ' + extraClass : 'copy-btn'
+    button.title = '复制'
+    button.setAttribute('aria-label', '复制')
+    button.innerHTML = COPY_ICON
+    let timer = 0
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      void copyText(getText()).then((copied) => {
+        if (!copied) return
+        button.innerHTML = COPIED_ICON
+        button.classList.add('is-copied')
+        clearTimeout(timer)
+        timer = setTimeout(() => {
+          button.innerHTML = COPY_ICON
+          button.classList.remove('is-copied')
+        }, 1400)
+      })
+    })
+    return button
+  }
+
+  /** Mirror each result pane's copy button onto whether the pane has text. */
+  function syncCopyButtons() {
+    for (const mode of ['summary', 'explain']) {
+      if (paneCopy[mode]) paneCopy[mode].hidden = runtime.results[mode] === ''
+    }
+    if (translateCopy) translateCopy.hidden = runtime.translation.target === ''
+  }
+
+  /** Add the per-pane copy buttons: one per result view and one for the translation. */
+  function installCopyButtons() {
+    for (const mode of ['summary', 'explain']) {
+      const button = createCopyButton(() => runtime.results[mode], 'copy-btn-pane')
+      dom.views[mode].appendChild(button)
+      paneCopy[mode] = button
+    }
+    const translateHeader = dom.targetLangHost.parentElement
+    if (translateHeader) {
+      translateCopy = createCopyButton(() => runtime.translation.target, 'copy-btn-inline')
+      translateHeader.appendChild(translateCopy)
+    }
+    syncCopyButtons()
+  }
+
   // ------------------------------------------------------------------- ask
 
   function submitAskInput() {
@@ -535,6 +626,7 @@
         body.className = 'markdown'
         if (message.content) paintMarkdown(body, message.content)
         bubble.appendChild(body)
+        bubble.appendChild(createCopyButton(() => message.content))
       } else {
         bubble.textContent = message.content
       }
@@ -565,12 +657,14 @@
     if (!source) return
     abortJob()
     runtime.translation.target = ''
+    syncCopyButtons()
     const targetElement = dom.targetText
     targetElement.textContent = ''
     targetElement.classList.add('is-waiting', 'is-streaming')
     const writer = createWriter((text) => {
       runtime.translation.target += text
       targetElement.textContent = runtime.translation.target
+      syncCopyButtons()
       scrollIfStuck(targetElement)
     })
     startJob({
@@ -606,6 +700,7 @@
   function runResult(mode) {
     abortJob()
     runtime.results[mode] = ''
+    syncCopyButtons()
     const element = dom.results[mode]
     element.textContent = ''
     element.classList.add('is-waiting', 'is-streaming')
@@ -616,6 +711,7 @@
     const writer = createWriter((text) => {
       runtime.results[mode] += text
       paintMarkdown(body, runtime.results[mode])
+      syncCopyButtons()
       scrollIfStuck(element)
     })
     startJob({
@@ -654,11 +750,13 @@
     const element = dom.results[mode]
     element.classList.remove('is-waiting', 'is-streaming')
     renderMarkdown(element, runtime.results[mode])
+    syncCopyButtons()
   }
 
   function renderTranslation() {
     dom.sourceText.textContent = runtime.translation.source
     dom.targetText.textContent = runtime.translation.target
+    syncCopyButtons()
   }
 
   // ------------------------------------------------------------- chat jobs
