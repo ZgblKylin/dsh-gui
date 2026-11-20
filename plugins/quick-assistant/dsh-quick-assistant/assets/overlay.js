@@ -125,7 +125,9 @@
   }
 
   function onHidden() {
-    abortJob()
+    // Hiding only removes the window: a running request keeps streaming and its
+    // answer is there when the panel comes back. Leaving the sub-panel (or the
+    // page) is what cancels work.
     closeAllSelects()
     flushPersist()
   }
@@ -1244,8 +1246,15 @@
     for (const item of value) {
       if (!item || typeof item !== 'object') continue
       if (item.role !== 'user' && item.role !== 'assistant') continue
-      messages.push({ role: item.role, content: typeof item.content === 'string' ? item.content : '' })
+      const content = typeof item.content === 'string' ? item.content : ''
+      // An assistant message without text is a streaming placeholder from a run
+      // that never finished; it would render as an empty bubble.
+      if (item.role === 'assistant' && content === '') continue
+      messages.push({ role: item.role, content })
     }
+    // A trailing user turn means its answer never arrived: the page was torn down
+    // mid-run. Restoring it would show a question that nothing will answer.
+    if (messages.length > 0 && messages[messages.length - 1].role === 'user') messages.pop()
     return messages
   }
 
