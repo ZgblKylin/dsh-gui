@@ -50,7 +50,7 @@ name `dsh-you-should-know`），因此 `dsh plugin add` 会把它 reconcile 进
 - **准入**：manifest 没有 `engines.dsh`，闸门按 `@deepseek-ai/dsh*` peer 判定：
   `@deepseek-ai/dsh-agent`、`dsh-client-connection`、`dsh-llm`、`dsh-session`、
   `dsh-storage-domain` 五条均为 `>=0.2.0-rc.2 <0.3.0-0`，本仓库 pin 的
-  `dsh-v0.2.2-rc.3` 按 includePrerelease 落在区间内，安装期预检与启动期挂载都通过，
+  `dsh-v0.2.2-rc.5` 按 includePrerelease 落在区间内，安装期预检与启动期挂载都通过，
   **无需**精确版本例外。
 - **`@deepseek-ai/cordis` peer**：非 dsh 相关 peer，闸门不评估；`^4.0.4 ||
   ^4.0.5-alpha.1` 由运行时 cordis 4.x 线满足（`4.1.0` 落在 `^4.0.4` 内）。

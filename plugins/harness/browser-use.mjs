@@ -18,19 +18,18 @@
  * MCP and Stagehand providers of the same family are not.
  *
  * The versions are pinned to the harness revision this repository builds
- * against: the two packages declare exact `0.2.2-rc.3` peers, matching the
- * pinned `dsh-v0.2.2-rc.3` runtime. This group is the one npm wrapper set that
+ * against: the two packages declare exact `0.2.2-rc.5` peers, matching the
+ * pinned `dsh-v0.2.2-rc.5` runtime. This group is the one npm wrapper set that
  * keeps explicit versions instead of tracking npm `latest`: the specs move in
  * lockstep with the harness and are rewritten by the harness upgrade flow. The
  * admission gate compares every `@deepseek-ai/dsh*` peer against the running
- * version, so packages pinned to the previous `0.2.2-rc.1` release are rejected
- * under 0.2.2-rc.3. The four packages of this group all declare exact
- * `0.2.2-rc.3` peers, so all four specs stay on that version.
+ * version, so packages pinned to the previous `0.2.2-rc.3` release are rejected
+ * under 0.2.2-rc.5. The four packages of this group all declare exact
+ * `0.2.2-rc.5` peers, so all four specs stay on that version.
  * The packages are prereleases, which is why the Community Market cannot carry
- * them. The family was not renamed or merged in this release: the new
- * `@deepseek-ai/dsh-cua` / `dsh-cua-bundle` packages are additive and
- * darwin-only, and the four installed specs keep their names, mounts and Config
- * schemas.
+ * them. The family is unchanged in this release: rc.4 and rc.5 touch web search
+ * provider routing, DeepSeek refusal handling and the liveshare tunnel worker,
+ * so the four installed specs keep their names, mounts and Config schemas.
  *
  * The provider launches a Chromium binary. The wrapper resolves one at
  * install time from the standard Windows locations (honoring an explicit
@@ -73,8 +72,8 @@ import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
 /** Wrapper id prefix: the `plugins/<id>/` directory name, used for logs and skip checks. */
 const ID = 'browser-use'
 
-const BROWSER_USE_SPEC = '@deepseek-ai/dsh-browser-use@0.2.2-rc.3'
-const PLAYWRIGHT_MCP_SPEC = '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.3'
+const BROWSER_USE_SPEC = '@deepseek-ai/dsh-browser-use@0.2.2-rc.5'
+const PLAYWRIGHT_MCP_SPEC = '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.2-rc.5'
 
 /**
  * Resolve a Chromium-family executable for the provider's `mode: launch`.

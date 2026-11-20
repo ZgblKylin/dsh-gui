@@ -23,10 +23,10 @@
  * 准入：manifest 没有 `engines.dsh`，app-boot 闸门逐条比对 `@deepseek-ai/dsh*` peer：
  * `@deepseek-ai/dsh-agent`、`dsh-client-connection`、`dsh-llm`、`dsh-session`、
  * `dsh-storage-domain` 五条都是 `>=0.2.0-rc.2 <0.3.0-0`，本仓库 pin 的 harness
- * `dsh-v0.2.2-rc.3` 按 includePrerelease 落在区间内，安装期预检与启动期 bundle 层
+ * `dsh-v0.2.2-rc.5` 按 includePrerelease 落在区间内，安装期预检与启动期 bundle 层
  * 挂载都通过，因此不需要 `installNpmPlugin` 的 `exempt` 例外。
  *
- * 其余声明与 0.2.2-rc.3 的差异，均不影响加载：
+ * 其余声明与 0.2.2-rc.5 的差异，均不影响加载：
  * - `@deepseek-ai/cordis` peer 为 `^4.0.4 || ^4.0.5-alpha.1`（derivs Config schema
  *   依赖）：这是非 dsh 相关 peer，不进准入闸门；运行时 cordis 为 4.x 线，`4.1.0`
  *   满足 `^4.0.4`。
