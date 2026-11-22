@@ -8,11 +8,11 @@
  * `dsh plugin add` 会把它 reconcile 进 `dsh.profile.bundles` 并由 bundle 层自行
  * 挂载，因此本脚本不写手工 insert（那会 double-mount）。
  *
- * 准入：harness dsh-v0.2.2-rc.5 的闸门按包声明的 dsh 依赖判定——有 `engines.dsh`
+ * 准入：harness dsh-v0.2.3-alpha.2 的闸门按包声明的 dsh 依赖判定——有 `engines.dsh`
  * 时只看它，否则看 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` peer。
  * `dshmarket` 的 `@deepseek-ai/dsh-settings` peer 自 1.66.4 起带 0.2 线分支
  * （`^0.2.0-rc.1`），1.70.x 起改为 `^0.2.1-alpha.3 || ^0.2.1-rc.1` 并把自己的
- * peer 检查按 includePrerelease 执行，0.2.2-rc.5 因此被接纳；低于这两个下限的
+ * peer 检查按 includePrerelease 执行，0.2.3-alpha.2 因此被接纳；低于这两个下限的
  * 发布会被安装前置检查拒绝。
  *
  * Target: `$DSH_HOME/profiles/web/`. `DSH_HOME` is pinned to `<runtime-root>/.dsh`

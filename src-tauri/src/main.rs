@@ -468,9 +468,9 @@ fn shell_overlay_patches(home: &Path) -> Vec<PathBuf> {
 /// Spawn `node <resolved dsh CLI> web --port <port> --no-open` with `DSH_HOME`
 /// pinned to `<runtime root>/.dsh`; `harness.json` decides whether that CLI is the
 /// registry-installed package or the built submodule. Shell overlay files (see
-/// [`shell_overlay_patches`]) turn that into the launcher form
-/// `--profile web --patch <overlay>… --port <port> --no-open`, because the
-/// launcher's options must precede the booted app's arguments. The CLI's stdout
+/// [`shell_overlay_patches`]) are appended to the app form as
+/// `web --patch <overlay>… --port <port> --no-open`: `dsh web` already names the
+/// web profile, and selecting a profile twice is rejected. The CLI's stdout
 /// is captured (the launch URL line carries its one-time token) and mirrored to
 /// `.dsh\gui\harness.log`; stderr goes to the same log file. `--no-open` stops
 /// the web bundle from handing the page to the default browser: the shell opens
@@ -508,16 +508,13 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
     // Shell-only plugin layers: plugins a wrapper installs but keeps out of the
     // browser web-ui composition add one overlay file here, and this shell
     // applies it as the last profile layer. An unpatched `dsh web` run never
-    // loads them. The launcher's options must precede the booted app's
-    // arguments, and naming the profile explicitly starts that option list.
+    // loads them. `dsh web` already selects the web profile, so the app name
+    // carries the overlay flags itself: naming the profile a second time is
+    // rejected with "select a profile only once".
     let overlays = shell_overlay_patches(&home);
-    if overlays.is_empty() {
-        command.arg("web");
-    } else {
-        command.arg("--profile").arg("web");
-        for overlay in &overlays {
-            command.arg("--patch").arg(overlay);
-        }
+    command.arg("web");
+    for overlay in &overlays {
+        command.arg("--patch").arg(overlay);
     }
     command
         .arg("--port")
@@ -598,9 +595,10 @@ fn spawn_harness(root: &Path, port: u16) -> Result<HarnessProcess, Box<dyn std::
                         let _ = f.write_all(cooked.as_bytes());
                         let _ = f.write_all(b"\n");
                     }
-                    if tx_tee.send(cooked).is_err() {
-                        break;
-                    }
+                    // Keep draining after the boot reader is gone: the child's
+                    // stdout is a pipe, and closing its read end turns the next
+                    // console write into a fatal EPIPE inside the harness.
+                    let _ = tx_tee.send(cooked);
                 }
             }
         }

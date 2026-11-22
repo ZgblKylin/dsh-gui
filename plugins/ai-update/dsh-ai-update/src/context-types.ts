@@ -18,11 +18,27 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
+/** Route admission policy (mirror of `WebAuthPolicy`). */
+export type AiUpdateWebAuthPolicy = 'anonymous' | 'required' | 'deny'
+
+/** Admission facts a policy selector reads (mirror of `WebAuthRequest`). */
+export interface AiUpdateWebAuthRequest {
+  readonly headers: Headers | Readonly<Record<string, string | readonly string[] | undefined>>
+  readonly method?: string | undefined
+  readonly url: URL
+  readonly transport: 'http' | 'upgrade'
+}
+
 /** One named webserver route (mirror of the host-webserver WebRoute). */
 export interface AiUpdateWebRoute {
   kind: 'exact' | 'prefix'
   path: string
   handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
+  /**
+   * Route admission policy; omission requires the Host session, matching the
+   * upstream default. Mirrors `WebAuthenticationRule`.
+   */
+  auth?: AiUpdateWebAuthPolicy | ((request: AiUpdateWebAuthRequest) => AiUpdateWebAuthPolicy)
 }
 
 /** The webServer service face this plugin uses. */

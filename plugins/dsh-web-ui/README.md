@@ -16,7 +16,7 @@
 门禁只影响直接交给它的 tag/范围，因此这条路径不会静默装回旧版本；升级不需要改动
 仓库，上游发布后重跑安装即可。
 
-三个包要求 `@deepseek-ai/dsh >= 0.2.2-rc.1`（0.4.16 起从 `>= 0.2.1-rc.3` 抬高），本工程 pinned 的 `dsh-v0.2.2-rc.5` 满足该声明（`>= 0.2.2-rc.1` 在准入闸门的 `includePrerelease` 判定下接纳 rc.3）。发布包另提供 `locale/en.json` 与 `locale/zh.json`，面板文案跟随界面语言；`dsh-usage` 的 `engines.node` 为 `>=24.9.0`（与 harness 一致）。
+三个包要求 `@deepseek-ai/dsh >= 0.2.2-rc.1`（0.4.16 起从 `>= 0.2.1-rc.3` 抬高），本工程 pinned 的 `dsh-v0.2.3-alpha.2` 满足该声明（`>= 0.2.2-rc.1` 在准入闸门的 `includePrerelease` 判定下接纳 rc.3）。发布包另提供 `locale/en.json` 与 `locale/zh.json`，面板文案跟随界面语言；`dsh-usage` 的 `engines.node` 为 `>=24.9.0`（harness 为 `^24.22.3 || >=26.13.1`）。
 
 > **`dsh-plugin-manager`（`@linxin666/dsh-client-ui-plugin-manager`）不由本 wrapper 安装。**
 > 直到 v0.4.4，排除原因是硬冲突：官方 `@deepseek-ai/dsh-web-app` bundle 自带

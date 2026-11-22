@@ -234,11 +234,14 @@ served by `dsh-desktop-tabs` (below) and share their configuration and remote
 
 - Windows 10/11 with the **WebView2 Evergreen runtime** (ships with most modern
   Windows / Edge installs).
-- **Node.js** `^22.19 || >=24.2` and **npm** on `PATH` (used by the build tooling
-  and by the shell to launch `bin.js`). The `>=24.2` floor is real: the harness
-  CLI entry is gated on `import.meta.main`, which Node only provides from
-  22.18.0 / 24.2.0 on — on 24.0–24.1 `bin.js` exits 0 without starting and the
-  shell reports `harness exited before becoming ready (status exit status: 0)`.
+- **Node.js** `^24.22.3 || >=26.13.1` and **npm** on `PATH` (used by the build
+  tooling and by the shell to launch `bin.js`). The range is the pinned
+  harness's own `engines.node`: 24.22.3 is the first Node 24 release whose
+  bundled undici carries the November 2026 security fixes, and 26.13.1 the
+  first such 26.x release. It sits above the older `import.meta.main` floor
+  (Node 22.18.0 / 24.2.0): on 24.0–24.1 `bin.js` exits 0 without starting and
+  the shell reports `harness exited before becoming ready (status exit status:
+  0)`.
 - **Rust** toolchain (`rustc`/`cargo`) for the entry exe.
 
 Everything fetched at build time (npm packages, the pnpm store, cargo crates)
@@ -626,8 +629,8 @@ the dsh runtime and the plugins only.
   `npm run install:plugins` once — every plugin install script writes
   `storeDir` into `.dsh\profiles\web\pnpm-workspace.yaml` before re-adding
   its dependency.
-- **"failed to spawn harness (is `node` on PATH?)"** — install Node `^22.19` or
-  `>=24.2` (see the requirements above; 24.0–24.1 cannot start the harness CLI).
+- **"failed to spawn harness (is `node` on PATH?)"** — install Node
+  `^24.22.3 || >=26.13.1` (see the requirements above).
 - **Blank window / connection refused** — a window that sits on the loading
   card (or shows `DeepSeek Harness 启动失败`) means the harness did not come
   up: read `.dsh\gui\harness.log` (e.g. port already in use — set

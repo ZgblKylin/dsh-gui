@@ -57,8 +57,8 @@ static CAPTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Embedded node script that fetches the GitHub releases for a set of tags and
 /// prints one JSON line for the Rust side to parse. Written to a temp file at
-/// call time; the harness requires Node ≥ 22, so global `fetch` + timeouts are
-/// available.
+/// call time; the harness requires Node 24.22.3+ (or 26.13.1+), so global
+/// `fetch` + timeouts are available.
 ///
 /// argv: `[baseUrl, wantedTagsJson]`, where `baseUrl` is the paginated release
 /// list endpoint (`…/releases?per_page=100`) and `wantedTagsJson` is the array

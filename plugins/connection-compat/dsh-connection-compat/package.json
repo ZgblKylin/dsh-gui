@@ -1,0 +1,20 @@
+{
+  "name": "dsh-connection-compat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Restores the connection.requestRejection compatibility API removed in dsh 0.2.3 for plugins that fence their local routes with it",
+  "license": "Unlicense",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}

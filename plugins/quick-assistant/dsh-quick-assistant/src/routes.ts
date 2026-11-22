@@ -6,10 +6,13 @@
  *
  * - the overlay and the native helper carry a one-time token (`?token=` or
  *   `x-qa-token`) generated per plugin instance, because they live in a
- *   separate native window rather than the GUI page;
- * - the settings page is the GUI page itself, so its routes require only a
- *   same-origin request — the same fence dsh-desktop-tabs and dsh-auto-update
- *   use for their unauthenticated local RPC.
+ *   separate native window rather than the GUI page; they run in that
+ *   helper's own WebView2 process, which has a separate cookie jar, so they
+ *   never present the Host session cookie and {@link routeAuthPolicy} admits
+ *   their paths anonymously;
+ * - the settings page is the GUI page itself, so its routes keep the Host's
+ *   default `required` policy and add the same-origin fence dsh-desktop-tabs
+ *   and dsh-auto-update use.
  *
  * The web server is bound to loopback before these routes are registered
  * (`index.ts`); nothing here is reachable from another machine.
@@ -17,6 +20,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
+import type { WebAuthPolicy, WebAuthRequest } from '@deepseek-ai/dsh-host-webserver'
 
 import { buildCatalog, CatalogCache, NoModelError, resolveRequestSelection, type CatalogSnapshot, type LlmCatalogService, type ModelSelection } from './catalog.ts'
 import type { HelperStatus } from './helper.ts'
@@ -448,6 +452,37 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, deps: RouteDe
     default:
       return sendJson(res, 404, { error: `未知的接口：${pathname}` })
   }
+}
+
+/**
+ * Paths only the overlay page and the native helper request.
+ *
+ * They run in the helper's own WebView2 process, whose cookie jar is separate
+ * from every Host page, so the Host session cookie never accompanies them; the
+ * one-time token checked by {@link dispatch} is their whole credential.
+ */
+const OVERLAY_PATHS: ReadonlySet<string> = new Set([
+  ROUTE_PREFIX,
+  `${ROUTE_PREFIX}/`,
+  `${ROUTE_PREFIX}/api/bootstrap`,
+  `${ROUTE_PREFIX}/api/chat`,
+  `${ROUTE_PREFIX}/api/native`,
+])
+
+/**
+ * Route admission for the `/quick-assistant` prefix.
+ *
+ * Overlay traffic is anonymous so the token check in {@link dispatch} decides
+ * it; every other path belongs to the settings card in the Host page and keeps
+ * the default `required` policy, so the Host session cookie is checked before
+ * the same-origin fence.
+ * @param request - admission facts for the matched route.
+ * @returns the policy for the request path.
+ */
+export function routeAuthPolicy(request: WebAuthRequest): WebAuthPolicy {
+  const pathname = request.url.pathname
+  if (OVERLAY_PATHS.has(pathname) || pathname.startsWith(`${ROUTE_PREFIX}/assets/`)) return 'anonymous'
+  return 'required'
 }
 
 /**
