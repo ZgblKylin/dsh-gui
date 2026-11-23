@@ -119,6 +119,12 @@ const PROFILE_INIT_TIMEOUT_MS = 120_000
  * single line and must match exactly once: an upstream edit fails the build
  * with the stale anchor named, rather than applying half a patch. Anchors stay
  * on one line so a CRLF checkout matches them as well.
+ *
+ * `prepare-dsh.ts` runs the packaged-runtime smoke, which asserts the packaged
+ * runtime end to end. On hosts where that smoke's in-process host does not
+ * shut down, the assertions all pass and then the stage never returns; setting
+ * the patch's `env` variable skips that stage so the packaging chain can
+ * finish, and the launched app is the end-to-end check instead.
  */
 const SOURCE_PATCHES = [
   {
@@ -161,6 +167,16 @@ const SOURCE_PATCHES = [
       {
         before: '    await rename(temporary, output)',
         after: '    await publish(temporary, output)',
+      },
+    ],
+  },
+  {
+    file: 'apps/desktop/scripts/prepare-dsh.ts',
+    env: 'DSH_SKIP_DESKTOP_RUNTIME_SMOKE',
+    replacements: [
+      {
+        before: "    if (!process.argv.includes('--defer-runtime-smoke')) {",
+        after: "    if (!process.argv.includes('--defer-runtime-smoke') && process.env.DSH_SKIP_DESKTOP_RUNTIME_SMOKE !== '1') {",
       },
     ],
   },
@@ -260,11 +276,16 @@ function pinnedRevision() {
 /**
  * Apply {@link SOURCE_PATCHES} to the source checkout.
  *
+ * A patch with `env` set applies only while that environment variable is
+ * non-empty, so an operator escape hatch stays opt-in and the default build
+ * keeps the upstream step it guards.
+ *
  * @throws when an anchor is missing or matches more than once, which means the
  *   upstream file changed and the patch needs a review.
  */
 function applySourcePatches() {
   for (const patch of SOURCE_PATCHES) {
+    if (patch.env !== undefined && (process.env[patch.env] ?? '') === '') continue
     const file = join(SOURCE, patch.file)
     let text = readFileSync(file, 'utf8')
     for (const { before, after } of patch.replacements) {
@@ -281,7 +302,12 @@ function applySourcePatches() {
   }
 }
 
-/** Revert {@link SOURCE_PATCHES}, so the next source sync's dirty check passes. */
+/**
+ * Revert {@link SOURCE_PATCHES}, so the next source sync's dirty check passes.
+ *
+ * Every target is checked out, including a patch that was skipped this run:
+ * reverting an already clean file is a no-op.
+ */
 function revertSourcePatches() {
   const files = SOURCE_PATCHES.map((patch) => patch.file)
   const result = captureGit(['checkout', '--', ...files], SOURCE)
@@ -1094,8 +1120,13 @@ export function buildDesktop(options = {}) {
   installSourceDependencies(options, revision)
   writePackageEnvironment()
   ensureElectron()
-  prefetchPrimaryRuntime()
+  // The cleaner deletes `apps/desktop/.desktop-build` wholesale, downloads
+  // included, so the locked primary-runtime assets have to be fetched after it:
+  // fetched before, they are gone by the time `prepare:primary-runtime` looks
+  // for them and that stage re-downloads everything without the retrying mirror
+  // path this prefetch uses.
   cleanSource()
+  prefetchPrimaryRuntime()
   // The packaging chain runs `build:official` again before it packages, so the
   // patch has to cover both steps; reverting in `finally` keeps the checkout
   // clean for the next sync whether the build succeeds or fails.
