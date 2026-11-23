@@ -31,13 +31,13 @@ plugins/commandcode-provider/
 
 ## 兼容性状态
 
-上游用双通道析取区间声明引擎：`engines.dsh` 为 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，`dsh.compatibility.dsh` 与 15 个 `@deepseek-ai/dsh-*` peer 采用同一区间。第一段接纳 0.2.1 线从 rc.2 起的每个 RC；第二段接纳 0.2.2 线从 alpha.2 起的预发布，`0.2.2-rc.5` 落在其中。上界写成 `<0.2.2-0` / `<0.2.3-0`，因此排除 0.2.2 的正式版与 0.2.3 及以后。`dsh.compatibility.dshReleases` 记录经过完整引擎矩阵验证的版本，仅作「验证于」展示。
+上游用双通道析取区间声明引擎：`engines.dsh` 为 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，`dsh.compatibility.dsh` 与 15 个 `@deepseek-ai/dsh-*` peer 采用同一区间。第一段接纳 0.2.1 线从 rc.2 起的每个 RC；第二段接纳 0.2.2 线从 alpha.2 起的预发布。上界写成 `<0.2.2-0` / `<0.2.3-0`，因此排除 0.2.2 的正式版与 0.2.3 线（含 `0.2.3-alpha.2` 这类预发布）。`dsh.compatibility.dshReleases` 记录经过完整引擎矩阵验证的版本，仅作「验证于」展示。
 
-本仓库 pin 的 harness 是 **dsh-v0.2.2-rc.5**，落在第二段内（`0.2.2-alpha.2 <= 0.2.2-rc.5 < 0.2.3-0`）。准入闸门先读 `engines.dsh` 并只按它判定，因此闸门**自行接纳**该包，`install.mjs` 不需要 `exempt`。
+本仓库 pin 的 harness 是 **dsh-v0.2.3-alpha.2**，落在区间外（`0.2.3-alpha.2` 大于第二段的上界 `0.2.3-0`）。准入闸门先读 `engines.dsh` 并只按它判定，因此闸门拒绝该包；上游尚无覆盖 0.2.3 线的发布，`install.mjs` 因此给 `installNpmPlugin` 传 `exempt`：安装前先以 `dsh plugin allow-version '@mars-sea/dsh-commandcode-provider@<latest 解析出的精确版本>' --dsh-version 0.2.3-alpha.2 --accept-risk` 把该精确版本对 0.2.3-alpha.2 的例外写入 profile 的 `compatibility.json`，按精确版本接受风险，直到上游放宽区间。例外按「精确包版本 + 精确运行时版本」生效，下一次 harness 升级会自动失效，届时重新评估该包的声明区间。
 
 安装后应满足：
 
-- `dsh plugin add` 成功，profile 依赖写入解析出的精确版本，bundles 保留 `@mars-sea/dsh-commandcode-provider`，`compatibility.json` **不含**该包的例外记录（无需例外）；
+- `dsh plugin add` 成功，profile 依赖写入解析出的精确版本，bundles 保留 `@mars-sea/dsh-commandcode-provider`，`compatibility.json` **含**该包的例外记录（当前 latest 的精确版本对 `0.2.3-alpha.2`）；
 - 组合层仍是单行 `- id: llm-commandcode`（含默认 `config.apiKeyEnv: COMMANDCODE_API_KEY`），无重复 entry id、无跳过 bundle 报告。
 
 > 更早的插件线与本运行时**不配套**（分别对应不同的 dsh 线）；要跟随运行时，应保持 `latest` 安装，而不是回退到旧版本号。
@@ -81,7 +81,7 @@ node plugins/commandcode-provider/install.mjs
    构建：安装时解析 registry 的 latest 精确版本，与已装版本不同才重新安装；
 2. 重启 dsh-gui / harness 生效。
 
-上游的区间声明同时覆盖 0.2.1 线从 rc.2 起的每个 RC 与 0.2.2 线从 alpha.2 起的预发布（含 `0.2.2-rc.5`），因此安装 latest 不需要改动兼容字段；目标运行时落在区间外时，准入闸门会拒绝安装并让构建以包名失败，此时临时固定一个兼容版本，或按 `plugins/README.md` 的例外流程传入理由。另注意 `engines.node` 为 `>=24.9`（与 dsh 0.2.2 引擎的下限一致），在 Node 22/23 上安装会报 `EBADENGINE`。
+上游的区间声明覆盖 0.2.1 线从 rc.2 起的每个 RC 与 0.2.2 线从 alpha.2 起的预发布，上界 `<0.2.3-0` 不接纳 0.2.3 线，因此 `install.mjs` 对 `latest` 解析出的精确版本传 `exempt`，上游发布覆盖 0.2.3 线的版本后再移除该参数。另注意 `engines.node` 为 `>=24.9`；harness 0.2.3-alpha.2 的 Node 下限是 `^24.22.3 || >=26.13.1`，在 Node 22/23 上安装会报 `EBADENGINE`。
 
 ## 验证
 
@@ -100,7 +100,7 @@ node ..\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --dump-c
 
 - **非官方集成**：需要自己的 Command Code 账号与 key，并遵守其服务条款；与
   Command Code, Inc. 无关。
-- 插件仅面向其配对的 dsh 版本维护，跨版本升级需要上游跟进；包声明 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，接纳 pinned 的 0.2.2-rc.5，因此**无需**精确版本例外；`engines.node` 为 `>=24.9`，与 harness 的下限一致。
+- 插件仅面向其配对的 dsh 版本维护，跨版本升级需要上游跟进；包声明 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，其 `<0.2.3-0` 上界不接纳 pinned 的 `0.2.3-alpha.2`，因此按精确版本例外安装；`engines.node` 为 `>=24.9`（harness 0.2.3-alpha.2 为 `^24.22.3 || >=26.13.1`）。
 - 图片输入受模型能力限制（仅 Vision 模型），且含图片的会话切到纯文本模型会被 dsh
   拒绝；不支持 `stop` 序列。
 - 浏览器内登录依赖 Host 与浏览器同机（回环回调）；远程 Host 请手动粘贴 key。

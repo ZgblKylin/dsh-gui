@@ -22,13 +22,18 @@
  * install time. A shared version constant would point some package at a version
  * that does not exist.
  *
- * The harness dsh-v0.2.2-rc.5 admission gate reads a package's `engines.dsh`
+ * The harness dsh-v0.2.3-alpha.2 admission gate reads a package's `engines.dsh`
  * first and only falls back to its dsh peer ranges when that field is absent.
- * The three packages declare no `engines.dsh`; their ranges are
- * `>=0.1.7-rc.1` for the manager and `>=0.2.2-0 <0.2.3-0` for both skins — all
- * admit 0.2.2-rc.5, and the skins record their DSH compatibility in `skin.json`
- * (shown by the manager only, never read by the gate), so no exemption is
- * needed.
+ * The three packages declare no `engines.dsh`; their dsh peers are
+ * `>=0.1.7-rc.1` for the manager and `>=0.2.2-rc.3 <0.2.3-0` for both skins.
+ * The manager's range has no upper bound and admits the pinned runtime. The
+ * skins' `<0.2.3-0` upper bound excludes `0.2.3-alpha.2` and upstream has
+ * published no release covering the 0.2.3 line, so the two skin installs pass
+ * `exempt` (see SKIN_EXEMPT_REASON) and accept their exact versions' risk until
+ * upstream widens the range; the exemption is keyed by exact package and
+ * runtime versions, so the next harness upgrade invalidates it. The skins also
+ * record their DSH compatibility in `skin.json` (shown by the manager only,
+ * never read by the gate).
  *
  * Skin mutual exclusion is the manager's own job: on the first restart after
  * installing it detects "two skins enabled at once" and atomically falls back
@@ -56,13 +61,20 @@ import { pinnedPath, ROOT, run, WEB_HOME } from '../../scripts/toolchain.mjs'
 const ID = 'deep-whale'
 
 /**
+ * Reason both skin installs accept their exact version although its declared
+ * dsh peer excludes the pinned runtime.
+ */
+const SKIN_EXEMPT_REASON = 'The current skins declare the peer @deepseek-ai/dsh >=0.2.2-rc.3 <0.2.3-0, whose <0.2.3-0 upper bound excludes the pinned dsh-v0.2.3-alpha.2, and upstream has published no release covering the 0.2.3 line; the exact version is accepted as risked until upstream widens the range. The exemption is keyed by exact package version and exact runtime version, so the next harness upgrade invalidates it.'
+
+/**
  * The three packages in upstream install order (manager first, then the two
- * skins), each tracking its own registry `latest`.
+ * skins), each tracking its own registry `latest`. Only the skins carry
+ * `exempt`: the manager's unbounded dsh peer admits the pinned runtime.
  */
 const SKIN_SPECS = [
-  '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@latest',
-  '@smalltailqwq/dsh-client-ui-skin-maid-atelier@latest',
-  '@smalltailqwq/dsh-client-ui-skin-orca-link@latest',
+  { spec: '@smalltailqwq/dsh-client-ui-skin-deep-whale-manager@latest' },
+  { spec: '@smalltailqwq/dsh-client-ui-skin-maid-atelier@latest', exempt: SKIN_EXEMPT_REASON },
+  { spec: '@smalltailqwq/dsh-client-ui-skin-orca-link@latest', exempt: SKIN_EXEMPT_REASON },
 ]
 
 /** Keys the retired `@dsh-external/*` placeholder scope left behind. */
@@ -124,8 +136,8 @@ function removeLegacyPlaceholderLinks(dshHome) {
   if (readdirSync(scopeDir).length === 0) rmSync(scopeDir, { recursive: true, force: true })
 }
 
-for (const spec of SKIN_SPECS) {
-  await installNpmPlugin({ id: ID, packageSpec: spec })
+for (const { spec, exempt } of SKIN_SPECS) {
+  await installNpmPlugin({ id: ID, packageSpec: spec, exempt })
 }
 
 const dshHome = process.env.DSH_HOME ?? WEB_HOME

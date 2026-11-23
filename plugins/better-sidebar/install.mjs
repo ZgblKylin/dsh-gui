@@ -9,8 +9,8 @@
  * 工作台与 `ctx.betterSidebar` 服务。
  *
  * 准入：包没有 engines.dsh，闸门逐条比对 14 条 `@deepseek-ai/dsh-*` peer；0.2.2
- * 线的发布把该 peer 定为 `^0.2.2-rc.1`，本工程 pinned 的 harness 0.2.2-rc.5 落在
- * 区间内，不需要 `exempt` 例外。若某次 latest 抬高 peer 下限而被闸门拒绝，构建会
+ * 线的发布把该 peer 定为 `^0.2.2-rc.1`，本工程 pinned 的 harness 0.2.3-alpha.2
+ * 落在区间内，不需要 `exempt` 例外。若某次 latest 抬高 peer 下限而被闸门拒绝，构建会
  * 以该包名失败；此时按 plugins/README.md 的说明临时固定版本，或用
  * `DSH_PLUGIN_SKIP=better-sidebar` 屏蔽本 wrapper。
  *
@@ -33,7 +33,7 @@
  * bind IP 规范化，修复 LAN / `--trusted-host` 访问 `/sidebarqa/api` 恒 403 的
  * 问题。client 半按 `assistantStream` 逐段渲染回答，失败或中断的轮次显示
  * 「本轮回答失败：<原因>」。manifest 的 `engines.dsh >=0.1.7-alpha.1` 覆盖
- * pinned harness 0.2.2-rc.5。
+ * pinned harness 0.2.3-alpha.2。
  *
  * 已知限制（上游 1.2.2 仍未适配）：`src/client/session-wire.ts` 的
  * `ctx.remote.session.follow(...)` 没有传 `activate: true`，而 harness 0.2.2 起

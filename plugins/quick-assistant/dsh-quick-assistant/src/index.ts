@@ -13,8 +13,9 @@
  *
  * Every registration is an effect so a profile reload disposes the routes and
  * terminates the helper. The plugin is inert unless the web server is bound to
- * the loopback address: its routes are an unauthenticated local RPC besides the
- * one-time overlay token, and the native helper is only reachable locally.
+ * the loopback address: the overlay and helper routes are anonymous local RPC
+ * besides the one-time overlay token, the settings routes require the Host
+ * session, and the native helper is only reachable locally.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -26,7 +27,7 @@ import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 
 import { CatalogCache, type LlmCatalogService, type ModelSelection } from './catalog.ts'
 import { NativeHelper, nativeHelperOptions } from './helper.ts'
-import { createRouteHandler, ROUTE_PREFIX, type RouteDeps } from './routes.ts'
+import { createRouteHandler, ROUTE_PREFIX, routeAuthPolicy, type RouteDeps } from './routes.ts'
 import { SettingsStore } from './settings.ts'
 import type { LlmChatRequest, LlmStreamService } from './stream.ts'
 
@@ -147,7 +148,12 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   ctx.effect(
-    () => webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: createRouteHandler(deps) }),
+    () => webServer.register({
+      kind: 'prefix',
+      path: ROUTE_PREFIX,
+      auth: routeAuthPolicy,
+      handler: createRouteHandler(deps),
+    }),
     'dsh-quick-assistant: routes',
   )
 

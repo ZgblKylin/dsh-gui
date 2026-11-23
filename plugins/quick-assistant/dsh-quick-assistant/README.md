@@ -24,7 +24,7 @@
 - `ctx.llm`：`listProviders` / `listModels` / `resolveModelInfo` 读取模型目录，`stream` 执行请求；请求带 `purpose: 'quick-assistant'`。
 - `ctx.agentDefaultModel`（可选）：模式未单独配置模型时读取主模型。
 
-路由绑定在环回地址上，设置类接口只接受同源请求；覆盖页与助手通道使用每次启动生成的 token。
+路由绑定在环回地址上，设置类接口要求 Host 会话 Cookie 并只接受同源请求；覆盖页与助手通道在传输层声明为匿名（助手是独立 WebView2 进程，拿不到 Host 的 Cookie），使用每次启动生成的 token。
 
 ## 设置
 
