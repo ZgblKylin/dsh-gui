@@ -415,6 +415,8 @@
     let line = null
     let label = null
     let text = null
+    /** Whether the row currently shows a wait/tool status instead of reasoning. */
+    let statusOnly = false
 
     function mount() {
       if (line) return
@@ -435,11 +437,17 @@
       line = null
       label = null
       text = null
+      statusOnly = false
     }
 
     return {
       push(chunk) {
         mount()
+        // A wait or tool status owns the row until real reasoning arrives.
+        if (statusOnly) {
+          text.textContent = ''
+          statusOnly = false
+        }
         label.textContent = '思考中'
         text.textContent += chunk
         // One line only: keep the tail in view as the text outgrows the row.
@@ -450,6 +458,7 @@
         mount()
         label.textContent = labelText
         text.textContent = detail
+        statusOnly = true
         text.scrollLeft = text.scrollWidth
       },
       hide: unmount,
@@ -589,6 +598,9 @@
       mode: 'ask',
       payload,
       retry: () => retryAskTurn(payload, assistant),
+      onWait() {
+        thinking.status('等待响应', '正在连接模型…')
+      },
       onReasoning(text) {
         thinking.push(text)
       },
@@ -749,6 +761,9 @@
       mode,
       payload: { mode, text: runtime.input.trim() },
       retry: () => runResult(mode),
+      onWait() {
+        thinking.status('等待响应', '正在连接模型…')
+      },
       onReasoning(text) {
         thinking.push(text)
       },
@@ -806,6 +821,9 @@
     clearError()
     const entry = { controller: new AbortController(), usage: null, hooks: job }
     activeJob = entry
+    // Feedback starts before the first model event: the host may spend seconds
+    // resolving credentials and the provider connection on a cold start.
+    if (typeof job.onWait === 'function') job.onWait()
     streamChat(job.payload, entry.controller.signal, {
       delta(text) {
         if (activeJob !== entry) return

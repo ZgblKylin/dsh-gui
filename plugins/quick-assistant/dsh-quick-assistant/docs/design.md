@@ -42,7 +42,7 @@ Tauri 外壳启动 `dsh web` 时扫描 `<DSH_HOME>/gui/shell-overlays/*.patch.ym
 | GET/PUT | `/api/settings` | 同源 | 设置读取/保存 |
 | GET | `/api/catalog` | 同源 | provider → model → 思考等级目录 |
 | POST | `/api/show` | 同源 | 测试唤起（`showRequest` 自增） |
-| GET | `/api/health` | 会话 | 助手是否在运行 |
+| GET | `/api/health` | 会话 | 助手是否在运行，以及各模型的预热状态 |
 
 路由的传输层鉴权由 `auth: routeAuthPolicy` 决定：token 行（覆盖页、资源、`bootstrap`/`chat`/`native`）声明 `anonymous`，因为助手是独立 WebView2 进程、有自己的 cookie 罐，拿不到 Host 会话 Cookie；其余行保持默认 `required`，先校验 Host 会话再由 handler 做同源围栏。`/api` 前缀的浏览器信任围栏不覆盖插件路由。
 
@@ -57,6 +57,8 @@ Tauri 外壳启动 `dsh web` 时扫描 `<DSH_HOME>/gui/shell-overlays/*.patch.ym
 - `ctx.webServer.register({ kind: 'prefix', path: '/quick-assistant', handler, auth: routeAuthPolicy })`：handler 自行完成 token 与同源校验，传输层策略见上一节。
 - `ctx.llm.stream({ provider, model, reasoningEffort?, system?, messages, purpose: 'quick-assistant', signal })`：不创建 Session；`purpose` 由本包的模块声明扩充 `LlmRequestPurposeMap`。客户端断开时通过 `res.on('close')` 中止请求。
 - `ctx.agentDefaultModel.currentSelection()`：可选服务，缺失时回落到模型目录。
+
+模型预热在 `src/warmup.ts`：插件挂载 2 秒后为四个模式与主模型当前可达的 route 各跑一次最小流式请求（`purpose: 'quick-assistant'`，单条 `ping` 消息，不声明工具、不设输出上限），把适配器懒加载、凭据解析、连接建立和账号引导的一次性成本挪到启动期；同时把 `resolveModelInfo` 的结果按 route 缓存，供 `supportsEffort` 复用。保存设置或页面加载（bootstrap/catalog）时重算 route 集合：新 route 立即排队，已就绪的不重复，失败按 15s/30s 退避重试最多 3 次。预热在后台串行执行，不阻塞聊天、不创建会话；状态经 `/api/health` 的 `warmup` 字段暴露。
 
 ## 升级检查清单
 

@@ -30,6 +30,7 @@ import { isAssistantMode, renderPrompt, type AssistantMode } from './prompts.ts'
 import { systemLanguageName } from './system-language.ts'
 import { openSse, streamChat, messageOf, type LlmMessage, type LlmStreamService } from './stream.ts'
 import type { WebService } from './web-tools.ts'
+import type { WarmupRouteStatus } from './warmup.ts'
 import { readAsset, readOverlayPage } from './overlay.ts'
 
 /** Route prefix owned by this plugin. */
@@ -90,6 +91,10 @@ export interface RouteDeps {
   llm: LlmStreamService & LlmCatalogService
   /** Web access service for the ask/explain tools, when the deployment has one. */
   web: () => WebService | undefined
+  /** Recompute the routes to warm after settings or the main model changed. */
+  refreshWarmup: () => void
+  /** Current model warm-up states, reported by `/api/health`. */
+  warmupStatus: () => WarmupRouteStatus[]
   /** Cached catalog shared by bootstrap and the settings page. */
   catalog: CatalogCache
   /** Current native helper availability. */
@@ -337,6 +342,9 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, deps: RouteDe
     case `${ROUTE_PREFIX}/api/bootstrap`: {
       if (!methodIs(req, 'GET', 'HEAD')) return methodNotAllowed(res, 'GET, HEAD')
       if (!hasToken(req, url, deps.token)) return sendJson(res, 403, { error: '无效的访问令牌' })
+      // A page load is a good moment to pick up a main-model change made in the
+      // shell; warming runs in the background.
+      deps.refreshWarmup()
       const settings = deps.settings.get()
       let catalog: CatalogSnapshot
       try {
@@ -418,6 +426,9 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, deps: RouteDe
       }
       try {
         const settings = await deps.settings.save(record['settings'])
+        // A changed mode model is warmed right away, so the next question does
+        // not pay the provider cold start.
+        deps.refreshWarmup()
         return sendJson(res, 200, { ok: true, settings })
       } catch (error) {
         deps.log.error('[quick-assistant] settings save failed:', error)
@@ -428,6 +439,8 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, deps: RouteDe
     case `${ROUTE_PREFIX}/api/catalog`: {
       if (!methodIs(req, 'GET', 'HEAD')) return methodNotAllowed(res, 'GET, HEAD')
       if (!isSameOrigin(req)) return sendJson(res, 403, { error: '跨站请求被拒绝' })
+      // The settings page opening is also a chance to pick up a main-model change.
+      deps.refreshWarmup()
       try {
         const catalog = await deps.catalog.get(() => buildCatalog(deps.llm, deps.defaultSelection()))
         return sendJson(res, 200, catalog, method === 'HEAD')
@@ -451,6 +464,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, deps: RouteDe
         ok: true,
         helperRunning: status.running,
         ...status.error === undefined ? {} : { error: status.error },
+        warmup: deps.warmupStatus(),
       }, method === 'HEAD')
     }
 

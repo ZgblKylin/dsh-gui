@@ -30,6 +30,7 @@ import { NativeHelper, nativeHelperOptions } from './helper.ts'
 import { createRouteHandler, ROUTE_PREFIX, routeAuthPolicy, type RouteDeps } from './routes.ts'
 import { SettingsStore } from './settings.ts'
 import type { LlmChatRequest, LlmStreamService } from './stream.ts'
+import { ModelWarmup, routesFromSettings } from './warmup.ts'
 import type { WebService } from './web-tools.ts'
 
 declare module '@deepseek-ai/dsh-llm/types' {
@@ -56,6 +57,9 @@ interface AgentDefaultModelService {
   /** Main model selection shared by agent entry points. */
   currentSelection(): { provider: string; model: string; reasoningEffort?: unknown }
 }
+
+/** Delay before the first startup warm-up call, letting the overlay page's catalog read start first. */
+const WARMUP_START_DELAY_MS = 2_000
 
 /**
  * Read the main model selection, when the optional service is present.
@@ -134,13 +138,25 @@ export function apply(ctx: Context, config: Config = {}): void {
     resolveModelInfo: (provider: string, model: string) => ctx.llm.resolveModelInfo(provider, model),
     stream: (request: LlmChatRequest) => ctx.llm.stream(toGenerateOptions(request)),
   }
+  const warmup = new ModelWarmup({ llm, log })
+  /** Requests read model metadata through the warm-up cache instead of re-resolving it. */
+  const cachedLlm: LlmStreamService & LlmCatalogService = {
+    ...llm,
+    resolveModelInfo: (provider: string, model: string) => warmup.resolveInfo(provider, model),
+  }
+  /** Warm the routes the current settings and main model reach. */
+  const refreshWarmup = (): void => {
+    warmup.refresh(routesFromSettings(settings.get(), currentDefaultSelection(ctx)))
+  }
 
   const deps: RouteDeps = {
     token,
     settings,
-    llm,
+    llm: cachedLlm,
     catalog,
     web: () => ctx.get('web') as WebService | undefined,
+    refreshWarmup,
+    warmupStatus: () => warmup.status(),
     defaultSelection: () => currentDefaultSelection(ctx),
     helperStatus: () => helper?.status ?? { running: false, error: '原生助手尚未启动' },
     showRequest: () => showRequest,
@@ -184,4 +200,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   }, 'dsh-quick-assistant: native overlay')
 
   log.info(`[quick-assistant] routes mounted on ${ROUTE_PREFIX}`)
+
+  ctx.effect(() => {
+    // The overlay page reads its catalog right after startup; warming a moment
+    // later keeps the two from competing for the same provider connections.
+    const timer = setTimeout(refreshWarmup, WARMUP_START_DELAY_MS)
+    return () => {
+      clearTimeout(timer)
+      warmup.dispose()
+    }
+  }, 'dsh-quick-assistant: model warm-up')
 }
