@@ -3,8 +3,9 @@
  * `plugins/harness/skills/` into the harness home, append their AGENTS.md
  * sections, and warn when the computer-use virtual desktop services are absent.
  *
- * The paired installers (`browser-use.mjs`, `computer-use.mjs`) install the
- * plugins themselves. This module adds only the pieces those plugins need on
+ * `browser-use.mjs` installs the browser provider, and Computer Use comes from
+ * the official optional bundle `@deepseek-ai/dsh-cua-bundle` switched on in the
+ * plugin page. This module adds only the pieces those plugins need on
  * WSL — Edge CDP port forwarding and an Xvfb virtual desktop — and is called by
  * `scripts/dsh-gui.mjs` right after `installGlobalTemplate()`: the plugin
  * installers run before the global template, so the AGENTS.md sections cannot

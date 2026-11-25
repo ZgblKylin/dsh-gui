@@ -1,12 +1,12 @@
 # plugins/harness
 
-dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在一个 wrapper 里管理。installer 平铺；`skills/` 与 `auto-review-model/` 包目录是仅有的子目录。`install.mjs` 是流水线入口，按顺序加载目录里的各插件 installer，`skills/` 存放 WSL 专用 skill 模板、由 `wsl-workarounds.mjs` 安装。本 wrapper 安装 Browser Use（Playwright MCP）、Computer Use（Cua Driver native）与 Auto review 模型覆盖（本仓库自研的 in-tree 包）三组插件。Agent Teams 已内置在 web-app 组合中，旧的可选 bundle 已退役；Auto review 本体仍是随 dsh 安装提供的官方可选 bundle，由插件页开关直接管理，本 wrapper 不安装它。本 wrapper 不派生任何 preset。
+dsh 工程官方插件组：把 `@deepseek-ai/dsh-*` 官方实验插件统一在一个 wrapper 里管理。installer 平铺；`skills/` 与 `auto-review-model/` 包目录是仅有的子目录。`install.mjs` 是流水线入口，按顺序加载目录里的各插件 installer，`skills/` 存放 WSL 专用 skill 模板、由 `wsl-workarounds.mjs` 安装。本 wrapper 安装 Browser Use（Playwright MCP）与 Auto review 模型覆盖（本仓库自研的 in-tree 包）两组插件，并为 Windows 上的 Computer Use 构建官方要求的原生 helper（Windows 编译脚本）并启用官方可选 bundle `@deepseek-ai/dsh-cua-bundle`；Computer Use 本体不再由本仓库安装（见下文「Computer Use」）。Agent Teams 已内置在 web-app 组合中，旧的可选 bundle 已退役；Auto review 本体仍是随 dsh 安装提供的官方可选 bundle，由插件页开关直接管理，本 wrapper 不安装它。本 wrapper 不派生任何 preset。
 
 | 文件 | 插件 | 说明 |
 | --- | --- | --- |
 | `install.mjs` | — | 流水线入口，依次加载所有平铺 installer |
 | `browser-use.mjs` | Browser Use (Playwright MCP) | 独占浏览器提供方注册服务 + Playwright MCP 提供方 |
-| `computer-use.mjs` | Computer Use (Cua Driver native) | 独占桌面提供方注册服务 + Cua Driver 原生提供方 |
+| `cua-windows.mjs` | Computer Use（Windows） | 从子模块源码构建 `dsh-cua-windows.exe`、把 `cua-windows` 行的 `helperPath` 指过去，并启用官方 `@deepseek-ai/dsh-cua-bundle`；非 Windows 平台跳过 |
 | `auto-review-model.mjs` | Auto review 模型覆盖 | in-tree 包 `auto-review-model/` 的安装入口，把审查请求改派到配置的 provider/model |
 | `auto-review-model/` | Auto review 模型覆盖 | 零依赖 ESM Host 半（`index.js`，含 Schemastery `Config`）、`src/client/` 插件信息页卡片、构建产物 `lib/client.js`、README 与 `tests/` |
 | `wsl-workarounds.mjs` | — | WSL 专用 skill 与 AGENTS.md 小节的安装逻辑，由 `scripts/dsh-gui.mjs` 在全局模板安装后调用 |
@@ -22,7 +22,7 @@ WSL 下 browser-use 与 computer-use 各有一处环境限制：browser-use 无�
 
 一次性安装 skill `wsl-xvfb-service` 不复制到 `<DSH_HOME>/skills/`：它检测真实环境（二进制路径、可用显示编号、分辨率、已有 service）后生成 Xvfb 与 openbox 的 systemd user service，只需执行一次。虚拟桌面装好之后，computer-use 的日常说明由 `wsl-computer-use` 提供。
 
-Auto review 是随 dsh 安装提供的官方可选 bundle（`@deepseek-ai/dsh-experimental-auto-review`，见 `deepseek-harness/packages/util/official-bundles/src/bundles.ts` 的 `OPTIONAL_BUNDLES`）：插件页（插件 → 自动授权审查）的开关把它写入 profile 的 `dsh.profile.bundles`，本 wrapper 不安装它，也不向 patch 层写入任何 preset 声明。Agent Teams 现在由 web-app 组合内置（见下一节）。**Browser Use 与 Computer Use 的包都不声明 `dsh.bundle.patch`**，是普通 npm 依赖，由 `browser-use.mjs` / `computer-use.mjs` 通过共享流水线的显式 `mount` 选项写入 insert 行（Browser Use 的服务行 + 提供方行，提供方行带 `config`；Computer Use 的服务行 + 原生提供方行，原生提供方无配置、行不带 `config`，见下）。
+Auto review 是随 dsh 安装提供的官方可选 bundle（`@deepseek-ai/dsh-experimental-auto-review`，见 `deepseek-harness/packages/util/official-bundles/src/bundles.ts` 的 `OPTIONAL_BUNDLES`）：插件页（插件 → 自动授权审查）的开关把它写入 profile 的 `dsh.profile.bundles`，本 wrapper 不安装它，也不向 patch 层写入任何 preset 声明。Agent Teams 现在由 web-app 组合内置（见下一节）。**Browser Use 的两个包都不声明 `dsh.bundle.patch`**，是普通 npm 依赖，由 `browser-use.mjs` 通过共享流水线的显式 `mount` 选项写入两行 insert（服务行 + 提供方行，提供方行带 `config`）。Computer Use 由官方可选 bundle 自己挂载，本 wrapper 不写任何它的行。
 
 ## Agent Teams
 
@@ -169,64 +169,76 @@ npm run install:plugins        # 或 npm run build
 - 工具 schema 跟随固定的实验依赖版本，不承诺 DSH 稳定性；浏览器工具与截图会增加
   工具目录与提示词文本（幻像 KV Cache 前缀复用率可能变化）。
 
-## Computer Use (Cua Driver native)
+## Computer Use（官方可选 bundle）
 
-### 安装内容
+自 `dsh-v0.2.3-alpha.2` 起，Computer Use 由 harness 随附的官方可选 bundle
+`@deepseek-ai/dsh-cua-bundle` 提供（列入 `OPTIONAL_BUNDLES`），本 wrapper 不再安装它、
+也不再往 profile 写 `@deepseek-ai/dsh-computer-use` /
+`@deepseek-ai/dsh-experimental-computer-use-cua-driver-native` 的 insert 行。
 
-| 项 | 位置 | 说明 |
+### 组合
+
+`dsh-cua-bundle` 的 `cordis.patch.yml` 插入四行：
+
+| id | 包 | 说明 |
 | --- | --- | --- |
-| `@deepseek-ai/dsh-computer-use@0.2.3-alpha.2` | web profile | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
-| `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.3-alpha.2` | web profile | 进程内嵌入 Cua Driver 原生 npm SDK（`@trycua/cua-driver@0.28.0`）桌面工具（工具名 `cua_driver_native__<tool>`） |
+| `cua-provider-registry` | `@deepseek-ai/dsh-computer-use` | 独占具名桌面提供方注册服务（`ctx.computerUse`），一次只允许激活一个提供方 |
+| `cua-windows` | `@deepseek-ai/dsh-cua-windows` | Windows 提供方：按 AUMID 发现应用、观察并操作明确选择的窗口 |
+| `cua-macos` | `@deepseek-ai/dsh-cua-macos` | macOS 提供方 |
+| `ui-cua` | `@deepseek-ai/dsh-cua` | 工具面与 `cuaAccess` 服务（系统权限、应用授权、PTC 配置） |
 
-两个包都精确 pin `0.2.3-alpha.2`，与本仓库 pinned 的 `dsh-v0.2.3-alpha.2` 运行时
-配套（native 提供方的 `@deepseek-ai/dsh*` peer 全部指向 `0.2.3-alpha.2`，并新增
-`@deepseek-ai/dsh-error` peer）。**这个 pin 必须随 harness 同批移动**：准入闸门拿
-运行中的 dsh 版本逐条比对每个 `@deepseek-ai/dsh*` peer，peer 指向更早运行时的包
-会被 0.2.3-alpha.2 的准入闸门拒绝。均为 prerelease，进不了 Community Market。
-核心服务先装：提供方 inject `computerUse`。
+`ctx.computerUse` 是独占注册位：同一 profile 只能有一个提供方。本 wrapper 原先的
+`computer-use` / `computer-use-cua-driver-native` 两行会与 bundle 的
+`cua-provider-registry` 抢同一个服务，先注册的一方占位，另一方报
+`service "computerUse" has been registered`，整条 cua 链因此不激活，客户端看到
+`Service "cuaAccess" is unavailable`。两行已从 wrapper 移除；升级后已有的 profile 需手动
+删掉这两段 insert（见「卸载」）。
 
-### 挂载与配置
+### 启用
 
-两者都不声明 `dsh.bundle.patch`，属普通 npm 依赖，`computer-use.mjs` 走共享流水线
-的显式 `mount` 选项写入两行 insert；**原生提供方无配置字段**（Config 为空 schema），
-所以两行都不带 `config:`：
+插件页「插件 → 实验性插件 → 计算机使用」开关把 `@deepseek-ai/dsh-cua-bundle` 写进
+profile 的 `dsh.profile.bundles`，重启后生效。工具面为 `cua_*`，截图以持久化附件传给
+模型；桌面由活动 Session 与其它应用共享，调用方自行完成「观察→操作→验证」流程。
 
-```yaml
-- insert:
-    - id: computer-use
-      name: '@deepseek-ai/dsh-computer-use'
-- insert:
-    - id: computer-use-cua-driver-native
-      name: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native'
-```
+### Windows 的原生 helper
 
-### 使用时
+`@deepseek-ai/dsh-cua-windows` 需要原生 helper `dsh-cua-windows.exe`，而**npm 安装的包里
+不含该二进制**（`files` 白名单写了 `native/bin`，tarball 里却没有 `native/` 目录）。本仓库
+用 `cua-windows.mjs` 自动补齐这一步：用 .NET 10 SDK 从 pinned 子模块的源码构建，把产物
+放在 `<DSH_HOME>/cua/win-<arch>`，再把 `cua-windows` 行的 `config.helperPath` 指向它；
+同时把 `@deepseek-ai/dsh-cua-bundle` 写进 profile 的 `dsh.profile.bundles`（等价于插件页
+开关）。构建按子模块 revision 打 `build.json` 戳，同 revision 重跑直接用缓存；缺少 dotnet
+或构建失败时只告警、不启用开关，不会让构建失败。
+
+`npm run build` / `npm run install:plugins` 会为 web 与 desktop 两个 profile 各跑一次
+（desktop profile 归 Electron 应用所有，改动要在应用关闭时进行）。也可以单独执行：
 
 ```powershell
-npm run install:plugins        # 或 npm run build
+$env:DSH_HOME = '<runtime-root>\.dsh'
+$env:DSH_PLUGIN_PROFILE = 'web'      # 或 desktop
+node plugins/harness/cua-windows.mjs
 ```
 
-重启后在允许桌面工具且支持图片输入的模型路由上（例如官方 DeepSeek 路由），模型
-可见 `cua_driver_native__<tool>` 工具集与桌面操作指导；截图以持久化附件传给模型。
-桌面由活动 Session 与其它应用共享，调用方自行协调完整的「观察→操作→验证」流程。
+### 升级检查点
+
+每次升级 harness 后复核（升级记录里也要提醒主人）：
+
+1. `@deepseek-ai/dsh-cua-windows@<version>` 的 npm 包是否开始携带
+   `native/bin/win-<arch>/dsh-cua-windows.exe`（解包 tarball 验证，不能只看 `files`）。
+2. 桌面打包产物里是否自带该 helper（`desktop/resources/app.asar.unpacked/.../native/bin/...`）。
+3. 上游 `cua-bundle` 的文档或 patch 是否给出 helper 的默认位置 / 发布 ZIP / 默认 `helperPath`。
+
+任一条成立，就删掉 `cua-windows.mjs` 的编译段与 profile 里的 `helperPath` 覆盖，改用官方产物。
+脚本在运行时也会检查第 1 条：一旦包里出现该 exe，会打印「检查点」提醒并要求更新本脚本。
+
+缺少 helper 时提供方激活失败，症状同样是 `cuaAccess` 不可用。
 
 ### 已知限制
 
-- **每个部署一次只启用一个桌面提供方**（`ctx.computerUse` 独占注册）；本 wrapper
-  只安装 native 提供方，同一族的**已安装 MCP** 提供方
-  （`@deepseek-ai/dsh-experimental-computer-use-cua-driver-mcp`）**未安装**——两者
-  抢占同一个注册位，不可同时激活。
-- **需要启动主机的桌面权限**：npm 安装不授予桌面访问、也不创建图形会话；请向启动
-  DSH 的应用授予权限。此提供方不安装独立持权的 Cua Driver 应用——若你更希望由独立
-  应用持权并可切换驱动进程身份，改用同族的 MCP 提供方。
-- **原生崩溃可能终止 DSH host 进程**：native 运行时与主机共享进程；若需要独立驱动
-  进程兜底，请改用 MCP 提供方。
-- **共享桌面**：提供方不为 Session 预留窗口或完整工作流；其它调用方和应用可能在
-  两次调用之间改动同一桌面；取消的调用可能已投递输入，重试前必须重新查看状态。
-- macOS 无头 Node host 上光标叠加层操作可能返回 `facility_unavailable`（截图与后台
-  输入仍可用）。卸载时若原生关闭失败，注册位保持占用，需重启主机后才能挂载其它桌面
-  提供方。
-
+- **每个部署一次只启用一个桌面提供方**（`ctx.computerUse` 独占注册）。
+- **需要桌面权限**：向启动 DSH 的应用授予屏幕录制 / 辅助功能等权限；npm 安装本身不授权。
+- **共享桌面**：取消的调用可能已投递输入，重试前必须重新查看状态。
+- macOS 无头 Node host 上光标叠加层操作可能返回 `facility_unavailable`（截图与后台输入仍可用）。
 ## 使用
 
 ```powershell
@@ -283,22 +295,29 @@ Auto review 模型覆盖是 in-tree 包，从 profile 卸载后 bundle 层随之
 dsh plugin --profile web remove dsh-auto-review-model
 ```
 
-Browser Use 与 Computer Use 从 profile 卸载：
+Browser Use 从 profile 卸载：
 
 ```powershell
 dsh plugin --profile web remove @deepseek-ai/dsh-browser-use
 dsh plugin --profile web remove @deepseek-ai/dsh-experimental-browser-use-playwright-mcp
+```
+
+**Browser Use 的两行 insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删除
+`.dsh/profiles/web/cordis.patch.yml` 里 `id: browser-use`、`id: browser-use-playwright-mcp`
+两行（提供方行含 `config`），否则重启会报错误（entry 对应的包已不存在）。
+若要从本仓库安装流水线中整体去掉某个插件，删除 `install.mjs` 中对应的 loader 行即可。
+
+Computer Use 由官方 bundle 提供，关闭插件页的「计算机使用」开关即可；从旧版 wrapper 升级
+上来的 profile 还留着 `computer-use` / `computer-use-cua-driver-native` 两段手工 insert，
+需要手动删除（bundle 里的 `cua-provider-registry` 已经注册同一个 `computerUse` 服务，
+两行并存会报 `service "computerUse" has been registered`）。不再需要时也可一并清掉
+`@deepseek-ai/dsh-computer-use` 与
+`@deepseek-ai/dsh-experimental-computer-use-cua-driver-native` 两个依赖：
+
+```powershell
 dsh plugin --profile web remove @deepseek-ai/dsh-computer-use
 dsh plugin --profile web remove @deepseek-ai/dsh-experimental-computer-use-cua-driver-native
 ```
-
-**Browser Use 与 Computer Use 的四行
-insert 是手工挂载，`dsh plugin remove` 不会清理** —— 需手动删除
-`.dsh/profiles/web/cordis.patch.yml` 里 `id: browser-use`、
-`id: browser-use-playwright-mcp`、`id: computer-use`、`id: computer-use-cua-driver-native`
-四行（Browser Use 提供方行含 `config`），否则重启会报错误（entry 对应的包已不存在）。
-若要从本仓库安装流水线中整体去掉某个插件，删除 `install.mjs` 中对应的 loader 行即
-可。
 
 ## 约束
 

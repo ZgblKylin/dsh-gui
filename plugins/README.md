@@ -9,9 +9,11 @@ A wrapper may install several npm packages in one script (`better-sidebar` two,
 `deep-whale` three, `dsh-web-ui` three). The `harness` wrapper owns the official
 dsh-family plugins it installs as one flat group: `browser-use.mjs` installs the
 Playwright MCP browser provider (the exclusive `dsh-browser-use` registration
-service + the experimental provider — see `harness/README.md`), and
-`computer-use.mjs` installs the Cua Driver native desktop provider (the
-exclusive `dsh-computer-use` registration service + the native SDK provider).
+service + the experimental provider — see `harness/README.md`). Computer Use is
+not installed by any wrapper here: `dsh-v0.2.3-alpha.2` ships it as the
+optional bundle `@deepseek-ai/dsh-cua-bundle`, switched on in the plugin page;
+on Windows, `cua-windows.mjs` builds the native helper that bundle's provider
+needs and turns the bundle on for the profile.
 `auto-review-model.mjs` installs the in-tree package
 `harness/auto-review-model/`, a model-override layer of this repository (not an
 official npm package) that redirects Auto review reviewer requests to a
@@ -26,7 +28,7 @@ plugins/
 ├─ harness/
 │  ├─ install.mjs        # entry: loads each plugins/harness/*.mjs installer in order
 │  ├─ browser-use.mjs    # Browser Use: exclus. service + Playwright MCP provider
-│  ├─ computer-use.mjs   # Computer Use: exclus. service + Cua Driver native provider
+│  ├─ cua-windows.mjs    # Computer Use (Windows): build the native helper, enable the cua bundle
 │  ├─ auto-review-model.mjs  # Auto review model override: installs the in-tree package
 │  └─ auto-review-model/ # in-tree package: reviewer provider/model redirect layer
 ├─ <id>/
@@ -42,7 +44,7 @@ The harness installs plugins into a *profile* (for the web surface, the `web`
 profile). `npm run install:plugins` (alias `npm run plugins`) runs every
 `plugins/*/install.mjs` in directory-name order. The `harness` wrapper owns no
 install of its own: its `install.mjs` only loads the sibling installers
-(`browser-use.mjs`, `computer-use.mjs`, `auto-review-model.mjs`), each of which
+(`browser-use.mjs`, `cua-windows.mjs`, `auto-review-model.mjs`), each of which
 also runs standalone. Installers stay flat in that directory; `skills/` (WSL
 skill templates) and `auto-review-model/` (the in-tree override package) are its
 only subdirectories. Plugin
@@ -135,16 +137,13 @@ Plugins without any of these get a derived mount entry (id from
 may instead pass an explicit `mount` entry that overrides the derived entry,
 and the `mount` may also carry a `config` object that the shared pipeline
 renders as the row's `config:` block (needed when a plain package's entry
-must carry settings). `harness`'s `browser-use` and `computer-use` are the
-only wrappers that mount plain packages by hand: their four
-packages (`@deepseek-ai/dsh-browser-use`,
-`@deepseek-ai/dsh-experimental-browser-use-playwright-mcp`,
-`@deepseek-ai/dsh-computer-use`,
-`@deepseek-ai/dsh-experimental-computer-use-cua-driver-native`) declare no
-`dsh.bundle.patch`, so the wrapper mounts them two at a time as
-service + provider insert rows — only the Browser Use provider row carries a
-`config` (`mode: launch` / `headless: true` / `executablePath`); the Cua
-Driver native provider takes no configuration, so its row is bare.
+must carry settings). `harness`'s `browser-use` is the only wrapper that mounts
+plain packages by hand: its two packages (`@deepseek-ai/dsh-browser-use`,
+`@deepseek-ai/dsh-experimental-browser-use-playwright-mcp`) declare no
+`dsh.bundle.patch`, so the wrapper mounts them as service + provider insert
+rows — only the provider row carries a `config` (`mode: launch` /
+`headless: true` / `executablePath`). Computer Use mounts through the official
+optional bundle `@deepseek-ai/dsh-cua-bundle`, not through a wrapper here.
 Every in-tree wrapper's package declares
 `dsh.bundle.patch` and mounts through its own bundle layer. A manual profile
 insert for a bundle-declared plugin would double-mount it and fail the plugin
@@ -197,7 +196,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   - Auto review（无本地包，官方可选 bundle）：`@deepseek-ai/dsh-experimental-auto-review` 随 dsh 安装提供并列入 harness 的 `OPTIONAL_BUNDLES`，由插件页「自动授权审查」开关写入 `dsh.profile.bundles`，本 wrapper 不安装它
   - Auto review 模型覆盖（in-tree 包）：`dsh-auto-review-model` 位于 `plugins/harness/auto-review-model/`，在 `llm/stream` waterfall 上把 `purpose: 'auto-review'` 的审查请求改派到配置的 provider/model；与「自动授权审查」开关独立，`enabled: false` 或未配置路由时不注册监听；客户端半在插件信息页提供开关与 provider/model 下拉，保存即时写入 profile 的 Cordis patch。依赖 harness 内部约定，升级后按包 README 的「Harness 升级检查清单」复核
   - Browser Use / Playwright MCP（无本地包）npm包 ×2：`@deepseek-ai/dsh-browser-use@0.2.3-alpha.2`（独占浏览器提供方注册服务）与 `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp@0.2.3-alpha.2`（逐 Session Chromium 工具）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（提供方行带 `config: mode launch/headless`，Chromium 路径安装时探测）。默认安装：`mode: launch` 下每个存活 Session 各持一份浏览器客户端
-  - Computer Use / Cua Driver native（无本地包）npm包 ×2：`@deepseek-ai/dsh-computer-use@0.2.3-alpha.2`（独占桌面提供方注册服务）与 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.3-alpha.2`（进程内 Cua Driver 原生桌面工具，工具名 `cua_driver_native__*`）；两包均不声明 `dsh.bundle.patch`，按普通依赖安装并由 wrapper 显式挂载两行 insert（原生提供方无配置，行不带 `config`；此提供方仅限 native 路线，同族的已安装 MCP 提供方不装、与 native 抢占唯一注册位）
+  - Computer Use（官方可选 bundle，本仓库不安装本体；Windows 上由 `cua-windows.mjs` 构建 helper 并启用）：`@deepseek-ai/dsh-cua-bundle` 列入 harness 的 `OPTIONAL_BUNDLES`，由插件页「实验性插件 → 计算机使用」开关写入 profile 的 `dsh.profile.bundles`；它的 patch 挂载 `cua-provider-registry`（`@deepseek-ai/dsh-computer-use` 的独占注册服务）、`cua-windows` / `cua-macos` 平台提供方与 `ui-cua`（工具面 + `cuaAccess` 服务）。`ctx.computerUse` 独占，旧版 wrapper 的 `computer-use` / `computer-use-cua-driver-native` 两行必须移除，否则先注册的一方占位、cua 链报 `service "computerUse" has been registered`、客户端显示 `Service "cuaAccess" is unavailable`。Windows 的 npm 包不带 `dsh-cua-windows.exe`：`plugins/harness/cua-windows.mjs` 用 .NET 10 从子模块源码构建、把 `cua-windows` 行的 `config.helperPath` 指过去并启用 bundle；它同时是「官方发布二进制后删除本编译段」的检查点
 - [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) npm包（跟踪 `dsh-pet@latest`；9 条 `@deepseek-ai/dsh*` peer 为 `^0.2.0-rc.1`，覆盖 0.2.3-alpha.2 的准入闸门，无需精确版本例外；包内 `dsh.compatibility.dshReleases` 列表仅作「验证于」展示、不参与准入判定），默认安装：host 半 inject 为 `webServer / agentDefaultModel / credentials / llm / commands / connection`，`agentDefaultModel` 由 base bundle 提供，`connection` 供桌面模式的「打开 AI 设置」使用；client 半的本地 inject（`src/client/app.ts`）为 `slots / locale / connection / remote / remote.commands / commandUi`，其中 `commandUi`（官方 dsh-client-ui-commands 的「/」命令服务，随 web-app bundle 挂载）就绪后 `/pet` 选择框才注册；声明层 `dsh.client.inject` 只列 `@deepseek-ai/dsh-client-connection`（随 web-app bundle 挂载）；系统通知走 host 转发通道（host 半监听 `session/event` / `agent/error`，把帧落在 `/dsh-pet-7340/notify`，浏览器半每秒轮询该路由）。0.4.x 新增语音播报（`@andresaya/edge-tts`）、睡觉/说梦话、待办提醒、点击音效与系统托盘等，默认配置键由包内 `assets/config.jsonc` 提供；用户层配置为 `$DSH_HOME/dsh-pet/main-config.jsonc`（旧 `main-config.json` 仍被读取并迁移），安装后自动注入 `display:"web"` 屏蔽桌面 Electron 模式（见 [dsh-pet/README.md](dsh-pet/README.md)）
 - [dsh-commandcode-provider](https://github.com/Mars-Sea/dsh-commandcode-provider) npm包（跟踪 `@mars-sea/dsh-commandcode-provider@latest`；`engines.dsh` 为析取区间 `>=0.2.1-rc.2 <0.2.2-0 || >=0.2.2-alpha.2 <0.2.3-0`，上界 `<0.2.3-0` 不接纳 pinned 的 `0.2.3-alpha.2`，上游尚无覆盖 0.2.3 线的发布，wrapper 因此为其 latest 解析出的精确版本传 `exempt`、按精确版本接受风险（例外按「精确包版本 + 精确运行时版本」生效）；准入闸门只按 `engines.dsh` 判定，其 `@deepseek-ai/dsh-*` peer 区间与之相同；`dsh.compatibility.dshReleases` 仅作「验证于」展示，不参与准入判定；注意 `engines.node >=24.9`，低于 harness 0.2.3-alpha.2 的 `^24.22.3 || >=26.13.1`；其 bundle 层插入 entry id `llm-commandcode`）
 - [dsh-pause](https://github.com/better-er/dsh-pause) npm包（跟踪 `dsh-pause@latest`；「DSH·暂停」：host 半在 `agent/pre-step` waterfall 上卡出暂停点（每个 turn 的首次请求不停、不打断在途调用），browser 半经 `conversation.input.right` slot 在 composer 工具行渲染开关与放行控件，会话开关默认关闭（Config `defaultEnabled`）；另有键盘 Pause 键切换，以及模型空闲且输入为空时连按两次回车的「强制继续」（经 `agent.followup` 送一条内容为空的唤醒消息，不产生用户消息）；RPC 走插件向 webServer 自注册的 `/dsh-pause` 前缀路由。manifest 无 `engines.dsh`，六条 `@deepseek-ai/dsh*` peer 均为 `^0.2.0-rc.2`，覆盖 0.2.3-alpha.2 的准入闸门、无需例外（另有非 dsh 的 `@deepseek-ai/schemastery >=3.18.0` peer，不进准入闸门）；`engines.node` 声明 `>=26.3.1`，与 harness 的 `^24.22.3 || >=26.13.1` 不同，profile 未开 `engine-strict` 故只告警。包声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-pause`）
@@ -500,7 +499,7 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   installed. See the upstream repository and https://dsh.r2049.cn/app.
 - `harness` — a single flat wrapper at `harness/` that owns the plugins it
   installs: `install.mjs` only loads the sibling installers
-  `browser-use.mjs`, `computer-use.mjs` and `auto-review-model.mjs`. Installers
+  `browser-use.mjs` and `auto-review-model.mjs`. Installers
   stay flat in that directory; `skills/` (WSL skill templates) and
   `auto-review-model/` (an in-tree override package of this repository) are its
   only subdirectories. Auto review itself is not installed here:
@@ -542,17 +541,22 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
     Session its own browser client, and the profile resolves a single
     `@deepseek-ai/dsh-scope` instance (the duplicate-instance failure upstream
     issue #4573 describes). See `harness/README.md`.
-  - `computer-use` — `harness/computer-use.mjs` installs the Cua Driver
-    native desktop provider from npm as two plain (non-bundle) packages:
-    `@deepseek-ai/dsh-computer-use@0.2.3-alpha.2` (the exclusive computer-use
-    provider registration service, `ctx.computerUse`) and
-    `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native@0.2.3-alpha.2`
-    (in-process desktop tools via the Cua Driver native npm SDK
-    `@trycua/cua-driver@0.28.0`, surfaced as `cua_driver_native__<tool>`).
-    Neither declares `dsh.bundle.patch`, so the wrapper mounts both plain
-    packages by hand: two `cordis.patch.yml` insert rows (id `computer-use` /
-    `computer-use-cua-driver-native`), neither carrying `config` because the
-    native provider takes no configuration. Only the native route is
-    installed; the sibling installed-MCP computer-use provider is not, since
-    both contend for the single `ctx.computerUse` registration slot.
+  - `computer-use` — no wrapper installs it any more. Computer Use ships as
+    the optional bundle `@deepseek-ai/dsh-cua-bundle` (listed in the harness's
+    `OPTIONAL_BUNDLES`); the plugin page's "Computer Use" switch writes it into
+    the profile's `dsh.profile.bundles`, and its patch mounts
+    `cua-provider-registry` (the exclusive `@deepseek-ai/dsh-computer-use`
+    registration service), the `cua-windows` / `cua-macos` platform providers,
+    and `ui-cua` (`@deepseek-ai/dsh-cua`, the tools plus the `cuaAccess`
+    service). `ctx.computerUse` admits one provider, so the old wrapper rows
+    (`computer-use` / `computer-use-cua-driver-native`) must be removed: when
+    both are present one side wins and the cua chain reports
+    `service "computerUse" has been registered`, which the client shows as
+    `Service "cuaAccess" is unavailable`. On Windows the `cua-windows` row needs
+    `config.helperPath`, an absolute path to a built `dsh-cua-windows.exe`: the
+    npm package ships no native helper, only a source checkout does (built with
+    the .NET 10 SDK). `harness/cua-windows.mjs` builds that helper from the
+    pinned submodule, writes the `helperPath` override and turns the bundle on
+    for the profile; it also re-checks whether the published package has started
+    shipping the binary and asks for this build step to be removed when it has.
     See `harness/README.md`.

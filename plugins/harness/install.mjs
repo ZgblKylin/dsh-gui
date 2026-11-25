@@ -10,5 +10,5 @@
  */
 
 import './browser-use.mjs'
-import './computer-use.mjs'
 import './auto-review-model.mjs'
+import './cua-windows.mjs'
