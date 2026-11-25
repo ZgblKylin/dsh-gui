@@ -17,6 +17,7 @@
   var UL_ITEM = /^\s{0,3}[-*+]\s+(.*)$/
   var OL_ITEM = /^\s{0,3}(\d{1,9})[.)]\s+(.*)$/
   var INLINE_SOURCE = '(\\*\\*(?:[^*]|\\*(?!\\*))+\\*\\*|__(?:[^_]|_(?!_))+__|~~[^~]+~~|\\*[^*\\n]+\\*|_[^_\\n]+_|`[^`\\n]+`|\\[[^\\]\\n]+\\]\\((https?:\\/\\/[^\\s)]+)\\))'
+  var TABLE_SEPARATOR = /^\s*\|?\s*:?-{1,}:?\s*(?:\|\s*:?-{1,}:?\s*)+\|?\s*$/
 
   /**
    * Create one element, optionally with a class.
@@ -92,13 +93,14 @@
   }
 
   /** Whether a line starts a block the paragraph collector must not swallow. */
-  function startsBlock(line) {
+  function startsBlock(line, index, lines) {
     return CODE_FENCE.test(line)
       || HEADING.test(line)
       || RULE.test(line)
       || QUOTE.test(line)
       || UL_ITEM.test(line)
       || OL_ITEM.test(line)
+      || isTableStart(lines, index)
   }
 
   /** Collect the paragraph lines starting at `index`. */
@@ -123,7 +125,7 @@
       node.appendChild(item)
       index += 1
       // A wrapped item line continues the previous item.
-      while (index < lines.length && lines[index].trim() !== '' && !startsBlock(lines[index])) {
+      while (index < lines.length && lines[index].trim() !== '' && !startsBlock(lines[index], index, lines)) {
         item.appendChild(document.createTextNode(' '))
         item.appendChild(inline(lines[index].trim()))
         index += 1
@@ -144,6 +146,87 @@
     }
     var node = element('blockquote')
     node.appendChild(paragraph(parts))
+    return { node: node, next: index }
+  }
+
+  /** Split one table row into trimmed cells, honoring `\|` escapes. */
+  function splitRow(line) {
+    var text = line.trim()
+    if (text.charAt(0) === '|') text = text.slice(1)
+    if (text.charAt(text.length - 1) === '|' && text.charAt(text.length - 2) !== '\\') text = text.slice(0, -1)
+    var cells = []
+    var current = ''
+    for (var index = 0; index < text.length; index += 1) {
+      var character = text.charAt(index)
+      if (character === '\\' && text.charAt(index + 1) === '|') {
+        current += '|'
+        index += 1
+        continue
+      }
+      if (character === '|') {
+        cells.push(current.trim())
+        current = ''
+        continue
+      }
+      current += character
+    }
+    cells.push(current.trim())
+    return cells
+  }
+
+  /** Column alignments declared by a table's separator row. */
+  function alignmentsOf(separator) {
+    return splitRow(separator).map(function (cell) {
+      var left = cell.charAt(0) === ':'
+      var right = cell.charAt(cell.length - 1) === ':'
+      if (left && right) return 'center'
+      if (right) return 'right'
+      if (left) return 'left'
+      return ''
+    })
+  }
+
+  /** Whether a pipe table starts at this line (header row + separator row). */
+  function isTableStart(lines, index) {
+    if (index === undefined || index + 1 >= lines.length) return false
+    var header = lines[index]
+    if (header.indexOf('|') === -1) return false
+    var separator = lines[index + 1]
+    if (!TABLE_SEPARATOR.test(separator)) return false
+    return splitRow(header).length === splitRow(separator).length
+  }
+
+  /** Render one pipe table. */
+  function table(lines, start) {
+    var header = splitRow(lines[start])
+    var alignments = alignmentsOf(lines[start + 1])
+    var node = element('table')
+    var thead = element('thead')
+    var headRow = element('tr')
+    header.forEach(function (cell, column) {
+      var th = element('th')
+      if (alignments[column]) th.style.textAlign = alignments[column]
+      th.appendChild(inline(cell))
+      headRow.appendChild(th)
+    })
+    thead.appendChild(headRow)
+    node.appendChild(thead)
+    var tbody = element('tbody')
+    var index = start + 2
+    while (index < lines.length && lines[index].trim() !== '' && lines[index].indexOf('|') !== -1
+      && !startsBlock(lines[index], index, lines)) {
+      var cells = splitRow(lines[index])
+      var row = element('tr')
+      header.forEach(function (_cell, column) {
+        var td = element('td')
+        if (alignments[column]) td.style.textAlign = alignments[column]
+        td.appendChild(inline(cells[column] === undefined ? '' : cells[column]))
+        row.appendChild(td)
+      })
+      tbody.appendChild(row)
+      index += 1
+    }
+    node.appendChild(tbody)
     return { node: node, next: index }
   }
 
@@ -203,8 +286,14 @@
         index = items.next
         continue
       }
+      if (isTableStart(lines, index)) {
+        var tableBlock = table(lines, index)
+        root.appendChild(tableBlock.node)
+        index = tableBlock.next
+        continue
+      }
       var parts = []
-      while (index < lines.length && lines[index].trim() !== '' && !startsBlock(lines[index])) {
+      while (index < lines.length && lines[index].trim() !== '' && !startsBlock(lines[index], index, lines)) {
         parts.push(lines[index])
         index += 1
       }

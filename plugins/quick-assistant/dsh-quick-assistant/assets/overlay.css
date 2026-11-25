@@ -791,3 +791,24 @@ kbd {
   flex: none;
   margin-left: 2px;
 }
+
+.markdown table {
+  width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.markdown th,
+.markdown td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.markdown th {
+  background: rgba(127, 127, 127, 0.12);
+  font-weight: 600;
+}

@@ -67,3 +67,15 @@ Tauri 外壳启动 `dsh web` 时扫描 `<DSH_HOME>/gui/shell-overlays/*.patch.ym
 3. `WebServer.register` 的 `WebRoute.auth` 仍省略即 `required`，`prefix` 路由与 `ServerResponse` 生命周期语义不变（覆盖页与助手路径必须继续在 `routeAuthPolicy` 里声明 `anonymous`）；
 4. 客户端 `settings.section` / `settings.section.icon` slot 与 `PropsRuntime` / `PropsLocale` 契约不变；
 5. Tauri crate 的第二个 bin 仍可编译（`cargo build --release --bin dsh-quick-assistant`）。
+
+## 遗留问题
+
+### DeepSeek 原生 DSML 工具标记偶发漏进回复
+
+**现象**：`ask` / `explain` 的回复偶尔整段变成模型原生工具标记，例如 `<|DSML| calls> … <|DSML| invoke name="web_fetch"> … </|DSML| calls>`，页面按 Markdown 原样显示。
+
+**已排除**：不是工具声明缺失。模型能按名字请求 `web_search` / `web_fetch`，说明 `tools` 已送达模型；本插件与 agent loop 走同一条声明链（`GenerateOptions.tools` → pi-ai `Context.tools` → provider `tools` 字段），请求形状的差异（无 system prompt、工具子集、`purpose: 'quick-assistant'`）都不是充分的触发条件——用运行中的宿主接口连续复现同一问题未命中，说明是间歇性的。
+
+**根因**：DeepSeek V4 的原生工具调用是写在正文里的 DSML 文本，由 API / 推理服务把它解析成 `tool_calls`；解析不完整时标记会漏进 `content`。上游已有针对性修复（vLLM `#54686`、opencode `#60575`），社区也报告该现象随机出现、长上下文更明显。DSH 当前 pinned 的 pi-ai 适配器没有 DSML 恢复逻辑，因此 DSH 自己的 agent 会话同样可能遇到，只是概率低。
+
+**处理**：本地不解析（避免把正文里的 DSML 示例误判成工具调用）；后续如要兜底，应在 `llm/stream` waterfall 做归一化，让所有请求（含 agent 会话）统一受益，或在 pi-ai 适配器恢复该能力后跟随升级。
