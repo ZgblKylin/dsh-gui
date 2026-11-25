@@ -37,7 +37,7 @@ Tauri 外壳启动 `dsh web` 时扫描 `<DSH_HOME>/gui/shell-overlays/*.patch.ym
 | GET | `/` | token | 覆盖页 HTML，注入 `window.__QA_TOKEN__` |
 | GET | `/assets/:file` | token | 覆盖页静态资源，仅允许明文文件名 |
 | GET | `/api/bootstrap` | token | 设置、语言表、模型目录、助手状态 |
-| POST | `/api/chat` | token | SSE：`meta` → (`reasoning` | `delta`)… → `done`/`error` |
+| POST | `/api/chat` | token | SSE：`meta` → (`reasoning`/`tool`/`reset`/`delta`)… → `done`/`error` |
 | GET | `/api/native` | token | 助手轮询：`{ shortcut, showRequest }` |
 | GET/PUT | `/api/settings` | 同源 | 设置读取/保存 |
 | GET | `/api/catalog` | 同源 | provider → model → 思考等级目录 |
@@ -46,7 +46,9 @@ Tauri 外壳启动 `dsh web` 时扫描 `<DSH_HOME>/gui/shell-overlays/*.patch.ym
 
 路由的传输层鉴权由 `auth: routeAuthPolicy` 决定：token 行（覆盖页、资源、`bootstrap`/`chat`/`native`）声明 `anonymous`，因为助手是独立 WebView2 进程、有自己的 cookie 罐，拿不到 Host 会话 Cookie；其余行保持默认 `required`，先校验 Host 会话再由 handler 做同源围栏。`/api` 前缀的浏览器信任围栏不覆盖插件路由。
 
-`/api/chat` 请求体：`{ mode, text, messages?, sourceLanguage?, targetLanguage? }`。`mode` 为 `ask` 时 `messages` 是此前的问答文字对；其余模式忽略 `messages`，由提示词模板与 `text` 生成单条用户消息。模型解析顺序：模式覆盖 → 主模型 → 模型目录中第一个可用条目。`reasoning` 事件携带思维链增量，页面把它显示成一行并在正文开始时移除；`delta` 是回复正文。客户端中止请求（关闭窗口、退出子面板）时连接关闭，宿主随之取消模型调用。
+`/api/chat` 请求体：`{ mode, text, messages?, sourceLanguage?, targetLanguage? }`。`mode` 为 `ask` 时 `messages` 是此前的问答文字对；其余模式忽略 `messages`，由提示词模板与 `text` 生成单条用户消息。模型解析顺序：模式覆盖 → 主模型 → 模型目录中第一个可用条目。`reasoning` 事件携带思维链增量，页面把它显示成一行并在正文开始时移除；`delta` 是回复正文；`tool` 事件带 `{ label, detail }`，显示「联网搜索」/「读取网页」状态；`reset` 表示此前流出的正文是工具调用前的说明文字，页面丢弃它。客户端中止请求（关闭窗口、退出子面板）时连接关闭，宿主随之取消模型调用。
+
+「回答此问题」「解释说明」在 `ctx.web` 可用时声明 `web_search` / `web_fetch` 两个工具：宿主循环调用 `ctx.llm.stream`，把模型请求的 `tool-call` 块交给 `ctx.web.search()` / `ctx.web.fetch()` 执行（与内置 web 工具同一 seam），把结果作为 tool 消息回填，最多 3 轮；工具不可用或首轮失败时退回不带工具的请求。
 
 覆盖页的 Markdown 渲染由独立的 `assets/markdown.js` 提供：它只生成 DOM 节点（文本一律经 `textContent` 写入），并在每次流式增量到达时整体重绘当前容器。
 

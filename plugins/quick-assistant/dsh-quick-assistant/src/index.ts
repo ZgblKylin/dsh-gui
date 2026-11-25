@@ -30,6 +30,7 @@ import { NativeHelper, nativeHelperOptions } from './helper.ts'
 import { createRouteHandler, ROUTE_PREFIX, routeAuthPolicy, type RouteDeps } from './routes.ts'
 import { SettingsStore } from './settings.ts'
 import type { LlmChatRequest, LlmStreamService } from './stream.ts'
+import type { WebService } from './web-tools.ts'
 
 declare module '@deepseek-ai/dsh-llm/types' {
   interface LlmRequestPurposeMap {
@@ -102,6 +103,7 @@ function toGenerateOptions(request: LlmChatRequest): GenerateOptions {
     ...request.signal === undefined ? {} : { signal: request.signal },
     messages: request.messages as RequestMessage[],
     purpose: request.purpose,
+    ...request.tools === undefined ? {} : { tools: request.tools as GenerateOptions['tools'] },
   }
 }
 
@@ -138,6 +140,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     settings,
     llm,
     catalog,
+    web: () => ctx.get('web') as WebService | undefined,
     defaultSelection: () => currentDefaultSelection(ctx),
     helperStatus: () => helper?.status ?? { running: false, error: '原生助手尚未启动' },
     showRequest: () => showRequest,

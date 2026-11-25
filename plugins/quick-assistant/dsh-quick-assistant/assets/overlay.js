@@ -412,25 +412,47 @@
    * row keeps the newest text visible and is removed when the answer starts.
    */
   function createThinkingLine(contentHost) {
-    const line = document.createElement('div')
-    line.className = 'thinking-line'
-    const label = document.createElement('span')
-    label.className = 'thinking-label'
-    label.textContent = '思考中'
-    const text = document.createElement('span')
-    text.className = 'thinking-text'
-    line.appendChild(label)
-    line.appendChild(text)
-    contentHost.insertBefore(line, contentHost.firstChild)
+    let line = null
+    let label = null
+    let text = null
+
+    function mount() {
+      if (line) return
+      line = document.createElement('div')
+      line.className = 'thinking-line'
+      label = document.createElement('span')
+      label.className = 'thinking-label'
+      label.textContent = '思考中'
+      text = document.createElement('span')
+      text.className = 'thinking-text'
+      line.appendChild(label)
+      line.appendChild(text)
+      contentHost.insertBefore(line, contentHost.firstChild)
+    }
+
+    function unmount() {
+      if (line && line.parentNode) line.parentNode.removeChild(line)
+      line = null
+      label = null
+      text = null
+    }
+
     return {
       push(chunk) {
+        mount()
+        label.textContent = '思考中'
         text.textContent += chunk
         // One line only: keep the tail in view as the text outgrows the row.
         text.scrollLeft = text.scrollWidth
       },
-      hide() {
-        if (line.parentNode) line.parentNode.removeChild(line)
+      /** Replace the row with a tool status: label plus the query or URL. */
+      status(labelText, detail) {
+        mount()
+        label.textContent = labelText
+        text.textContent = detail
+        text.scrollLeft = text.scrollWidth
       },
+      hide: unmount,
     }
   }
 
@@ -569,6 +591,15 @@
       retry: () => retryAskTurn(payload, assistant),
       onReasoning(text) {
         thinking.push(text)
+      },
+      onTool(label, detail) {
+        thinking.status(label, detail)
+      },
+      onReset() {
+        // Text before a tool call was narration; the tool status replaces it.
+        writer.flush()
+        assistant.content = ''
+        paintMarkdown(body, '')
       },
       onDelta(text) {
         thinking.hide()
@@ -721,6 +752,15 @@
       onReasoning(text) {
         thinking.push(text)
       },
+      onTool(label, detail) {
+        thinking.status(label, detail)
+      },
+      onReset() {
+        writer.flush()
+        runtime.results[mode] = ''
+        paintMarkdown(body, '')
+        syncCopyButtons()
+      },
       onDelta(text) {
         element.classList.remove('is-waiting')
         thinking.hide()
@@ -774,6 +814,14 @@
       reasoning(text) {
         if (activeJob !== entry) return
         if (typeof job.onReasoning === 'function') job.onReasoning(text)
+      },
+      tool(label, detail) {
+        if (activeJob !== entry) return
+        if (typeof job.onTool === 'function') job.onTool(label, detail)
+      },
+      reset() {
+        if (activeJob !== entry) return
+        if (typeof job.onReset === 'function') job.onReset()
       },
       done(usage) {
         entry.usage = usage
@@ -874,6 +922,12 @@
     } else if (event === 'reasoning') {
       const text = parsed && typeof parsed.text === 'string' ? parsed.text : ''
       if (text && typeof handlers.reasoning === 'function') handlers.reasoning(text)
+    } else if (event === 'tool') {
+      const label = parsed && typeof parsed.label === 'string' ? parsed.label : '联网'
+      const detail = parsed && typeof parsed.detail === 'string' ? parsed.detail : ''
+      if (typeof handlers.tool === 'function') handlers.tool(label, detail)
+    } else if (event === 'reset') {
+      if (typeof handlers.reset === 'function') handlers.reset()
     } else if (event === 'done') {
       handlers.done(parsed && typeof parsed === 'object' ? parsed : {})
     } else if (event === 'error') {

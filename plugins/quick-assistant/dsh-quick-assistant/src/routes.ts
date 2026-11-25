@@ -29,6 +29,7 @@ import { LANGUAGES } from './languages.ts'
 import { isAssistantMode, renderPrompt, type AssistantMode } from './prompts.ts'
 import { systemLanguageName } from './system-language.ts'
 import { openSse, streamChat, messageOf, type LlmMessage, type LlmStreamService } from './stream.ts'
+import type { WebService } from './web-tools.ts'
 import { readAsset, readOverlayPage } from './overlay.ts'
 
 /** Route prefix owned by this plugin. */
@@ -87,6 +88,8 @@ export interface RouteDeps {
   defaultSelection: () => ModelSelection | undefined
   /** LLM service for catalog reads and streaming. */
   llm: LlmStreamService & LlmCatalogService
+  /** Web access service for the ask/explain tools, when the deployment has one. */
+  web: () => WebService | undefined
   /** Cached catalog shared by bootstrap and the settings page. */
   catalog: CatalogCache
   /** Current native helper availability. */
@@ -385,6 +388,8 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, deps: RouteDe
         selection,
         messages: buildMessages(request, prompt, selection),
         signal: controller.signal,
+        web: deps.web(),
+        tools: request.mode === 'ask' || request.mode === 'explain',
       })
       return
     }

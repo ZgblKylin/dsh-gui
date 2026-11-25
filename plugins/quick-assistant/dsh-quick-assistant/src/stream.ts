@@ -8,9 +8,14 @@
  */
 
 import type { ServerResponse } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import type { GenerateOptions, LlmFailure, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 
 import type { ModelSelection } from './catalog.ts'
+import {
+  WEB_TOOL_SCHEMAS, executeWebTool, webToolStatus, webToolsReady,
+  type ToolCall, type WebService, type WebToolSchema,
+} from './web-tools.ts'
 
 /** One message forwarded to the model. */
 export interface LlmMessage {
@@ -24,6 +29,35 @@ export interface LlmMessage {
   source: { kind: 'user' } | { kind: 'model'; provider: string; model: string }
 }
 
+/** One tool invocation the model asked for. */
+export interface LlmToolCallBlock {
+  type: 'tool-call'
+  id: string
+  name: string
+  arguments: string
+}
+
+/** An assistant turn that may carry tool calls. */
+export interface LlmAssistantToolTurn {
+  id: string
+  role: 'assistant'
+  content: readonly ({ type: 'text'; text: string } | LlmToolCallBlock)[]
+  source: { kind: 'model'; provider: string; model: string }
+}
+
+/** One tool result answering a tool call. */
+export interface LlmToolTurn {
+  id: string
+  role: 'tool'
+  content: readonly { type: 'text'; text: string }[]
+  source: { kind: 'tool'; callId: string }
+  toolCallId: string
+  isError?: boolean
+}
+
+/** One turn of the request history, including the tool turns of a tool loop. */
+export type LlmTurn = LlmMessage | LlmAssistantToolTurn | LlmToolTurn
+
 /**
  * Request fields this plugin sets. It reuses the harness option fields while
  * keeping `messages` local: the host builds plain text turns for one auxiliary
@@ -35,7 +69,9 @@ export interface LlmChatRequest extends Pick<GenerateOptions, 'provider' | 'mode
   /** Declared auxiliary purpose (module augmentation in `./index.ts`). */
   purpose: 'quick-assistant'
   /** Conversation turns, oldest first. */
-  messages: LlmMessage[]
+  messages: LlmTurn[]
+  /** Web tool declarations, offered only to the ask and explain modes. */
+  tools?: readonly WebToolSchema[]
 }
 
 /** Structural face of the LLM service used for one auxiliary call. */
@@ -64,6 +100,10 @@ export interface SseConnection {
   delta(text: string): void
   /** Append model reasoning text (the thinking stream). */
   reasoning(text: string): void
+  /** Announce one tool invocation; `detail` is the query or URL being handled. */
+  tool(label: string, detail: string): void
+  /** Discard the text streamed so far: the model is calling a tool instead of answering. */
+  reset(): void
   /** Terminal event for a completed run. */
   done(usage?: DoneUsage): void
   /** Terminal event for a failed run. */
@@ -116,6 +156,14 @@ export function openSse(res: ServerResponse): SseConnection {
     reasoning(text) {
       if (finished || text === '') return
       writeEvent(res, 'reasoning', { text })
+    },
+    tool(label, detail) {
+      if (finished) return
+      writeEvent(res, 'tool', { label, detail })
+    },
+    reset() {
+      if (finished) return
+      writeEvent(res, 'reset', {})
     },
     done(usage) {
       if (finished) return
@@ -181,7 +229,27 @@ export interface StreamChatOptions {
   system?: string
   /** Aborts the model call when the client disconnects. */
   signal: AbortSignal
+  /** Web service used to execute tool calls, or `undefined` when unavailable. */
+  web?: WebService | undefined
+  /** Whether this mode may use the web tools. */
+  tools?: boolean
 }
+
+/** How many tool rounds one request may run before the answer is forced. */
+const MAX_TOOL_ROUNDS = 3
+
+/** Outcome of one streamed model call inside the loop. */
+interface CallOutcome {
+  /** Visible text produced in this round. */
+  text: string
+  /** Tool calls the model requested, in emission order. */
+  calls: ToolCall[]
+  /** Terminal reason; `undefined` when the stream ended without one. */
+  finish?: StreamChunk extends never ? never : FinishLike
+}
+
+/** The terminal reason a stream reports. */
+type FinishLike = Extract<StreamChunk, { type: 'finish' }>['reason']
 
 /**
  * Stream one chat run into an SSE response.
@@ -189,28 +257,34 @@ export interface StreamChatOptions {
  * @returns fulfillment after the response closed (or the client vanished).
  */
 export async function streamChat(options: StreamChatOptions): Promise<void> {
-  const { llm, res, mode, selection, messages, system, signal } = options
-  const sse = openSse(res)
+  const sse = openSse(options.res)
+  try {
+    const useTools = options.tools === true
+      && options.web !== undefined
+      && await webToolsReady(options.web, options.selection.provider)
+    if (useTools) await runToolLoop(options, sse)
+    else await runPlain(options, sse)
+  } catch (error) {
+    if (!options.signal.aborted) sse.error(errorCode(error), messageOf(error))
+  } finally {
+    sse.end()
+  }
+}
+
+/** One plain model call: no tools, the request is exactly the mode's prompt. */
+async function runPlain(options: StreamChatOptions, sse: SseConnection): Promise<void> {
+  const { llm, mode, selection, messages, system, signal } = options
   const request: LlmChatRequest = {
-    provider: selection.provider,
-    model: selection.model,
-    ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
+    ...routeOf(selection),
     ...system === undefined ? {} : { system },
     messages,
     purpose: 'quick-assistant',
     signal,
   }
+  sse.meta({ mode, provider: selection.provider, model: selection.model })
   let usage: DoneUsage | undefined
   try {
-    let chunks: AsyncIterable<StreamChunk>
-    try {
-      chunks = llm.stream(request)
-    } catch (error) {
-      sse.error(errorCode(error), messageOf(error))
-      return
-    }
-    sse.meta({ mode, provider: selection.provider, model: selection.model })
-    for await (const chunk of chunks) {
+    for await (const chunk of llm.stream(request)) {
       switch (chunk.type) {
         case 'text-delta':
           sse.delta(chunk.text)
@@ -221,21 +295,10 @@ export async function streamChat(options: StreamChatOptions): Promise<void> {
         case 'usage':
           usage = doneUsage(chunk.usage)
           break
-        case 'finish': {
-          const reason = chunk.reason
-          if (reason.kind === 'error') {
-            const event = failureEvent(reason.failure)
-            sse.error(event.code, event.message)
-          } else if (reason.kind === 'aborted') {
-            // A client-side abort closed the connection; nothing will read an event.
-            if (!signal.aborted) sse.error('ABORTED', reason.failure.message)
-          } else {
-            sse.done(usage)
-          }
-          break
-        }
+        case 'finish':
+          settle(sse, chunk.reason, usage, signal)
+          return
         default:
-          // Block markers and tool deltas are not part of this protocol.
           break
       }
     }
@@ -243,7 +306,156 @@ export async function streamChat(options: StreamChatOptions): Promise<void> {
     sse.done(usage)
   } catch (error) {
     if (!signal.aborted) sse.error(errorCode(error), messageOf(error))
-  } finally {
-    sse.end()
   }
+}
+
+/**
+ * Stream the ask/explain modes with the web tools: the model may call
+ * `web_search` / `web_fetch`, each call runs against `ctx.web`, and the loop
+ * continues until the model answers or the round budget is spent.
+ */
+async function runToolLoop(options: StreamChatOptions, sse: SseConnection): Promise<void> {
+  const { llm, mode, selection, system, signal, web } = options
+  if (web === undefined) return
+  const history: LlmTurn[] = [...options.messages]
+  sse.meta({ mode, provider: selection.provider, model: selection.model })
+  let usage: DoneUsage | undefined
+  for (let round = 0; ; round += 1) {
+    const offerTools = round < MAX_TOOL_ROUNDS
+    const request: LlmChatRequest = {
+      ...routeOf(selection),
+      ...system === undefined ? {} : { system },
+      messages: history,
+      purpose: 'quick-assistant',
+      signal,
+      ...offerTools ? { tools: WEB_TOOL_SCHEMAS } : {},
+    }
+    const outcome = await streamOneCall(llm, request, sse, signal)
+    if (outcome.usage !== undefined) usage = outcome.usage
+    if (signal.aborted) return
+    const finish = outcome.finish
+    if (finish === undefined || finish.kind === 'stop' || finish.kind === 'max-tokens') {
+      sse.done(usage)
+      return
+    }
+    if (finish.kind === 'error') {
+      // A model or adapter that cannot take tool declarations still has to
+      // answer: retry the plain request once when the first round produced no
+      // visible output.
+      if (round === 0 && outcome.text === '') {
+        await runPlain(options, sse)
+        return
+      }
+      const event = failureEvent(finish.failure)
+      sse.error(event.code, event.message)
+      return
+    }
+    if (finish.kind === 'aborted') {
+      // A client-side abort closed the connection; nothing will read an event.
+      if (!signal.aborted) sse.error('ABORTED', finish.failure.message)
+      return
+    }
+    if (outcome.calls.length === 0 || !offerTools) {
+      // The model asked for tools it was not offered, or produced none: the text
+      // already streamed is the whole answer.
+      sse.done(usage)
+      return
+    }
+    history.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: [
+        ...outcome.text === '' ? [] : [{ type: 'text' as const, text: outcome.text }],
+        ...outcome.calls.map(call => ({ type: 'tool-call' as const, ...call })),
+      ],
+      source: { kind: 'model', provider: selection.provider, model: selection.model },
+    })
+    for (const call of outcome.calls) {
+      // Text streamed before a tool call is narration, not the answer: the page
+      // drops it and shows the tool status in its place.
+      sse.reset()
+      const status = webToolStatus(call)
+      sse.tool(status.label, status.detail)
+      const result = await executeWebTool(web, call, selection.provider, signal)
+      if (signal.aborted) return
+      history.push({
+        id: randomUUID(),
+        role: 'tool',
+        content: [{ type: 'text', text: result.text }],
+        source: { kind: 'tool', callId: call.id },
+        toolCallId: call.id,
+        isError: result.isError,
+      })
+    }
+  }
+}
+
+/** One streamed model call that accumulates text, tool calls, and usage. */
+async function streamOneCall(
+  llm: LlmStreamService,
+  request: LlmChatRequest,
+  sse: SseConnection,
+  signal: AbortSignal,
+): Promise<{ text: string; calls: ToolCall[]; usage?: DoneUsage; finish?: FinishLike }> {
+  let text = ''
+  let usage: DoneUsage | undefined
+  let finish: FinishLike | undefined
+  const pending = new Map<number, ToolCall>()
+  for await (const chunk of llm.stream(request)) {
+    switch (chunk.type) {
+      case 'text-delta':
+        text += chunk.text
+        sse.delta(chunk.text)
+        break
+      case 'reasoning-delta':
+        sse.reasoning(chunk.text)
+        break
+      case 'tool-call-delta': {
+        const call = pending.get(chunk.index) ?? { id: '', name: '', arguments: '' }
+        if (chunk.id !== '') call.id = chunk.id
+        if (chunk.name !== undefined && chunk.name !== '') call.name = chunk.name
+        call.arguments += chunk.argumentsDelta
+        pending.set(chunk.index, call)
+        break
+      }
+      case 'usage':
+        usage = doneUsage(chunk.usage)
+        break
+      case 'finish':
+        finish = chunk.reason
+        break
+      default:
+        break
+    }
+  }
+  const calls = [...pending.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, call]) => call)
+    .filter(call => call.name !== '')
+    .map(call => ({ ...call, id: call.id === '' ? randomUUID() : call.id }))
+  return { text, calls, ...usage === undefined ? {} : { usage }, ...finish === undefined ? {} : { finish } }
+}
+
+/** Route fields every request shares. */
+function routeOf(selection: ModelSelection): Pick<LlmChatRequest, 'provider' | 'model'> & { reasoningEffort?: string } {
+  return {
+    provider: selection.provider,
+    model: selection.model,
+    ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
+  }
+}
+
+/** Send the terminal event of one finished stream. */
+function settle(sse: SseConnection, reason: FinishLike, usage: DoneUsage | undefined, signal: AbortSignal): void {
+  if (reason.kind === 'error') {
+    const event = failureEvent(reason.failure)
+    sse.error(event.code, event.message)
+    return
+  }
+  if (reason.kind === 'aborted') {
+    // A client-side abort closed the connection; nothing will read an event.
+    if (!signal.aborted) sse.error('ABORTED', reason.failure.message)
+    return
+  }
+  sse.done(usage)
 }
