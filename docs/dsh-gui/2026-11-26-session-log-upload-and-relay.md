@@ -163,7 +163,41 @@ if (response.ok) await prepared.accept()
 3. 在 DeepSeek 侧确认该会话日志可见；若不可见，改为读取完整 SSE 后再结束请求，重复验证。
 4. 验证 `enabled: false`、无凭据、非 2xx 三条失败路径都不推进水位。
 
-## 8. 涉及文件
+## 8. 「临时切换模型发一条继续」的评估
+
+机制上可行。切到 DeepSeek 路由后发一条提示词，请求经过同一个 `DeepSeekAdapter`，字段照常挂载。`accept()` 在 `response.ok` 之后、读取 SSE 之前执行（`packages/llm/llm-deepseek/src/adapter.ts:163-177`），所以收到任意一帧 SSE 就证明接受事务已完成；HTTP 2xx 本身就是确认点，读帧并非必要。
+
+它不满足旁路要求。提示词走 agent 循环，会在三处留下痕迹：
+
+1. 「继续」成为 surface 的 `user/message`。pre-step 决定的消息在首次尝试时以 `surfaceOp: 'append'` 追加（`packages/core/agent-loop/src/agent.ts:453-464`），因此进入模型历史，并出现在下一次上传的日志里。
+2. 模型切换通知。路由变化后的首个 step 会追加一条 `[model changed: ...]` 的 user notice（`packages/core/agent/src/model-selection.ts:134-148,158-174`）。切到 DeepSeek 时一条，切回原模型时又一条，同样进入历史。
+3. 中断残留。取消时若已收到非空白文本或推理块，会落一条 surface `assistant/message`（`interrupted: true`）；只收到 `message_start` 时落 log-only `assistant/attempt`（`agent.ts:492-520`、`packages/llm/llm/src/assembler.ts:169-179`）。在首帧处截断通常不会留下助手内容，但这不是契约保证。
+
+同一目标用 `ctx.llm.stream` 直接达成即可，不需要切换会话模型：调用方由插件代替循环，协议路径与发送「继续」完全相同，而循环不会追加任何 user 或 assistant 事件，会话里只多出一条 log-only 的 `delivery-accepted` 水位。补发请求把 `maxTokens` 固定为 1，切断连接后服务端不会继续长时间生成。
+
+| 维度 | 切换模型发继续 | 直接 `ctx.llm.stream` |
+| --- | --- | --- |
+| 字段与接受路径 | 官方适配器 | 官方适配器 |
+| 切换会话模型 | 需要，两次 `model/selection` | 不需要 |
+| 进入模型历史 | 「继续」与两条切换通知 | 无 |
+| 中断残留 | 可能出现 interrupted 助手消息 | 无 |
+| 其它副作用 | 可能触发压缩、工具、goal 继续 | 无 |
+
+## 9. 补发插件 `session-log-relay`
+
+仓库内实现在 `plugins/session-log-relay/dsh-session-log-relay/`，零运行时依赖、无构建步骤，由 wrapper 以显式 mount 写 insert 行挂载。
+
+两个触发点。第一，`agent/pre-step` 上按会话累计可补发步骤，每 `everySteps`（默认 10）步调用一次 `ctx.llm.stream`，请求带 `sessionId` 与 `purpose: 'session-log-relay'`，`maxTokens` 为 1。第二，`llm/stream` 上遇到 `purpose === 'compaction'` 的压缩请求时，先把补发流跑完再 `yield*` 下游，覆盖阈值压缩、溢出压缩与手动 `/compact`。
+
+补发模型默认 `model: 'auto'`：每次补发先向配置的路由查询当前模型列表，取第一位的模型 id。路由自身按十分钟刷新列表缓存，因此官方模型列表更新后无需改配置；需要固定模型时在配置里写明确的模型 id。
+
+跳过规则：步骤或压缩请求的 provider 为空或命中 `skipProviders`（默认 `deepseek-official` 与 `deepseek-account`）时不补发，且这些步骤不计入步数；会话已有补发在途或距上次尝试不足 `minIntervalMs`（默认 3000）时不补发；`includeSubagentSessions` 为 `false` 时步数触发跳过 subagent 会话。补发请求自身 `purpose` 不同，不会命中压缩触发点。
+
+成本：`dsh_session_log` 是请求体顶层字段，不在 `messages`、`system`、`tools` 内，不产生输入 token；补发请求本身是一条 user 文本加至多 1 个输出 token，单次约十来个 token。单次最多携带 `maxBytes` 一段日志（默认 8 MiB），积压由后续触发继续推进。
+
+安装：wrapper 已加入 `plugins/`，`npm run install:plugins` 装入 `web` profile；desktop profile 只能由桌面应用自身的 CLI 写入（仓库 CLI 拒绝 `--profile desktop`），需退出桌面应用后运行 `npm run build:desktop-plugins`，或由下一次 `npm run build:desktop` 装入。
+
+## 10. 涉及文件
 
 - `docs/deepseek-llm-api-wire-extensions.md`（字段、请求头、接受语义的权威说明）
 - `packages/llm/deepseek-llm-api-extensions/src/index.ts`、`src/types.ts`（注册表）

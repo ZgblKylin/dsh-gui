@@ -205,6 +205,8 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
 - [dsh-you-should-know](https://github.com/lolipop-1x1/dsh-you-should-know) npm包（跟踪 `dsh-you-should-know@latest`；「You Should Know」任务提醒插件：host 半在主会话模型请求扩展点捕获完整请求快照，按步长后台用独立观察者模型（默认跟随主会话模型）判断值得理解的重要事实、方案取舍与背景知识，browser 半在输入框上方以可收起的浮层展示提醒，支持按需解释、标记已了解、带回主会话继续讨论与独立设置（语言 / 观察模型 / 步长 / 每轮上限）。manifest 无 `engines.dsh`，五条 `@deepseek-ai/dsh*` peer（`dsh-agent` / `dsh-client-connection` / `dsh-llm` / `dsh-session` / `dsh-storage-domain`）均为 `>=0.2.0-rc.2 <0.3.0-0`，按 `includePrerelease` 覆盖 pinned 的 0.2.3-alpha.2、无需精确版本例外；另有非 dsh 的 `@deepseek-ai/cordis ^4.0.4 || ^4.0.5-alpha.1` peer（闸门不评估，运行时 cordis 4.x 线满足 `^4.0.4`）；`engines.node >=22.19.0` 无碍；发布包含预构建 `dist/`、无本地构建步骤；声明 `dsh.bundle.patch`，由 `dsh plugin add` reconcile 进 `dsh.profile.bundles` 并自挂载 entry `dsh-you-should-know`，不写手工 insert）
 - connection-compat（in-tree 包，无构建、零运行时依赖）：`plugins/connection-compat/dsh-connection-compat/` 把 `@deepseek-ai/dsh-client-connection` 移除的 `connection.requestRejection` 补回 `connection` 服务，供仍用该方法做自注册 HTTP/WS 路由信任围栏的第三方插件（`dsh-better-sidebar`、`dsh-pause`、`ds-harness-remote`、deep-whale 皮肤管理器）继续工作；实现是上游 `dsh-v0.2.2-rc.5` 的 `admit(request)` 委派，放行返回 `undefined`，拒绝返回 401、403 或 503。包不声明 `dsh.bundle.patch`，wrapper 用显式 `mount` 写 insert 行 `connection-compat`。harness 恢复该方法、或依赖方改用 `admit` 后移除。
 
+- session-log-relay（in-tree 包，无构建、零运行时依赖）：`plugins/session-log-relay/dsh-session-log-relay/` 在会话使用非 DeepSeek 模型时补发会话日志。两个触发点：`agent/pre-step` 每 `everySteps`（默认 10）个可补发步骤、以及 `purpose: 'compaction'` 的 `llm/stream` 转发前，调用 `ctx.llm.stream` 向配置的 DeepSeek 路由发一次 `maxTokens: 1` 的请求，由 `dsh_session_log` 扩展字段随请求上传；provider 命中 `deepseek-official` 或 `deepseek-account` 的步骤跳过且不计步。包不声明 `dsh.bundle.patch`，wrapper 用显式 `mount` 写 insert 行 `session-log-relay`；配置在 profile `cordis.patch.yml` 该行的 `config:` 下，需要可用的 DeepSeek 凭据与已注册的补发路由。
+
 ## Current plugins
 
 - `quick-assistant` — in-tree plugin at
@@ -270,6 +272,20 @@ npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当�
   row (`connection-compat`). Remove it once the harness restores the method or
   every dependent moves to `admit`. See
   `connection-compat/dsh-connection-compat/README.md`.
+- `session-log-relay` — in-tree plugin at
+  `session-log-relay/dsh-session-log-relay`, installed into the selected profile
+  (`web` by default; the desktop build installs it into `desktop`). When a
+  Session uses a non-DeepSeek model, the plugin keeps
+  its canonical Session log uploadable: it relays the pending `dsh_session_log`
+  extension field by issuing one `maxTokens: 1` `ctx.llm.stream` request on a
+  configured DeepSeek route, either every `everySteps` (default 10) relayable
+  steps on `agent/pre-step` or before a `purpose: 'compaction'` request is
+  forwarded through the `llm/stream` waterfall. Steps whose provider is
+  `deepseek-official` or `deepseek-account` are skipped and not counted. It
+  declares no `dsh.bundle.patch`, so the wrapper writes an explicit mount insert
+  row (`session-log-relay`); its `config:` block lives on that row. A DeepSeek
+  credential and a registered relay route are required. See
+  `session-log-relay/dsh-session-log-relay/README.md`.
 - `better-sidebar` — npm wrapper whose `install.mjs` installs two upstream
   packages (`omdsh-dev/DSH-better-sidebar` and `ChenRuoT/dsh-sidebar-qa`) in
   order, each tracking its own registry `latest` — `dsh-better-sidebar` FIRST

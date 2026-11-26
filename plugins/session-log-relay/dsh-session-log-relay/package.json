@@ -1,0 +1,25 @@
+{
+  "name": "dsh-session-log-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Relay the DeepSeek session-log extension field for sessions that use a non-DeepSeek model",
+  "license": "Unlicense",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "logic.js",
+    "tests/",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}
