@@ -311,19 +311,26 @@ function localPluginPreview(plugin: PluginNpmRow): ProjectUpdate {
 async function checkPluginRows(root: string): Promise<ProjectUpdate[]> {
   const plugins = await listPluginNpmRows(root)
   if (plugins.length === 0) return []
-  const answers = await npmPackageLatest(plugins.map((plugin) => plugin.packageName))
-  return plugins.map((plugin, index) => pluginRow(plugin, answers[index]!))
+  // One profile read per package serves both the row and the registry phase: the
+  // phase answers the version an install can actually take, and a package the
+  // registry does not move past the installed version needs no packument.
+  const installed: Record<string, string> = {}
+  for (const plugin of plugins) {
+    const version = installedRowVersion(plugin)
+    if (version !== undefined) installed[plugin.packageName] = version
+  }
+  const answers = await npmPackageLatest(plugins.map((plugin) => plugin.packageName), installed)
+  return plugins.map((plugin, index) => pluginRow(plugin, answers[index]!, installed[plugin.packageName]))
 }
 
 /** Fold one registry answer into its npm plugin row. */
-function pluginRow(plugin: PluginNpmRow, answer: PackageLatestInfo): ProjectUpdate {
-  const installed = installedRowVersion(plugin)
+function pluginRow(plugin: PluginNpmRow, answer: PackageLatestInfo, installed: string | undefined): ProjectUpdate {
   const row: ProjectUpdate = {
     id: plugin.id,
     name: plugin.packageName,
     path: plugin.installScript,
     // The installed version is what this deployment runs; the registry answer
-    // is what a fresh install would get.
+    // is the version an install would take right now.
     current: installed ?? '未安装',
     latest: answer.latest ?? '—',
     latestTagStale: false,
@@ -348,6 +355,8 @@ function pluginRow(plugin: PluginNpmRow, answer: PackageLatestInfo): ProjectUpda
   }
   // An absent tracking package is offered for install; every other row moves
   // only when the registry publishes something newer than what is installed.
+  // `answer.latest` is already the installable version: a release still inside
+  // pnpm's minimum release age cannot be installed, so it is never the target.
   row.behind = installed === undefined || isNewerVersion(answer.latest, installed)
   row.announce = row.behind
   const releaseUrl = githubReleasesUrl(answer.repositoryUrl)

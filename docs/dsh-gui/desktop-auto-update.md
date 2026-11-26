@@ -68,7 +68,7 @@ git 行的 `npm` 发布状态（对齐外壳的 `NpmUpdateInfo`）：字段为 `
 
 该阶段带传输层熔断与整体预算：首个**传输层**失败（连接/超时/DNS）立即熔断，其余尚未完成的探测不再等待并统一复用该错误文案；非 2xx（`HTTP <status>`）与不可解析 body 是 registry 的答复，不熔断。整个 npm 阶段预算 10s，超时按 `npm.error` 记录（`npm 版本核对超时（10 秒预算）`），被预算中止的探测也记该文案。npm 的任何结果只写进 `npm.error`，不使该行失败，也不影响 git 行状态与 `allChecked`。
 
-npm 行的 registry 探测是独立阶段（`src/npm.ts` 的 `npmPackageLatest`）：每个包请求 `<registry>/<name>/latest`，`accept: application/json`——该端点不接受 abbreviated 类型（会返回 406），完整响应同时给出 `version` 与 `repository`；`repository` 解析成 GitHub 仓库后拼出该行的 `releaseUrl`。同样有界并发（≤8）、首个探测先单独发起、首个传输层失败熔断、整体 10s 预算与 15s 单请求超时；非 2xx 与不可解析 body 只记该包错误。行的 `behind = semver.gt(latest, current)`，`current` 为脚本 pin 或 `@latest` 行在当前 profile 的已装版本，未安装时按可更新处理；版本比较由 `src/version.ts` 完成（release 高于其 prerelease，非法版本不报更新）。失败行只写 `error`（`latest: "—"`、`behind: false`），不阻塞 git 行。
+npm 行的 registry 探测是独立阶段（`src/npm.ts` 的 `npmPackageLatest`）：每个包请求 `<registry>/<name>/latest`，`accept: application/json`——该端点不接受 abbreviated 类型（会返回 406），完整响应同时给出 `version` 与 `repository`；`repository` 解析成 GitHub 仓库后拼出该行的 `releaseUrl`。同样有界并发（≤8）、首个探测先单独发起、首个传输层失败熔断、整体 10s 预算与 15s 单请求超时；非 2xx 与不可解析 body 只记该包错误。**发布窗口**：latest 的版本若还在 pnpm 的 `minimumReleaseAge` 窗口内，装上会被后续 pnpm 命令拒绝，因此已装版本低于 latest 时会再请求一次完整 packument，取「发布时间已过窗口（`DSH_PLUGIN_MIN_AGE_HOURS`，缺省 24）、且不高于 `dist-tags.latest`」的最高版本作为目标；已装版本已不低于 latest 时不发这次请求；packument 失败或窗口内无可用版本时退回 latest。行的 `behind = semver.gt(latest, current)`，`current` 为脚本 pin 或 `@latest` 行在当前 profile 的已装版本，未安装时按可更新处理；版本比较由 `src/version.ts` 完成（release 高于其 prerelease，非法版本不报更新）。失败行只写 `error`（`latest: "—"`、`behind: false`），不阻塞 git 行。
 
 desktop 侧由 host 半的 Node 直接 `fetch` registry（`src/npm.ts`），不再像外壳那样写出一次性 node 脚本再以文件重定向 stdio 启动；git 行的包集合、请求参数与判定语义与外壳一致，差异只在实现载体。
 
@@ -78,7 +78,7 @@ desktop 侧由 host 半的 Node 直接 `fetch` registry（`src/npm.ts`），不�
 
 `begin` 按请求顺序列出全部 id；执行按单元进行：每个 git 行一个单元，`kind === 'npm'` 的行按 `installScript` 合并为一个单元，单元按首个 target 在请求中的位置排序。同一脚本的 `target` 事件在组完成后按组内请求顺序相邻发出，因此请求把 git 行夹在同一脚本的两行之间时，流里会出现组内相邻（client 按追加方式消费日志，顺序只影响可读性）。
 
-npm 行忽略 `mode`（client 固定传 `commit`）。组内流程：重新扫描安装脚本确认每行仍在（包消失或脚本变化 → 该行单独失败并提示重新打开对话框）；对组内每行查询 registry 最新版（失败只标记该行）；当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已装版本）已是最新的行单独返回「已是最新」、不参与更新；其余行里，精确 pin 行一次性改写 pin（读一次原文作备份，任一 pin 无法替换则整组不写盘），`@latest` 行不改写脚本，然后只 spawn 一次安装脚本（`node <script>`，cwd 为仓库根，继承 `DSH_HOME`，设 `DSH_PLUGIN_PROFILE=<当前 profile>` 与 `DSH_PLUGIN_MIN_AGE=0`），stdout/stderr 逐行作为 `log` 事件回显。desktop 是桌面应用的保留 profile，host 半从应用自带的 CLI（`<应用>/resources/runtime/cli/bin/dsh[.cmd]`）解析载体并以 `DSH_PLUGIN_DSH_CLI` 传给安装脚本，解析不到该 CLI 时该行失败并提示设置该变量。成功 → 组内每个已更新行各自 `target ok`；脚本失败或超时（10 分钟）→ 改写过的脚本写回备份，组内这些行各自返回同一失败原因。npm 行最多只写目标安装脚本这一个文件，`git clean` 从不执行。
+npm 行忽略 `mode`（client 固定传 `commit`）。组内流程：重新扫描安装脚本确认每行仍在（包消失或脚本变化 → 该行单独失败并提示重新打开对话框）；对组内每行查询 registry 中窗口内可安装的版本（失败只标记该行）；当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已装版本）已是最新的行单独返回「已是最新」、不参与更新；其余行里，精确 pin 行一次性改写 pin（读一次原文作备份，任一 pin 无法替换则整组不写盘），`@latest` 行不改写脚本，然后只 spawn 一次安装脚本（`node <script>`，cwd 为仓库根，继承 `DSH_HOME`，设 `DSH_PLUGIN_PROFILE=<当前 profile>` 与 `DSH_PLUGIN_MIN_AGE=0`——后者只对精确 pin 行有意义，`@latest` 行由安装脚本按发布窗口挑选可安装版本），stdout/stderr 逐行作为 `log` 事件回显。desktop 是桌面应用的保留 profile，host 半从应用自带的 CLI（`<应用>/resources/runtime/cli/bin/dsh[.cmd]`）解析载体并以 `DSH_PLUGIN_DSH_CLI` 传给安装脚本，解析不到该 CLI 时该行失败并提示设置该变量。成功 → 组内每个已更新行各自 `target ok`；脚本失败或超时（10 分钟）→ 改写过的脚本写回备份，组内这些行各自返回同一失败原因。npm 行最多只写目标安装脚本这一个文件，`git clean` 从不执行。
 
 单行失败只写 `{"type":"target","id":…,"ok":false,"error":"…"}` 并继续下一行；请求体非法 400、无可用目标 409、无法解析仓库根 500，这三类在开始流式输出之前返回 JSON 错误 `{ "error": string }`。
 

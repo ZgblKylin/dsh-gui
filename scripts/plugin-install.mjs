@@ -28,11 +28,16 @@
  * disables both fast paths for a full reinstall.
  *
  * An npm wrapper may pass `<package>@latest` instead of an exact pin, which
- * makes it track the registry's current release. The install resolves that
- * dist-tag to an exact version before touching the profile (see
- * resolveLatestSpec), so the fast path still compares versions and pnpm installs
- * one version for the whole run. When the registry cannot answer, an installed
- * package is left at its current version; otherwise pnpm resolves the tag.
+ * makes it track the registry's current release. The install resolves that tag
+ * to the newest release outside pnpm's release-age window
+ * (`minimumReleaseAge`, 24 hours; `DSH_PLUGIN_MIN_AGE_HOURS` overrides the
+ * window this pipeline applies) and installs that exact version with the gate
+ * left on, so a release published inside the window never lands in the profile
+ * lockfile — the plain `pnpm` commands run outside this pipeline reject such an
+ * entry. The fast path compares against the same window-allowed version, so an
+ * up-to-date profile still skips the resolver. Wrappers with an exact-version
+ * `exempt` keep resolving the raw tag first: the exemption names one concrete
+ * version.
  *
  * `DSH_PLUGIN_PROFILE` selects the profile (default `web`), and
  * `DSH_PLUGIN_DSH_CLI` replaces the repository's own CLI with a carrier that
@@ -81,8 +86,32 @@ const requireFromHere = createRequire(import.meta.url)
  * without a non-interactive way to approve them. The build therefore disables
  * the gate for its own plugin commands: the wrappers' exact pins still decide
  * every version they install.
+ *
+ * Third-party wrappers that track `<package>@latest` are the exception: their
+ * install passes the tag through to pnpm without the gate override, so pnpm
+ * picks the newest release outside the window and the profile lockfile never
+ * carries an entry the next plain `pnpm` command would reject. The version the
+ * update checker compares against follows the same window (see
+ * resolveInstallableSpec), so the row reports an update only once pnpm would
+ * actually install it.
  */
 const RELEASE_AGE_ARG = '--config.minimumReleaseAge=0'
+
+/** Release-age window applied to `@latest` plugin installs when unset. */
+const DEFAULT_RELEASE_AGE_HOURS = 24
+
+/**
+ * The release-age window this process applies to third-party `@latest`
+ * installs, in hours. `DSH_PLUGIN_MIN_AGE_HOURS` overrides the 24-hour default
+ * for deployments that configure pnpm's `minimumReleaseAge` differently.
+ * @returns {number} non-negative hour count.
+ */
+export function releaseAgeHours() {
+  const raw = (process.env.DSH_PLUGIN_MIN_AGE_HOURS ?? '').trim()
+  if (raw === '') return DEFAULT_RELEASE_AGE_HOURS
+  const hours = Number(raw)
+  return Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_RELEASE_AGE_HOURS
+}
 
 /** Whether this build disables pnpm's release-age gate for plugin commands. */
 function releaseAgeDisabled() {
@@ -111,8 +140,10 @@ function withReleaseAgeOverride(args) {
  * @param {string[]} args - arguments after the CLI, e.g.
  *   `['plugin', '--profile', 'web', 'add', spec]`.
  */
-function runProfileCommand(dshHome, profile, cliCarrier, args) {
-  const effective = withReleaseAgeOverride(args)
+function runProfileCommand(dshHome, profile, cliCarrier, args, options = {}) {
+  // A `@latest` install must let pnpm apply its own release-age window, so it
+  // opts out of the build-time gate override (`allowYoung: false`).
+  const effective = options.allowYoung === false ? args : withReleaseAgeOverride(args)
   if (cliCarrier !== null) {
     run(cliCarrier, effective, { env: { DSH_HOME: dshHome } })
     return
@@ -129,8 +160,8 @@ function runProfileCommand(dshHome, profile, cliCarrier, args) {
 }
 
 /** Run one `dsh plugin ...` command against the wrapper-selected profile. */
-function runPluginCommand(dshHome, args) {
-  runProfileCommand(dshHome, profileName, carrier, args)
+function runPluginCommand(dshHome, args, options = {}) {
+  runProfileCommand(dshHome, profileName, carrier, args, options)
 }
 
 /**
@@ -760,6 +791,72 @@ function exactSpecVersion(spec) {
   return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version) ? version : null
 }
 
+/**
+ * Parse a release version into semver precedence parts.
+ *
+ * Build metadata is ignored, a leading `v` is accepted, and anything else is
+ * `null`: an unparseable pair must never claim "newer" and hide an update.
+ * @param {string} version - version text.
+ * @returns {{ core: number[], prerelease: string[] } | null}
+ */
+function parseReleaseVersion(version) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(version.trim())
+  if (match === null) return null
+  return {
+    core: [Number(match[1]), Number(match[2]), Number(match[3])],
+    prerelease: match[4] === undefined ? [] : match[4].split('.'),
+  }
+}
+
+/**
+ * Compare two release versions by semver precedence.
+ * @param {string} left - version text.
+ * @param {string} right - version text.
+ * @returns {number} negative, zero, or positive when `left` sorts before,
+ *   equal to, or after `right`; an unparseable pair compares with string order.
+ */
+function compareReleaseVersions(left, right) {
+  const a = parseReleaseVersion(left)
+  const b = parseReleaseVersion(right)
+  if (a === null || b === null) return left.localeCompare(right)
+  for (let index = 0; index < 3; index += 1) {
+    if (a.core[index] !== b.core[index]) return a.core[index] - b.core[index]
+  }
+  if (a.prerelease.length === 0 && b.prerelease.length === 0) return 0
+  if (a.prerelease.length === 0) return 1
+  if (b.prerelease.length === 0) return -1
+  const count = Math.max(a.prerelease.length, b.prerelease.length)
+  for (let index = 0; index < count; index += 1) {
+    const leftPart = a.prerelease[index]
+    const rightPart = b.prerelease[index]
+    if (leftPart === undefined) return -1
+    if (rightPart === undefined) return 1
+    if (leftPart === rightPart) continue
+    const leftNumeric = /^\d+$/.test(leftPart)
+    const rightNumeric = /^\d+$/.test(rightPart)
+    if (leftNumeric && rightNumeric) {
+      const difference = Number(leftPart) - Number(rightPart)
+      if (difference !== 0) return difference
+      continue
+    }
+    if (leftNumeric) return -1
+    if (rightNumeric) return 1
+    return leftPart.localeCompare(rightPart)
+  }
+  return 0
+}
+
+/**
+ * The version the profile currently holds for one package.
+ * @param {string} profileDir - absolute profile directory.
+ * @param {string} packageName - npm package name.
+ * @returns {string | null} installed version, or null when it is not installed.
+ */
+function installedPackageVersion(profileDir, packageName) {
+  const manifest = readJsonFile(join(profileDir, 'node_modules', ...packageName.split('/'), 'package.json'))
+  return typeof manifest?.version === 'string' && manifest.version !== '' ? manifest.version : null
+}
+
 /** Registry the latest lookups fall back to when no npm config names one. */
 const DEFAULT_NPM_REGISTRY_BASE = 'https://registry.npmjs.org'
 
@@ -994,6 +1091,95 @@ export async function resolveLatestSpec(packageSpec, options = {}) {
   const answer = await fetchLatestVersion(name, options)
   if ('version' in answer) return { name, spec: `${name}@${answer.version}`, version: answer.version }
   return { name, spec: packageSpec, error: answer.error }
+}
+
+/**
+ * The newest published version a `@latest` install may pick right now.
+ *
+ * pnpm's release-age window (`minimumReleaseAge`, 24 hours by default) refuses a
+ * release younger than the window, so `@latest` really means "the newest
+ * release outside the window". The registry's `latest` document does not carry
+ * publish times, so this fetches the package's full document once and walks its
+ * `time` map: the newest version at or below `latest` whose publish time is old
+ * enough wins. A failed or partial answer falls back to the tag's own version,
+ * which is what pnpm would then decide on.
+ * @param {object} options - lookup options.
+ * @param {string} options.packageName - npm package name.
+ * @param {string} options.rawVersion - the `latest` tag's version.
+ * @param {typeof fetch} [options.fetchImpl] - test/override fetch.
+ * @param {string} [options.registryBase] - registry base; resolved from npm
+ *   config when omitted.
+ * @param {string} [options.profileDir] - profile whose `.npmrc` supplies the
+ *   registry.
+ * @returns {Promise<{ version: string, rawVersion: string, deferred: boolean,
+ *   unavailable?: boolean }>} installable version and whether it trails the tag.
+ */
+async function fetchInstallableVersion(options) {
+  const { packageName, rawVersion } = options
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  const base = options.registryBase ?? registryFor(packageName, options.profileDir ?? '')
+  try {
+    const response = await fetchImpl(`${base}/${encodeURIComponent(packageName)}`, {
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'dsh-gui-plugin-install',
+      },
+      signal: AbortSignal.timeout(NPM_LATEST_TIMEOUT_MS),
+    })
+    if (!response.ok) {
+      await discardBody(response)
+      return { version: rawVersion, rawVersion, deferred: false, unavailable: true }
+    }
+    let document
+    try {
+      document = await response.json()
+    } catch {
+      return { version: rawVersion, rawVersion, deferred: false, unavailable: true }
+    }
+    const latest = typeof document?.['dist-tags']?.latest === 'string'
+      ? document['dist-tags'].latest.trim()
+      : rawVersion
+    const time = document?.time !== null && typeof document?.time === 'object' ? document.time : {}
+    const versions = document?.versions !== null && typeof document?.versions === 'object'
+      ? Object.keys(document.versions)
+      : []
+    const cutoff = Date.now() - releaseAgeHours() * 3_600_000
+    let best = null
+    for (const version of versions) {
+      const publishedAt = Date.parse(time[version] ?? '')
+      if (!Number.isFinite(publishedAt) || publishedAt > cutoff) continue
+      if (compareReleaseVersions(version, latest) > 0) continue
+      if (best === null || compareReleaseVersions(version, best) > 0) best = version
+    }
+    if (best === null) return { version: latest, rawVersion: latest, deferred: false }
+    return { version: best, rawVersion: latest, deferred: best !== latest }
+  } catch {
+    return { version: rawVersion, rawVersion, deferred: false, unavailable: true }
+  }
+}
+
+/**
+ * Resolve a `<package>@latest` wrapper to both the tag's version and the
+ * version an install may actually pick under the release-age window.
+ *
+ * An installed package already at or above the tag needs no registry walk: the
+ * tag's version is returned and the caller's fast path skips the install.
+ * @param {string} packageName - npm package name.
+ * @param {{ fetchImpl?: typeof fetch, registryBase?: string, profileDir?: string,
+ *   installedVersion?: string | null }} [options] - lookup overrides and the
+ *   profile's installed version.
+ * @returns {Promise<{ version: string, rawVersion: string, deferred: boolean,
+ *   unavailable?: boolean } | { error: string }>} resolvable answer, or the
+ *   tag lookup failure.
+ */
+export async function resolveInstallableSpec(packageName, options = {}) {
+  const tag = await fetchLatestVersion(packageName, options)
+  if (!('version' in tag)) return { error: tag.error }
+  const installed = typeof options.installedVersion === 'string' ? options.installedVersion : null
+  if (installed !== null && installed !== '' && compareReleaseVersions(tag.version, installed) <= 0) {
+    return { version: tag.version, rawVersion: tag.version, deferred: false }
+  }
+  return fetchInstallableVersion({ ...options, packageName, rawVersion: tag.version })
 }
 
 /**
@@ -1297,18 +1483,42 @@ export async function installNpmPlugin({ id, packageSpec, mount = null, skip = n
   }
   const profileDir = pluginProfileDir(dshHome)
 
+  const tracksLatest = specTag(packageSpec) === LATEST_TAG
   let installSpec = packageSpec
-  if (specTag(packageSpec) === LATEST_TAG) {
-    const resolved = await resolveLatestSpec(packageSpec, { profileDir })
-    if (resolved.error !== undefined) {
-      if (installedAnyVersion(profileDir, name, mount)) {
-        console.log(`\n==> plugin '${id}' (${name}) — latest lookup failed (${resolved.error}); keeping the installed version`)
-        return
+  /** Whether the install must leave pnpm's release-age gate in place. */
+  let gateStaysOn = false
+  if (tracksLatest) {
+    if (exempt !== null) {
+      // An exact-version exemption names one version, so the tag is resolved.
+      const resolved = await resolveLatestSpec(packageSpec, { profileDir })
+      if (resolved.error !== undefined) {
+        if (installedAnyVersion(profileDir, name, mount)) {
+          console.log(`\n==> plugin '${id}' (${name}) — latest lookup failed (${resolved.error}); keeping the installed version`)
+          return
+        }
+        console.log(`  latest lookup for ${name} failed (${resolved.error}); letting pnpm resolve ${packageSpec}`)
+      } else {
+        installSpec = resolved.spec
+        console.log(`  ${name}: the registry's latest tag is ${resolved.version}`)
       }
-      console.log(`  latest lookup for ${name} failed (${resolved.error}); letting pnpm resolve ${packageSpec}`)
     } else {
-      installSpec = resolved.spec
-      console.log(`  ${name}: the registry's latest tag is ${resolved.version}`)
+      const installed = installedPackageVersion(profileDir, name)
+      const resolved = await resolveInstallableSpec(name, { profileDir, installedVersion: installed })
+      if (resolved.error !== undefined) {
+        if (installedAnyVersion(profileDir, name, mount)) {
+          console.log(`\n==> plugin '${id}' (${name}) — latest lookup failed (${resolved.error}); keeping the installed version`)
+          return
+        }
+        console.log(`  latest lookup for ${name} failed (${resolved.error}); letting pnpm resolve ${packageSpec}`)
+      } else {
+        installSpec = `${name}@${resolved.version}`
+        gateStaysOn = true
+        if (resolved.deferred) {
+          console.log(`  ${name}: latest is ${resolved.rawVersion}, still inside the ${releaseAgeHours()}h release-age window; installing ${resolved.version}`)
+        } else {
+          console.log(`  ${name}: the registry's latest tag is ${resolved.rawVersion}`)
+        }
+      }
     }
   }
 
@@ -1326,7 +1536,15 @@ export async function installNpmPlugin({ id, packageSpec, mount = null, skip = n
   console.log(`\n==> install plugin '${id}' (${installSpec} from npm)`)
   bootstrapPnpm()
   pinProfileStore(profileDir)
-  runPluginCommand(dshHome, ['plugin', '--profile', profileName, 'add', installSpec])
+  // A version chosen under the release-age window is already old enough for
+  // pnpm's gate, and leaving the gate on keeps the lockfile acceptable to the
+  // plain `pnpm` commands run outside this pipeline (the desktop app's CLI
+  // ships a pnpm whose default window is 24 hours).
+  runPluginCommand(
+    dshHome,
+    ['plugin', '--profile', profileName, 'add', installSpec],
+    gateStaysOn ? { allowYoung: false } : {},
+  )
   removeForeignNestedNodeModules(profileDir, name)
 
   const manifestPath = join(profileDir, 'node_modules', ...name.split('/'), 'package.json')

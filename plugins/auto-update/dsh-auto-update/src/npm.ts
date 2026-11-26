@@ -21,11 +21,22 @@
  * reusing the same bounded phase. That document also carries the package's
  * `repository`, from which {@link githubReleasesUrl} builds the Releases link
  * the dialog shows.
+ *
+ * The registry's newest version is not necessarily one an update can install:
+ * pnpm refuses a release younger than its `minimumReleaseAge` (24 h by default)
+ * unless the profile overrides it, so a version published minutes ago would
+ * show an update the install step silently skips. The plugin rows therefore
+ * target the *installable* version: the highest version published before the
+ * window closed, capped at the `latest` dist-tag. {@link npmPackageLatest} reads
+ * the full packument to find it, and keeps the `<name>/latest` answer whenever
+ * the packument cannot be read — a row may then overstate a young release, but
+ * it never hides an older one.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { dshHomeDir, isDirectory, packageName } from './paths.ts'
+import { compareVersions, isNewerVersion } from './version.ts'
 
 /** Registry used when no test override is set. */
 const DEFAULT_REGISTRY_BASE = 'https://registry.npmjs.org'
@@ -54,6 +65,18 @@ const ACCEPT_HEADER = 'application/vnd.npm.install-v1+json'
  */
 const LATEST_ACCEPT_HEADER = 'application/json'
 const USER_AGENT = 'dsh-gui-update-check'
+
+/**
+ * Environment variable holding the publish window of a plugin row's update
+ * target, in hours. Fixture tests lower it to zero to accept any release.
+ */
+const MIN_AGE_ENV = 'DSH_PLUGIN_MIN_AGE_HOURS'
+
+/** Publish window used when {@link MIN_AGE_ENV} is absent or unusable. */
+const DEFAULT_MIN_AGE_HOURS = 24
+
+/** Milliseconds in one hour; the publish window is expressed in hours. */
+const HOUR_MS = 3_600_000
 
 /** Directories skipped while collecting package names inside a checkout. */
 const SKIPPED_DIRECTORIES = new Set(['node_modules', '.git', 'target', 'dist'])
@@ -377,7 +400,11 @@ function transportErrorText(error: unknown): string {
 export interface PackageLatestInfo {
   /** The requested package name. */
   name: string
-  /** `version` of the package's `latest` document (the current release). */
+  /**
+   * The version an update may install: the newest release already older than
+   * the publish window (see {@link MIN_AGE_ENV}), never above the registry's
+   * `latest` dist-tag. Absent when the request failed.
+   */
   latest?: string
   /** The manifest's repository URL, when it declares one. */
   repositoryUrl?: string
@@ -385,18 +412,45 @@ export interface PackageLatestInfo {
   error?: string
 }
 
-/** One `latest` document's probe outcome, before it is mapped to a name. */
+/** One package's probe outcome, before it is mapped to a name. */
 type LatestProbe =
   | { name: string; latest: string; repositoryUrl?: string }
   | { name: string; error: string; transport: boolean }
 
+/** A version plus the manifest `repository` the packument records for it. */
+interface ReleaseVersion {
+  version: string
+  repositoryUrl?: string
+}
+
+/** The packument fields the publish window reads. */
+interface PackumentView {
+  /** The packument's own `dist-tags.latest`. */
+  latestTag: string
+  /** Publication time per version (`created` and `modified` included). */
+  time: Record<string, unknown>
+  /** Every published version's manifest, keyed by version. */
+  versions: Record<string, unknown>
+}
+
 /**
- * Query the registry's `latest` document for every package in one bounded
- * phase.
+ * Query the registry for every package in one bounded phase, answering the
+ * version an update may install.
  *
- * Each probe requests `<registry>/<encodeURIComponent(name)>/latest`, whose
- * body is the current version's own manifest: `version` is the release the row
+ * Each probe requests `<registry>/<encodeURIComponent(name)>/latest`, whose body
+ * is the current version's own manifest: `version` is the release the row
  * compares against and `repository` gives the project URL the dialog links.
+ * When that release is not newer than the installed version, it is already the
+ * answer and the probe stops there.
+ *
+ * Every other package is read once more, as the full packument
+ * `<registry>/<name>`: `time` carries each version's publication instant, so the
+ * probe picks the highest version published at least the window's age ago and
+ * never above the `dist-tags.latest` cap. A package whose every version is
+ * younger than the window answers `dist-tags.latest`, so a fresh release still
+ * shows up as an update; a packument that cannot be read falls back to the
+ * `<name>/latest` answer for the same reason. The repository URL prefers the
+ * chosen version's own manifest, then the `latest` document's.
  *
  * The phase reuses the publish-check scheduling: at most
  * {@link PROBE_CONCURRENCY} probes in flight, the first probe starts alone (a
@@ -406,9 +460,15 @@ type LatestProbe =
  * failure, and only fails that one package.
  *
  * @param names - npm package names, one probe per entry (duplicates included).
+ * @param installed - version installed per package name; a package the registry
+ *   already lists at that version answers without the packument request, and a
+ *   name without an entry counts as not installed (any release is an update).
  * @returns one answer per requested name, in the same order.
  */
-export async function npmPackageLatest(names: readonly string[]): Promise<PackageLatestInfo[]> {
+export async function npmPackageLatest(
+  names: readonly string[],
+  installed?: Readonly<Record<string, string>>,
+): Promise<PackageLatestInfo[]> {
   if (names.length === 0) return []
   const outcomes: Array<LatestProbe | undefined> = new Array(names.length)
   const controllers = new Set<AbortController>()
@@ -433,7 +493,7 @@ export async function npmPackageLatest(names: readonly string[]): Promise<Packag
       controllers.add(controller)
       let outcome: LatestProbe
       try {
-        outcome = await probeLatest(name, controller)
+        outcome = await probeLatest(name, installedVersionOf(installed, name), controller)
       } finally {
         controllers.delete(controller)
       }
@@ -483,38 +543,179 @@ export async function npmPackageLatest(names: readonly string[]): Promise<Packag
   })
 }
 
-/** Probe one package's `latest` document. */
-async function probeLatest(name: string, controller: AbortController): Promise<LatestProbe> {
-  // The per-request budget; the phase's own budget aborts the same controller.
+/**
+ * Probe one package: its `latest` document, then — when that release is newer
+ * than the installed version — its packument, from which the installable
+ * version is chosen.
+ */
+async function probeLatest(
+  name: string,
+  installed: string | undefined,
+  controller: AbortController,
+): Promise<LatestProbe> {
+  const rawDocument = await fetchDocument(
+    `${registryBase()}/${encodeURIComponent(name)}/latest`,
+    LATEST_ACCEPT_HEADER,
+    controller,
+  )
+  if ('error' in rawDocument) return { name, error: rawDocument.error, transport: rawDocument.transport }
+  const raw = readLatestDocument(rawDocument.document)
+  // Without a version there is nothing to compare, so the answer is unusable.
+  if (raw === undefined) return { name, error: UNPARSEABLE_RESPONSE, transport: false }
+  // The registry announces nothing newer than what is installed: the row is not
+  // behind whatever the window would say, so the packument is not requested.
+  if (installed !== undefined && !isNewerVersion(raw.version, installed)) {
+    return latestAnswer(name, raw.version, raw.repositoryUrl)
+  }
+  const packument = await fetchDocument(
+    `${registryBase()}/${encodeURIComponent(name)}`,
+    LATEST_ACCEPT_HEADER,
+    controller,
+  )
+  // An unreadable packument is not a failed row: the announced release is shown
+  // instead, which at worst offers a version the install step will skip.
+  if ('error' in packument) return latestAnswer(name, raw.version, raw.repositoryUrl)
+  const installable = installableVersion(packument.document, Date.now() - minAgeHours() * HOUR_MS)
+  if (installable === undefined) return latestAnswer(name, raw.version, raw.repositoryUrl)
+  return latestAnswer(name, installable.version, installable.repositoryUrl ?? raw.repositoryUrl)
+}
+
+/**
+ * The version an update may install, from a packument: the newest version
+ * published before `cutoff` and not above the `latest` dist-tag. A package whose
+ * every version is younger than the window answers `dist-tags.latest`, so a
+ * fresh release still shows up as an update.
+ *
+ * @param document - the packument body.
+ * @param cutoff - latest acceptable publication instant, epoch milliseconds.
+ * @returns the version, `undefined` when the body carries no usable
+ *   `dist-tags.latest`.
+ */
+function installableVersion(document: unknown, cutoff: number): ReleaseVersion | undefined {
+  const view = readPackument(document)
+  if (view === undefined) return undefined
+  let newest: string | undefined
+  for (const [version, published] of Object.entries(view.time)) {
+    const at = typeof published === 'string' ? Date.parse(published) : Number.NaN
+    if (!Number.isFinite(at) || at > cutoff) continue
+    const order = compareVersions(version, view.latestTag)
+    // `created`, `modified`, and any other non-version key fail to parse; a
+    // version above the `latest` dist-tag is not an install target either.
+    if (Number.isNaN(order) || order > 0) continue
+    if (newest !== undefined && compareVersions(version, newest) <= 0) continue
+    newest = version
+  }
+  const version = newest ?? view.latestTag
+  const manifest = view.versions[version]
+  const repositoryUrl = manifest === null || typeof manifest !== 'object'
+    ? undefined
+    : repositoryUrlOf((manifest as { repository?: unknown }).repository)
+  return repositoryUrl === undefined ? { version } : { version, repositoryUrl }
+}
+
+/**
+ * Read the version and repository out of one `/<pkg>/latest` document.
+ * @returns the answer, or `undefined` when the body carries no version.
+ */
+function readLatestDocument(document: unknown): ReleaseVersion | undefined {
+  const record = objectRecord(document)
+  if (record === undefined) return undefined
+  const version = typeof record.version === 'string' ? record.version.trim() : ''
+  if (version === '') return undefined
+  const repositoryUrl = repositoryUrlOf(record.repository)
+  return repositoryUrl === undefined ? { version } : { version, repositoryUrl }
+}
+
+/**
+ * Read a packument's `dist-tags.latest`, `time`, and `versions`.
+ * @returns the view, or `undefined` when the body names no `latest` tag.
+ */
+function readPackument(document: unknown): PackumentView | undefined {
+  const record = objectRecord(document)
+  if (record === undefined) return undefined
+  const latest = objectRecord(record['dist-tags'])?.latest
+  const latestTag = typeof latest === 'string' ? latest.trim() : ''
+  if (latestTag === '') return undefined
+  return {
+    latestTag,
+    time: objectRecord(record.time) ?? {},
+    versions: objectRecord(record.versions) ?? {},
+  }
+}
+
+/** A plain-object view of `value`; `undefined` for null, arrays, and scalars. */
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  return value as Record<string, unknown>
+}
+
+/** Build one successful probe answer, omitting a missing repository URL. */
+function latestAnswer(name: string, latest: string, repositoryUrl: string | undefined): LatestProbe {
+  return repositoryUrl === undefined || repositoryUrl === ''
+    ? { name, latest }
+    : { name, latest, repositoryUrl }
+}
+
+/**
+ * The publish window in hours: {@link MIN_AGE_ENV} when it holds a non-negative
+ * finite number, else {@link DEFAULT_MIN_AGE_HOURS}.
+ */
+function minAgeHours(): number {
+  const raw = process.env[MIN_AGE_ENV]?.trim() ?? ''
+  if (raw === '') return DEFAULT_MIN_AGE_HOURS
+  const hours = Number(raw)
+  return Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_MIN_AGE_HOURS
+}
+
+/**
+ * The installed version of one package. The lookup reads own properties only,
+ * so a package named like an `Object` member has no inherited version.
+ * @param installed - installed version per package name.
+ * @param name - the package name.
+ * @returns the version, or `undefined` when the name has no usable entry.
+ */
+function installedVersionOf(
+  installed: Readonly<Record<string, string>> | undefined,
+  name: string,
+): string | undefined {
+  if (installed === undefined || !Object.prototype.hasOwnProperty.call(installed, name)) return undefined
+  const value: unknown = installed[name]
+  const version = typeof value === 'string' ? value.trim() : ''
+  return version === '' ? undefined : version
+}
+
+/** One registry request's outcome: the parsed body, or a readable failure. */
+type DocumentResult =
+  | { document: unknown }
+  | { error: string; transport: boolean }
+
+/**
+ * Request one registry JSON document.
+ *
+ * The per-request budget aborts the same controller the phase aborts, so either
+ * budget ends the request. A non-2xx answer or an unparseable body is a registry
+ * answer, not a transport failure.
+ */
+async function fetchDocument(url: string, accept: string, controller: AbortController): Promise<DocumentResult> {
   const timeout = setTimeout(() => { controller.abort() }, REGISTRY_TIMEOUT_MS)
   try {
-    const response = await fetch(`${registryBase()}/${encodeURIComponent(name)}/latest`, {
-      headers: { accept: LATEST_ACCEPT_HEADER, 'user-agent': USER_AGENT },
+    const response = await fetch(url, {
+      headers: { accept, 'user-agent': USER_AGENT },
       signal: controller.signal,
     })
     if (response.status < 200 || response.status >= 300) {
       await response.body?.cancel()
-      return { name, error: `HTTP ${response.status}`, transport: false }
+      return { error: `HTTP ${response.status}`, transport: false }
     }
-    let document: unknown
     try {
-      document = await response.json()
+      return { document: await response.json() }
     } catch {
       // A 2xx body that is not JSON is a registry response problem, not a
       // transport failure. The failed parse already consumed the body.
-      return { name, error: UNPARSEABLE_RESPONSE, transport: false }
+      return { error: UNPARSEABLE_RESPONSE, transport: false }
     }
-    if (document === null || typeof document !== 'object') {
-      return { name, error: UNPARSEABLE_RESPONSE, transport: false }
-    }
-    const record = document as { version?: unknown; repository?: unknown }
-    const latest = typeof record.version === 'string' ? record.version.trim() : ''
-    // Without a version there is nothing to compare, so the answer is unusable.
-    if (latest === '') return { name, error: UNPARSEABLE_RESPONSE, transport: false }
-    const repositoryUrl = repositoryUrlOf(record.repository)
-    return repositoryUrl === undefined ? { name, latest } : { name, latest, repositoryUrl }
   } catch (error: unknown) {
-    return { name, error: transportErrorText(error), transport: true }
+    return { error: transportErrorText(error), transport: true }
   } finally {
     clearTimeout(timeout)
   }

@@ -6,11 +6,15 @@
 //!   plus every submodule listed in `.gitmodules` (the harness and the app
 //!   icon). "Update available" means the remote default branch of a repository
 //!   has commits that the local `HEAD` does not.
-//! * **npm plugin rows** — every npm package pinned by a
-//!   `plugins/<wrapper>/install.mjs` wrapper (`installNpmPlugin` with an exact
-//!   `<name>@<version>` literal). These compare the script's pin with the
-//!   registry's `/<pkg>/latest` version and update in place: the pin is
-//!   rewritten and the wrapper re-run against the current profile
+//! * **npm plugin rows** — every npm package a `plugins/<wrapper>/install.mjs`
+//!   wrapper installs (`installNpmPlugin`), either pinned to an exact
+//!   `<name>@<version>` literal or tracking `<name>@latest`. These compare the
+//!   script's pin — for a tracking wrapper, the version the profile holds —
+//!   with the release a fresh install may actually pick: the registry's
+//!   `latest` tag walked back to the newest release outside pnpm's release-age
+//!   window (`minimumReleaseAge`, 24 hours by default;
+//!   `DSH_PLUGIN_MIN_AGE_HOURS` overrides the window this check applies). An
+//!   update rewrites a pin and re-runs the wrapper against the current profile
 //!   ([`run_npm_plugin_update`]), no detached launcher involved.
 //!
 //! `check_and_sync` compares every repository against `origin`, writes a
@@ -84,19 +88,157 @@ writeSync(1, JSON.stringify(results) + '\n');
 /// `/<pkg>/latest` endpoint, and the full document is also the only one that
 /// carries `repository`, from which the row's Releases link is built.
 ///
+/// The third argv is the JSON object the shell passes as the installed-version
+/// index (`{package: version}`). It selects the release-age walk: a package
+/// whose tag version is not newer than the installed one stops at the tag, and
+/// every other package also fetches its full document and reports it as
+/// `versions`, each entry carrying the release's publish time and its own
+/// `repository`. [`pick_installable_version`] then decides which release the
+/// window allows. Without the argument the script answers with the tag's own
+/// version. A full document that cannot be read leaves the tag's answer in
+/// place, so a failed lookup never silently hides an update.
+///
 /// Same Windows libuv convention as [`NPM_FETCH_SCRIPT`]: no `process.exit()`,
 /// the answer is flushed with `writeSync(1, …)` and the event loop drains on
 /// its own.
 const NPM_LATEST_FETCH_SCRIPT: &str = r#"
 import { writeSync } from 'node:fs';
 
+const REGISTRY = 'https://registry.npmjs.org';
+const TIMEOUT_MS = 15000;
 const packages = JSON.parse(process.argv[2] || '[]');
+const walkWindow = process.argv[3] !== undefined;
+const installedVersions = parseInstalled(process.argv[3]);
+
+/** The version each profile already holds; a malformed index means "unknown". */
+function parseInstalled(text) {
+  try {
+    const value = JSON.parse(text ?? '{}');
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Compare two decimal digit strings without losing precision on long ones. */
+function compareNumeric(left, right) {
+  const a = left.replace(/^0+/, '');
+  const b = right.replace(/^0+/, '');
+  if (a.length !== b.length) return a.length < b.length ? -1 : 1;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+/**
+ * Split a version into semver precedence parts the way the shell's
+ * `compare_versions` does: three numeric core segments, optional dot-separated
+ * prerelease identifiers, build metadata ignored, a leading `v` tolerated.
+ * Anything else is `null`, so an unparseable pair never claims an update.
+ */
+function parseVersion(value) {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  const withoutV = text.startsWith('v') ? text.slice(1) : text;
+  const plus = withoutV.indexOf('+');
+  const coreAndPrerelease = plus === -1 ? withoutV : withoutV.slice(0, plus);
+  if (plus !== -1 && !/^[0-9A-Za-z.-]+$/.test(withoutV.slice(plus + 1))) return null;
+  const dash = coreAndPrerelease.indexOf('-');
+  const core = dash === -1 ? coreAndPrerelease : coreAndPrerelease.slice(0, dash);
+  const identifiers = dash === -1 ? '' : coreAndPrerelease.slice(dash + 1);
+  const segments = core.split('.');
+  if (segments.length !== 3 || !segments.every((segment) => /^\d+$/.test(segment))) return null;
+  if (dash !== -1 && (identifiers === '' || !/^[0-9A-Za-z.-]+$/.test(identifiers))) return null;
+  return { core: segments, prerelease: dash === -1 ? [] : identifiers.split('.') };
+}
+
+/**
+ * Compare two versions by semver precedence, the shell's `compare_versions` in
+ * JavaScript: a release outranks every prerelease of the same core, numeric
+ * prerelease identifiers rank below alphanumeric ones, and a shorter list with
+ * the same prefix ranks lower. `null` means not comparable.
+ */
+function compareVersions(left, right) {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  if (a === null || b === null) return null;
+  for (let index = 0; index < 3; index += 1) {
+    const order = compareNumeric(a.core[index], b.core[index]);
+    if (order !== 0) return order;
+  }
+  if (a.prerelease.length === 0 && b.prerelease.length === 0) return 0;
+  if (a.prerelease.length === 0) return 1;
+  if (b.prerelease.length === 0) return -1;
+  const count = Math.max(a.prerelease.length, b.prerelease.length);
+  for (let index = 0; index < count; index += 1) {
+    const leftPart = a.prerelease[index];
+    const rightPart = b.prerelease[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+    const leftNumeric = /^\d+$/.test(leftPart);
+    const rightNumeric = /^\d+$/.test(rightPart);
+    if (leftNumeric && rightNumeric) return compareNumeric(leftPart, rightPart);
+    if (leftNumeric) return -1;
+    if (rightNumeric) return 1;
+    return leftPart < rightPart ? -1 : 1;
+  }
+  return 0;
+}
+
+/** Whether `candidate` is strictly newer than `current`; an unparseable pair is not. */
+function isNewer(candidate, current) {
+  return compareVersions(candidate, current) === 1;
+}
+
+/**
+ * The window data for one package: its `latest` dist-tag plus every release the
+ * package document lists, with the publish time and the release's own
+ * `repository` field.
+ *
+ * The `/<pkg>/latest` document carries neither publish times nor the older
+ * manifests, so the shell needs the package's full document to walk the window.
+ * `null` means it could not be read, and the tag's own answer stands.
+ */
+async function releaseWindowOf(name) {
+  try {
+    const response = await fetch(REGISTRY + '/' + encodeURIComponent(name), {
+      headers: { accept: 'application/json', 'user-agent': 'dsh-gui-update-check' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (response.status < 200 || response.status >= 300) {
+      await response.body?.cancel();
+      return null;
+    }
+    const document = await response.json();
+    if (document === null || typeof document !== 'object') return null;
+    const manifests = document.versions !== null && typeof document.versions === 'object' ? document.versions : {};
+    const times = document.time !== null && typeof document.time === 'object' ? document.time : {};
+    const versions = Object.keys(manifests).map((version) => {
+      const manifest = manifests[version];
+      const publishedAt = Date.parse(times[version] ?? '');
+      return {
+        version,
+        publishedAt: Number.isFinite(publishedAt) ? publishedAt : null,
+        repository: manifest !== null && typeof manifest === 'object' ? manifest.repository : undefined,
+      };
+    });
+    if (versions.length === 0) return null;
+    const distTags = document['dist-tags'] !== null && typeof document['dist-tags'] === 'object' ? document['dist-tags'] : {};
+    const tagged = typeof distTags.latest === 'string' ? distTags.latest.trim() : '';
+    return { latest: tagged === '' ? undefined : tagged, versions };
+  } catch {
+    // A timeout, transport failure, or unparsable body: the tag's answer stands
+    // rather than turning the package into an error row.
+    return null;
+  }
+}
+
 const results = await Promise.all(packages.map(async (name) => {
   try {
-    const url = 'https://registry.npmjs.org/' + encodeURIComponent(name) + '/latest';
+    const url = REGISTRY + '/' + encodeURIComponent(name) + '/latest';
     const response = await fetch(url, {
       headers: { accept: 'application/json', 'user-agent': 'dsh-gui-update-check' },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (response.status < 200 || response.status >= 300) {
       await response.body?.cancel();
@@ -113,7 +255,17 @@ const results = await Promise.all(packages.map(async (name) => {
     }
     const version = typeof json.version === 'string' ? json.version.trim() : '';
     if (version === '') return { name, error: 'npm registry 未返回版本号' };
-    return { name, version, repository: json.repository };
+    const repository = json.repository;
+    if (!walkWindow) return { name, version, repository };
+    const installed = typeof installedVersions[name] === 'string' ? installedVersions[name].trim() : '';
+    // A profile already at (or above) the tag holds the release pnpm would keep,
+    // so the extra document is not worth a request.
+    if (installed !== '' && !isNewer(version, installed)) {
+      return { name, version, repository };
+    }
+    const releaseWindow = await releaseWindowOf(name);
+    if (releaseWindow === null) return { name, version, repository };
+    return { name, version, repository, latest: releaseWindow.latest, versions: releaseWindow.versions };
   } catch (error) {
     return { name, error: String((error && error.message) || error) };
   }
@@ -788,13 +940,16 @@ struct PinnedSpec {
     spec: String,
 }
 
-/// One package's registry `latest` answer, before it is folded into a row.
+/// One package's registry answer, before it is folded into a row.
 ///
 /// `pub(crate)`: the changelog backend reads the latest version and repository
 /// URL straight from it (see `crate::changelog::prepare_npm`).
 #[derive(Clone, Debug)]
 pub(crate) struct PackageLatest {
-    /// `version` of the `/<pkg>/latest` document, when the registry answered.
+    /// The version a fresh install would pick: the `/<pkg>/latest` document's
+    /// `version`, or — when the caller supplied the profile's installed
+    /// versions and a full document was available — the newest release the
+    /// release-age window allows (see [`pick_installable_version`]).
     pub(crate) latest: Option<String>,
     /// The manifest's `repository` URL, when it declares one.
     pub(crate) repository_url: Option<String>,
@@ -1288,11 +1443,122 @@ fn repository_url_of(field: Option<&serde_json::Value>) -> Option<String> {
     }
 }
 
+/// Release-age window applied to `@latest` plugin installs when unset: pnpm's
+/// `minimumReleaseAge` default, which is also the window the install pipeline
+/// applies (see `scripts/plugin-install.mjs`).
+const DEFAULT_PLUGIN_MIN_AGE_HOURS: f64 = 24.0;
+
+/// The release-age window this check applies to `@latest` plugin installs, in
+/// hours. `DSH_PLUGIN_MIN_AGE_HOURS` overrides the default for deployments that
+/// configure pnpm's `minimumReleaseAge` differently; a malformed or negative
+/// value falls back to it.
+fn plugin_min_age_hours() -> f64 {
+    let raw = std::env::var("DSH_PLUGIN_MIN_AGE_HOURS").unwrap_or_default();
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return DEFAULT_PLUGIN_MIN_AGE_HOURS;
+    }
+    match raw.parse::<f64>() {
+        Ok(hours) if hours.is_finite() && hours >= 0.0 => hours,
+        _ => DEFAULT_PLUGIN_MIN_AGE_HOURS,
+    }
+}
+
+/// Unix milliseconds a release must be older than to count as installable.
+fn plugin_min_release_ms(now_ms: i64) -> i64 {
+    let window_ms = (plugin_min_age_hours() * 3_600_000.0) as i64;
+    now_ms.saturating_sub(window_ms)
+}
+
+/// Current wall clock in Unix milliseconds.
+fn now_unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
+/// One release the registry's full package document lists.
+struct PublishedVersion {
+    version: String,
+    /// Publish time in Unix milliseconds; `None` when the document's `time` map
+    /// carries no parseable stamp for it.
+    published_at: Option<i64>,
+    /// The release manifest's own `repository`, when the full document was read
+    /// from the registry; the script drops it when the document is unavailable.
+    repository_url: Option<String>,
+}
+
+/// Read the `versions` array the embedded script reports for a package: one
+/// entry per release with its publish time and repository. A malformed entry
+/// (no version string) is dropped; a missing array means the script answered
+/// with the tag alone.
+fn published_versions_of(item: &serde_json::Value) -> Vec<PublishedVersion> {
+    let Some(entries) = item.get("versions").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let version = entry
+                .get("version")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?;
+            Some(PublishedVersion {
+                version: version.to_string(),
+                published_at: entry.get("publishedAt").and_then(|value| value.as_i64()),
+                repository_url: repository_url_of(entry.get("repository")),
+            })
+        })
+        .collect()
+}
+
+/// The newest release a `@latest` install may pick right now.
+///
+/// pnpm's release-age window refuses a release younger than the window, so
+/// `@latest` means "the newest release at or below the tag whose publish time
+/// is outside the window". A release whose publish time is missing, that ranks
+/// above the tag, or whose version does not parse is skipped. With nothing
+/// eligible the tag's own version is the answer, which is what pnpm would then
+/// decide on.
+fn pick_installable_version(latest: &str, versions: &[PublishedVersion], cutoff_ms: i64) -> String {
+    let mut best: Option<&str> = None;
+    for candidate in versions {
+        let Some(published_at) = candidate.published_at else {
+            continue;
+        };
+        if published_at > cutoff_ms {
+            continue;
+        }
+        if !matches!(
+            compare_versions(&candidate.version, latest),
+            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+        ) {
+            continue;
+        }
+        if best.map_or(true, |current| {
+            matches!(
+                compare_versions(&candidate.version, current),
+                Some(std::cmp::Ordering::Greater)
+            )
+        }) {
+            best = Some(&candidate.version);
+        }
+    }
+    best.unwrap_or(latest).to_string()
+}
+
 /// Fold the embedded latest-fetch script's JSON answer into one
 /// [`PackageLatest`] per requested package, in request order. A bad body fails
 /// every requested package (there is nothing to attribute it to); a missing
 /// package entry or a missing `version` is a per-package answer problem.
-fn parse_latest_results(text: &str, packages: &[String]) -> Vec<PackageLatest> {
+///
+/// `cutoff_ms` is the oldest publish time the release-age window still accepts.
+/// An answer that carries no release list — the script reports one only when it
+/// was asked to choose an install target and the full document could be read —
+/// keeps the tag's own version.
+fn parse_latest_results(text: &str, packages: &[String], cutoff_ms: i64) -> Vec<PackageLatest> {
     let items: Vec<serde_json::Value> = match serde_json::from_str::<serde_json::Value>(text.trim())
     {
         Ok(serde_json::Value::Array(items)) => items,
@@ -1336,15 +1602,50 @@ fn parse_latest_results(text: &str, packages: &[String]) -> Vec<PackageLatest> {
                     error: Some(error.to_string()),
                 };
             }
-            let latest = item
+            let raw = item
                 .get("version")
                 .and_then(|value| value.as_str())
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
+            let repository_url = repository_url_of(item.get("repository"));
+            let Some(raw) = raw else {
+                return PackageLatest {
+                    latest: None,
+                    repository_url,
+                    error: None,
+                };
+            };
+            let published = published_versions_of(item);
+            if published.is_empty() {
+                return PackageLatest {
+                    latest: Some(raw),
+                    repository_url,
+                    error: None,
+                };
+            }
+            let tagged = item
+                .get("latest")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(raw.as_str());
+            // A tag the comparison cannot order cannot place a window; the
+            // `/<pkg>/latest` document's own version is the comparable fallback.
+            let tagged = if compare_versions(tagged, raw.as_str()).is_some() {
+                tagged
+            } else {
+                raw.as_str()
+            };
+            let installable = pick_installable_version(tagged, &published, cutoff_ms);
+            let repository_url = published
+                .iter()
+                .find(|entry| entry.version == installable)
+                .and_then(|entry| entry.repository_url.clone())
+                .or(repository_url);
             PackageLatest {
-                latest,
-                repository_url: repository_url_of(item.get("repository")),
+                latest: Some(installable),
+                repository_url,
                 error: None,
             }
         })
@@ -1354,24 +1655,58 @@ fn parse_latest_results(text: &str, packages: &[String]) -> Vec<PackageLatest> {
 /// Query the registry's `/<pkg>/latest` document for `packages`; one embedded
 /// node invocation covers every package (see [`NPM_LATEST_FETCH_SCRIPT`]). A
 /// non-zero child that still flushed a complete JSON array is accepted
-/// (`emitted_npm_json`), mirroring the publish check.
+/// (`emitted_npm_json`), mirroring the publish check. The answer is the tag's
+/// own version: a caller that describes releases rather than choosing an
+/// install target needs no release-age window.
 ///
 /// `pub(crate)`: the changelog backend asks for an npm row's latest version and
 /// repository URL through this.
 pub(crate) fn npm_latest_answers(root: &Path, packages: &[String]) -> Result<Vec<PackageLatest>, String> {
+    npm_latest_answers_with_installed(root, packages, None)
+}
+
+/// [`npm_latest_answers`] with the profile's installed versions.
+///
+/// `installed` maps a package name to the version the profile holds (the pin for
+/// a pinned wrapper, the installed version for a tracking one). A package that
+/// is behind its tag has its full document walked, so the answer is the release
+/// a `@latest` install may actually pick under the release-age window
+/// ([`pick_installable_version`]). `None` leaves every answer at the tag.
+pub(crate) fn npm_latest_answers_with_installed(
+    root: &Path,
+    packages: &[String],
+    installed: Option<&HashMap<String, String>>,
+) -> Result<Vec<PackageLatest>, String> {
     if packages.is_empty() {
         return Ok(Vec::new());
     }
     let script = write_temp_script(NPM_LATEST_FETCH_SCRIPT)?;
     let packages_json = serde_json::to_string(packages)
         .map_err(|error| format!("无法序列化 npm 包名列表：{error}"))?;
-    let args = vec![script.as_os_str().to_os_string(), packages_json.into()];
+    let mut args = vec![script.as_os_str().to_os_string(), packages_json.into()];
+    if let Some(installed) = installed {
+        // Only the requested packages matter; the script compares each one with
+        // its own tag before paying for a full-document walk.
+        let index: HashMap<&str, &str> = packages
+            .iter()
+            .filter_map(|name| {
+                installed
+                    .get(name)
+                    .map(|version| (name.as_str(), version.as_str()))
+            })
+            .collect();
+        let installed_json = serde_json::to_string(&index)
+            .map_err(|error| format!("无法序列化已安装版本：{error}"))?;
+        args.push(installed_json.into());
+    }
     let output = run_node_captured(Path::new("node"), &args, root, &[], NPM_FETCH_TIMEOUT);
     let _ = fs::remove_file(&script);
     match output {
-        Ok(output) if output.success || emitted_npm_json(&output.stdout) => {
-            Ok(parse_latest_results(&output.stdout, packages))
-        }
+        Ok(output) if output.success || emitted_npm_json(&output.stdout) => Ok(parse_latest_results(
+            &output.stdout,
+            packages,
+            plugin_min_release_ms(now_unix_ms()),
+        )),
         Ok(output) => {
             let detail = output.stderr.trim().chars().take(200).collect::<String>();
             Err(if detail.is_empty() {
@@ -1451,7 +1786,9 @@ fn local_npm_preview(root: &Path, row: &PluginNpmRow) -> ProjectUpdate {
 
 /// Fold one registry answer into its npm plugin row. A failed query keeps the
 /// installed version readable, carries the error on the row, and never counts
-/// as an update.
+/// as an update. `answer.latest` is already the release a `@latest` install may
+/// pick under the release-age window, so the row never offers a version pnpm
+/// would refuse to install.
 fn checked_npm_row(root: &Path, row: &PluginNpmRow, answer: &PackageLatest) -> ProjectUpdate {
     let current = current_npm_row_version(root, row);
     let mut update = ProjectUpdate {
@@ -1495,15 +1832,25 @@ fn checked_npm_row(root: &Path, row: &PluginNpmRow, answer: &PackageLatest) -> P
 }
 
 /// The npm plugin rows for one completed check: scan locally, query every
-/// package in one registry phase, then fold the answers in. A registry failure
-/// is written to the affected row instead of failing the whole check.
+/// package in one registry phase, then fold the answers in. Every row contributes
+/// the version the profile holds, so a package that is behind its tag is resolved
+/// against the release-age window too; an installed package that is already at
+/// the tag costs no extra request. A registry failure is written to the affected
+/// row instead of failing the whole check.
 fn check_plugin_rows(root: &Path) -> Vec<ProjectUpdate> {
     let rows = plugin_npm_rows(root);
     if rows.is_empty() {
         return Vec::new();
     }
     let packages: Vec<String> = rows.iter().map(|row| row.package_name.clone()).collect();
-    match npm_latest_answers(root, &packages) {
+    let installed: HashMap<String, String> = rows
+        .iter()
+        .filter_map(|row| {
+            current_npm_row_version(root, row)
+                .map(|version| (row.package_name.clone(), version))
+        })
+        .collect();
+    match npm_latest_answers_with_installed(root, &packages, Some(&installed)) {
         Ok(answers) => rows
             .iter()
             .zip(answers.iter())
@@ -2375,10 +2722,11 @@ fn run_install_script_streaming(
 
 /// Update one npm plugin row in place against the current profile.
 ///
-/// A row with an exact pin is rewritten to the registry's latest version and
-/// its wrapper re-run (rolling the script back when the reinstall fails). A
-/// `@latest`-tracking row needs no script write: the wrapper resolves and
-/// installs the current latest version itself, so only the re-run remains.
+/// A row with an exact pin is rewritten to the release a `@latest` install may
+/// pick (see [`npm_latest_answers_with_installed`]) and its wrapper re-run
+/// (rolling the script back when the reinstall fails). A `@latest`-tracking row
+/// needs no script write: the wrapper resolves and installs that same release
+/// itself, so only the re-run remains.
 ///
 /// The re-scanned row is authoritative (the script may have changed on disk
 /// while the dialog was open). Only the target install script is written; the
@@ -2409,7 +2757,14 @@ pub fn run_npm_plugin_update(
         }
     ));
     let packages = vec![row.package_name.clone()];
-    let answers = npm_latest_answers(root, &packages)?;
+    let current = row.pinned_version.clone().or(installed);
+    // The written target must be the version the row offers: the release a
+    // `@latest` install may pick under the release-age window.
+    let installed_versions: HashMap<String, String> = current
+        .iter()
+        .map(|version| (row.package_name.clone(), version.clone()))
+        .collect();
+    let answers = npm_latest_answers_with_installed(root, &packages, Some(&installed_versions))?;
     let Some(answer) = answers.into_iter().next() else {
         return Err("npm registry 未返回版本信息".to_string());
     };
@@ -2419,7 +2774,6 @@ pub fn run_npm_plugin_update(
     let Some(latest) = answer.latest else {
         return Err("npm registry 未返回版本号".to_string());
     };
-    let current = row.pinned_version.clone().or(installed);
     if let Some(current) = &current {
         if !is_newer(&latest, current) {
             log(&format!("已是最新（{current}）"));
@@ -3402,7 +3756,7 @@ const buildMetadata = 'pkg@1.2.3+build.5'
             {"name":"dsh-a","version":"0.2.0","repository":"git+https://github.com/x/dsh-a.git"},
             {"name":"@scope/b","version":"1.0.0","repository":{"url":"https://github.com/y/dsh-b"}}
         ]"#;
-        let answers = parse_latest_results(body, &packages);
+        let answers = parse_latest_results(body, &packages, 0);
         assert_eq!(answers.len(), 3);
         assert_eq!(answers[0].latest.as_deref(), Some("0.2.0"));
         assert_eq!(
@@ -3420,20 +3774,143 @@ const buildMetadata = 'pkg@1.2.3+build.5'
             "a package missing from the answer must carry an error"
         );
 
-        let failed = parse_latest_results(r#"[{"name":"dsh-a","error":"HTTP 404"}]"#, &packages[..1]);
+        let failed =
+            parse_latest_results(r#"[{"name":"dsh-a","error":"HTTP 404"}]"#, &packages[..1], 0);
         assert_eq!(failed[0].error.as_deref(), Some("HTTP 404"));
         assert!(failed[0].latest.is_none());
 
-        let bad = parse_latest_results("not json", &packages[..1]);
+        let bad = parse_latest_results("not json", &packages[..1], 0);
         assert_eq!(
             bad[0].error.as_deref(),
             Some("无法解析 npm registry 响应")
         );
 
         let empty_version =
-            parse_latest_results(r#"[{"name":"dsh-a","version":"  "}]"#, &packages[..1]);
+            parse_latest_results(r#"[{"name":"dsh-a","version":"  "}]"#, &packages[..1], 0);
         assert!(empty_version[0].latest.is_none());
         assert!(empty_version[0].error.is_none());
+    }
+
+    /// One millisecond per hour, for expressing publish times in the window
+    /// tests.
+    const HOUR_MS: i64 = 3_600_000;
+
+    /// A release entry for the window tests: `published_at` in Unix
+    /// milliseconds, `None` when the registry's `time` map has no stamp.
+    fn published(version: &str, published_at: Option<i64>) -> PublishedVersion {
+        PublishedVersion {
+            version: version.to_string(),
+            published_at,
+            repository_url: None,
+        }
+    }
+
+    #[test]
+    fn release_age_window_picks_the_newest_installable_release() {
+        let now = 1_800_000_000_000;
+        let cutoff = now - 24 * HOUR_MS;
+        let at = |hours_ago: i64| Some(now - hours_ago * HOUR_MS);
+        let versions = vec![
+            published("0.4.0", at(2)),
+            published("0.3.9", at(30)),
+            published("0.3.8", at(40)),
+            // A release without a parseable publish time cannot enter the window.
+            published("0.3.7", None),
+        ];
+        assert_eq!(
+            pick_installable_version("0.4.0", &versions, cutoff),
+            "0.3.9",
+            "a release inside the window must give way to the newest older one"
+        );
+        assert_eq!(
+            pick_installable_version("0.4.0", &versions, now),
+            "0.4.0",
+            "a zero-length window accepts the tag itself"
+        );
+        // Every release is still inside the window: the tag is the answer, which
+        // is what pnpm falls back to instead of downgrading.
+        let young = vec![published("0.4.0", at(1)), published("0.3.9", at(2))];
+        assert_eq!(pick_installable_version("0.4.0", &young, cutoff), "0.4.0");
+        // A release above the tag is never a target, however old it is.
+        let above = vec![
+            published("0.5.0", at(90)),
+            published("0.3.9", at(30)),
+            published("0.4.0", at(2)),
+        ];
+        assert_eq!(pick_installable_version("0.4.0", &above, cutoff), "0.3.9");
+        // Unparseable versions are skipped rather than compared by text.
+        let malformed = vec![published("nightly", at(90)), published("0.3.9", at(30))];
+        assert_eq!(pick_installable_version("0.4.0", &malformed, cutoff), "0.3.9");
+    }
+
+    #[test]
+    fn release_age_window_ranks_prereleases_like_compare_versions() {
+        let now = 1_800_000_000_000;
+        let cutoff = now - 24 * HOUR_MS;
+        let at = |hours_ago: i64| Some(now - hours_ago * HOUR_MS);
+        let versions = vec![
+            published("0.4.0-rc.2", at(2)),
+            published("0.4.0-rc.1", at(30)),
+            published("0.3.9", at(40)),
+        ];
+        assert_eq!(
+            pick_installable_version("0.4.0-rc.2", &versions, cutoff),
+            "0.4.0-rc.1",
+            "prerelease precedence decides between two candidates"
+        );
+    }
+
+    #[test]
+    fn parsed_registry_answers_apply_the_release_age_window() {
+        let now = 1_800_000_000_000;
+        let cutoff = now - 24 * HOUR_MS;
+        let packages = vec!["dsh-pet".to_string()];
+        // The script reports the tag document's version plus the package
+        // document's release list; the newest release is still inside the
+        // window, so the answer must fall back to the release pnpm would install.
+        let body = format!(
+            r#"[{{"name":"dsh-pet","version":"0.4.0",
+                "repository":"git+https://github.com/x/dsh-pet.git",
+                "latest":"0.4.0","versions":[
+                    {{"version":"0.4.0","publishedAt":{},
+                      "repository":"git+https://github.com/x/dsh-pet.git"}},
+                    {{"version":"0.3.9","publishedAt":{},
+                      "repository":"git+https://github.com/x/dsh-pet-v2.git"}},
+                    {{"version":"0.3.8","publishedAt":{},
+                      "repository":"git+https://github.com/x/dsh-pet.git"}}
+                ]}}]"#,
+            now - 2 * HOUR_MS,
+            now - 30 * HOUR_MS,
+            now - 40 * HOUR_MS,
+        );
+        let answers = parse_latest_results(&body, &packages, cutoff);
+        assert_eq!(answers[0].latest.as_deref(), Some("0.3.9"));
+        assert_eq!(
+            answers[0].repository_url.as_deref(),
+            Some("git+https://github.com/x/dsh-pet-v2.git"),
+            "the picked release's own repository wins over the tag document's"
+        );
+
+        // A window that admits no release keeps the tag: an up-to-date-looking
+        // answer must never downgrade the row.
+        let answers = parse_latest_results(&body, &packages, now - 100 * HOUR_MS);
+        assert_eq!(answers[0].latest.as_deref(), Some("0.4.0"));
+
+        // A package document that could not be read leaves the tag answer alone,
+        // so a failed lookup still reports the update instead of hiding it.
+        let unavailable = r#"[{"name":"dsh-pet","version":"0.4.0",
+            "repository":"https://github.com/x/dsh-pet"}]"#;
+        let answers = parse_latest_results(unavailable, &packages, cutoff);
+        assert_eq!(answers[0].latest.as_deref(), Some("0.4.0"));
+        assert_eq!(
+            answers[0].repository_url.as_deref(),
+            Some("https://github.com/x/dsh-pet")
+        );
+
+        // The same holds for a document that lists no release at all.
+        let empty = r#"[{"name":"dsh-pet","version":"0.4.0","latest":"0.4.0","versions":[]}]"#;
+        let answers = parse_latest_results(empty, &packages, cutoff);
+        assert_eq!(answers[0].latest.as_deref(), Some("0.4.0"));
     }
 
     #[test]
@@ -3446,6 +3923,12 @@ const buildMetadata = 'pkg@1.2.3+build.5'
         assert!(NPM_LATEST_FETCH_SCRIPT.contains("accept: 'application/json'"));
         assert!(NPM_LATEST_FETCH_SCRIPT.contains("'/latest'"));
         assert!(NPM_LATEST_FETCH_SCRIPT.contains("user-agent"));
+        assert!(NPM_LATEST_FETCH_SCRIPT.contains("const TIMEOUT_MS = 15000"));
+        // The installed-version index is the third argument and selects the
+        // release-age walk; the walk forwards each release's publish time.
+        assert!(NPM_LATEST_FETCH_SCRIPT.contains("process.argv[3]"));
+        assert!(NPM_LATEST_FETCH_SCRIPT.contains("Date.parse"));
+        assert!(NPM_LATEST_FETCH_SCRIPT.contains("publishedAt"));
     }
 
     #[test]

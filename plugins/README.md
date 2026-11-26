@@ -174,9 +174,9 @@ tree with `duplicate loader entry id`.
 
 未标注源码安装的，均使用 `dsh plugin --profile <profile> add <package>` 安装 npm 包，package 参数见列表；标注源码安装的，基于源码编译后以 link 模式引入。
 npm 型 wrapper 不在仓库内保留插件源码检出，安装脚本就是当前 profile 与全新部署共同的权威安装目标。
-安装目标写成 `<包名>@latest`，例如 `const PACKAGE_SPEC = 'dsh-pet@latest'` 或直接 `packageSpec: '@max-null/dsh-skill-mcp-center@latest'`：`installNpmPlugin` 在安装前向 pnpm 配置的 registry（读 npmrc，含 scope 条目）查询该包的 latest 精确版本并安装它，已装同一版本时跳过。上游发布新版本后重跑 wrapper 或执行下一次构建即升级，仓库内不写版本号。
-`plugins/harness/` 是例外：它安装的官方 `@deepseek-ai/dsh*` 包按当前 harness 版本固定精确 spec，随 harness 升级流程整批改写（见 `harness/README.md`）。
-本仓库的更新面板（外壳与 desktop 插件两个入口）扫描这些脚本：精确版本行对比脚本 pin 与 registry 最新版本，`@latest` 行对比**当前 profile 已安装版本**与 registry 最新版本；「更新」对精确版本行改写 pin 后重跑脚本，对 `@latest` 行直接重跑脚本，不需要改代码（行模型见 `docs/dsh-gui/update-check.md`）。
+安装目标写成 `<包名>@latest`，例如 `const PACKAGE_SPEC = 'dsh-pet@latest'` 或直接 `packageSpec: '@max-null/dsh-skill-mcp-center@latest'`：`installNpmPlugin` 在安装前向 pnpm 配置的 registry（读 npmrc，含 scope 条目）查询该包的 latest，再取**发布已满 24 小时窗口**的最新版本（窗口取 `DSH_PLUGIN_MIN_AGE_HOURS`，缺省 24；可用版本不高于 latest）安装，已装同一版本时跳过；窗口内的新发布不会被装进 profile，避免后续普通 pnpm 命令因 `minimumReleaseAge` 拒绝锁文件条目。窗口内没有可用版本时退回 latest。上游发布新版本、且过了窗口后，重跑 wrapper 或执行下一次构建即升级，仓库内不写版本号。
+`plugins/harness/` 是例外：它安装的官方 `@deepseek-ai/dsh*` 包按当前 harness 版本固定精确 spec，随 harness 升级流程整批改写（见 `harness/README.md`）；包上带 `exempt` 的 wrapper 仍按精确版本解析并接受准入例外。
+本仓库的更新面板（外壳与 desktop 插件两个入口）扫描这些脚本：精确版本行对比脚本 pin 与 registry 最新版本，`@latest` 行对比**当前 profile 已安装版本**与 registry 中**窗口内可安装的最新版本**；「更新」对精确版本行改写 pin 后重跑脚本，对 `@latest` 行直接重跑脚本，不需要改代码（行模型见 `docs/dsh-gui/update-check.md`）。
 
 - [dshmarket](https://github.com/dsh-market/dsh-market) npm包（跟踪 `dshmarket@latest`；`@deepseek-ai/dsh-settings` peer 自 1.66.4 起纳入 0.2 线，属硬下限——更早的发布会被 0.2.3-alpha.2 的准入闸门拒绝，安装前置检查直接失败；1.70.0 起 peer 检查按 `includePrerelease` 接纳 prerelease 宿主线，1.73.x 沿用同一区间（`^0.2.1-alpha.3 || ^0.2.1-rc.1`））
 - [DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar) npm包（跟踪 `dsh-better-sidebar@latest`；0.2.2 线的发布把 14 条 `@deepseek-ai/dsh-*` peer 定为 `^0.2.2-rc.1` 一类区间，与本工程 pinned 的 `dsh-v0.2.3-alpha.2` 匹配；host inject 为 `webServer / sessions / connection / tools`，不引用 0.2.1-alpha.1 起已删除的 `webRuntime`），右列交由 DSH 原生右侧栏承载、插件把各 tab 类型注册为原生 tab 并只保留底部工作台与 `ctx.betterSidebar` 服务；0.30.0 起侧聊模型切换走 `agent.model.select()`。install.mjs 先装本插件再装下方的 dsh-sidebar-qa

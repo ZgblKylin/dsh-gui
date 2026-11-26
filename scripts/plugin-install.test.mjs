@@ -28,6 +28,8 @@ import {
   npmPluginUpToDate,
   parseNpmrc,
   reinstallRequested,
+  releaseAgeHours,
+  resolveInstallableSpec,
   resolveLatestSpec,
 } from './plugin-install.mjs'
 
@@ -328,4 +330,91 @@ test('a failed lookup is cached briefly', async (t) => {
   assert.equal(typeof (await fetchLatestVersion('dsh-demo', { dshHome: home })).error, 'string')
   assert.equal(typeof (await fetchLatestVersion('dsh-demo', { dshHome: home })).error, 'string')
   assert.equal(registry.requests.length, 1)
+})
+
+test('the release-age window defaults to 24 hours and honors its override', () => {
+  const previous = process.env.DSH_PLUGIN_MIN_AGE_HOURS
+  try {
+    delete process.env.DSH_PLUGIN_MIN_AGE_HOURS
+    assert.equal(releaseAgeHours(), 24)
+    process.env.DSH_PLUGIN_MIN_AGE_HOURS = '6'
+    assert.equal(releaseAgeHours(), 6)
+    process.env.DSH_PLUGIN_MIN_AGE_HOURS = 'nonsense'
+    assert.equal(releaseAgeHours(), 24)
+  } finally {
+    if (previous === undefined) delete process.env.DSH_PLUGIN_MIN_AGE_HOURS
+    else process.env.DSH_PLUGIN_MIN_AGE_HOURS = previous
+  }
+})
+
+/** One registry document pair: the `latest` tag and the full packument. */
+function packumentRoutes({ latest, time, versions }) {
+  return {
+    'dsh-demo/latest': { body: JSON.stringify({ version: latest }) },
+    'dsh-demo': {
+      body: JSON.stringify({
+        'dist-tags': { latest },
+        time,
+        versions: Object.fromEntries(versions.map((version) => [version, {}])),
+      }),
+    },
+  }
+}
+
+test('a latest tag inside the window resolves to the newest older release', async (t) => {
+  const now = Date.now()
+  const registry = await startRegistry(t, packumentRoutes({
+    latest: '1.4.2',
+    time: {
+      created: new Date(now - 30 * 24 * 3_600_000).toISOString(),
+      '1.4.1': new Date(now - 30 * 24 * 3_600_000).toISOString(),
+      '1.4.2': new Date(now - 3_600_000).toISOString(),
+    },
+    versions: ['1.4.1', '1.4.2'],
+  }))
+
+  assert.deepEqual(
+    await resolveInstallableSpec('dsh-demo', { registryBase: registry.base }),
+    { version: '1.4.1', rawVersion: '1.4.2', deferred: true },
+  )
+  assert.ok(registry.requests.includes('/dsh-demo'))
+})
+
+test('a latest tag outside the window stays the install target', async (t) => {
+  const old = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString()
+  const registry = await startRegistry(t, packumentRoutes({
+    latest: '1.4.2',
+    time: { created: old, '1.4.1': old, '1.4.2': old },
+    versions: ['1.4.1', '1.4.2'],
+  }))
+
+  assert.deepEqual(
+    await resolveInstallableSpec('dsh-demo', { registryBase: registry.base }),
+    { version: '1.4.2', rawVersion: '1.4.2', deferred: false },
+  )
+})
+
+test('an installed latest tag skips the packument walk', async (t) => {
+  const registry = await startRegistry(t, {
+    'dsh-demo/latest': { body: JSON.stringify({ version: '1.4.2' }) },
+  })
+
+  assert.deepEqual(
+    await resolveInstallableSpec('dsh-demo', { registryBase: registry.base, installedVersion: '1.4.2' }),
+    { version: '1.4.2', rawVersion: '1.4.2', deferred: false },
+  )
+  assert.deepEqual(registry.requests, ['/dsh-demo/latest'])
+})
+
+test('a failed packument keeps the tag version instead of hiding the update', async (t) => {
+  const registry = await startRegistry(t, {
+    'dsh-demo/latest': { body: JSON.stringify({ version: '1.4.2' }) },
+    'dsh-demo': { status: 500, body: '{}' },
+  })
+
+  const resolved = await resolveInstallableSpec('dsh-demo', { registryBase: registry.base })
+  assert.equal(resolved.version, '1.4.2')
+  assert.equal(resolved.rawVersion, '1.4.2')
+  assert.equal(resolved.deferred, false)
+  assert.equal(resolved.unavailable, true)
 })

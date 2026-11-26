@@ -32,7 +32,7 @@ Host 半只依赖注入的 `webServer`（`inject = ['webServer']`），不 impor
   目标；每个包一行，行 id 为 `npm:<packageName>`。精确 pin 行的 `current` 为脚本中的
   pin，`@latest` 行的 `current` 为当前 profile（`<DSH_HOME>/profiles/<DSH_PROFILE，
   缺省 desktop>`）的 `node_modules/<包名>/package.json` 里的已装版本（未安装为
-  「未安装」）；`latest` 为 registry 最新版本。`@deepseek-ai/dsh*` 官方包不产生行（随
+  「未安装」）；`latest` 为 registry 中**发布窗口内可安装的最新版本**（见下）。`@deepseek-ai/dsh*` 官方包不产生行（随
   deepseek-harness 行整体升级）；脚本里构造不出字面量 spec 的 wrapper 也不产生行（写法
   约定见 `plugins/README.md`）。
 - 行顺序：git 行在前（根行最前），npm 行按安装脚本路径、包名排序。
@@ -73,8 +73,12 @@ Host 半只依赖注入的 `webServer`（`inject = ['webServer']`），不 impor
 registry 请求为 `<registry>/<name>/latest`（`accept: application/json`，该端点不接受
 abbreviated 类型，且完整响应同时给出 `version` 与 `repository`）。跨包最多 8 个探测并发，
 首个（且仅首个）探测先单独发起；首个**传输层**失败（连接/超时/DNS）立即熔断，其余未完成
-的探测复用同一错误文案，非 2xx 与不可解析 body 不熔断。该阶段整体预算 10s。npm 行的
-`behind` 为 registry 最新版本高于当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已
+的探测复用同一错误文案，非 2xx 与不可解析 body 不熔断。该阶段整体预算 10s。**发布窗口**：
+`minimumReleaseAge` 内的版本会被 pnpm 拒绝，因此已装版本低于 latest 时再请求一次完整
+packument，取「发布时间已过 `DSH_PLUGIN_MIN_AGE_HOURS`（缺省 24）窗口、且不高于
+`dist-tags.latest`」的最高版本作为目标；已装版本已不低于 latest 时不发这次请求；
+packument 失败或窗口内无可用版本时退回 latest。npm 行的
+`behind` 为窗口内可安装版本高于当前版本（脚本 pin，或 `@latest` 行在当前 profile 的已
 装版本；未安装时视为可更新）。失败行只写 `error`（`latest: "—"`、`behind: false`），不影响
 git 行，也不改变 `allChecked`（它只反映 git 行完整性）。
 
