@@ -35,16 +35,65 @@
  * 0.2.3-alpha.2), so the import resolves without the profile installing the
  * package. A hand-made junction would instead point into
  * `<runtime-root>/.harness/node_modules`, which every harness reinstall deletes.
+ *
+ * Profiles installed by an earlier revision still carry that junction. It is
+ * removed here before the package operation, so a harness reinstall cannot leave
+ * a dangling entry that the required `connection` plugin fails to import.
  */
 
-import { dirname, join } from 'node:path'
+import { lstatSync, readlinkSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { installPlugin } from '../../scripts/plugin-install.mjs'
+import { removeLink } from '../../scripts/remove-tree.mjs'
+import { WEB_HOME } from '../../scripts/toolchain.mjs'
 
 /** This plugin's directory — the wrapper that owns the plugin package. */
 const HERE = dirname(fileURLToPath(import.meta.url))
+
+dropObsoletePeerLink(
+  process.env.DSH_HOME ?? WEB_HOME,
+  (process.env.DSH_PLUGIN_PROFILE ?? 'web').trim() || 'web',
+)
 
 installPlugin({
   id: 'desktop-tabs',
   packageDir: join(HERE, 'dsh-desktop-tabs'),
 })
+
+/**
+ * Remove the peer junction an earlier revision of this wrapper created.
+ *
+ * Only a link whose target sits inside the runtime root's `.harness` or
+ * `.desktop/source` tree is removed: a real installation at that path, or a
+ * link to any other location, is left alone. The link is dropped without
+ * visiting its target, so a stale or live `.harness` copy is never modified.
+ * @param {string} dshHome - harness home holding the profiles.
+ * @param {string} profile - profile name inside `dshHome/profiles`.
+ */
+function dropObsoletePeerLink(dshHome, profile) {
+  const profileDir = join(dshHome, 'profiles', profile)
+  const link = join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-client-connection')
+  const stats = lstatSync(link, { throwIfNoEntry: false })
+  if (stats === undefined) return
+  if (!stats.isSymbolicLink()) return
+  let raw
+  try {
+    raw = readlinkSync(link)
+  } catch (error) {
+    console.warn(`  could not read the obsolete peer link at ${link}: ${error instanceof Error ? error.message : String(error)}`)
+    return
+  }
+  const target = raw.startsWith('\\\\?\\') ? raw.slice(4) : raw
+  const resolved = isAbsolute(target) ? target : resolve(dirname(link), target)
+  const runtimeRoot = dirname(dshHome)
+  const owned = [join(runtimeRoot, '.harness'), join(runtimeRoot, '.desktop', 'source')]
+    .some((root) => resolved.toLowerCase().startsWith(root.toLowerCase() + sep))
+  if (!owned) return
+  try {
+    removeLink(link)
+    console.log(`  removed the obsolete @deepseek-ai/dsh-client-connection link from ${profileDir}`)
+  } catch (error) {
+    console.warn(`  could not remove the obsolete peer link at ${link}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
