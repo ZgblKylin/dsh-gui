@@ -30,6 +30,7 @@ Node 在 Windows 上把 junction 视为符号链接（`lstat().isSymbolicLink()`
 - `.staging/` 运行时根的 profile 通过 junction 指向主检出；删除验证工作区时同样会穿透。
 - `scripts/plugin-install.mjs` 的“删除包内残留 `node_modules`”只应作用于 npm 安装的真实目录；对 `link:` 安装，那个 `node_modules` 属于插件源码树（其构建依赖），删除即误删。
 - remote tab 的子 home（`.dsh/gui/remote-tabs/<id>/home`）把 `profiles/remote-tab/node_modules` 做成指向**宿主 profile 依赖树**的 junction（`src/remote-tab/profile.ts`）。遗忘这个 tab 时删除整个子 home，就会把宿主 profile 的依赖删空。
+- `dsh-desktop-tabs` 的安装脚本曾把 `<runtime-root>/.harness/node_modules/@deepseek-ai/dsh-client-connection` 以 junction 链进 profile，供 `ds-harness-remote` 的动态 import 使用。该目标位于 `.harness` 内，`cleanHarnessInstall()` 重装 harness 时整棵删除，链接就会悬空；而 profile 的每次 `dsh plugin install` 也会把它当作外来条目清掉。0.2.3-alpha.2 起 profile 启动时计算的 installation-scope 运行时解析已经覆盖这个 import，链接已移除，改用解析器兜底。
 
 ## 2026-11-27 的实际链路
 
@@ -39,7 +40,7 @@ desktop profile 的第三方插件全部报 `cannot resolve profile bundle`，`n
 - 另一个存活的 remote tab 的 `profiles/remote-tab/node_modules` 是指向 `.dsh/profiles/desktop/node_modules` 的 junction；
 - 同一 fixture 的负向对照（Electron Node）：`rmSync(childHome, { recursive: true })` 删除目标里的文件、保留目标目录；官方 Node 下目标不受影响。
 
-即：关闭 remote tab → `RemoteTabSupervisor.forget()` 删除子 home → Electron 的 Node 跟穿 `node_modules` junction → 宿主 profile 的依赖被清空 → 应用重启后所有第三方 bundle 无法解析。终端里复现不了，是因为 `npm run …` 用的是官方 Node。
+即：关闭 remote tab → `RemoteTabSupervisor.forget()` 删除子 home → Electron 的 Node 跟穿 `node_modules` junction → 宿主 profile 的依赖被清空 → 应用重启后所有第三方 bundle 无法解析。同一轮删除还顺着 profile 里指向 `.harness` 的 peer junction，把 `<runtime>/.harness/node_modules/@deepseek-ai/dsh-client-connection` 清空（目录保留、内容为空、`LastWriteTime` 11:56:29），那条 junction 是 `dsh-desktop-tabs` 安装脚本手工建的。终端里复现不了，是因为 `npm run …` 用的是官方 Node。
 
 两部分都已改为链接安全删除：主仓脚本用 `scripts/remove-tree.mjs`，`dsh-desktop-tabs` 用 `src/remote-tab/remove-tree.ts`（该包必须能独立加载，不能引用仓库脚本）。
 
