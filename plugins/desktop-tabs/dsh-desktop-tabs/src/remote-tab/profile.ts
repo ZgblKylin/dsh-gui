@@ -35,7 +35,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -470,7 +470,10 @@ function linkNodeModules(target: string, link: string): void {
   if (existing !== undefined) {
     // A junction from an earlier attempt (or a user-made link) is reused as-is.
     if (existing.isSymbolicLink() || existing.isDirectory()) return
-    rmSync(link, { recursive: true, force: true })
+    // A file where the link belongs is not reusable; unlink it so the junction
+    // can be created. `rmSync(..., { recursive: true })` is avoided because a
+    // junction or symlink at this path would make it delete the target instead.
+    unlinkSync(link)
   }
   symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
 }

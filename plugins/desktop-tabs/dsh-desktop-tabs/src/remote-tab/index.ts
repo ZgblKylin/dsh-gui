@@ -52,6 +52,7 @@ export {
   writeRemoteTabLoader,
 } from './loader.ts'
 export type { RemoteTabLoader, RemoteTabLoaderAnchors } from './loader.ts'
+export { removeTree } from './remove-tree.ts'
 export {
   childRuntimeCandidates,
   findOnPath,

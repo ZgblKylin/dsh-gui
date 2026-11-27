@@ -17,7 +17,7 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -415,11 +415,36 @@ async function tick(ms = 30): Promise<void> {
   await forgetHarness.supervisor.up(request)
   const childHome = mod.remoteTabHome(join(root, 'parent-home'), request.id)
   assert.ok(existsSync(childHome), 'the child home exists before forget')
+  // The child profile links the parent dependency tree. Forgetting the tab must
+  // unlink that junction, never enter it: entering it deletes the shared tree.
+  const sharedTree = join(root, 'shared-parent-node-modules')
+  mkdirSync(join(sharedTree, 'kept-package'), { recursive: true })
+  writeFileSync(join(sharedTree, 'kept-package', 'marker.txt'), 'kept')
+  const childModules = join(childHome, 'profiles', 'remote-tab', 'node_modules')
+  mod.removeTree(childModules)
+  mkdirSync(dirname(childModules), { recursive: true })
+  symlinkSync(sharedTree, childModules, process.platform === 'win32' ? 'junction' : 'dir')
   await forgetHarness.supervisor.forget(request.id)
   assert.deepEqual(forgetHarness.providerCalls.revoked, [childHome], 'forget revokes the child device through the provider')
   assert.ok(!existsSync(childHome), 'forget removes the child home')
+  assert.ok(existsSync(join(sharedTree, 'kept-package', 'marker.txt')), 'forget never deletes through the child profile link')
   assert.deepEqual(forgetHarness.supervisor.status(), [], 'forget clears the tab status')
   await until(() => forgetHarness.children[0].exitCode !== null, 'forget stops the child')
+}
+
+// ---------------------------------------------------------------- removeTree
+{
+  const fixture = join(root, 'remove-tree')
+  const target = join(fixture, 'target')
+  const host = join(fixture, 'host')
+  mkdirSync(join(target, 'nested'), { recursive: true })
+  writeFileSync(join(target, 'nested', 'keep.txt'), 'keep')
+  mkdirSync(host, { recursive: true })
+  symlinkSync(target, join(host, 'link'), process.platform === 'win32' ? 'junction' : 'dir')
+  assert.equal(mod.removeTree(host), true, 'removeTree removes the containing tree')
+  assert.equal(existsSync(host), false, 'the tree holding the link is gone')
+  assert.equal(readFileSync(join(target, 'nested', 'keep.txt'), 'utf8'), 'keep', 'removeTree never enters a link')
+  assert.equal(mod.removeTree(join(fixture, 'absent')), false, 'a missing path is a no-op')
 }
 
 // ---------------------------------------------------------------- dispose

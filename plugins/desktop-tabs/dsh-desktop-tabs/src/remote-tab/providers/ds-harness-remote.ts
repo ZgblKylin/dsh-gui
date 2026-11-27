@@ -30,7 +30,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import type { RemoteLogger } from '../../remote/types.ts'
@@ -533,7 +533,10 @@ function linkDirectory(target: string, link: string): void {
   }
   if (existing !== undefined) {
     if (existing.isSymbolicLink() || existing.isDirectory()) return
-    rmSync(link, { recursive: true, force: true })
+    // A file where the link belongs is not reusable; unlink it so the junction
+    // can be created. A recursive delete is avoided because a link at this path
+    // would make it delete the target instead.
+    unlinkSync(link)
   }
   symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
 }

@@ -30,12 +30,13 @@
  */
 
 import { spawn as nodeSpawn, spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 import { redactToken, stripAnsi } from '../remote/text.ts'
 import type { RemoteLogger } from '../remote/types.ts'
 import { remoteDeviceName, remoteTabHome, writeRemoteTabProfile } from './profile.ts'
+import { removeTree } from './remove-tree.ts'
 import {
   nodeSupportsExperimentalLoader,
   selectChildNode,
@@ -384,7 +385,7 @@ export class RemoteTabSupervisor {
         this.options.logger?.warn(`[dsh-desktop-tabs] remote-tab '${id}' device revocation failed: ${redactLogLine(message(error))}`)
       }
     }
-    rmSync(childHome, { recursive: true, force: true })
+    removeTree(childHome)
     this.options.logger?.info(`[dsh-desktop-tabs] remote-tab '${id}' forgotten`)
   }
 
