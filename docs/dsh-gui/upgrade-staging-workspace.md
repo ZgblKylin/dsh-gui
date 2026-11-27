@@ -76,6 +76,35 @@ $env:DSH_HOME = 'E:\Git\dsh-gui-home\dsh-gui\.staging\.dsh'
 node .staging\.harness\node_modules\@deepseek-ai\dsh\lib\bin.js --profile web --dump-config
 ```
 
+## 低完整性标签与启动
+
+`.staging/` 位于会话工作区内，DSH Windows 沙箱给工作区根写入的低完整性标签沿目录继承到其中每个文件，因此 worktree 构建出的可执行文件都带低标签。Windows 按镜像文件的完整性标签决定新进程的完整性等级：带低标签的入口 exe 以低完整性运行，写不了 `%APPDATA%` 等中等完整性位置，桌面端表现为 SmartScreen 提示后立即退出，Electron 主进程或渲染进程崩溃。机制与实测清单见 [windows-acl-low-integrity-label.md](windows-acl-low-integrity-label.md)。
+
+每次在 `.staging/` 内重新构建后，先把启动链路上的可执行文件恢复为中等完整性，再启动验收：
+
+```powershell
+cd E:\Git\dsh-gui-home\dsh-gui
+$exes = @(
+  '.staging\desktop\DeepSeek Harness.exe',
+  '.staging\desktop\resources\runtime\primary-runtime\dependencies\node\bin\node.exe',
+  '.staging\desktop\resources\runtime\primary-runtime\dependencies\python\python.exe',
+  '.staging\desktop\resources\runtime\primary-runtime\dependencies\python\pythonw.exe',
+  '.staging\dsh-gui.exe',
+  '.staging\dsh-gui-desktop.exe',
+  '.staging\dsh-quick-assistant.exe'
+)
+foreach ($exe in $exes) { if (Test-Path $exe) { icacls $exe /setintegritylevel Medium | Out-Null } }
+```
+
+写完整性标签需要 `SeSecurityPrivilege`，普通未提权终端可能被拒绝；被拒绝时在管理员终端执行同一命令。数据文件的低标签不影响读写，不必处理。
+
+启动 Electron 桌面端时把 `--user-data-dir` 指向工作区外的独立目录：Chromium 的 HTTP 缓存、GPU 着色器缓存与进程锁都落在 userData 下，指向工作区外可让这些文件脱离工作区的继承标签与沙箱授权。
+
+```powershell
+$env:DSH_HOME = 'E:\Git\dsh-gui-home\dsh-gui\.staging\.dsh'
+& 'E:\Git\dsh-gui-home\dsh-gui\.staging\desktop\DeepSeek Harness.exe' --user-data-dir="$env:LOCALAPPDATA\dsh-staging-probe"
+```
+
 ## 阶段一验收：WebUI 与 GUI
 
 [冒烟检查](#冒烟检查)只是前置条件：阶段一的通过基准是 worktree 真的能跑起来。
@@ -100,6 +129,8 @@ npm start                    # 启动 .staging\dsh-gui.exe
 ```
 
 入口 exe 从自身路径解析两个根（`src-tauri/src/roots.rs` 的 `repo_root` 与 `runtime_root`），与正在运行的实例互不干扰；唯一会冲突的是端口（`ensure_loopback_port_available`），因此必须换端口。确认窗口出现、加载页过渡到标签页、harness 就绪、能正常交互后关闭该实例。
+
+启动前按[低完整性标签与启动](#低完整性标签与启动)恢复入口 exe 的完整性标签；用 Electron 桌面端验收时把 `--user-data-dir` 放在工作区外。
 
 两项验收都通过后，先向用户报告结论（worktree 路径、工作分支与提交、目标修订、验证命令与结果、适配改动清单、屏蔽项与未决风险），取得明确审批后才把工作分支合并回主分支实装。
 
