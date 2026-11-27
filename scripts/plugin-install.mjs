@@ -46,11 +46,12 @@
  * and only call the exported install functions.
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { requireHarnessRuntime, submoduleVersion } from './harness-runtime.mjs'
+import { isLinkPath, removeTree } from './remove-tree.mjs'
 import {
   bootstrapPnpm,
   pinnedPath,
@@ -1416,10 +1417,15 @@ export function recordNpmInstall(dshHome, packageName) {
  * @param {string} packageName - the npm package name (may be scoped).
  */
 function removeForeignNestedNodeModules(profileDir, packageName) {
-  const nested = join(profileDir, 'node_modules', ...packageName.split('/'), 'node_modules')
+  const packageDir = join(profileDir, 'node_modules', ...packageName.split('/'))
+  // A `link:` install projects the package's own directory into the profile, so
+  // a `node_modules` below it is the source tree's dependency tree. Removing it
+  // would delete a directory this install does not own.
+  if (isLinkPath(packageDir)) return
+  const nested = join(packageDir, 'node_modules')
   if (!existsSync(nested)) return
   console.log(`  removing foreign nested node_modules in '${packageName}' (stale from a previous install)`)
-  rmSync(nested, { recursive: true, force: true })
+  removeTree(nested)
 }
 
 /**

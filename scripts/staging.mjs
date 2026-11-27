@@ -44,11 +44,11 @@ import {
   mkdtempSync,
   openSync,
   readFileSync,
-  rmSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { BIN_NAME, ROOT, RUNTIME_ROOT } from './toolchain.mjs'
+import { removeTree } from './remove-tree.mjs'
 
 /** Upgrade-validation workspace: inside this repository, so the sandbox already covers it. */
 const STAGING_ROOT = join(ROOT, '.staging')
@@ -99,7 +99,7 @@ function captureGit(args, dir = ROOT) {
     stderr: readFileSync(errPath, 'utf8'),
     spawnError: result.error,
   }
-  rmSync(scratch, { recursive: true, force: true })
+  removeTree(scratch)
   return captured
 }
 
@@ -125,7 +125,7 @@ function captureGitStdout(args, dir = ROOT) {
     closeSync(outFd)
   }
   const captured = { ok: result.status === 0 && result.error === undefined, status: result.status, stdout: readFileSync(outPath, 'utf8') }
-  rmSync(scratch, { recursive: true, force: true })
+  removeTree(scratch)
   return captured
 }
 
@@ -311,7 +311,7 @@ function removeWorktree() {
   // A plain directory at the same path (an interrupted creation) has no worktree
   // record to remove; delete it directly so `ensure` can start from scratch.
   if (existsSync(WORKTREE)) {
-    rmSync(WORKTREE, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    removeTree(WORKTREE, { retries: 10, retryDelayMs: 200 })
   }
 }
 
@@ -461,7 +461,7 @@ function clean(options) {
   console.log('==> remove the worktree runtime directories')
   for (const name of RUNTIME_DIRS) {
     const target = join(STAGING_ROOT, name)
-    if (existsSync(target)) rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    if (existsSync(target)) removeTree(target, { retries: 10, retryDelayMs: 200 })
   }
 
   if (options.branch) {

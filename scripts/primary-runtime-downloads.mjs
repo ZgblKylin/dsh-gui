@@ -23,10 +23,11 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
+import { removeTree } from './remove-tree.mjs'
 
 /** Default per-attempt download budget, matching the product script's own default. */
 const DEFAULT_TIMEOUT_MS = 300_000
@@ -244,7 +245,7 @@ function writeCacheFile(destination, bytes) {
     writeFileSync(temporary, bytes)
     renameSync(temporary, destination)
   } finally {
-    rmSync(temporary, { force: true })
+    removeTree(temporary)
   }
 }
 
@@ -284,7 +285,7 @@ export async function ensurePrimaryRuntimeAsset(asset, options) {
     return { status: 'cached', bytes: cached }
   }
   // A stale file would make the product script fail its own check, so drop it.
-  rmSync(destination, { force: true })
+  removeTree(destination)
   const failures = []
   for (const candidate of assetCandidates(asset, options)) {
     for (let attempt = 1; attempt <= retries; attempt += 1) {

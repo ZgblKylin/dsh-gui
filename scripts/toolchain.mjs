@@ -17,13 +17,13 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolveRuntimeRoot } from './harness-runtime.mjs'
+import { removeTree } from './remove-tree.mjs'
 
 /** Repository root: scripts/toolchain.mjs -> <repo>/. */
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -176,7 +176,7 @@ export function fillTreeFromTemplate(source, target, options = {}) {
  * @returns {number} how many files were written.
  */
 export function copyTreeOverwrite(source, target) {
-  rmSync(target, { recursive: true, force: true })
+  removeTree(target)
   return copyTree(source, target)
 }
 
@@ -255,7 +255,7 @@ export function migrateLegacyAgentsHome(home) {
   }
   collect(legacy, '')
   const removed = kept.length === 0
-  if (removed) rmSync(legacy, { recursive: true, force: true })
+  if (removed) removeTree(legacy)
   return { merged, removed, kept }
 }
 

@@ -51,10 +51,11 @@
  * build passes one) and otherwise pins the same runtime-root default.
  */
 
-import { existsSync, lstatSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { requireHarnessRuntime } from '../../scripts/harness-runtime.mjs'
 import { installNpmPlugin } from '../../scripts/plugin-install.mjs'
+import { removeLink, removeTree } from '../../scripts/remove-tree.mjs'
 import { pinnedPath, ROOT, run, WEB_HOME } from '../../scripts/toolchain.mjs'
 
 /** Wrapper id: the `plugins/<id>/` directory name, used for logs and skip checks. */
@@ -129,11 +130,11 @@ function removeLegacyPlaceholderLinks(dshHome) {
   for (const entry of readdirSync(scopeDir)) {
     const path = join(scopeDir, entry)
     if (!lstatSync(path).isSymbolicLink()) continue
-    rmSync(path, { force: true })
+    removeLink(path)
     removed += 1
   }
   if (removed > 0) console.log(`  unlinked ${removed} retired '@dsh-external/*' profile link(s)`)
-  if (readdirSync(scopeDir).length === 0) rmSync(scopeDir, { recursive: true, force: true })
+  if (readdirSync(scopeDir).length === 0) removeTree(scopeDir)
 }
 
 for (const { spec, exempt } of SKIN_SPECS) {

@@ -12,9 +12,10 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { removeTree } from './remove-tree.mjs'
 
 /** Proxy variables the environment can carry, in the order the chain reports them. */
 const PROXY_ENV_NAMES = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy']
@@ -93,7 +94,7 @@ function captureCommand(command, args) {
     closeSync(fd)
   }
   const stdout = readFileSync(outPath, 'utf8')
-  rmSync(scratch, { recursive: true, force: true })
+  removeTree(scratch)
   return { ok: status === 0 && error === undefined, stdout }
 }
 

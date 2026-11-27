@@ -64,8 +64,9 @@
  */
 
 import { spawn } from 'node:child_process'
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
+import { removeLink, removeTree } from './remove-tree.mjs'
 import {
   HARNESS_BUILD_STATE_FILE,
   HARNESS_NPM_PACKAGE,
@@ -309,7 +310,7 @@ function harnessFamilyConsistent(installDir, version) {
  */
 function cleanHarnessInstall(installDir) {
   for (const name of ['node_modules', 'pnpm-lock.yaml']) {
-    rmSync(join(installDir, name), { recursive: true, force: true })
+    removeTree(join(installDir, name))
   }
 }
 
@@ -347,7 +348,7 @@ function pruneSourceFallbackLinks(dshHome) {
         if (!lstatSync(candidate).isSymbolicLink()) continue
         const absolute = resolve(dirname(candidate), readlinkSync(candidate))
         if (!absolute.startsWith(sourcePrefix)) continue
-        rmSync(candidate, { recursive: true, force: true })
+        removeLink(candidate)
         removed += 1
       } catch {
         // A link that cannot be read is left for the launcher to heal.

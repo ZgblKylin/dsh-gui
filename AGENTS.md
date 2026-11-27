@@ -72,6 +72,7 @@ console.log({ platform: process.platform, arch: process.arch })
   - `grep`、`sed` 等搜索和编辑工具
   - `web_search` 等进阶工具
   - `subagent`、`workflow` 等 agent 任务编排工具
+- 递归删除目录树一律走 `scripts/remove-tree.mjs` 的 `removeTree` / `removeLink`，不直接调用 `fs.rmSync(..., { recursive: true })`：Node 在 Windows 上会跟穿 junction，删掉链接目标里的全部内容而保留目标目录本身。profile 的 `link:` 插件与 `.staging` 运行时都通过 junction 指向仓库源码，背景见 [docs/dsh-gui/junction-safe-deletion.md](docs/dsh-gui/junction-safe-deletion.md)。
 
 ## 自托管
 

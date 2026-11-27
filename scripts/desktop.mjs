@@ -36,7 +36,6 @@ import {
   openSync,
   readdirSync,
   readFileSync,
-  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
@@ -60,6 +59,7 @@ import {
 } from './toolchain.mjs'
 import { submoduleRevision, submoduleVersion } from './harness-runtime.mjs'
 import { pruneIncompatiblePlugins } from './plugin-install.mjs'
+import { removeTree } from './remove-tree.mjs'
 
 /** Desktop build workspace under the runtime root. */
 const DESKTOP_ROOT = join(RUNTIME_ROOT, '.desktop')
@@ -235,7 +235,7 @@ function capture(command, args, extraEnv = {}) {
     stderr: readFileSync(errPath, 'utf8'),
     error: result.error,
   }
-  rmSync(scratch, { recursive: true, force: true })
+  removeTree(scratch)
   return captured
 }
 
@@ -328,7 +328,7 @@ function revertSourcePatches() {
  * @param {string} revision - commit to check out.
  */
 function cloneSource(revision) {
-  rmSync(SOURCE, { recursive: true, force: true })
+  removeTree(SOURCE)
   mkdirSync(DESKTOP_ROOT, { recursive: true })
   run('git', ['clone', '--local', '--no-checkout', HARNESS, SOURCE], { cwd: DESKTOP_ROOT })
   run('git', ['-C', SOURCE, 'checkout', '--detach', revision])
@@ -344,7 +344,7 @@ function syncSource(options) {
   step('Sync the desktop source workspace', () => {
     if (options.forceSource && existsSync(SOURCE)) {
       console.log(`removing the existing checkout (--force-source): ${SOURCE}`)
-      rmSync(SOURCE, { recursive: true, force: true })
+      removeTree(SOURCE)
     }
     if (!existsSync(SOURCE)) {
       console.log(`cloning the pinned submodule into ${SOURCE}`)
@@ -769,7 +769,7 @@ function landUnpacked() {
     if (!existsSync(sourceExe)) {
       throw new Error(`the packaging step did not produce ${sourceExe}`)
     }
-    rmSync(LANDING, { recursive: true, force: true })
+    removeTree(LANDING)
     cpSync(UNPACKED, LANDING, { recursive: true })
     const stats = directoryStats(LANDING)
     const exe = join(LANDING, APP_EXE)
